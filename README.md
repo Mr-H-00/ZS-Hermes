@@ -118,6 +118,8 @@ docker compose up --build
 
 [![Star History Chart](https://star-history.dera.page/svg?repos=xerrors/Yuxi)](https://star-history.dera.page/#xerrors/Yuxi)
 
+[![给 Yuxi 一个 Star](https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-184409-image-da91658b.png)](https://github.com/xerrors/Yuxi)
+
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。

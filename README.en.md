@@ -180,6 +180,8 @@ Thanks to all contributors for supporting this project!
 
 [![Star History Chart](https://star-history.dera.page/svg?repos=xerrors/Yuxi)](https://star-history.dera.page/#xerrors/Yuxi)
 
+[![Give Yuxi a Star](https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-184409-image-da91658b.png)](https://github.com/xerrors/Yuxi)
+
 ## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
