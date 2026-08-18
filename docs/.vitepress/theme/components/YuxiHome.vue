@@ -5,12 +5,12 @@ import { withBase } from 'vitepress'
 const GITHUB = 'https://github.com/xerrors/Yuxi'
 const DEMO = 'https://www.bilibili.com/video/BV1TZEx6NEit/'
 
-// 关键数字（占位，后续替换为真实数据）
+// 使用稳定、可直接验证的能力标签，避免首页数据随版本漂移。
 const stats = [
-  { value: '15+', label: '模型供应商' },
-  { value: '7', label: 'Harness 能力' },
-  { value: 'MIT', label: '开源协议' },
-  { value: 'v0.7', label: '当前版本' }
+  { value: 'RAG + KG', label: '统一知识引擎' },
+  { value: 'MCP + Skills', label: '可扩展智能体' },
+  { value: 'Multi-tenant', label: '用户与部门权限' },
+  { value: 'MIT', label: '开源可自托管' }
 ]
 
 // Harness 能力中枢（bento）
@@ -123,24 +123,40 @@ const steps = [
 
 // 产品截图一览
 const shots = [
-  { title: '对话工作台', desc: '类 ChatGPT 的智能体对话与产物交付' },
-  { title: '智能体配置', desc: '挂载 Skills / MCP / 子智能体与中间件' },
-  { title: '知识图谱可视化', desc: '实体关系抽取与子图检索展示' },
-  { title: '智能体拓展', desc: '统一管理 Skills 与 MCP 服务' }
+  {
+    title: '对话工作台',
+    desc: '统一完成智能体对话、知识引用与产物交付',
+    image: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260326125852369.png'
+  },
+  {
+    title: '智能体配置',
+    desc: '挂载 Skills、MCP、子智能体与中间件',
+    image: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260326130528866.png'
+  },
+  {
+    title: '知识图谱',
+    desc: '构建、检索并可视化实体关系与子图',
+    image: 'https://github.com/user-attachments/assets/fc46a14b-16fb-47ea-84a0-148a451f3012'
+  },
+  {
+    title: '组织权限',
+    desc: '按用户和部门管理知识与平台能力',
+    image: 'https://github.com/user-attachments/assets/13bd22ea-ddde-4262-8c29-69fb948bce44'
+  }
 ]
 
 // 企业级
 const enterprise = [
   { icon: 'shield', title: '多租户与权限', desc: '用户 / 部门级隔离，知识库支持全局、部门、指定人三档共享。' },
   { icon: 'key', title: 'API Key 集成', desc: '签发独立密钥，供外部系统以 API 方式安全调用平台能力。' },
-  { icon: 'rocket', title: 'LITE 轻量启动', desc: 'make up-lite 跳过重依赖快速冷启动，Docker Compose 开箱即用。' }
+  { icon: 'layers', title: 'LITE 轻量启动', desc: 'make up-lite 跳过重依赖快速冷启动，Docker Compose 开箱即用。' }
 ]
 
 // 应用场景
 const cases = [
-  { title: '企业知识问答助手', desc: '将内部资料沉淀为可检索、可推理的知识资产，回答带来源引用。' },
-  { title: '科研与行业调研报告', desc: '借助 deep-reporter 技能生成结构化的深度分析长报告。' },
-  { title: '内部 AI 能力底座', desc: '为各业务系统提供可管理、可扩展的统一智能体服务。' }
+  { title: '内部知识服务', desc: '把制度、产品和技术资料变成有权限边界、带来源引用的知识助手。' },
+  { title: '研究与内容交付', desc: '让智能体检索资料、调用工具并交付报告、图表、网页等可下载产物。' },
+  { title: '组织级 Agent 平台', desc: '统一管理模型、知识、工具和扩展能力，为业务系统提供可调用的 Agent 服务。' }
 ]
 
 // 技术栈分层
@@ -209,25 +225,27 @@ const vReveal = {
         <div class="yx-grid"></div>
       </div>
       <div class="yx-container yx-hero__inner">
-        <span class="yx-badge">v0.7.1 · MIT 开源 · LangGraph 驱动</span>
-        <h1 class="yx-hero__title">语析 <span class="yx-accent">Yuxi</span></h1>
-        <p class="yx-hero__subtitle">融合 RAG 与知识图谱的智能体 Harness 平台</p>
-        <p class="yx-hero__desc">
-          管理员配置知识库、模型与权限，用户在类 ChatGPT 的界面中，
-          与可挂载 Skills、MCP、子智能体与沙盒工具的智能体对话，
-          获得带引用来源、知识图谱推理与可交付产物的回答。
-        </p>
-        <div class="yx-hero__actions">
-          <a class="yx-btn yx-btn--primary" :href="withBase('/intro/quick-start')">快速开始</a>
-          <a class="yx-btn yx-btn--ghost" :href="GITHUB" target="_blank" rel="noreferrer">在 GitHub 查看</a>
-          <a class="yx-btn yx-btn--text" :href="DEMO" target="_blank" rel="noreferrer">▷ 演示视频</a>
+        <div class="yx-hero__copy">
+          <span class="yx-badge">语析 Yuxi · MIT 开源 · 可私有部署</span>
+          <h1 class="yx-hero__title">让知识被智能体<br/><span class="yx-accent">检索、推理与交付</span></h1>
+          <p class="yx-hero__subtitle">可私有部署的多租户知识智能体平台</p>
+          <p class="yx-hero__desc">
+            在一个工作台中统一 RAG、知识图谱、LangGraph 多智能体、MCP/Skills、沙盒工具与权限管理，
+            从有来源的回答一直走到可预览、可下载的任务产物。
+          </p>
+          <div class="yx-hero__actions">
+            <a class="yx-btn yx-btn--primary" :href="withBase('/intro/quick-start')">开始部署</a>
+            <a class="yx-btn yx-btn--ghost" :href="GITHUB" target="_blank" rel="noreferrer">查看 GitHub</a>
+            <a class="yx-btn yx-btn--text" :href="DEMO" target="_blank" rel="noreferrer">观看演示 →</a>
+          </div>
         </div>
         <div class="yx-hero__shot">
           <img
             class="yx-hero__img"
             src="https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260608002434299.png"
             alt="语析 Yuxi 产品界面预览"
-            loading="lazy"
+            loading="eager"
+            fetchpriority="high"
           />
         </div>
       </div>
@@ -379,9 +397,7 @@ const vReveal = {
         </header>
         <div class="yx-shots">
           <figure v-for="sh in shots" :key="sh.title" v-reveal class="yx-shot">
-            <div class="yx-placeholder" role="img" :aria-label="sh.title + ' 截图占位'">
-              <span>{{ sh.title }} · 16:9</span>
-            </div>
+            <img :src="sh.image" :alt="sh.title" loading="lazy" />
             <figcaption>
               <strong>{{ sh.title }}</strong>
               <span>{{ sh.desc }}</span>
@@ -488,8 +504,8 @@ open http://localhost:5173</code></pre>
     <!-- ===== 最终 CTA ===== -->
     <section class="yx-cta">
       <div class="yx-container yx-cta__inner" v-reveal>
-        <h2>立即开始构建你的智能体</h2>
-        <p>开源、可自托管、面向真实业务场景。</p>
+        <h2>把知识接入真正能执行的智能体</h2>
+        <p>从 LITE 模式快速体验，再按需启用完整知识库与知识图谱能力。</p>
         <div class="yx-hero__actions yx-cta__actions">
           <a class="yx-btn yx-btn--primary" :href="withBase('/intro/quick-start')">快速开始</a>
           <a class="yx-btn yx-btn--ghost" :href="GITHUB" target="_blank" rel="noreferrer">前往 GitHub ★</a>
@@ -544,8 +560,12 @@ open http://localhost:5173</code></pre>
 }
 
 /* ===== Hero ===== */
-.yx-hero { padding: 88px 0 64px; text-align: center; position: relative; overflow: hidden; }
-.yx-hero__inner { position: relative; z-index: 1; }
+.yx-hero { padding: 88px 0 72px; position: relative; overflow: hidden; }
+.yx-hero__inner {
+  position: relative; z-index: 1;
+  display: grid; grid-template-columns: .82fr 1.18fr; gap: 56px; align-items: center;
+}
+.yx-hero__copy { min-width: 0; }
 
 /* 氛围背景：浮动光球 + 网格 mesh */
 .yx-ambient { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
@@ -585,10 +605,10 @@ open http://localhost:5173</code></pre>
   background: var(--vp-c-bg); color: var(--vp-c-text-2);
   margin-bottom: 24px;
 }
-.yx-hero__title { font-size: 60px; font-weight: 800; line-height: 1.05; margin: 0; letter-spacing: -.03em; }
-.yx-hero__subtitle { font-size: 24px; font-weight: 600; margin: 18px 0 0; color: var(--vp-c-text-1); }
-.yx-hero__desc { max-width: 640px; margin: 18px auto 0; color: var(--vp-c-text-2); font-size: 17px; }
-.yx-hero__actions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-top: 32px; }
+.yx-hero__title { font-size: 52px; font-weight: 800; line-height: 1.08; margin: 0; letter-spacing: -.04em; text-wrap: balance; }
+.yx-hero__subtitle { font-size: 22px; font-weight: 650; margin: 22px 0 0; color: var(--vp-c-text-1); }
+.yx-hero__desc { max-width: 620px; margin: 16px 0 0; color: var(--vp-c-text-2); font-size: 17px; text-wrap: pretty; }
+.yx-hero__actions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: flex-start; margin-top: 30px; }
 
 /* 按钮 */
 .yx-btn {
@@ -605,11 +625,11 @@ open http://localhost:5173</code></pre>
 .yx-btn--text { color: var(--vp-c-text-2); }
 .yx-btn--text:hover { color: var(--yx-brand); }
 
-.yx-hero__shot { margin-top: 56px; }
+.yx-hero__shot { margin-top: 0; }
 .yx-hero__img {
-  display: block; width: 100%; border-radius: 14px;
+  display: block; width: 100%; border-radius: 16px;
   border: 1px solid var(--vp-c-divider);
-  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, .25);
+  box-shadow: 0 28px 72px rgba(2, 57, 68, .18);
 }
 
 /* 占位图 */
@@ -759,6 +779,10 @@ img.yx-engine-frame { object-fit: cover; }
 /* ===== 产品一览 ===== */
 .yx-shots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; }
 .yx-shot { margin: 0; }
+.yx-shot > img {
+  display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+  border-radius: 14px; border: 1px solid var(--vp-c-divider); background: var(--vp-c-bg-soft);
+}
 .yx-shot figcaption { margin-top: 14px; }
 .yx-shot figcaption strong { font-size: 16px; }
 .yx-shot figcaption span { display: block; color: var(--vp-c-text-2); font-size: 14px; margin-top: 2px; }
@@ -810,7 +834,7 @@ img.yx-engine-frame { object-fit: cover; }
 .yx-cta { padding: 96px 0; text-align: center; border-top: 1px solid var(--vp-c-divider); }
 .yx-cta__inner h2 { font-size: 34px; font-weight: 800; margin: 0; letter-spacing: -.01em; }
 .yx-cta__inner p { margin: 14px 0 0; color: var(--vp-c-text-2); font-size: 17px; }
-.yx-cta__actions { margin-top: 28px; }
+.yx-cta__actions { justify-content: center; margin-top: 28px; }
 
 /* ===== 进场动画 ===== */
 .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
@@ -818,12 +842,14 @@ img.yx-engine-frame { object-fit: cover; }
 
 /* ===== 响应式 ===== */
 @media (max-width: 1024px) {
+  .yx-hero__inner { grid-template-columns: 1fr; gap: 48px; }
   .yx-bento { grid-template-columns: repeat(2, 1fr); }
   .yx-cap--lg { grid-column: span 2; grid-row: auto; }
 }
 @media (max-width: 768px) {
   .yx-section, .yx-hero, .yx-cta { padding: 64px 0; }
   .yx-hero { padding-top: 64px; }
+  .yx-hero__inner { gap: 40px; }
   .yx-hero__title { font-size: 44px; }
   .yx-hero__subtitle { font-size: 20px; }
   .yx-head__title { font-size: 28px; }

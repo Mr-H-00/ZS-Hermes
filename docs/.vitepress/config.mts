@@ -6,8 +6,27 @@ import markdownItTaskCheckbox from 'markdown-it-task-checkbox'
 export default defineConfig({
   lang: 'zh-CN',
   title: "Yuxi",
-  description: "语析",
+  description: "Yuxi 是一个可私有部署的多租户知识智能体平台，统一 RAG、知识图谱、LangGraph 多智能体、MCP/Skills、沙盒与权限管理。",
   base: '/Yuxi/',
+  sitemap: {
+    hostname: 'https://xerrors.github.io/Yuxi/'
+  },
+  head: [
+    ['link', { rel: 'icon', href: '/Yuxi/favicon.svg' }],
+    ['meta', { name: 'theme-color', content: '#023944' }],
+    ['meta', { name: 'keywords', content: 'Yuxi, AI Agent, RAG, knowledge graph, LangGraph, MCP, self-hosted, multi-agent, knowledge base' }],
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:site_name', content: 'Yuxi' }],
+    ['meta', { property: 'og:title', content: 'Yuxi · 可私有部署的多租户知识智能体平台' }],
+    ['meta', { property: 'og:description', content: '将 RAG、知识图谱、多智能体执行、MCP/Skills、沙盒与权限管理放进同一个工作台。' }],
+    ['meta', { property: 'og:image', content: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-151118-mac-1787037059154-8c08f48c.png' }],
+    ['meta', { property: 'og:image:width', content: '1280' }],
+    ['meta', { property: 'og:image:height', content: '640' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+    ['meta', { name: 'twitter:title', content: 'Yuxi · Self-hosted knowledge agent platform' }],
+    ['meta', { name: 'twitter:description', content: 'RAG, knowledge graphs, multi-agent execution, MCP/Skills, sandboxed artifacts, and access control in one workspace.' }],
+    ['meta', { name: 'twitter:image', content: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-151118-mac-1787037059154-8c08f48c.png' }]
+  ],
   ignoreDeadLinks: [
     /localhost/,
     /CONTRIBUTING$/,
@@ -23,9 +42,11 @@ export default defineConfig({
     // https://vitepress.dev/reference/default-theme-config
     logo: "/favicon.svg",
     nav: [
+      { text: '项目介绍', link: '/intro/project-overview' },
       { text: '快速开始', link: '/intro/quick-start' },
       { text: '智能体开发', link: '/agents/agents-config' },
-      { text: '机制详解', link: '/mechanisms/' }
+      { text: '机制详解', link: '/mechanisms/' },
+      { text: 'English', link: 'https://github.com/xerrors/Yuxi/blob/main/README.en.md' }
     ],
 
     sidebar: [
