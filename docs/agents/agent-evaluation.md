@@ -1,6 +1,6 @@
 # 智能体评估
 
-Yuxi 的智能体评估用于回答一个具体问题：某个 Agent 在一组固定任务上能不能稳定完成工作。它不在 Yuxi 内部维护评估数据集、评分规则或对比报表，而是把这些能力交给 Langfuse；Yuxi 只负责按真实 Agent 运行链路执行每条样例，并把结果回写到 Langfuse experiment。
+Yuxi 的智能体评估用于判断某个 Agent 能否稳定完成一组固定任务。Langfuse 管理评估数据集、评分规则和对比报表；Yuxi 按真实 Agent 运行链路执行每条样例，并将结果回写到 Langfuse experiment。
 
 ## 适用边界
 

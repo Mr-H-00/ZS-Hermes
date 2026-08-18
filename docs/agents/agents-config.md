@@ -1,6 +1,6 @@
 # 智能体配置
 
-Yuxi 的智能体系统基于 LangGraph 构建。对开发者来说，最重要的不是单独理解某个页面或某个字段，而是理解三件事：
+Yuxi 的智能体系统基于 LangGraph 构建。配置链路由三个部分组成：
 
 - Agent 如何被定义和发现
 - Context 如何驱动配置界面
@@ -62,11 +62,11 @@ class MyAgent(BaseAgent):
         return graph
 ```
 
-## 3. Context 是配置模型，不只是运行时参数
+## 3. Context 配置模型
 
 ### 3.1 `BaseContext` 的角色
 
-`BaseContext` 定义在 `backend/package/yuxi/agents/context.py`，它不是一个普通的数据类，而是整个智能体配置链路的核心：
+`BaseContext` 定义在 `backend/package/yuxi/agents/context.py`，同时承担三项职责：
 
 - 它定义了 Agent 可以配置哪些字段
 - 它定义了这些字段在前端如何展示
@@ -107,16 +107,12 @@ class MyAgent(BaseAgent):
 2. 前端读取 Agent 详情
 3. `AgentRuntimeConfigForm` 按 `kind` 渲染不同控件
 
-也就是说，`AgentRuntimeConfigForm` 不是手写每个字段，而是直接消费 `context_schema` 生成的配置描述。
-
-这也是为什么：
+`AgentRuntimeConfigForm` 直接消费 `context_schema` 生成的配置描述，不单独维护字段清单。因此：
 
 - 新增一个 Context 字段，往往会直接影响侧边栏
 - 字段的 `metadata` 信息会直接影响展示方式
 
 ### 3.3 配置表单与 Agent 的联动关系
-
-这部分是最关键的。
 
 在前端：
 
@@ -135,16 +131,11 @@ context_schema
   -> 用户编辑后保存到 config_json.context
 ```
 
-这里需要特别注意两点：
-
-- **侧边栏展示结构来自 `context_schema`**
-- **配置实例值来自数据库中的 `config_json.context`**
-
-前者决定“能配什么、怎么展示”，后者决定“当前配置实际选了什么”。
+`context_schema` 决定侧边栏可以配置的字段及展示方式；数据库中的 `config_json.context` 保存当前 Agent 的实际配置值。
 
 ### 3.4 自定义 Context 的推荐方式
 
-如果某个智能体有额外配置，不要在前端单独加一套表单，而是直接扩展 Context：
+智能体需要额外配置时，扩展对应 Context，由现有 schema 链路生成前端表单：
 
 ```python
 from dataclasses import dataclass, field
@@ -178,7 +169,7 @@ class MyAgent(BaseAgent):
 
 ## 4. Context 如何贯穿 Agent 的运行周期
 
-Context 的价值不只在“配置页面”。它贯穿了从配置加载到实际执行的整条链路。
+Context 贯穿配置加载、Graph 构建、执行、文件系统视图和恢复流程。
 
 ### 4.1 配置加载阶段
 
@@ -191,7 +182,7 @@ Context 的价值不只在“配置页面”。它贯穿了从配置加载到实
 3. 取出 Agent 的 `config_json.context`
 4. 与 `uid`、`thread_id` 合并成运行时输入
 
-也就是说，运行期 Context 的基础来源并不是前端临时状态，而是数据库中保存的 Agent。
+运行期 Context 以数据库中保存的 Agent 配置为基础来源；前端临时状态不进入该重建链路。
 
 用户工作区会默认创建 `agents/AGENTS.md`、`agents/USER.md` 与 `agents/MEMORY.md`。每次 Agent 运行开始时，后端按这三个文件的固定顺序读取非空内容并追加到 `system_prompt`：前者适合放长期工作约束，`USER.md` 记录稳定的用户偏好，`MEMORY.md` 保存可跨对话复用的事实。它们属于用户级共享工作区；文件不存在、为空或不可读时不会阻断运行。每个文件最多读取 64 KiB，超出部分会截断并标记。
 
@@ -203,7 +194,7 @@ Agent.config_json.context.system_prompt
   + 运行期中间件继续追加的系统提示段
 ```
 
-一次性要求仍应直接写在当前对话中，而不应写入这三个跨对话文件。
+一次性要求应写在当前对话中。三个工作区文件只保存需要跨对话复用的内容。
 
 ### 4.2 Context 实例化阶段
 
@@ -228,7 +219,7 @@ config_json.context + runtime ids -> context_schema instance
 - 可调用子智能体列表：`context.subagents`
 - 摘要阈值：`context.summary_threshold`
 
-因此 Graph 不是和 Context 解耦的。相反，Graph 的构造本身就依赖 Context。普通 Agent 在归一化后的 `context.subagents` 非空时会挂载 Yuxi 的 task middleware；`SubAgentBackend` 自身隐藏并清空 `subagents` 字段，因此子智能体不会继续调用子智能体。
+Graph 构建直接依赖 Context。普通 Agent 在归一化后的 `context.subagents` 非空时挂载 Yuxi task middleware；`SubAgentBackend` 隐藏并清空 `subagents` 字段，因此子智能体不会继续调用下一层子智能体。
 
 ### 4.4 Graph 构建与中间件运行阶段
 
@@ -256,13 +247,13 @@ config_json.context + runtime ids -> context_schema instance
 
 ### 4.5 文件系统与 Viewer 阶段
 
-文件系统服务不会重新发明一套配置结构，而是再次从 `config_json.context` 还原出 runtime context，用于：
+文件系统服务从 `config_json.context` 还原 runtime context，并将其用于：
 
 - 判断当前线程下 Agent 可见的 Skills
 - 构造 Agent 视图的 composite backend
 - 构造 Viewer 视图的文件系统展示
 
-这也是为什么 Context 不只是聊天链路的一部分，它还影响：
+因此 Context 同时影响：
 
 - Agent 文件工具
 - Viewer 文件浏览器
@@ -273,17 +264,11 @@ config_json.context + runtime ids -> context_schema instance
 
 在 `resume` 流程中，系统同样会通过线程绑定的 Agent 重新构造 Context，再继续执行 Graph。
 
-也就是说，无论是：
-
-- 首次对话
-- 中断恢复
-- 文件系统查看
-
-它们都依赖同一份 Context 配置来源。
+首次对话、中断恢复和文件系统查看均依赖同一份 Context 配置来源。
 
 ## 5. `capabilities` 的作用
 
-`capabilities` 用于声明前端可直接从 Agent 静态元数据判断的能力开关，控制上传入口、文件面板等固定 UI，不等同于 Context，也不适合表达运行中才会出现的状态。
+`capabilities` 声明前端可从 Agent 静态元数据判断的能力开关，用于控制上传入口、文件面板等固定 UI。Context 管理配置值，运行中产生的状态保存在 LangGraph state；两类信息不写入 `capabilities`。
 
 示例：
 
@@ -301,13 +286,13 @@ class MyAgent(BaseAgent):
 
 像 todo 这类运行态信息，不建议再放进 `capabilities`。Yuxi 当前会直接从 LangGraph state 中提取 `agent_state`，前端在创建对话后常态化展示状态入口，并在状态面板中渲染 `todos`、`files`、`artifacts`、`subagent_runs` 等运行时内容。
 
-它解决的是“Agent 先天支持什么固定入口”，而不是“运行时当前产生了什么状态”。
+`capabilities` 只描述 Agent 固定支持的界面入口。
 
 ## 6. 开发建议
 
 ### 6.1 新增配置时优先改 Context
 
-如果一个配置项会影响 Agent 行为，优先考虑把它做成 `context_schema` 字段，而不是前端单独维护状态。
+影响 Agent 行为的配置应定义为 `context_schema` 字段，并沿统一 schema 链路生成前端表单。前端本地状态仅用于界面交互。
 
 ### 6.2 把 Graph 逻辑和配置逻辑分开
 
@@ -329,7 +314,10 @@ class MyAgent(BaseAgent):
 
 - [工具系统](./tools-system.md)
 - [中间件](./middleware.md)
-- [沙盒架构与设计](./sandbox-architecture.md)
+- [沙盒配置与运维](./sandbox-architecture.md)
+- [沙盒机制详解](../mechanisms/sandbox.md)
+- [Summary 上下文压缩机制](../mechanisms/context-compression.md)
+- [知识库机制详解](../mechanisms/knowledge-base.md)
 - [MCP 集成](./mcp-integration.md)
 - [Skills 管理](./skills-management.md)
 - [子智能体](./subagents-management.md)

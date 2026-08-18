@@ -31,7 +31,7 @@ def example_tool(text: str) -> str:
 from yuxi.agents.toolkits import buildin, debug  # 触发模块内 @tool 装饰器执行
 ```
 
-`toolkits/__init__.py` 会导入 `buildin` 与 `debug` 模块；知识库工具由内置 `knowledge-base` Skill 的依赖显式注册，而不是作为所有 Agent 的默认工具。
+`toolkits/__init__.py` 会导入 `buildin` 与 `debug` 模块。知识库工具通过内置 `knowledge-base` Skill 的依赖显式注册，默认工具列表不包含这些工具。
 
 ## 工具分类
 
@@ -55,7 +55,7 @@ Qwen-Image 生成能力已迁移为内置 Skill `image-gen`。模型调用与图
 from yuxi.agents.toolkits.kbs import get_common_kb_tools
 
 kb_tools = get_common_kb_tools()
-# 返回: [list_kbs, get_mindmap, query_kb, find_kb_document, open_kb_document]
+# 返回 7 个工具；具体顺序以 get_common_kb_tools() 为准
 ```
 
 | 工具 | 说明 |
@@ -66,6 +66,9 @@ kb_tools = get_common_kb_tools()
 | `find_kb_document` | 在已知文件内按关键词或正则定位内容 |
 | `open_kb_document` | 按 `file_id` 分段打开知识库文档（默认窗口 1800 行） |
 | `search_file` | 按文件名在指定或全部可见知识库中搜索文件 |
+| `download_kb_file` | 把有权访问的原始文件下载到当前线程沙盒 `outputs` |
+
+工具注册提供可执行实现。模型可见性由 Skills middleware 激活控制，目标访问范围由工具侧校验控制。完整边界见[知识库机制详解](../mechanisms/knowledge-base.md)。
 
 ## 工具组装
 

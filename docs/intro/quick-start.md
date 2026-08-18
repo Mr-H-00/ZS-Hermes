@@ -183,3 +183,4 @@ docker restart api-dev
 - 探索知识库功能：阅读 [知识库与知识图谱](./knowledge-base.md)
 - 学习智能体开发：阅读 [智能体开发](../agents/agents-config.md)
 - 深入了解配置系统：阅读 [配置系统详解](../advanced/configuration.md)
+- 理解运行时状态与边界：按顺序阅读 [机制详解](../mechanisms/index.md)

@@ -64,10 +64,19 @@ AGENTS_FILE_BUDGETS = {
     "AGENTS.md": 5000,
     "backend/AGENTS.md": 2400,
     "web/AGENTS.md": 1000,
-    "docs/AGENTS.md": 1400,
+    "docs/AGENTS.md": 3200,
 }
 AGENTS_LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)\s]+)\)")
 EXTERNAL_LINK_PREFIXES = ("http://", "https://", "mailto:")
+DOCUMENT_PROSE_CONTRAST = re.compile(
+    r"(?:不是|并非)[^。\n]{0,160}(?:而是|而在于)"
+    r"|不在于[^。\n]{0,160}(?:而是|而在于)"
+)
+MARKDOWN_FENCE_OPEN = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+MARKDOWN_BLOCKQUOTE_PREFIX = re.compile(r"^ {0,3}> ?")
+MARKDOWN_LIST_ITEM = re.compile(
+    r"^(?P<indent> {0,3})(?P<marker>[-+*]|\d{1,9}[.)])(?P<spacing> {1,4})(?P<content>.*)$"
+)
 
 
 @dataclass(frozen=True)
@@ -506,17 +515,123 @@ def _validate_workflows(root: Path, errors: list[str]) -> list[dict[str, Any]]:
     return projection
 
 
-def _visible_markdown_lines(text: str) -> list[str]:
-    visible: list[str] = []
-    fence: str | None = None
-    for line in text.splitlines():
-        marker = line.lstrip()[:3]
-        if marker in {"```", "~~~"}:
-            fence = None if fence == marker else marker if fence is None else fence
-            continue
-        if fence is None:
-            visible.append(line)
+def _strip_blockquote_prefixes(
+    line: str, max_depth: int | None = None
+) -> tuple[str, int]:
+    """移除 Markdown 引用容器前缀并返回层级。"""
+
+    depth = 0
+    while max_depth is None or depth < max_depth:
+        match = MARKDOWN_BLOCKQUOTE_PREFIX.match(line)
+        if match is None:
+            break
+        line = line[match.end() :]
+        depth += 1
+    return line, depth
+
+
+def _list_item_content_indent(item_match: re.Match[str]) -> int:
+    """返回 list item 正文起点相对于原始行的列数。"""
+
+    return (
+        len(item_match.group("indent"))
+        + len(item_match.group("marker"))
+        + len(item_match.group("spacing"))
+    )
+
+
+def _markdown_body_line(
+    line: str, active_list_indent: int | None
+) -> tuple[str, int, int | None]:
+    """解析引用和单层列表容器中的正文起点。"""
+
+    body, quote_depth = _strip_blockquote_prefixes(line)
+    if active_list_indent is not None:
+        if not body.strip():
+            return "", quote_depth, active_list_indent
+        leading_spaces = len(body) - len(body.lstrip(" "))
+        if leading_spaces >= active_list_indent:
+            stripped = body[active_list_indent:]
+            nested_item = MARKDOWN_LIST_ITEM.match(stripped)
+            if nested_item:
+                content_indent = active_list_indent + _list_item_content_indent(nested_item)
+                return nested_item.group("content"), quote_depth, content_indent
+            return stripped, quote_depth, active_list_indent
+        active_list_indent = None
+
+    item = MARKDOWN_LIST_ITEM.match(body)
+    if item:
+        content_indent = _list_item_content_indent(item)
+        return item.group("content"), quote_depth, content_indent
+    return body, quote_depth, active_list_indent
+
+
+def _fence_container_line(
+    line: str, quote_depth: int, list_indent: int | None
+) -> str | None:
+    """返回与 opening fence 相同容器中的候选 closing 行。"""
+
+    body, current_quote_depth = _strip_blockquote_prefixes(line, quote_depth)
+    if current_quote_depth < quote_depth:
+        return None
+    if list_indent is None:
+        return body
+    leading_spaces = len(body) - len(body.lstrip(" "))
+    if leading_spaces < list_indent:
+        return None
+    return body[list_indent:]
+
+
+def _visible_markdown_numbered_lines(text: str) -> list[tuple[int, str]]:
+    """返回 fenced code block 之外的 Markdown 行及原始行号。"""
+
+    visible: list[tuple[int, str]] = []
+    fence_char: str | None = None
+    fence_length = 0
+    fence_quote_depth = 0
+    fence_list_indent: int | None = None
+    active_list_indent: int | None = None
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if fence_char is not None:
+            candidate = _fence_container_line(
+                line, fence_quote_depth, fence_list_indent
+            )
+            if candidate is None and line.strip():
+                fence_char = None
+                fence_length = 0
+                fence_quote_depth = 0
+                fence_list_indent = None
+            else:
+                closing = candidate is not None and re.fullmatch(
+                    rf" {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \t]*",
+                    candidate,
+                )
+                if closing:
+                    fence_char = None
+                    fence_length = 0
+                    fence_quote_depth = 0
+                    fence_list_indent = None
+                continue
+
+        body, quote_depth, active_list_indent = _markdown_body_line(
+            line, active_list_indent
+        )
+        opening = MARKDOWN_FENCE_OPEN.match(body)
+        if opening:
+            fence = opening.group("fence")
+            info = opening.group("info")
+            if fence.startswith("~") or "`" not in info:
+                fence_char = fence[0]
+                fence_length = len(fence)
+                fence_quote_depth = quote_depth
+                fence_list_indent = active_list_indent
+                continue
+        visible.append((line_number, line))
     return visible
+
+
+def _visible_markdown_lines(text: str) -> list[str]:
+    return [line for _, line in _visible_markdown_numbered_lines(text)]
 
 
 def _metadata(lines: list[str], label: str) -> str | None:
@@ -707,6 +822,33 @@ def _validate_agents_files(root: Path, errors: list[str]) -> list[dict[str, Any]
     return projection
 
 
+def _is_formal_docs_markdown(path: Path) -> bool:
+    """`docs/vibe/` 与任何 `node_modules` 都是本仓库非正式资料。"""
+
+    parts = set(path.parts)
+    return not (parts & {"vibe", "node_modules"})
+
+
+def _validate_document_prose(root: Path, errors: list[str]) -> int:
+    """拒绝正式文档中的对举式否定，fenced code block 不参与检查。"""
+
+    docs_root = root / "docs"
+    checked = 0
+    for path in sorted(docs_root.rglob("*.md")):
+        if not _is_formal_docs_markdown(path):
+            continue
+        checked += 1
+        relative = path.relative_to(root)
+        for line_number, line in _visible_markdown_numbered_lines(
+            path.read_text(encoding="utf-8")
+        ):
+            if DOCUMENT_PROSE_CONTRAST.search(line):
+                errors.append(
+                    f"文档应直接陈述目标事实，禁止对举式否定：{relative}:{line_number}"
+                )
+    return checked
+
+
 def _validate_router_boundaries(root: Path, errors: list[str]) -> int:
     routers_root = root / "backend/server/routers"
     checked = 0
@@ -784,6 +926,7 @@ def verify(root: Path) -> tuple[list[str], dict[str, Any]]:
     postmortems = _validate_postmortems(resolved_root, errors)
     workflows = _validate_workflows(resolved_root, errors)
     agents_files = _validate_agents_files(resolved_root, errors)
+    document_files = _validate_document_prose(resolved_root, errors)
     router_files = _validate_router_boundaries(resolved_root, errors)
     web_files = _validate_web_api_boundary(resolved_root, errors)
     projection = {
@@ -794,6 +937,7 @@ def verify(root: Path) -> tuple[list[str], dict[str, Any]]:
         "workflows": workflows,
         "agents_files": agents_files,
         "boundaries": {
+            "document_files_checked": document_files,
             "router_files_checked": router_files,
             "web_source_files_checked": web_files,
         },
@@ -825,6 +969,7 @@ def main() -> int:
             f"{len(projection['decisions'])} decisions / "
             f"{len(projection['workflows'])} workflows / "
             f"{len(projection['agents_files'])} agents files / "
+            f"{projection['boundaries']['document_files_checked']} docs / "
             f"{projection['boundaries']['router_files_checked']} routers / "
             f"{projection['boundaries']['web_source_files_checked']} web sources"
         )

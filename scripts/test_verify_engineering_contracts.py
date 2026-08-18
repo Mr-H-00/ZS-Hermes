@@ -602,6 +602,140 @@ jobs:
                     )
                 )
 
+    def test_document_contrastive_negation_is_rejected(self) -> None:
+        examples = (
+            "系统不是缓存层，而是最终事实源。",
+            "质量不是取决于篇幅，而在于是否回答问题。",
+            "质量并非由篇幅决定，而在于是否回答问题。",
+            "问题不在于缓存大小，而是缓存失效没有边界。",
+        )
+        for prose in examples:
+            with self.subTest(prose=prose):
+                self._write(
+                    "docs/advanced/invalid-prose.md",
+                    f"# 无效文案\n\n{prose}\n",
+                )
+
+                self.assertTrue(
+                    any("禁止对举式否定" in error for error in self._errors())
+                )
+
+    def test_document_contrastive_negation_in_code_fence_is_allowed(self) -> None:
+        self._write(
+            "docs/advanced/quoted-prose.md",
+            "# 引用示例\n\n```text\n系统不是缓存层，而是最终事实源。\n```\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_document_contrastive_negation_in_list_fence_is_allowed(self) -> None:
+        self._write(
+            "docs/advanced/list-fence.md",
+            "# 列表示例\n\n- 示例\n\n    ```text\n    系统不是缓存层，而是最终事实源。\n    ```\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_document_contrastive_negation_in_blockquote_fence_is_allowed(
+        self,
+    ) -> None:
+        self._write(
+            "docs/advanced/blockquote-fence.md",
+            "# 引用示例\n\n> ```text\n> 系统不是缓存层，而是最终事实源。\n> ```\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_deeper_blockquote_marker_does_not_close_outer_fence(self) -> None:
+        self._write(
+            "docs/advanced/nested-blockquote-fence.md",
+            "# 嵌套引用示例\n\n> ```text\n>> ```\n> 系统不是缓存层，而是最终事实源。\n> ```\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_document_precise_exclusion_is_allowed(self) -> None:
+        self._write(
+            "docs/advanced/security-boundary.md",
+            "# 安全边界\n\n客户端发送 JWT，而不是账户密码。\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_document_historical_transition_is_allowed(self) -> None:
+        self._write(
+            "docs/develop-guides/changelog.md",
+            "# 变更记录\n\n从 2.0 起，接口不再返回旧字段，而是返回新结构。\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_four_space_indented_fence_cannot_hide_following_prose(self) -> None:
+        self._write(
+            "docs/advanced/indented-fence.md",
+            "# 缩进示例\n\n    ```text\n\n系统不是缓存层，而是最终事实源。\n",
+        )
+
+        self.assertTrue(
+            any("禁止对举式否定" in error for error in self._errors())
+        )
+
+    def test_shorter_fence_cannot_close_longer_fence(self) -> None:
+        self._write(
+            "docs/advanced/long-fence.md",
+            "# 长围栏\n\n````text\n```\n系统不是缓存层，而是最终事实源。\n````\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_unclosed_blockquote_fence_cannot_hide_following_prose(self) -> None:
+        self._write(
+            "docs/advanced/unclosed-blockquote-fence.md",
+            "# 引用示例\n\n> ```text\n> 示例\n系统不是缓存层，而是最终事实源。\n",
+        )
+
+        self.assertTrue(
+            any("禁止对举式否定" in error for error in self._errors())
+        )
+
+    def test_unclosed_list_fence_cannot_hide_following_prose(self) -> None:
+        self._write(
+            "docs/advanced/unclosed-list-fence.md",
+            "# 列表示例\n\n- 示例\n\n    ```text\n    示例\n\n系统不是缓存层，而是最终事实源。\n",
+        )
+
+        self.assertTrue(
+            any("禁止对举式否定" in error for error in self._errors())
+        )
+
+    def test_nested_list_fence_cannot_hide_outer_item_prose(self) -> None:
+        self._write(
+            "docs/advanced/nested-list-fence.md",
+            "# 列表示例\n\n- 外层\n  - 内层\n"
+            "    ```text\n    fence 内容\n"
+            "  系统不是缓存层，而是最终事实源。\n",
+        )
+
+        self.assertTrue(
+            any("禁止对举式否定" in error for error in self._errors())
+        )
+
+    def test_vibe_drafts_are_excluded_from_prose_check(self) -> None:
+        self._write(
+            "docs/vibe/2026-08-17-personal-note.md",
+            "# 临时计划\n\n系统不是缓存层，而是最终事实源。\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
+    def test_node_modules_markdown_is_excluded_from_prose_check(self) -> None:
+        self._write(
+            "docs/node_modules/example/README.md",
+            "# README\n\n系统不是缓存层，而是最终事实源。\n",
+        )
+
+        self.assertEqual(self._errors(), [])
+
     def test_proposed_decision_missing_acceptance_heading_is_rejected(self) -> None:
         self._write(
             "docs/develop-guides/decisions/proposed/2026-08-16-flawed-proposal.md",

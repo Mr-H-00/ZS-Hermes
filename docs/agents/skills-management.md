@@ -1,17 +1,14 @@
 # Skills 管理系统
 
-Skills 是 Yuxi 系统中用于扩展 Agent 能力的重要机制。通过 Skills，开发者可以将特定的工具、提示词模板或领域知识打包成可复用的技能包，让 Agent 在对话过程中能够调用这些额外能力。
+Skill 将使用说明、提示词、工具依赖和领域资料组织为可复用目录。Agent 读取 `SKILL.md` 后按声明激活对应能力。
 
 ## 为什么需要 Skills
 
-在实际业务场景中，我们常常会遇到一些特定的需求：比如需要 Agent 能够查询特定的 API、调用某个外部服务、或者使用特定的提示词模板来完成特定任务。传统的做法是在代码中硬编码这些功能，但这样会导致系统变得越来越臃肿，且难以复用。
-
-Skills 系统的设计理念就是将这类"可插拔"的能力封装成独立的技能包。每个 Skill 包含完整的实现文件和元数据，Agent 可以根据配置动态加载所需的技能，实现能力的灵活组合。
+重复使用的 API 调用流程、外部服务操作和领域提示可以封装为独立 Skill。每个 Skill 保存说明文件、资源和依赖元数据，Agent 配置决定当前运行可见的 Skill 集合。
 
 ## 架构设计
 
-Skills 系统分为平台共享与个人工作区两层。共享 Skill 采用「文件系统存内容，数据库存索引」；
-个人 Skill 只存在于当前用户 workspace，并使用 Redis 保存 5 分钟的元数据快照：
+Skills 系统分为平台共享与个人工作区两层。共享 Skill 采用「文件系统存内容，数据库存索引」；个人 Skill 只存在于当前用户 workspace，并使用 Redis 保存 5 分钟的元数据快照：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -65,7 +62,7 @@ Skills 系统分为平台共享与个人工作区两层。共享 Skill 采用「
 
 ## Skills 来源
 
-Skills 本质上是提示词和工具的封装，以下是一些可以参考的 Skills 实现：
+Skill 包含提示词、工具依赖和元数据。以下项目可用于参考目录组织与提示词设计：
 
 - **Anthropic 官方 Tools**：https://github.com/anthropics/skills 可以参考其 skills 的组织方式和提示词设计
 - **ModelScope Skill 市场**：https://modelscope.cn/skills 支持单个 Skill 地址，也支持合集地址批量拉取
@@ -73,14 +70,9 @@ Skills 本质上是提示词和工具的封装，以下是一些可以参考的 
 - **社区 Skills**：各平台分享的 Agent 提示词模板
 - **自定义开发**：根据业务需求自行开发
 
-系统也会在启动时同步仓库内置 Skills。内置 `html-preview` 用于指导 Agent 在普通
-Markdown 不足以清晰表达指标、对比、流程、时间线或层级关系时，按需输出
-`html:preview` 静态 HTML/CSS 围栏；普通 HTML 源码仍使用 `html` 代码块。该 Skill
-不依赖额外工具，前端继续通过清洗后的 sandboxed iframe 渲染预览。
+系统也会在启动时同步仓库内置 Skills。内置 `html-preview` 指导 Agent 在 Markdown 难以清晰表达指标、对比、流程、时间线或层级关系时，按需输出 `html:preview` 静态 HTML/CSS 围栏；普通 HTML 源码仍使用 `html` 代码块。该 Skill 不依赖额外工具，前端通过清洗后的 sandboxed iframe 渲染预览。
 
-未显式配置 Skills 的 Agent 会按现有资源默认规则自动获得该 Skill。使用显式 Skills
-允许列表的 Agent 需要选择 `html-preview` 才能使用；内置 `deep-research` 已声明该依赖，
-升级后仍可继续输出辅助可视化。
+未显式配置 Skills 的 Agent 会按现有资源默认规则自动获得该 Skill。使用显式 Skills 允许列表的 Agent 需要选择 `html-preview` 才能使用；内置 `deep-research` 已声明该依赖，升级后仍可继续输出辅助可视化。
 
 ## 快速开始
 
@@ -158,9 +150,7 @@ description: 这是一个用于处理特定任务的技能
 **方式三：从远程来源安装**
 
 管理员可以在「设置 → 基本设置 → Skill 配置 → 远程来源白名单」中配置允许远程安装 Skill 的来源域名；对应系统配置项为 `remote_skill_source_policy.allowed_hosts`。
-该策略保存在 PostgreSQL `config_options` 中，默认允许 `github.com` 和 `modelscope.cn`，只做
-精确域名匹配，不自动放行子域名；保存空列表时，远程 Skill 安装会被禁用。运行时以数据库
-配置为准，不依赖 `base.toml`、环境变量或 Redis 配置快照。
+该策略保存在 PostgreSQL `config_options` 中，默认允许 `github.com` 和 `modelscope.cn`，只做精确域名匹配，不自动放行子域名；保存空列表时，远程 Skill 安装会被禁用。运行时以数据库配置为准，不依赖 `base.toml`、环境变量或 Redis 配置快照。
 
 1. 在 Skills 管理页面点击「远程安装」
 2. 在“按仓库拉取”中填写来源，例如：
@@ -200,7 +190,7 @@ ModelScope 合集地址可以作为远程来源填写，例如 `https://modelsco
 
 ## 依赖系统
 
-Skills 之间可以建立依赖关系，形成一个松耦合的技能网络。
+Skill 可以声明工具、MCP 服务和其他 Skill 依赖；运行时根据依赖类型决定加载时机。
 
 ### 依赖类型
 
@@ -214,7 +204,7 @@ Skills 之间可以建立依赖关系，形成一个松耦合的技能网络。
 
 ### 渐进式加载机制
 
-系统采用三级渐进式加载策略，确保资源的高效利用：
+Skill 加载分为三个阶段：
 
 **阶段一：会话启动**
 
@@ -223,14 +213,11 @@ Skills 之间可以建立依赖关系，形成一个松耦合的技能网络。
 2. 递归展开 `skill_dependencies`，派生 `_prompt_skills` 和 `_readable_skills`
 3. 将 `_prompt_skills` 对应的技能说明注入到系统提示词中
 
-这意味着：只要配置了某个 Skill，它的依赖 Skill 就会立即进入提示词；共享与内置 Skill 进入沙盒
-`/home/gem/skills` 只读范围，个人 Skill 直接使用
-`/home/gem/user-data/workspace/agents/skills/<slug>`。
+配置某个 Skill 后，其依赖 Skill 会立即进入提示词。共享与内置 Skill 投影到沙盒只读路径 `/home/gem/skills`，个人 Skill 直接使用 `/home/gem/user-data/workspace/agents/skills/<slug>`。
 
 **阶段二：技能激活**
 
-当 Agent 通过 `read_file` 读取共享路径 `/home/gem/skills/<slug>/SKILL.md`，或个人工作区路径
-`/home/gem/user-data/workspace/agents/skills/<slug>/SKILL.md` 时，视为“激活”该技能。系统会：
+当 Agent 通过 `read_file` 读取共享路径 `/home/gem/skills/<slug>/SKILL.md` 或个人工作区路径 `/home/gem/user-data/workspace/agents/skills/<slug>/SKILL.md` 时，系统将该操作视为 Skill 激活，并执行：
 1. 验证该技能在可见列表中
 2. 将其添加到 `activated_skills` 列表
 3. 后续的模型调用会使用激活列表来加载依赖
@@ -242,7 +229,7 @@ Skills 之间可以建立依赖关系，形成一个松耦合的技能网络。
 2. 收集这些技能的 `tool_dependencies` 和 `mcp_dependencies`
 3. 动态将需要的工具和 MCP 服务添加到可用工具集中
 
-这种设计的好处是：不会在会话开始时加载所有工具，而是根据 Agent 实际使用情况按需加载，既节省资源又保证响应速度。
+会话启动阶段只注入 Skill 说明。工具和 MCP 依赖在 Skill 激活后按需加入模型请求，从而控制初始工具 schema 的规模。
 
 ### 依赖声明示例
 
@@ -285,9 +272,7 @@ Skills 之间可以建立依赖关系，形成一个松耦合的技能网络。
 
 旧版单层共享范围会在 PostgreSQL 启动迁移中复制为读取和管理范围；运行时接口仅接受 v2 配置。
 
-管理员和普通用户在创建或编辑 Agent 时，都只能从自己可访问且启用的 Skills 中选择能力。
-个人 Skill 与共享 Skill 同 slug 时，个人 Skill 整项覆盖共享版本；共享版本的工具、MCP 和 Skill
-依赖不会继续加载。删除个人版本后，用户仍有权访问的同名共享版本会在下一次运行恢复生效。
+管理员和普通用户在创建或编辑 Agent 时，都只能从自己可访问且启用的 Skills 中选择能力。个人 Skill 与共享 Skill 同 slug 时，个人 Skill 整项覆盖共享版本；共享版本的工具、MCP 和 Skill 依赖不会继续加载。删除个人版本后，用户仍有权访问的同名共享版本会在下一次运行恢复生效。
 
 ## 运行时行为
 
@@ -305,11 +290,10 @@ Skills 之间可以建立依赖关系，形成一个松耦合的技能网络。
 - **路径安全**：所有路径都经过安全校验，防止目录穿越攻击
 
 ::: tip 只读不等于不可执行
-`/home/gem/skills` 对 Agent 是只读的，但沙盒命令工具仍可执行其中的脚本。Skill 应把依赖、运行方式和产物位置写清楚；脚本若需要写文件，应写入 workspace 或 outputs，而不是 Skill 目录。
+`/home/gem/skills` 对 Agent 是只读的，但沙盒命令工具仍可执行其中的脚本。Skill 应写清依赖、运行方式和产物位置；脚本产生的文件应保存到 workspace 或 outputs，Skill 目录禁止写入。
 :::
 
-个人 Skill 位于 `/home/gem/user-data/workspace/agents/skills`，属于用户可写工作区。运行时不会再把它复制到
-线程 `/home/gem/skills` 目录，因此工作区中的修改会直接成为后续读取内容。
+个人 Skill 位于 `/home/gem/user-data/workspace/agents/skills`，属于用户可写工作区。运行时不会再把它复制到线程 `/home/gem/skills` 目录，因此工作区中的修改会直接成为后续读取内容。
 
 ### 会话隔离
 
@@ -319,7 +303,7 @@ Skills 之间可以建立依赖关系，形成一个松耦合的技能网络。
 - 个人 Skill 元数据最多缓存 5 分钟；安装、删除和 Skills 页手动刷新会立即更新缓存
 - 每次构建运行时只同步最终生效的共享与内置 Skill；个人版本同名覆盖时直接使用工作区路径
 
-## 最佳实践
+## 维护建议
 
 ### Skill 命名规范
 

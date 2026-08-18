@@ -2,18 +2,18 @@
 
 中间件是 Yuxi 扩展智能体运行行为的主要机制。它工作在 LangGraph Agent 的模型调用、工具调用、状态更新和文件系统访问路径上，用来把知识库、Skills、附件、子智能体、上下文压缩和运行观测接入同一条执行链路。
 
-内置 `ChatbotAgent` 与 `SubAgentBackend` 都会在 `get_graph()` 中构建中间件列表。运行前的资源过滤不再依赖旧版运行时配置中间件，而是在创建 Graph 前由 `prepare_agent_runtime_context` 完成。
+内置 `ChatbotAgent` 与 `SubAgentBackend` 都会在 `get_graph()` 中构建中间件列表。`prepare_agent_runtime_context` 在 Graph 创建前完成资源过滤，中间件随后消费已经归一化的运行时配置。
 
 ## 运行时准备
 
-运行时准备不是中间件，但它决定后续中间件能看到什么资源。内置 Agent 创建 Graph 前会先执行以下步骤：
+运行时准备发生在中间件装配之前，负责确定后续中间件可见的资源。内置 Agent 创建 Graph 前依次执行：
 
 - `prepare_agent_runtime_context`：按当前用户权限过滤工具、知识库、MCP、Skills 和子智能体，并派生 `_visible_knowledge_bases`、`_prompt_skills`、`_readable_skills` 与最终 `_runtime_skill_sources`
 - `build_prompt_with_context`：基于 Context 生成系统提示词
 - `load_chat_model(context.model)`：加载主模型
 - `resolve_configured_runtime_tools(context)`：加载已配置的内置工具和 MCP 工具
 
-这意味着中间件不负责重新判断“用户是否能访问某个资源”。它们消费的是已经归一化后的 runtime context。
+中间件直接消费归一化后的 runtime context。资源授权和可见性过滤由前置准备阶段完成，产生副作用的工具仍需在执行边界校验具体目标。
 
 ## 内置中间件链路
 
@@ -36,11 +36,11 @@
 
 ## 知识库工具
 
-知识库访问能力沉淀为内置 `knowledge-base` Skill。Agent 读取 `/home/gem/skills/knowledge-base/SKILL.md` 激活该 Skill 后，`SkillsMiddleware` 会按依赖追加 `list_kbs`、`query_kb`、`find_kb_document`、`open_kb_document`、`get_mindmap` 等知识库工具。
+知识库访问能力沉淀为内置 `knowledge-base` Skill。Agent 读取 `/home/gem/skills/knowledge-base/SKILL.md` 激活该 Skill 后，`SkillsMiddleware` 会按依赖追加 `list_kbs`、`query_kb`、`find_kb_document`、`open_kb_document`、`get_mindmap`、`search_file` 和 `download_kb_file` 七个工具。
 
-实际可见知识库仍由 `prepare_agent_runtime_context` 根据当前用户和 Agent 配置写入 `_visible_knowledge_bases`，工具执行时只会在这批知识库中检索。`context.knowledges` 是资源范围，不是 Skill 本身。
+`prepare_agent_runtime_context` 根据当前用户权限和 Agent 配置生成 `_visible_knowledge_bases`，工具执行范围受该集合限制。`context.knowledges` 只定义资源范围，Skill 激活状态由 `SkillsMiddleware` 单独维护。
 
-系统不会把知识库文件树挂进沙盒。Agent 访问知识库内容应使用 `query_kb`、`find_kb_document` 和 `open_kb_document`，而不是遍历 `/home/gem/kbs` 这类旧路径。
+知识库文件树不挂载到沙盒。Agent 通过知识库工具访问内容，`/home/gem/kbs` 等旧路径不属于当前接口。状态、权限、存储和检索边界见[知识库机制详解](../mechanisms/knowledge-base.md)。
 
 ## Skills 注入与激活
 
@@ -51,7 +51,7 @@
    `/home/gem/user-data/workspace/agents/skills/<slug>/SKILL.md`。如果该 Skill 在 `_readable_skills`
    范围内，就把它写入 `activated_skills`，并在后续模型调用中追加它声明的工具和 MCP 依赖。
 
-这种设计让 Skill 可以先作为说明可见，只有模型真正读取并激活后才扩展工具集，避免一开始就把所有依赖工具塞进上下文。
+模型首先看到 Skill 说明；读取并激活 Skill 后，依赖工具才加入后续模型请求。该顺序控制初始工具 schema 的规模。
 
 ## 附件与文件系统
 
@@ -61,29 +61,19 @@
 
 ## 子智能体任务
 
-主 Agent 如果配置了可见子智能体，会挂载 `YuxiSubAgentMiddleware` 并获得 `task` 工具。这个工具不会调用旧版独立 SubAgents 表，而是查找 `agents.is_subagent=true` 且后端为 `SubAgentBackend` 的真实 Agent 配置，然后启动对应子 Agent graph。
+主 Agent 配置了可见子智能体时，会挂载 `YuxiSubAgentMiddleware` 并获得 `task` 工具。该工具从 `agents` 表查找 `is_subagent=true` 且后端为 `SubAgentBackend` 的 Agent 配置，随后启动对应子 Agent graph。旧版独立 SubAgents 表不参与当前链路。
 
 子智能体执行时会获得独立 child thread、独立 checkpoint 和 `agent_runs(run_type=subagent)` 记录；工具结果会返回 child thread ID，后续可以把该 ID 传回 `task` 继续同一个子任务。子智能体自身不会再挂载下一层 `task` 中间件，避免形成嵌套子智能体链路。
 
 ## Summary 上下文压缩
 
-长对话压缩由 Yuxi 封装的 `YuxiSummarizationMiddleware` 负责。它基于 DeepAgents 的 `SummarizationMiddleware`，但针对 Yuxi 的知识库检索和工具调用结果做了额外处理。
+`YuxiSummarizationMiddleware` 在主模型调用前按近似上下文大小决定是否进入压缩：L1 只生成临时精简视图并卸载长工具结果，L2 才把较早历史写入文件、调用摘要模型并更新 checkpoint 中的 `_summarization_event`。它不删除 PostgreSQL 聊天消息，内部摘要模型的 token 也不进入当前主模型用量口径。
 
-触发条件来自 Agent Context：
-
-| 字段 | 说明 |
-| --- | --- |
-| `summary_threshold` | 上下文超过该 K token 阈值后触发摘要；L2 摘要模型的待摘要历史输入上限也使用同一阈值 |
-| `summary_keep_messages` | 摘要后保留最近消息数 |
-| `summary_prompt` | 摘要模型使用的提示词 |
-| `summary_tool_result_token_limit` | 工具结果 offload 阈值和预览 token 上限 |
-| `summary_l2_trigger_ratio` | L1 后进入 L2 summary 的触发比例，建议 `0.1~1.0`，默认 `0.4` |
-
-触发判断使用 Yuxi 自己的近似 token 计算结果，不使用模型返回的 `usage_metadata.total_tokens` 作为触发依据，避免 provider 的计费口径、累计口径或异常上报导致短对话过早压缩。
+配置字段及默认值见[智能体配置](agents-config.md)，完整触发条件、文件 Owner、流事件、恢复边界与测试入口见[Summary 上下文压缩机制](../mechanisms/context-compression.md)。中间件总览只维护装配位置与职责，不复制实现细节。
 
 ## Token 用量统计
 
-`TokenUsageMiddleware` 同时维护两种口径，二者不能混用：
+`TokenUsageMiddleware` 同时维护两种用途不同的口径：
 
 - 近似上下文统计通过 `count_tokens_approximately` 计算，用于上下文窗口、摘要阈值和消息构成展示。
 - 实际用量直接保留主 Agent 模型调用返回的 `AIMessage.usage_metadata`，包括 `input_tokens`、`output_tokens`、`total_tokens`、缓存和推理 token 明细。当前不包含 Summary 中间件内部直接发起的 L2 摘要模型调用，因此尚不能作为完整账单口径。
@@ -94,13 +84,7 @@ state 中的实际用量分为 `latest`、`run` 和 `thread`：分别表示最�
 
 `siliconflow-cn` 与 `siliconflow` 当前返回的 usage 格式与统计契约不一致，暂列入 Token 用量 Provider 黑名单。黑名单模型仍计算近似上下文占用，但不写入最近调用、Run 或线程的 Provider 实际用量聚合。
 
-触发后，中间件先执行 L1 结构精简：在本次模型调用的临时消息视图里截断旧 `write_file`/`edit_file` 工具调用的大参数；`ToolMessage.content` 估算 token 数超过 `summary_tool_result_token_limit` 时，会写入当前 Agent 可见的 `outputs/large_tool_results`，消息内替换为工具名、近似 token 数、完整结果路径和不超过同一 token 上限的预览。未超过该上限的工具结果保持原样。这个步骤不修改 LangGraph state 中的原始消息。
-
-L1 后会重新计算上下文大小；如果仍超过入口阈值乘以 `summary_l2_trigger_ratio`，才进入 L2 summary，把较早的 L1 视图消息压缩成一条 summary message，并保留最近窗口内的原始消息。比例越小越容易进入 L2；`1.0` 表示 L1 后仍超过原始触发阈值才进入 L2。L2 传给摘要模型的待摘要历史上限等于 `summary_threshold` 对应的 token 数，避免用过小的固定窗口丢掉早期关键信息。L2 不再对工具结果做第二轮 offload，只写入 `_summarization_event`，后续调用仍由 DeepAgents 的 cutoff 语义重建 effective messages。
-
-这对知识库检索尤其重要：`query_kb`、`open_kb_document`、`find_kb_document` 等工具可能返回较长的片段、引用和文档内容。Summary 阶段保留“查过什么、结果在哪里、关键预览是什么”，同时避免把大量检索原文反复卷入摘要，减少上下文污染和 token 压力。压缩开始、完成或失败会以 `context_compression` 流事件同步到前端；摘要模型自身的 token 流不会作为聊天消息输出。
-
-未达到入口阈值的常规模型调用不会额外清洗工具结果；达到入口阈值但 L1 后低于 L2 门槛时，会直接用 L1 精简后的临时视图调用模型，不生成 summary event。
+Summary 触发使用近似上下文统计。Provider 返回的 `usage_metadata.total_tokens` 用于记录实际主模型用量。完整关系见[Summary 上下文压缩机制](../mechanisms/context-compression.md)。
 
 ## 自定义中间件
 
