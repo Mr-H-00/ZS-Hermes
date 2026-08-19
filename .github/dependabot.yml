@@ -9,11 +9,11 @@ updates:
       default-days: 7
     groups:
       backend-dependencies:
+        applies-to: version-updates
         patterns:
           - "*"
         update-types:
           - patch
-          - minor
     allow:
       - dependency-name: "*"
         update-types:
@@ -29,11 +29,11 @@ updates:
       default-days: 7
     groups:
       cli-dependencies:
+        applies-to: version-updates
         patterns:
           - "*"
         update-types:
           - patch
-          - minor
     allow:
       - dependency-name: "*"
         update-types:
@@ -49,11 +49,11 @@ updates:
       default-days: 7
     groups:
       web-dependencies:
+        applies-to: version-updates
         patterns:
           - "*"
         update-types:
           - patch
-          - minor
     allow:
       - dependency-name: "*"
         update-types:
@@ -69,11 +69,11 @@ updates:
       default-days: 7
     groups:
       docs-dependencies:
+        applies-to: version-updates
         patterns:
           - "*"
         update-types:
           - patch
-          - minor
     allow:
       - dependency-name: "*"
         update-types:

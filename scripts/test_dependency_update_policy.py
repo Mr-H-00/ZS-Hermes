@@ -31,17 +31,29 @@ def verify_policy(root: Path) -> list[str]:
             f"open-pull-requests-limit: {limit}",
             "default-days: 7",
             f"{group}:",
+            "applies-to: version-updates",
             'patterns:\n          - "*"',
-            "update-types:\n          - patch\n          - minor",
-            "allow:\n      - dependency-name: \"*\"",
-            "version-update:semver-patch",
-            "version-update:semver-minor",
+            "update-types:\n          - patch",
         )
         for fragment in required:
             if fragment not in section:
                 errors.append(f"{directory} 的 Dependabot 策略缺少：{fragment}")
         if "version-update:semver-major" in section or "ignore:" in section:
             errors.append(f"{directory} 不能用 ignore 屏蔽跨 major 安全更新")
+        group_section = section.split(f"{group}:\n", 1)[-1].split("    allow:\n", 1)[0]
+        if "applies-to: security-updates" in group_section:
+            errors.append(f"{directory} 的应用聚合组只能作用于常规版本更新")
+        if "          - minor\n" in group_section:
+            errors.append(f"{directory} 的 minor 更新不能进入聚合组")
+        allow_section = section.split("    allow:\n", 1)[-1]
+        expected_allow = (
+            '      - dependency-name: "*"\n'
+            "        update-types:\n"
+            "          - version-update:semver-patch\n"
+            "          - version-update:semver-minor\n"
+        )
+        if expected_allow not in allow_section:
+            errors.append(f"{directory} 必须通过同一通配 allow 接收 patch/minor")
 
     for ecosystem in ("docker", "docker-compose"):
         section = _dependabot_section(dependabot, ecosystem)
@@ -154,6 +166,66 @@ class DependencyUpdatePolicyTest(unittest.TestCase):
 
             self.assertIn(
                 "/backend 不能用 ignore 屏蔽跨 major 安全更新",
+                verify_policy(root),
+            )
+
+    def test_minor_updates_must_not_be_grouped(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            self._copy_policy_files(root)
+            path = root / ".github/dependabot.yml"
+            content = path.read_text(encoding="utf-8")
+            path.write_text(
+                content.replace(
+                    "        update-types:\n          - patch\n",
+                    "        update-types:\n          - patch\n          - minor\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIn(
+                "/backend 的 minor 更新不能进入聚合组",
+                verify_policy(root),
+            )
+
+    def test_application_groups_must_not_group_security_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            self._copy_policy_files(root)
+            path = root / ".github/dependabot.yml"
+            content = path.read_text(encoding="utf-8")
+            path.write_text(
+                content.replace(
+                    "        applies-to: version-updates\n",
+                    "        applies-to: security-updates\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIn(
+                "/backend 的应用聚合组只能作用于常规版本更新",
+                verify_policy(root),
+            )
+
+    def test_minor_allow_must_apply_to_all_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            self._copy_policy_files(root)
+            path = root / ".github/dependabot.yml"
+            content = path.read_text(encoding="utf-8")
+            path.write_text(
+                content.replace(
+                    "          - version-update:semver-minor\n",
+                    "",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIn(
+                "/backend 必须通过同一通配 allow 接收 patch/minor",
                 verify_policy(root),
             )
 

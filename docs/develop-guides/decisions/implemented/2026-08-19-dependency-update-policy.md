@@ -10,7 +10,7 @@ Dependabot 对七类依赖源每周独立创建常规版本 PR，每类允许五
 
 ## 决策
 
-Python 与 npm 常规版本更新按项目聚合，只通过 `allow.update-types` 接收 patch 和 minor 更新，并设置七天冷却期与较低的开放 PR 上限。`allow.update-types` 只限制常规版本更新，不过滤需要跨 major 修复的 security updates。GitHub Actions 更新聚合为单个 PR。Docker 与 Docker Compose 的常规版本更新关闭，安全更新保持由 GitHub Dependabot security updates 产生；运行时和持久化服务升级通过显式迁移任务处理。
+Python 与 npm 使用 `applies-to: version-updates` 的项目分组聚合 patch 更新；minor 更新仍由同一条通配 `allow.update-types` 接收，但保持独立 PR，避免框架、SDK 和解析栈的多项兼容变化被同一锁文件 diff 捆绑。`allow.update-types` 只限制常规版本更新，不过滤需要跨 major 修复的 security updates。所有应用更新设置七天冷却期与较低的开放 PR 上限。GitHub Actions 更新聚合为单个 PR。Docker 与 Docker Compose 的常规版本更新关闭，安全更新保持由 GitHub Dependabot security updates 产生；运行时和持久化服务升级通过显式迁移任务处理。
 
 依赖审计 workflow 只在 shipping manifest、锁文件、审计 workflow、Makefile 或固定脆弱 fixture 变化时触发，并取消同一分支已经过期的运行。手工触发和 main 上对应变更的 push 审计保持可用；漏洞与许可证 gate 的完整决定由[依赖供应链审计门禁](2026-08-18-dependency-supply-chain-gates.md)拥有。
 
@@ -23,10 +23,10 @@ Python 与 npm 常规版本更新按项目聚合，只通过 `allow.update-types
 
 ## 后果
 
-- 聚合 PR 扩大单次锁文件 diff，需要保留各项目现有 lint、unit、build 和漏洞审计 gate。
+- patch 聚合 PR 仍会扩大单次锁文件 diff，需要保留各项目现有 lint、unit、build 和漏洞审计 gate；minor PR 保持独立以便归因兼容问题。
 - Docker 与 Compose 的非安全版本漂移不再自动形成 PR，需要在有兼容性、生命周期或功能需求时显式规划升级。
 - 路径过滤遗漏新的 manifest 会让依赖审计不自动触发；新增依赖 Owner 时必须同步更新 workflow paths。
 
 ## 验证
 
-`scripts/test_dependency_update_policy.py` 逐个断言应用生态存在 patch/minor 分组和只影响常规更新的 allow、七天冷却期与并发上限，Docker 与 Compose 的常规 PR 上限为零，GitHub Actions 聚合，以及审计 workflow 的完整 manifest/lock 路径过滤与并发取消。测试通过临时恢复 Docker 常规 PR、删除 lock path 和把 allow 改成 ignore，证明负向案例会失败。`trust.yml` 在每个 PR 运行该测试。提交前运行工程契约、对应单元测试、YAML 解析和 `git diff --check`，并由独立 Reviewer 核对安全更新语义与路径覆盖。
+`scripts/test_dependency_update_policy.py` 逐个断言应用生态只聚合 patch、minor 仍被常规更新 allow 接收、七天冷却期与并发上限，Docker 与 Compose 的常规 PR 上限为零，GitHub Actions 聚合，以及审计 workflow 的完整 manifest/lock 路径过滤与并发取消。测试通过临时恢复 Docker 常规 PR、删除 lock path 和把 allow 改成 ignore，证明负向案例会失败。`trust.yml` 在每个 PR 运行该测试。提交前运行工程契约、对应单元测试、YAML 解析和 `git diff --check`，并由独立 Reviewer 核对安全更新语义与路径覆盖。
