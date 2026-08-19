@@ -18,8 +18,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Verify owner-local engineering contracts
         run: python3 scripts/verify_engineering_contracts.py
       - name: Exercise verifier negative controls
         run: python3 -m unittest scripts.test_verify_engineering_contracts
+      - name: Verify dependency update policy
+        run: python3 -m unittest scripts.test_dependency_update_policy

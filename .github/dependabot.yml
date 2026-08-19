@@ -4,25 +4,81 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
+    groups:
+      backend-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch
+          - version-update:semver-minor
 
   - package-ecosystem: uv
     directory: /packages/yuxi-cli
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
+    groups:
+      cli-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch
+          - version-update:semver-minor
 
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
+    groups:
+      web-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch
+          - version-update:semver-minor
 
   - package-ecosystem: npm
     directory: /docs
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
+    groups:
+      docs-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-patch
+          - version-update:semver-minor
 
   - package-ecosystem: docker
     directories:
@@ -30,16 +86,22 @@ updates:
       - /docker/sandbox_provisioner
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
 
   - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"

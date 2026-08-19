@@ -10,9 +10,11 @@ Python 与 Node.js 的锁定依赖没有漏洞和许可证审计 gate。新增�
 
 ## 决策
 
-依赖审计 workflow 以 shipping 锁文件为事实来源。Python 漏洞直接运行 `uv audit`，Node.js 漏洞直接运行 `pnpm audit`；backend 受 PyTorch 版本约束的 advisory 使用工具原生 `--ignore` 明确列出。固定脆弱 fixture 由同一 workflow 执行，证明 Python 与 Node.js 审计会因已知漏洞返回失败。Python 许可证通过隔离生产环境运行 `pip-licenses`，输出 backend 与 yuxi-cli 的传递依赖报告供 Review 使用，不自动判断法律兼容性。Dependabot 定期更新 Python、Node.js、Dockerfile、Compose 与 GitHub Actions 依赖。
+依赖审计 workflow 以 shipping 锁文件为事实来源，并只在 manifest、锁文件、审计 workflow、Makefile 或固定脆弱 fixture 变化时自动运行；同一分支的新运行取消已经过期的审计。Python 漏洞直接运行 `uv audit`，Node.js 漏洞直接运行 `pnpm audit`；backend 受 PyTorch 版本约束的 advisory 使用工具原生 `--ignore` 明确列出。固定脆弱 fixture 由同一 workflow 执行，证明 Python 与 Node.js 审计会因已知漏洞返回失败。Python 许可证通过隔离生产环境运行 `pip-licenses`，输出 backend 与 yuxi-cli 的传递依赖报告供 Review 使用，不自动判断法律兼容性。
 
-容器镜像扫描不属于当前阻断 gate。生产镜像由多个本地 Dockerfile、Compose 基础镜像和外部 sandbox 镜像组成；加入镜像扫描前需要确定构建产物、扫描时点和基础镜像例外 Owner。Dependabot 负责跟踪 Docker 基础镜像更新。
+Dependabot 的常规版本策略由[依赖更新降噪策略](2026-08-19-dependency-update-policy.md)拥有；本记录只拥有漏洞与许可证审计 gate。
+
+容器镜像扫描不属于当前阻断 gate。生产镜像由多个本地 Dockerfile、Compose 基础镜像和外部 sandbox 镜像组成；加入镜像扫描前需要确定构建产物、扫描时点和基础镜像例外 Owner。
 
 ## 替代方案
 
@@ -28,6 +30,7 @@ Python 与 Node.js 的锁定依赖没有漏洞和许可证审计 gate。新增�
 - 漏洞数据库与包许可证元数据会变化，网络故障也会导致 gate 失败；失败必须保留工具输出，不静默降级。
 - 许可证报告不构成法律意见，也不自动阻断；Review 需要结合分发方式与上游许可证文本判断。
 - Python 锁文件升级会改变运行依赖；升级只处理审计直接发现且已有兼容修复版本的包。Node.js override 只处理已知高危项。
+- 新增 manifest 或锁文件时必须同步更新 dependency audit 的路径过滤，否则该 Owner 的变化不会自动触发审计。
 
 ## 验证
 

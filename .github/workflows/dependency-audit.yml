@@ -2,9 +2,39 @@ name: Dependency Supply Chain Audit
 
 on:
   pull_request:
+    paths:
+      - ".github/workflows/dependency-audit.yml"
+      - "Makefile"
+      - "backend/pyproject.toml"
+      - "backend/package/pyproject.toml"
+      - "backend/uv.lock"
+      - "packages/yuxi-cli/pyproject.toml"
+      - "packages/yuxi-cli/uv.lock"
+      - "web/package.json"
+      - "web/pnpm-lock.yaml"
+      - "docs/package.json"
+      - "docs/pnpm-lock.yaml"
+      - "scripts/dependency-audit-fixtures/**"
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/dependency-audit.yml"
+      - "Makefile"
+      - "backend/pyproject.toml"
+      - "backend/package/pyproject.toml"
+      - "backend/uv.lock"
+      - "packages/yuxi-cli/pyproject.toml"
+      - "packages/yuxi-cli/uv.lock"
+      - "web/package.json"
+      - "web/pnpm-lock.yaml"
+      - "docs/package.json"
+      - "docs/pnpm-lock.yaml"
+      - "scripts/dependency-audit-fixtures/**"
   workflow_dispatch:
+
+concurrency:
+  group: dependency-audit-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
