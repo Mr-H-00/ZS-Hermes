@@ -1,64 +1,71 @@
 <template>
-  <div class="agent-panel" :class="{ resizing: isResizing }">
-    <div class="resize-handle" @pointerdown="startResize"></div>
+  <div class="agent-panel" :class="{ resizing: isResizing, maximized }">
+    <div v-if="!maximized" class="resize-handle" @pointerdown="startResize"></div>
     <div class="panel-header side-panel__header">
-      <div class="panel-title">
-        <div v-if="hasActivePreview && normalizedPreviewTabs.length" class="preview-tabs-bar">
-          <div
-            v-for="tab in normalizedPreviewTabs"
-            :key="tab.path"
-            class="preview-tab"
-            :class="{ active: tab.path === activePreviewPath }"
+      <div ref="sectionTabsRef" class="section-tabs" role="tablist" aria-label="侧边栏内容">
+        <div
+          v-for="section in normalizedSections"
+          :key="section.key"
+          class="section-tab"
+          :class="{ active: section.key === activeSectionKey }"
+        >
+          <button
+            type="button"
+            class="section-tab-main"
+            role="tab"
+            :aria-selected="section.key === activeSectionKey"
+            :title="section.title"
+            @click="emit('activate-section', section.key)"
           >
-            <button
-              type="button"
-              class="preview-tab-main"
-              :title="tab.path"
-              @click="activatePreviewTab(tab.path)"
-            >
-              <FileTypeIcon :name="tab.path" :size="16" class="preview-tab-icon" />
-              <span class="preview-tab-name">{{ tab.name }}</span>
-            </button>
-            <button
-              type="button"
-              class="preview-tab-close"
-              title="关闭预览"
-              aria-label="关闭预览"
-              @click.stop="closePreviewTab(tab.path)"
-            >
-              <X :size="13" />
-            </button>
-          </div>
+            <Folders v-if="section.type === 'file-tree'" :size="15" />
+            <FileTypeIcon v-else-if="section.type === 'file'" :name="section.path" :size="15" />
+            <FallbackAvatar
+              v-else
+              :src="section.avatar"
+              :default-src="section.defaultAvatar"
+              :name="section.title"
+              :seed="section.threadId"
+              kind="agent"
+              :size="18"
+              shape="rounded"
+            />
+            <span>{{ section.title }}</span>
+          </button>
+          <button
+            v-if="section.type !== 'file-tree'"
+            type="button"
+            class="section-tab-close"
+            :aria-label="`关闭 ${section.title}`"
+            @click.stop="emit('close-section', section.key)"
+          >
+            <X :size="13" />
+          </button>
         </div>
-        <span v-else><strong>文件</strong></span>
       </div>
       <div class="window-actions">
         <button
           class="header-action-btn"
-          title="搜索文件"
-          aria-label="搜索文件"
-          :disabled="!threadId"
-          @click="fileSearchOpen = true"
-        >
-          <Search :size="15" />
-        </button>
-        <button
-          v-if="hasActivePreview"
-          class="header-action-btn"
-          :class="{ active: treePaneVisible }"
-          :title="treePaneVisible ? '隐藏文件列表' : '查看文件列表'"
-          :aria-label="treePaneVisible ? '隐藏文件列表' : '查看文件列表'"
-          @click="toggleFileTree"
+          :class="{ active: activeSectionKey === 'file-tree' }"
+          title="文件树"
+          aria-label="文件树"
+          @click="emit('activate-section', 'file-tree')"
         >
           <Folders :size="15" />
         </button>
-        <button class="header-action-btn" title="刷新" aria-label="刷新" @click="emitRefresh">
-          <RefreshCw :size="15" />
+        <button
+          class="header-action-btn"
+          :title="maximized ? '还原面板' : '最大化面板'"
+          :aria-label="maximized ? '还原面板' : '最大化面板'"
+          :disabled="isResizing"
+          @click="emit('toggle-maximize')"
+        >
+          <Minimize2 v-if="maximized" :size="15" />
+          <Maximize2 v-else :size="15" />
         </button>
         <button
           class="header-action-btn"
-          title="关闭文件面板"
-          aria-label="关闭文件面板"
+          title="隐藏侧边栏"
+          aria-label="隐藏侧边栏"
           @click="emitClose"
         >
           <PanelRight :size="15" />
@@ -67,32 +74,29 @@
     </div>
 
     <div class="tab-content">
-      <div
-        class="files-display"
-        :class="{ 'has-preview': hasActivePreview, 'with-tree': treePaneVisible }"
-      >
-        <div v-if="hasActivePreview" class="preview-pane">
-          <AgentFilePreview
-            v-if="currentFile"
-            containerClass="side-preview-shell"
-            contentClass="side-file-content"
-            :file="currentFile"
-            :filePath="currentFilePath"
-            :fullHeight="true"
-            :showFileIcon="false"
-            :borderless="true"
-            :showClose="false"
-            :showDownload="true"
-            :showFullscreen="true"
-            @download="downloadFile"
-          />
-          <div v-else class="preview-empty">
-            <div class="preview-empty-title">选择交付物后可在此预览</div>
-            <div class="preview-empty-desc">也可以打开文件列表，浏览当前工作区文件。</div>
+      <div v-show="activeSectionKey === 'file-tree'" class="tree-pane">
+          <div class="tree-toolbar">
+            <strong>文件</strong>
+            <div class="tree-toolbar-actions">
+              <button
+                class="header-action-btn"
+                title="搜索文件"
+                aria-label="搜索文件"
+                :disabled="!threadId"
+                @click="fileSearchOpen = true"
+              >
+                <Search :size="15" />
+              </button>
+              <button
+                class="header-action-btn"
+                title="刷新文件"
+                aria-label="刷新文件"
+                @click="emitRefresh"
+              >
+                <RefreshCw :size="15" />
+              </button>
+            </div>
           </div>
-        </div>
-
-        <div v-if="treePaneVisible" class="tree-pane">
           <div v-if="!threadId" class="empty">创建对话后可查看工作区</div>
           <div v-else-if="loadingFiles" class="empty">正在加载文件系统...</div>
           <div v-else-if="filesystemError" class="empty error-state">
@@ -138,7 +142,34 @@
               </template>
             </FileTreeComponent>
           </div>
-        </div>
+      </div>
+      <div v-show="activeSection?.type === 'file'" class="preview-pane">
+        <AgentFilePreview
+          v-if="currentFile"
+          containerClass="side-preview-shell"
+          contentClass="side-file-content"
+          :file="currentFile"
+          :filePath="currentFilePath"
+          :fullHeight="true"
+          :showFileIcon="false"
+          :borderless="true"
+          :showClose="false"
+          :showDownload="true"
+          :showFullscreen="true"
+          @download="downloadFile"
+        />
+        <div v-else class="preview-empty">正在加载文件预览...</div>
+      </div>
+      <div
+        v-for="section in subagentSections"
+        v-show="activeSectionKey === section.key"
+        :key="section.key"
+        class="subagent-section"
+      >
+        <SubagentThreadView
+          :thread-id="section.threadId"
+          :active="activeSectionKey === section.key"
+        />
       </div>
     </div>
 
@@ -154,13 +185,25 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Download, Folders, PanelRight, RefreshCw, Search, Trash2, X } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import {
+  Download,
+  Folders,
+  Maximize2,
+  Minimize2,
+  PanelRight,
+  RefreshCw,
+  Search,
+  Trash2,
+  X
+} from 'lucide-vue-next'
 import { Modal, message } from 'ant-design-vue'
 import FileTreeComponent from '@/components/FileTreeComponent.vue'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
 import GlobalSearchModal from '@/components/GlobalSearchModal.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
+import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
+import SubagentThreadView from '@/components/SubagentThreadView.vue'
 import {
   deleteViewerFile,
   downloadViewerFile,
@@ -199,7 +242,13 @@ const props = defineProps({
     type: String,
     default: 'tree',
     validator: (value) => ['tree', 'preview'].includes(value)
-  }
+  },
+  maximized: { type: Boolean, default: false },
+  sections: {
+    type: Array,
+    default: () => [{ key: 'file-tree', type: 'file-tree', title: '文件' }]
+  },
+  activeSectionKey: { type: String, default: 'file-tree' }
 })
 
 const emit = defineEmits([
@@ -211,7 +260,10 @@ const emit = defineEmits([
   'activate-preview',
   'close-preview-tab',
   'close-preview-path',
-  'view-mode-change'
+  'view-mode-change',
+  'toggle-maximize',
+  'activate-section',
+  'close-section'
 ])
 const DISPLAY_ROOT_DIRECTORY_NAME = 'user-data'
 
@@ -226,6 +278,22 @@ const expandedKeys = ref([])
 const deletingPaths = ref(new Set())
 const isResizing = ref(false)
 const fileSearchOpen = ref(false)
+const sectionTabsRef = ref(null)
+const normalizedSections = computed(() =>
+  (props.sections || []).filter((section) => section?.key && section?.type)
+)
+const subagentSections = computed(() =>
+  normalizedSections.value.filter((section) => section.type === 'subagent' && section.threadId)
+)
+const activeSection = computed(
+  () => normalizedSections.value.find((section) => section.key === props.activeSectionKey) || null
+)
+
+const ensureActiveSectionVisible = async () => {
+  await nextTick()
+  const activeTab = sectionTabsRef.value?.querySelector('[role="tab"][aria-selected="true"]')
+  activeTab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+}
 
 // 顶层需要预取子项的目录：outputs/uploads 为空时不展示，workspace 默认展开
 const PREFETCH_DIRECTORY_NAMES = ['outputs', 'uploads', 'workspace']
@@ -236,7 +304,7 @@ const searchThreadFiles = (query) => searchViewerFiles(props.threadId, query)
 const handleSearchSelect = (entry) => {
   if (!entry?.path || !props.threadId) return
   selectedKeys.value = [entry.path]
-  emit('open-preview', { ...entry, type: 'file' }, true)
+  emit('open-preview', { ...entry, type: 'file' }, false)
 }
 
 const normalizedPreviewTabs = computed(() =>
@@ -248,8 +316,6 @@ const normalizedPreviewTabs = computed(() =>
       name: file.name || getFileName(file)
     }))
 )
-const hasActivePreview = computed(() => Boolean(props.activePreviewPath))
-const treePaneVisible = computed(() => !hasActivePreview.value || props.viewMode === 'tree')
 const activePreviewTab = computed(
   () => normalizedPreviewTabs.value.find((file) => file.path === props.activePreviewPath) || null
 )
@@ -564,19 +630,7 @@ const loadActivePreview = async () => {
 const onFileSelect = (nextSelectedKeys, { node }) => {
   selectedKeys.value = nextSelectedKeys
   if (!node?.isLeaf || !props.threadId) return
-  emit('open-preview', node.fileData, true)
-}
-
-const activatePreviewTab = (filePath) => {
-  emit('activate-preview', filePath)
-}
-
-const closePreviewTab = (filePath) => {
-  emit('close-preview-tab', filePath)
-}
-
-const toggleFileTree = () => {
-  emit('view-mode-change', treePaneVisible.value ? 'preview' : 'tree')
+  emit('open-preview', node.fileData, false)
 }
 
 const pruneTreeStateAfterDelete = (targetPath) => {
@@ -670,7 +724,7 @@ const queueResize = (clientX) => {
 }
 
 const startResize = (e) => {
-  if (e.button !== 0) return
+  if (e.button !== 0 || props.maximized) return
 
   isResizing.value = true
   resizePointerId = e.pointerId
@@ -751,6 +805,7 @@ watch(
     selectedKeys.value = filePath ? [filePath] : []
   }
 )
+watch(() => props.activeSectionKey, ensureActiveSectionVisible, { immediate: true })
 </script>
 
 <style scoped lang="less">
@@ -797,7 +852,6 @@ watch(
 
   :deep(.preview-header) {
     min-height: 32px;
-    padding-top: 0;
   }
 }
 
@@ -833,6 +887,11 @@ watch(
     color: var(--gray-900);
   }
 
+  &:focus-visible {
+    outline: 2px solid var(--main-300);
+    outline-offset: 1px;
+  }
+
   &:disabled {
     color: var(--gray-300);
     cursor: not-allowed;
@@ -840,19 +899,73 @@ watch(
   }
 }
 
-.panel-title {
+.section-tabs {
+  display: flex;
   flex: 1;
   min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.section-tab {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 200px;
+  border-radius: 7px;
+  color: var(--gray-600);
+
+  &.active {
+    background: var(--gray-100);
+    color: var(--gray-900);
+  }
+}
+
+.section-tab-main {
   display: flex;
   align-items: center;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--gray-900);
+  min-width: 0;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 
   > span {
+    min-width: 0;
     overflow: hidden;
+    font-size: 12px;
+    font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+.section-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--gray-150);
+    color: var(--gray-900);
   }
 }
 
@@ -867,28 +980,65 @@ watch(
   flex: 1;
   overflow: hidden;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-section,
+.subagent-section {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.file-section {
+  display: flex;
+  flex-direction: column;
 }
 
 .files-display {
-  height: 100%;
+  flex: 1;
   min-height: 0;
   display: flex;
 }
 
 .preview-pane {
   flex: 1;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
+  overflow: hidden;
 }
 
 .tree-pane {
   flex: 1;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 6px;
+  padding: 0 6px 6px;
+}
+
+.tree-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 36px;
+  gap: 8px;
+  padding: 4px 4px 4px 8px;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--gray-700);
+  font-size: 12px;
+}
+
+.tree-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .files-display.has-preview.with-tree .tree-pane {
@@ -899,13 +1049,15 @@ watch(
 }
 
 .preview-tabs-bar {
+  flex: 0 0 auto;
   width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 4px;
   overflow-x: auto;
-  padding-bottom: 1px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--gray-100);
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
@@ -996,6 +1148,8 @@ watch(
 
 .side-preview-shell {
   flex: 1;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -1009,8 +1163,16 @@ watch(
 .side-preview-shell :deep(.file-content),
 .side-preview-shell :deep(.side-file-content) {
   flex: 1;
+  height: auto;
   min-height: 0;
   max-height: none;
+}
+
+.side-preview-shell :deep(.pdf-preview),
+.side-preview-shell :deep(.html-preview) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .preview-empty,

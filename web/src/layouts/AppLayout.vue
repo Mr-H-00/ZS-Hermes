@@ -330,15 +330,25 @@ provide('settingsModal', {
           <img :src="infoStore.organization.avatar" class="brand-avatar brand-avatar-image" />
           <PanelLeftOpen class="brand-expand-icon" size="20" />
         </button>
-        <button
-          v-if="!sidebarCollapsed"
-          type="button"
-          class="sidebar-toggle"
-          aria-label="折叠侧边栏"
-          @click="toggleSidebar"
-        >
-          <PanelLeft size="18" />
-        </button>
+        <div v-if="!sidebarCollapsed" class="sidebar-header-actions" aria-label="侧边栏操作">
+          <button
+            type="button"
+            class="sidebar-header-action"
+            :class="{ active: conversationSearchOpen }"
+            aria-label="搜索"
+            @click="openConversationSearch"
+          >
+            <Search size="17" />
+          </button>
+          <button
+            type="button"
+            class="sidebar-header-action"
+            aria-label="折叠侧边栏"
+            @click="toggleSidebar"
+          >
+            <PanelLeft size="17" />
+          </button>
+        </div>
       </div>
       <div class="nav">
         <RouterLink
@@ -363,16 +373,16 @@ provide('settingsModal', {
         </RouterLink>
 
         <button
+          v-if="sidebarCollapsed"
           type="button"
           class="nav-item"
           :class="{ active: conversationSearchOpen }"
+          aria-label="搜索"
           @click.stop="openConversationSearch"
         >
-          <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
-            <template #title>搜索</template>
+          <a-tooltip placement="right" title="搜索">
             <Search class="icon" size="18" />
           </a-tooltip>
-          <span class="nav-text">搜索</span>
         </button>
 
         <RouterLink
@@ -625,15 +635,22 @@ div.header,
     white-space: nowrap;
   }
 
-  .sidebar-toggle {
+  .sidebar-header-actions {
     display: inline-flex;
-    flex: 0 0 32px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .sidebar-header-action {
+    display: inline-flex;
+    flex: 0 0 30px;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border: 1px solid transparent;
-    border-radius: 8px;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 7px;
     background: transparent;
     color: var(--gray-600);
     cursor: pointer;
@@ -644,10 +661,13 @@ div.header,
 
     &:hover,
     &:focus-visible {
-      border-color: var(--main-50);
       background: var(--main-20);
       color: var(--main-color);
       outline: none;
+    }
+    &.active {
+      background: var(--main-20);
+      color: var(--main-color);
     }
   }
 

@@ -4,6 +4,7 @@
       class="chat"
       :class="{
         'has-file-panel': isFilePanelOpen,
+        'has-maximized-panel': isFilePanelOpen && isAgentPanelMaximized,
         'is-resizing-file-panel': isResizing
       }"
       :style="{ '--file-panel-width': filePanelWidthStyle }"
@@ -84,9 +85,17 @@
                   >
                   </AgentMessageComponent>
                   <ToolCallsGroupComponent
-                    v-else
+                    v-else-if="displayItem.type === 'tool-group'"
                     :tool-calls="displayItem.toolCalls"
                     :is-active="isToolGroupActive(row.conv, itemIndex, row.displayItems)"
+                  />
+                  <ConversationProcessGroupComponent
+                    v-else
+                    :items="displayItem.items"
+                    :message-count="displayItem.messageCount"
+                    :tool-call-count="displayItem.toolCallCount"
+                    :duration-ms="displayItem.durationMs"
+                    :mention="mentionConfig"
                   />
                 </template>
                 <AgentArtifactsCard
@@ -667,6 +676,7 @@
       </div>
 
       <div
+        v-if="hasAgentPanelMounted"
         id="agent-file-panel"
         class="side-panel side-panel--file"
         ref="panelWrapperRef"
@@ -679,7 +689,6 @@
         }"
       >
         <AgentPanel
-          v-if="isFilePanelOpen"
           :agent-state="currentAgentState"
           :thread-id="currentChatId"
           :panel-ratio="panelRatio"
@@ -687,6 +696,9 @@
           :preview-cache="agentPanelPreviewCache"
           :active-preview-path="agentPanelActivePreviewPath"
           :view-mode="agentPanelViewMode"
+          :maximized="isAgentPanelMaximized"
+          :sections="agentPanelSections"
+          :active-section-key="agentPanelActiveSectionKey"
           @close="closeFilePanel"
           @refresh="handleAgentStateRefresh"
           @resize="handlePanelResize"
@@ -696,21 +708,13 @@
           @close-preview-tab="closePanelPreviewTab"
           @close-preview-path="closePanelPreviewPath"
           @view-mode-change="setAgentPanelViewMode"
+          @toggle-maximize="toggleAgentPanelMaximized"
+          @activate-section="activateAgentPanelSection"
+          @close-section="closeAgentPanelSection"
         />
       </div>
     </div>
 
-    <SubagentThreadModal
-      v-model:open="subagentThreadModal.open"
-      :child-thread-id="subagentThreadModal.childThreadId"
-      :run-id="activeSubagentThreadRunId"
-      :run-status="activeSubagentThreadRunStatus"
-      :subagent-name="activeSubagentThreadName"
-      :subagent-avatar="activeSubagentThreadAvatar"
-      :subagent-default-avatar="activeSubagentThreadDefaultAvatar"
-      :ongoing-messages="activeSubagentThreadOngoingMessages"
-      :is-streaming="activeSubagentThreadIsStreaming"
-    />
   </div>
 </template>
 
@@ -753,6 +757,7 @@ import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
 import RefsComponent from '@/components/RefsComponent.vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
+import ConversationProcessGroupComponent from '@/components/ConversationProcessGroupComponent.vue'
 import { handleChatError, handleValidationError } from '@/utils/errorHandler'
 import {
   DRAFT_THREAD_ID,
@@ -779,11 +784,15 @@ import { useAgentMentionConfig } from '@/composables/useAgentMentionConfig'
 import AgentArtifactsCard from '@/components/AgentArtifactsCard.vue'
 import AgentPanel from '@/components/AgentPanel.vue'
 import AttachmentTmpUploadModal from '@/components/AttachmentTmpUploadModal.vue'
-import SubagentThreadModal from '@/components/SubagentThreadModal.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import { enrichTaskToolCalls, parseToolCallArgs } from '@/components/ToolCallingResult/toolRegistry'
 import { getConversationDisplayItems } from '@/utils/messageGrouping'
 import { makeChildThreadId } from '@/utils/subagentThread'
+import {
+  FILE_TREE_SECTION,
+  closeAgentPanelSection as closePanelSectionState,
+  upsertAgentPanelSection
+} from '@/utils/agentPanelSections'
 import {
   isRunInterruptedConflict,
   isThreadWaitingForUserAction,
@@ -892,6 +901,7 @@ const localUIState = reactive({
 
 // Agent Panel State
 const isFilePanelOpen = ref(false)
+const hasAgentPanelMounted = ref(false)
 const statePanelOpen = ref(false)
 const sideActive = computed(() => {
   if (isFilePanelOpen.value) return 'file'
@@ -899,8 +909,9 @@ const sideActive = computed(() => {
   return ''
 })
 const isResizing = ref(false)
-const defaultPanelRatio = 0.3
-const previewPanelRatio = 0.65
+const isAgentPanelMaximized = ref(false)
+const defaultPanelRatio = 0.5
+const previewPanelRatio = 0.5
 const minPanelRatio = 0.25
 const maxPanelRatio = 0.75
 const minChatMainWidth = 350
@@ -914,6 +925,8 @@ const agentPanelPreviewTabs = ref([])
 const agentPanelPreviewCache = reactive(new Map())
 const agentPanelActivePreviewPath = ref('')
 const agentPanelViewMode = ref('tree')
+const agentPanelSections = ref([FILE_TREE_SECTION])
+const agentPanelActiveSectionKey = ref(FILE_TREE_SECTION.key)
 const chatContentContainerRef = ref(null)
 const panelWrapperRef = ref(null) // 直接操作 DOM
 const TODO_NAME_MAX_LENGTH = 20
@@ -958,6 +971,10 @@ const clampPanelRatio = (ratio, containerWidth = getPanelContainerWidth()) => {
 
 const filePanelWidthStyle = computed(() => {
   if (!isFilePanelOpen.value) return '0px'
+  if (isAgentPanelMaximized.value) {
+    const containerWidth = localUIState.chatContentWidth || getPanelContainerWidth()
+    return containerWidth ? `${containerWidth}px` : '100%'
+  }
   if (filePanelDragWidth.value !== null) return `${filePanelDragWidth.value}px`
 
   const containerWidth = localUIState.chatContentWidth || getPanelContainerWidth()
@@ -983,6 +1000,7 @@ const setPanelRatioForViewMode = () => {
 }
 
 const showFilePanel = (mode = 'tree') => {
+  hasAgentPanelMounted.value = true
   isFilePanelOpen.value = true
   statePanelOpen.value = false
   agentPanelViewMode.value =
@@ -991,8 +1009,10 @@ const showFilePanel = (mode = 'tree') => {
 }
 
 const showFileTreePanel = () => {
+  hasAgentPanelMounted.value = true
   isFilePanelOpen.value = true
   statePanelOpen.value = false
+  agentPanelActiveSectionKey.value = FILE_TREE_SECTION.key
   agentPanelActivePreviewPath.value = ''
   agentPanelViewMode.value = 'tree'
   setPanelRatioForViewMode()
@@ -1050,11 +1070,15 @@ const isSameOrChildPanelPath = (path, targetPath) => {
 
 const resetAgentPanelState = () => {
   isFilePanelOpen.value = false
+  hasAgentPanelMounted.value = false
   statePanelOpen.value = false
   panelRatio.value = defaultPanelRatio
+  isAgentPanelMaximized.value = false
   agentPanelPreviewTabs.value = []
   agentPanelActivePreviewPath.value = ''
   agentPanelViewMode.value = 'tree'
+  agentPanelSections.value = [FILE_TREE_SECTION]
+  agentPanelActiveSectionKey.value = FILE_TREE_SECTION.key
 }
 
 const previewCacheKey = (path, threadId = currentChatId.value) => `${threadId}:${path}`
@@ -1083,6 +1107,7 @@ const setAgentPanelViewMode = (mode) => {
 
 const activatePanelPreview = (path) => {
   if (!path) return
+  agentPanelActiveSectionKey.value = `file:${path}`
   agentPanelActivePreviewPath.value = path
   showFilePanel('preview')
 }
@@ -1110,7 +1135,14 @@ const openPanelPreview = (file, keepTreeOpen = false) => {
   }
 
   agentPanelActivePreviewPath.value = tab.path
-  showFilePanel(keepTreeOpen ? 'tree' : 'preview')
+  agentPanelSections.value = upsertAgentPanelSection(agentPanelSections.value, {
+    key: `file:${tab.path}`,
+    type: 'file',
+    title: tab.name,
+    path: tab.path
+  })
+  agentPanelActiveSectionKey.value = keepTreeOpen ? FILE_TREE_SECTION.key : `file:${tab.path}`
+  showFilePanel('preview')
 }
 
 const closePanelPreviewTab = (path) => {
@@ -1118,15 +1150,23 @@ const closePanelPreviewTab = (path) => {
 
   releasePreviewCacheEntry(path)
 
-  const closingIndex = agentPanelPreviewTabs.value.findIndex((item) => item.path === path)
   const nextTabs = agentPanelPreviewTabs.value.filter((item) => item.path !== path)
   agentPanelPreviewTabs.value = nextTabs
+  const nextSectionState = closePanelSectionState(
+    agentPanelSections.value,
+    agentPanelActiveSectionKey.value,
+    `file:${path}`
+  )
+  agentPanelSections.value = nextSectionState.sections
+  agentPanelActiveSectionKey.value = nextSectionState.activeKey || FILE_TREE_SECTION.key
 
   if (agentPanelActivePreviewPath.value !== path) return
 
-  const nextActiveTab = nextTabs[Math.min(closingIndex, nextTabs.length - 1)]
-  agentPanelActivePreviewPath.value = nextActiveTab?.path || ''
-  agentPanelViewMode.value = nextActiveTab ? 'preview' : 'tree'
+  const activeSection = agentPanelSections.value.find(
+    (section) => section.key === agentPanelActiveSectionKey.value
+  )
+  agentPanelActivePreviewPath.value = activeSection?.type === 'file' ? activeSection.path : ''
+  agentPanelViewMode.value = activeSection?.type === 'file' ? 'preview' : 'tree'
   setPanelRatioForViewMode()
 }
 
@@ -1140,12 +1180,23 @@ const closePanelPreviewPath = (targetPath) => {
   )
   const shouldCloseActive = isSameOrChildPanelPath(agentPanelActivePreviewPath.value, targetPath)
   agentPanelPreviewTabs.value = nextTabs
+  const removedPaths = agentPanelSections.value
+    .filter((section) => section.type === 'file' && isSameOrChildPanelPath(section.path, targetPath))
+    .map((section) => section.key)
+  agentPanelSections.value = agentPanelSections.value.filter(
+    (section) => !removedPaths.includes(section.key)
+  )
+  if (removedPaths.includes(agentPanelActiveSectionKey.value)) {
+    agentPanelActiveSectionKey.value = FILE_TREE_SECTION.key
+  }
 
   if (!shouldCloseActive) return
 
-  const nextActiveTab = nextTabs[0]
-  agentPanelActivePreviewPath.value = nextActiveTab?.path || ''
-  agentPanelViewMode.value = nextActiveTab ? 'preview' : 'tree'
+  const activeSection = agentPanelSections.value.find(
+    (section) => section.key === agentPanelActiveSectionKey.value
+  )
+  agentPanelActivePreviewPath.value = activeSection?.type === 'file' ? activeSection.path : ''
+  agentPanelViewMode.value = activeSection?.type === 'file' ? 'preview' : 'tree'
   setPanelRatioForViewMode()
 }
 
@@ -1587,24 +1638,46 @@ const currentSubagentOptionBySlug = computed(() => {
   return optionBySlug
 })
 
-const subagentThreadModal = reactive({
-  open: false,
-  childThreadId: '',
-  runId: '',
-  runStatus: '',
-  subagentName: '',
-  subagentAvatar: '',
-  subagentDefaultAvatar: ''
-})
 const openSubagentThread = (run) => {
   if (!run?.child_thread_id) return
-  subagentThreadModal.childThreadId = String(run.child_thread_id)
-  subagentThreadModal.runId = run.run_id ? String(run.run_id) : ''
-  subagentThreadModal.runStatus = run.status ? String(run.status) : ''
-  subagentThreadModal.subagentName = getSubagentRunName(run)
-  subagentThreadModal.subagentAvatar = getSubagentIconSrc(run)
-  subagentThreadModal.subagentDefaultAvatar = getSubagentDefaultIconSrc(run)
-  subagentThreadModal.open = true
+  const threadId = String(run.child_thread_id)
+  const key = `subagent:${threadId}`
+  const section = {
+    key,
+    type: 'subagent',
+    title: getSubagentRunName(run),
+    threadId,
+    avatar: getSubagentIconSrc(run),
+    defaultAvatar: getSubagentDefaultIconSrc(run)
+  }
+  agentPanelSections.value = upsertAgentPanelSection(agentPanelSections.value, section)
+  agentPanelActiveSectionKey.value = key
+  hasAgentPanelMounted.value = true
+  isFilePanelOpen.value = true
+  statePanelOpen.value = false
+  panelRatio.value = clampPanelRatio(previewPanelRatio)
+}
+const activateAgentPanelSection = (key) => {
+  const section = agentPanelSections.value.find((item) => item.key === key)
+  if (!section) return
+  agentPanelActiveSectionKey.value = key
+  if (section.type === 'file') {
+    agentPanelActivePreviewPath.value = section.path
+  }
+}
+const closeAgentPanelSection = (key) => {
+  const section = agentPanelSections.value.find((item) => item.key === key)
+  if (section?.type === 'file') {
+    closePanelPreviewTab(section.path)
+    return
+  }
+  const next = closePanelSectionState(
+    agentPanelSections.value,
+    agentPanelActiveSectionKey.value,
+    key
+  )
+  agentPanelSections.value = next.sections
+  agentPanelActiveSectionKey.value = next.activeKey
 }
 const isStateSectionExpanded = (key) => !collapsedStateSections[key]
 const toggleStateSection = (key) => {
@@ -1854,50 +1927,6 @@ const displaySubagentRuns = computed(() => {
   })
   return merged
 })
-
-const activeSubagentThreadRun = computed(() => {
-  if (!subagentThreadModal.childThreadId) return null
-  return (
-    displaySubagentRuns.value.find(
-      (run) => String(run?.child_thread_id || '') === subagentThreadModal.childThreadId
-    ) || null
-  )
-})
-const activeSubagentThreadName = computed(() =>
-  activeSubagentThreadRun.value
-    ? getSubagentRunName(activeSubagentThreadRun.value)
-    : subagentThreadModal.subagentName
-)
-const activeSubagentThreadRunId = computed(() =>
-  activeSubagentThreadRun.value?.run_id
-    ? String(activeSubagentThreadRun.value.run_id)
-    : subagentThreadModal.runId
-)
-const activeSubagentThreadRunStatus = computed(() =>
-  activeSubagentThreadRun.value?.status
-    ? String(activeSubagentThreadRun.value.status)
-    : subagentThreadModal.runStatus
-)
-const activeSubagentThreadAvatar = computed(() =>
-  activeSubagentThreadRun.value
-    ? getSubagentIconSrc(activeSubagentThreadRun.value) || subagentThreadModal.subagentAvatar
-    : subagentThreadModal.subagentAvatar
-)
-const activeSubagentThreadDefaultAvatar = computed(() =>
-  activeSubagentThreadRun.value
-    ? getSubagentDefaultIconSrc(activeSubagentThreadRun.value) ||
-      subagentThreadModal.subagentDefaultAvatar
-    : subagentThreadModal.subagentDefaultAvatar
-)
-const activeSubagentThreadOngoingMessages = computed(() => {
-  if (!subagentThreadModal.childThreadId) return []
-  return getThreadOngoingMessages(subagentThreadModal.childThreadId)
-})
-const activeSubagentThreadIsStreaming = computed(
-  () =>
-    activeSubagentThreadOngoingMessages.value.length > 0 ||
-    activeSubagentThreadRun.value?.status === 'running'
-)
 
 // 首次运行的子智能体：前端按后端同样的哈希推算 child_thread_id，缓存到映射里供面板/轨迹定位。
 watch(
@@ -3290,6 +3319,13 @@ const toggleStatePanel = async () => {
 
 const closeFilePanel = () => {
   isFilePanelOpen.value = false
+  isAgentPanelMaximized.value = false
+  filePanelDragWidth.value = null
+}
+
+const toggleAgentPanelMaximized = () => {
+  if (isResizing.value) return
+  isAgentPanelMaximized.value = !isAgentPanelMaximized.value
   filePanelDragWidth.value = null
 }
 
@@ -3308,7 +3344,7 @@ const toggleAgentPanel = async () => {
 // 处理面板宽度调整（使用比例）
 // 向右拖动(deltaX > 0)让面板变窄，向左拖动(deltaX < 0)让面板变宽
 const handlePanelResize = (clientX) => {
-  if (!panelWrapperRef.value) return
+  if (!panelWrapperRef.value || isAgentPanelMaximized.value) return
 
   if (!panelContainerWidth) {
     panelContainerWidth = getPanelContainerWidth()
@@ -3330,6 +3366,7 @@ const handlePanelResize = (clientX) => {
 
 // 拖拽状态变化时，同步最终状态到 Vue 响应式数据
 const handleResizingChange = (isResizingState, clientX = 0) => {
+  if (isAgentPanelMaximized.value) return
   isResizing.value = isResizingState
 
   if (isResizingState && panelWrapperRef.value) {
@@ -3365,7 +3402,10 @@ const getMessageToolCalls = (message) => {
 }
 
 const getDisplayItems = (conv) =>
-  getConversationDisplayItems(conv, { enrichToolCalls: getMessageToolCalls })
+  getConversationDisplayItems(conv, {
+    enrichToolCalls: getMessageToolCalls,
+    collapseIntermediate: conv?.status !== 'streaming' && isConversationSettled(conv)
+  })
 
 const isDisplayMessageProcessing = (conv, displayItem) => {
   return (
@@ -3646,6 +3686,10 @@ watch(currentChatId, (threadId, oldThreadId) => {
     padding-right: calc(var(--file-panel-width) + 8px);
   }
 
+  &.has-maximized-panel .chat-header {
+    padding-right: 8px;
+  }
+
   &.is-resizing-file-panel {
     .chat-header,
     .chat-main {
@@ -3681,6 +3725,11 @@ watch(currentChatId, (threadId, oldThreadId) => {
 
 .chat-content-container.has-file-panel .chat-main {
   margin-right: var(--file-panel-width);
+}
+
+.chat.has-maximized-panel .chat-main {
+  margin-right: 0;
+  min-width: 0;
 }
 
 .side-panel {

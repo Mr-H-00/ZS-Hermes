@@ -4,10 +4,10 @@ import taskLists from 'markdown-it-task-lists'
 import DOMPurify from 'dompurify'
 import { createHighlighter } from 'shiki'
 import yaml from 'js-yaml'
-import { escapeHtml } from '@/utils/html'
-import { normalizeCodeLanguage } from '@/utils/file_preview'
-import { renderSvgBlocks } from './svgRenderer'
-import { renderHtmlPreviewBlocks } from './htmlPreviewRenderer'
+import { escapeHtml } from './html.js'
+import { normalizeCodeLanguage } from './file_preview.js'
+import { renderSvgBlocks } from './svgRenderer.js'
+import { renderHtmlPreviewBlocks } from './htmlPreviewRenderer.js'
 
 const markdownKatexPlugin = markdownItKatex.default || markdownItKatex
 const FRONTMATTER_MARKER = '---'
@@ -169,7 +169,7 @@ const ensureLanguages = async (highlighter, languages) => {
   )
 }
 
-const createRenderer = ({ themeName, highlighter }) =>
+export const createMarkdownRenderer = ({ themeName, highlighter }) =>
   new MarkdownIt({
     html: true,
     breaks: true,
@@ -195,8 +195,13 @@ const getRenderer = async (theme, needsHighlight) => {
   if (cached) return cached
 
   const rendererPromise = needsHighlight
-    ? getHighlighter().then((highlighter) => createRenderer({ themeName, highlighter }))
-    : Promise.resolve(createRenderer({ themeName }))
+    ? getHighlighter()
+        .then((highlighter) => createMarkdownRenderer({ themeName, highlighter }))
+        .catch((error) => {
+          console.warn('Markdown code highlighting unavailable, rendering without Shiki:', error)
+          return createMarkdownRenderer({ themeName })
+        })
+    : Promise.resolve(createMarkdownRenderer({ themeName }))
   rendererCache.set(cacheKey, rendererPromise)
   return rendererPromise
 }
@@ -223,8 +228,12 @@ export const renderMarkdown = async (content, { theme = 'github-light' } = {}) =
     if (cachedHtml !== undefined) return cachedHtml
 
     if (needsHighlight) {
-      const highlighter = await getHighlighter()
-      await ensureLanguages(highlighter, collectCodeFenceLanguages(svgContent))
+      try {
+        const highlighter = await getHighlighter()
+        await ensureLanguages(highlighter, collectCodeFenceLanguages(svgContent))
+      } catch (error) {
+        console.warn('Markdown languages unavailable, continuing without code highlighting:', error)
+      }
     }
 
     const md = await getRenderer(themeName, needsHighlight)
