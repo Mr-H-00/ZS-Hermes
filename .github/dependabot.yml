@@ -4,81 +4,25 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
-    open-pull-requests-limit: 2
-    cooldown:
-      default-days: 7
-    groups:
-      backend-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - patch
-    allow:
-      - dependency-name: "*"
-        update-types:
-          - version-update:semver-patch
-          - version-update:semver-minor
+    open-pull-requests-limit: 0
 
   - package-ecosystem: uv
     directory: /packages/yuxi-cli
     schedule:
       interval: weekly
-    open-pull-requests-limit: 1
-    cooldown:
-      default-days: 7
-    groups:
-      cli-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - patch
-    allow:
-      - dependency-name: "*"
-        update-types:
-          - version-update:semver-patch
-          - version-update:semver-minor
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
-    open-pull-requests-limit: 2
-    cooldown:
-      default-days: 7
-    groups:
-      web-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - patch
-    allow:
-      - dependency-name: "*"
-        update-types:
-          - version-update:semver-patch
-          - version-update:semver-minor
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: /docs
     schedule:
       interval: weekly
-    open-pull-requests-limit: 1
-    cooldown:
-      default-days: 7
-    groups:
-      docs-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - patch
-    allow:
-      - dependency-name: "*"
-        update-types:
-          - version-update:semver-patch
-          - version-update:semver-minor
+    open-pull-requests-limit: 0
 
   - package-ecosystem: docker
     directories:
@@ -98,10 +42,4 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 1
-    cooldown:
-      default-days: 7
-    groups:
-      github-actions:
-        patterns:
-          - "*"
+    open-pull-requests-limit: 0

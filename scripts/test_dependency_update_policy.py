@@ -19,56 +19,27 @@ def verify_policy(root: Path) -> list[str]:
         encoding="utf-8"
     )
 
-    application_policies = (
-        ("uv", "/backend", "backend-dependencies", 2),
-        ("uv", "/packages/yuxi-cli", "cli-dependencies", 1),
-        ("npm", "/web", "web-dependencies", 2),
-        ("npm", "/docs", "docs-dependencies", 1),
+    update_entries = (
+        ("uv", "/backend", "/backend"),
+        ("uv", "/packages/yuxi-cli", "/packages/yuxi-cli"),
+        ("npm", "/web", "/web"),
+        ("npm", "/docs", "/docs"),
+        ("docker", None, "docker"),
+        ("docker-compose", None, "docker-compose"),
+        ("github-actions", None, "GitHub Actions"),
     )
-    for ecosystem, directory, group, limit in application_policies:
+    for ecosystem, directory, label in update_entries:
         section = _dependabot_section(dependabot, ecosystem, directory)
-        required = (
-            f"open-pull-requests-limit: {limit}",
-            "default-days: 7",
-            f"{group}:",
-            "applies-to: version-updates",
-            'patterns:\n          - "*"',
-            "update-types:\n          - patch",
-        )
-        for fragment in required:
-            if fragment not in section:
-                errors.append(f"{directory} 的 Dependabot 策略缺少：{fragment}")
-        if "version-update:semver-major" in section or "ignore:" in section:
-            errors.append(f"{directory} 不能用 ignore 屏蔽跨 major 安全更新")
-        group_section = section.split(f"{group}:\n", 1)[-1].split("    allow:\n", 1)[0]
-        if "applies-to: security-updates" in group_section:
-            errors.append(f"{directory} 的应用聚合组只能作用于常规版本更新")
-        if "          - minor\n" in group_section:
-            errors.append(f"{directory} 的 minor 更新不能进入聚合组")
-        allow_section = section.split("    allow:\n", 1)[-1]
-        expected_allow = (
-            '      - dependency-name: "*"\n'
-            "        update-types:\n"
-            "          - version-update:semver-patch\n"
-            "          - version-update:semver-minor\n"
-        )
-        if expected_allow not in allow_section:
-            errors.append(f"{directory} 必须通过同一通配 allow 接收 patch/minor")
-
-    for ecosystem in ("docker", "docker-compose"):
-        section = _dependabot_section(dependabot, ecosystem)
+        if not section:
+            errors.append(f"{label} 缺少 Dependabot update entry")
+            continue
+        if "schedule:\n      interval: weekly" not in section:
+            errors.append(f"{label} 必须保留 weekly schedule")
         if "open-pull-requests-limit: 0" not in section:
-            errors.append(f"{ecosystem} 必须关闭常规版本 PR")
-
-    actions = _dependabot_section(dependabot, "github-actions")
-    for fragment in (
-        "open-pull-requests-limit: 1",
-        "default-days: 7",
-        "github-actions:",
-        'patterns:\n          - "*"',
-    ):
-        if fragment not in actions:
-            errors.append(f"GitHub Actions 更新策略缺少：{fragment}")
+            errors.append(f"{label} 必须关闭常规版本 PR")
+        for unused in ("groups:", "allow:", "ignore:", "cooldown:"):
+            if unused in section:
+                errors.append(f"{label} 关闭常规更新后不应保留：{unused}")
 
     required_paths = (
         '".github/workflows/dependency-audit.yml"',
@@ -130,8 +101,16 @@ class DependencyUpdatePolicyTest(unittest.TestCase):
             self._copy_policy_files(root)
             path = root / ".github/dependabot.yml"
             content = path.read_text(encoding="utf-8")
+            docker_section = _dependabot_section(content, "docker")
             path.write_text(
-                content.replace("open-pull-requests-limit: 0", "open-pull-requests-limit: 5", 1),
+                content.replace(
+                    docker_section,
+                    docker_section.replace(
+                        "open-pull-requests-limit: 0",
+                        "open-pull-requests-limit: 5",
+                    ),
+                    1,
+                ),
                 encoding="utf-8",
             )
 
@@ -153,23 +132,7 @@ class DependencyUpdatePolicyTest(unittest.TestCase):
                 verify_policy(root),
             )
 
-    def test_security_updates_must_not_be_ignored(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            self._copy_policy_files(root)
-            path = root / ".github/dependabot.yml"
-            content = path.read_text(encoding="utf-8")
-            path.write_text(
-                content.replace("    allow:\n", "    ignore:\n", 1),
-                encoding="utf-8",
-            )
-
-            self.assertIn(
-                "/backend 不能用 ignore 屏蔽跨 major 安全更新",
-                verify_policy(root),
-            )
-
-    def test_minor_updates_must_not_be_grouped(self) -> None:
+    def test_closed_version_updates_do_not_keep_unused_rules(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             self._copy_policy_files(root)
@@ -177,55 +140,31 @@ class DependencyUpdatePolicyTest(unittest.TestCase):
             content = path.read_text(encoding="utf-8")
             path.write_text(
                 content.replace(
-                    "        update-types:\n          - patch\n",
-                    "        update-types:\n          - patch\n          - minor\n",
+                    "    open-pull-requests-limit: 0\n",
+                    "    open-pull-requests-limit: 0\n    groups:\n      patch:\n        patterns: [\"*\"]\n",
                     1,
                 ),
                 encoding="utf-8",
             )
 
             self.assertIn(
-                "/backend 的 minor 更新不能进入聚合组",
+                "/backend 关闭常规更新后不应保留：groups:",
                 verify_policy(root),
             )
 
-    def test_application_groups_must_not_group_security_updates(self) -> None:
+    def test_update_entries_require_a_schedule(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             self._copy_policy_files(root)
             path = root / ".github/dependabot.yml"
             content = path.read_text(encoding="utf-8")
             path.write_text(
-                content.replace(
-                    "        applies-to: version-updates\n",
-                    "        applies-to: security-updates\n",
-                    1,
-                ),
+                content.replace("    schedule:\n      interval: weekly\n", "", 1),
                 encoding="utf-8",
             )
 
             self.assertIn(
-                "/backend 的应用聚合组只能作用于常规版本更新",
-                verify_policy(root),
-            )
-
-    def test_minor_allow_must_apply_to_all_dependencies(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            self._copy_policy_files(root)
-            path = root / ".github/dependabot.yml"
-            content = path.read_text(encoding="utf-8")
-            path.write_text(
-                content.replace(
-                    "          - version-update:semver-minor\n",
-                    "",
-                    1,
-                ),
-                encoding="utf-8",
-            )
-
-            self.assertIn(
-                "/backend 必须通过同一通配 allow 接收 patch/minor",
+                "/backend 必须保留 weekly schedule",
                 verify_policy(root),
             )
 
