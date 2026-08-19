@@ -22,7 +22,7 @@
         }"
         @click="$emit('select-path', savedArtifactsPath)"
       >
-        <FileTypeIcon is-dir folder-variant="favorite" :size="18" />
+        <FileTypeIcon is-dir :size="18" />
         <span>保存的交付物</span>
       </button>
       <button
@@ -31,7 +31,7 @@
         :class="{ active: activeKey === 'personal' && isSamePath(currentPath, agentsPath) }"
         @click="$emit('select-path', agentsPath)"
       >
-        <FileTypeIcon is-dir folder-variant="agent" :size="18" />
+        <FileTypeIcon is-dir :size="18" />
         <span>智能体文件</span>
       </button>
       <button

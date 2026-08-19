@@ -13,7 +13,7 @@
     <div v-if="showHeader" class="preview-header">
       <div class="file-title">
         <FileTypeIcon v-if="showFileIcon" :name="filePath" :size="16" />
-        <span class="file-path-title">{{ filePath }}</span>
+        <span class="file-path-title">{{ displayFilePath }}</span>
       </div>
       <div class="modal-actions">
         <button
@@ -451,6 +451,9 @@ const htmlPreviewScale = ref(HTML_PREVIEW_DEFAULT_SCALE)
 const zoomInDisabled = computed(() => htmlPreviewScale.value >= HTML_PREVIEW_SCALE_MAX)
 const zoomOutDisabled = computed(() => htmlPreviewScale.value <= HTML_PREVIEW_SCALE_MIN)
 const htmlPreviewScalePercent = computed(() => Math.round(htmlPreviewScale.value * 100))
+const displayFilePath = computed(() =>
+  String(props.filePath || '').replace(/^\/home\/gem\/user-data(?=\/|$)/, '~')
+)
 
 const isMarkdown = computed(() => isMarkdownPreview(props.filePath, props.file?.previewType))
 const canEdit = computed(() => {
@@ -605,10 +608,14 @@ onUnmounted(() => {
 }
 
 .agent-file-preview.is-full-height {
-  max-height: 100vh;
+  width: 100%;
+  height: 100%;
+  max-height: none;
 }
 
 .agent-file-preview.is-full-height .file-content {
+  flex: 1 1 0;
+  height: auto;
   min-height: 0;
 }
 
@@ -660,8 +667,8 @@ onUnmounted(() => {
 
 .file-path-title {
   font-weight: 400;
-  font-size: 14px;
-  color: var(--gray-700);
+  font-size: 12px;
+  color: var(--gray-600);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -944,7 +951,7 @@ onUnmounted(() => {
 .pdf-preview {
   width: 100%;
   height: 100%;
-  min-height: calc(80vh - 40px);
+  min-height: 0;
   border: none;
   border-radius: 6px;
   background: var(--gray-25);

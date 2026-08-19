@@ -1,5 +1,6 @@
 import MessageProcessor from '@/utils/messageProcessor'
 import { enrichTaskToolCalls } from '@/components/ToolCallingResult/toolRegistry'
+import { collapseConversationProcess } from '@/utils/conversationProcessGrouping'
 
 const hasVisibleAssistantBody = (message) => {
   if (!message || message.type !== 'ai') return true
@@ -19,7 +20,7 @@ const defaultEnrichToolCalls = (message) => enrichTaskToolCalls(message?.tool_ca
 // 将 AI 消息拆成“正文块”和“工具块”，再跨消息合并相邻工具块。
 export const getConversationDisplayItems = (
   conv,
-  { enrichToolCalls = defaultEnrichToolCalls } = {}
+  { enrichToolCalls = defaultEnrichToolCalls, collapseIntermediate = false } = {}
 ) => {
   if (!Array.isArray(conv?.messages) || conv.messages.length === 0) return []
 
@@ -69,5 +70,5 @@ export const getConversationDisplayItems = (
   })
 
   flushToolGroup()
-  return items
+  return collapseConversationProcess(items, collapseIntermediate)
 }

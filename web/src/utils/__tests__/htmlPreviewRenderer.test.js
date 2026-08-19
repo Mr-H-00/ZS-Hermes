@@ -27,6 +27,7 @@ const run = () => {
     assert.ok(result.includes('html-preview-render'))
     assert.ok(result.includes('--html-preview-width: 800px'))
     assert.ok(result.includes('--html-preview-height: 360px'))
+    assert.ok(result.includes('--html-preview-loading-height: 180px'))
     assert.ok(result.includes('--html-preview-min-height: 1px'))
     assert.ok(result.includes('--html-preview-max-height: 700px'))
     assert.ok(!result.includes('html-preview-header'))

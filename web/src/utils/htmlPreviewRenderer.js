@@ -2,6 +2,7 @@ import { escapeHtml } from './html.js'
 
 export const HTML_PREVIEW_WIDTH = 800
 export const HTML_PREVIEW_HEIGHT = 360
+export const HTML_PREVIEW_LOADING_HEIGHT = 180
 export const HTML_PREVIEW_MIN_HEIGHT = 1
 export const HTML_PREVIEW_MAX_HEIGHT = 700
 
@@ -12,7 +13,7 @@ const isStreamingHtmlPreviewLanguage = (language) =>
 
 const renderHtmlPreviewContainer = (content) =>
   [
-    `<div class="html-preview-render" style="--html-preview-width: ${HTML_PREVIEW_WIDTH}px; --html-preview-height: ${HTML_PREVIEW_HEIGHT}px; --html-preview-min-height: ${HTML_PREVIEW_MIN_HEIGHT}px; --html-preview-max-height: ${HTML_PREVIEW_MAX_HEIGHT}px;">`,
+    `<div class="html-preview-render" style="--html-preview-width: ${HTML_PREVIEW_WIDTH}px; --html-preview-height: ${HTML_PREVIEW_HEIGHT}px; --html-preview-loading-height: ${HTML_PREVIEW_LOADING_HEIGHT}px; --html-preview-min-height: ${HTML_PREVIEW_MIN_HEIGHT}px; --html-preview-max-height: ${HTML_PREVIEW_MAX_HEIGHT}px;">`,
     content,
     `</div>`
   ].join('')

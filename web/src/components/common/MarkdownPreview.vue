@@ -928,8 +928,8 @@ const showCopiedFeedback = (btn) => {
   .html-preview-loading-slot {
     display: block;
     width: 100%;
-    height: clamp(var(--html-preview-height, 360px), 58vh, var(--html-preview-max-height, 1200px));
-    padding: 24px;
+    height: min(var(--html-preview-loading-height, 180px), 29vh);
+    padding: 14px;
     background: linear-gradient(180deg, #fff 0%, var(--gray-50) 100%);
   }
 
@@ -937,7 +937,7 @@ const showCopiedFeedback = (btn) => {
     box-sizing: border-box;
     width: 100%;
     height: 100%;
-    padding: 26px 28px;
+    padding: 14px 18px;
   }
 
   .html-preview-loading-text {
@@ -972,27 +972,27 @@ const showCopiedFeedback = (btn) => {
 
   .html-preview-skeleton-title {
     width: min(280px, 52%);
-    height: 28px;
-    margin-bottom: 22px;
+    height: 20px;
+    margin-bottom: 14px;
     border-radius: 6px;
   }
 
   .html-preview-skeleton-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
-    margin-bottom: 22px;
+    gap: 10px;
+    margin-bottom: 12px;
   }
 
   .html-preview-skeleton-card {
-    height: 84px;
+    height: 42px;
     border-radius: 8px;
   }
 
   .html-preview-skeleton-line {
     width: 70%;
     height: 14px;
-    margin-top: 12px;
+    margin-top: 8px;
     border-radius: 999px;
   }
 
