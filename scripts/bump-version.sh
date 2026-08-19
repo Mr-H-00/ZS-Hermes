@@ -31,12 +31,12 @@ set -euo pipefail
 # 3. 脚本运行后必须检查:
 #    - git diff，确认只有预期版本文件变化。
 #    - backend/package/pyproject.toml、backend/pyproject.toml、web/package.json、
-#      docker-compose*.yml、backend/*uv.lock 中的 Yuxi 版本一致。
+#      docker-compose*.yml、backend/uv.lock 中的 Yuxi 版本一致。
 #    - dev 模式下 README.md、README.en.md、docs/intro/quick-start.md 和文档首页
 #      不应被更新。
 #
 # 4. 必须先提交版本更新，再创建 tag。tag 要指向包含版本更新的提交:
-#    git add backend/package/pyproject.toml backend/package/uv.lock backend/pyproject.toml backend/uv.lock docker-compose.yml docker-compose.prod.yml web/package.json
+#    git add backend/package/pyproject.toml backend/pyproject.toml backend/uv.lock docker-compose.yml docker-compose.prod.yml web/package.json
 #    git commit -m 'chore(release): 升级版本到 0.7.1.dev2'
 #    git tag v0.7.1.dev2
 #
@@ -103,7 +103,6 @@ echo "  - web/package.json"
 echo "  - docker-compose.yml"
 echo "  - docker-compose.prod.yml"
 echo "  - backend/uv.lock"
-echo "  - backend/package/uv.lock"
 if [ "$DEV_MODE" = false ]; then
     echo "  - README.md"
     echo "  - README.en.md"
@@ -159,10 +158,6 @@ perl -0pi -e "s/(^name = \"yuxi\"\nversion = \")[^\"]+/\${1}${NEW_VERSION}/m" \
 # yuxi-workspace 版本
 perl -0pi -e "s/(^name = \"yuxi-workspace\"\nversion = \")[^\"]+/\${1}${NEW_VERSION}/m" \
     "${PROJECT_ROOT}/backend/uv.lock"
-
-echo "→ 更新 backend/package/uv.lock"
-perl -0pi -e "s/(^name = \"yuxi\"\nversion = \")[^\"]+/\${1}${NEW_VERSION}/m" \
-    "${PROJECT_ROOT}/backend/package/uv.lock"
 
 # -----------------------------------------------------------------------------
 # 6. 更新文档中的版本引用
