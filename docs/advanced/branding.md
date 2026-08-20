@@ -25,7 +25,7 @@ cp backend/package/yuxi/config/static/info.template.yaml backend/package/yuxi/co
 在 `.env` 中指定配置文件路径：
 
 ```env
-YUXI_BRAND_FILE_PATH=backend/package/yuxi/config/static/info.local.yaml
+YUXI_BRAND_FILE_PATH=package/yuxi/config/static/info.local.yaml
 ```
 
 ::: tip 配置优先级
