@@ -1,12 +1,8 @@
-const USER_DATA_UPLOADS_PREFIX = '/home/gem/user-data/uploads/'
-const USER_DATA_OUTPUTS_PREFIX = '/home/gem/user-data/outputs/'
+const USER_WORKSPACE_PREFIX = '/home/gem/user-data/'
 
 const isTrackedPanelFilePath = (path) => {
   const normalizedPath = String(path || '')
-  return (
-    normalizedPath.startsWith(USER_DATA_UPLOADS_PREFIX) ||
-    normalizedPath.startsWith(USER_DATA_OUTPUTS_PREFIX)
-  )
+  return normalizedPath.startsWith(USER_WORKSPACE_PREFIX)
 }
 
 export const shouldAutoOpenAgentPanel = (threadFiles) => {
@@ -14,5 +10,3 @@ export const shouldAutoOpenAgentPanel = (threadFiles) => {
 
   return threadFiles.some((item) => item?.is_dir !== true && isTrackedPanelFilePath(item?.path))
 }
-
-export { USER_DATA_OUTPUTS_PREFIX, USER_DATA_UPLOADS_PREFIX }

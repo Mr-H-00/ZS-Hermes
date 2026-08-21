@@ -15,7 +15,10 @@ from yuxi.agents.middlewares.summary import (
     create_summary_middleware,
     sanitize_messages_for_summary,
 )
-from yuxi.utils.paths import VIRTUAL_PATH_CONVERSATION_HISTORY, VIRTUAL_PATH_LARGE_TOOL_RESULTS
+from yuxi.agents.backends.paths import workdir_runtime_paths
+
+WORKDIR_PATH = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
+VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_CONVERSATION_HISTORY = workdir_runtime_paths(WORKDIR_PATH)
 
 
 class _DummyModel:
@@ -145,6 +148,7 @@ def compression_events(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 def test_create_summary_middleware_uses_deepagents_with_yuxi_outputs_root() -> None:
     middleware = create_summary_middleware(
         model=_DummyModel(),
+        workdir_path=WORKDIR_PATH,
         trigger=("tokens", 90_000),
         keep=("tokens", 45_000),
         trim_tokens_to_summarize=4000,
@@ -166,6 +170,7 @@ def test_create_summary_middleware_passes_custom_summary_prompt() -> None:
     model = _RecordingModel()
     middleware = create_summary_middleware(
         model=model,
+        workdir_path=WORKDIR_PATH,
         trigger=("messages", 3),
         keep=("messages", 1),
         summary_prompt="CUSTOM SUMMARY PROMPT\n用户要求和偏好必须记录\n{messages}",
@@ -195,6 +200,7 @@ def test_wrap_model_call_ignores_provider_reported_usage_for_token_trigger() -> 
     ]
     middleware = create_summary_middleware(
         model=model,
+        workdir_path=WORKDIR_PATH,
         trigger=("tokens", 1_000),
         keep=("messages", 1),
         trim_tokens_to_summarize=None,
@@ -220,7 +226,11 @@ def test_sanitize_messages_for_summary_only_replaces_tool_message_content() -> N
     backend = _MemoryBackend()
     messages = _tool_messages()
 
-    sanitized = sanitize_messages_for_summary(messages, backend=backend)
+    sanitized = sanitize_messages_for_summary(
+        messages,
+        backend=backend,
+        large_tool_results_prefix=VIRTUAL_PATH_LARGE_TOOL_RESULTS,
+    )
 
     assert [message.type for message in sanitized] == ["human", "ai", "tool", "ai"]
     assert sanitized[0] is messages[0]
@@ -268,6 +278,7 @@ def test_sanitize_messages_for_summary_writes_large_tool_result_and_limits_previ
     sanitized = sanitize_messages_for_summary(
         messages,
         backend=backend,
+        large_tool_results_prefix=VIRTUAL_PATH_LARGE_TOOL_RESULTS,
         tool_result_offload_token_limit=tool_result_offload_token_limit,
     )
     formatted = get_buffer_string(sanitized)
@@ -406,6 +417,7 @@ def test_wrap_model_call_does_not_sanitize_without_summary_trigger() -> None:
     ]
     middleware = create_summary_middleware(
         model=_DummyModel(),
+        workdir_path=WORKDIR_PATH,
         trigger=("messages", 100),
         keep=("messages", 10),
         trim_tokens_to_summarize=None,
@@ -684,11 +696,13 @@ async def test_wrap_model_call_emits_started_and_completed(
     messages = _compressing_messages(large_result)
 
     if async_call:
+
         async def handler(request: ModelRequest) -> ModelResponse:
             return ModelResponse(result=[AIMessage(content="ok")])
 
         result = await middleware.awrap_model_call(_model_request(messages), handler)
     else:
+
         def handler(request: ModelRequest) -> ModelResponse:
             return ModelResponse(result=[AIMessage(content="ok")])
 
@@ -708,6 +722,7 @@ async def test_awrap_model_call_emits_nothing_when_summary_not_triggered(compres
     backend = _MemoryBackend()
     middleware = create_summary_middleware(
         model=_DummyModel(),
+        workdir_path=WORKDIR_PATH,
         trigger=("messages", 100),
         keep=("messages", 10),
         trim_tokens_to_summarize=None,

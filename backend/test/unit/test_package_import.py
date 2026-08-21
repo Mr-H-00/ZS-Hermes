@@ -3,8 +3,8 @@ import sys
 
 def test_import_yuxi_does_not_eagerly_import_knowledge(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    sys.modules.pop("yuxi", None)
-    sys.modules.pop("yuxi.knowledge", None)
+    monkeypatch.delitem(sys.modules, "yuxi", raising=False)
+    monkeypatch.delitem(sys.modules, "yuxi.knowledge", raising=False)
 
     import yuxi
 

@@ -387,12 +387,9 @@ class YuxiSubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
 
     def _parent_runtime(self) -> _ParentRuntime:
         """从父智能体 context 中抽取子智能体运行所需的最小父运行信息。"""
-        parent_thread_id = str(getattr(self.parent_context, "parent_thread_id", None) or self.parent_context.thread_id)
-        file_thread_id = str(getattr(self.parent_context, "file_thread_id", None) or parent_thread_id)
         uid = str(getattr(self.parent_context, "uid", "") or "").strip()
         created_by_run_id = str(getattr(self.parent_context, "run_id", "") or "").strip()
         return _ParentRuntime(
-            file_thread_id=file_thread_id,
             uid=uid,
             created_by_run_id=created_by_run_id,
         )
@@ -438,11 +435,11 @@ class YuxiSubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
                     input_message=input_message,
                     tool_call_id=runtime.tool_call_id,
                     requested_thread_id=thread_id,
-                    file_thread_id=parent_runtime.file_thread_id,
                     model_spec=self._subagent_model_override(agent_item),
                 )
         except subagent_service.SubagentRunBusy as exc:
-            return None, _json_tool_command(exc.to_payload(), runtime.tool_call_id)
+            payload = exc.to_payload()
+            return None, _json_tool_command(payload, runtime.tool_call_id)
         except ValueError as exc:
             return None, str(exc)
         return _StartedSubagent(result=result, parent_runtime=parent_runtime, agent_item=agent_item), None
@@ -472,7 +469,6 @@ class YuxiSubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
 
 @dataclass(frozen=True)
 class _ParentRuntime:
-    file_thread_id: str
     uid: str
     created_by_run_id: str
 

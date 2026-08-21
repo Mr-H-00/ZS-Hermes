@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -50,11 +51,14 @@ async def _fake_save_messages_from_langgraph_state(
     request_id=None,
     worker_id=None,
     complete_run=False,
+    interrupt_run=False,
+    interrupt_error_type=None,
+    interrupt_error_message=None,
     token_usage=None,
 ):
     del agent_instance, thread_id, conv_repo, config_dict, context, trace_info
-    del run_id, request_id, worker_id, token_usage
-    return complete_run
+    del run_id, request_id, worker_id, interrupt_error_type, interrupt_error_message, token_usage
+    return complete_run or interrupt_run
 
 
 async def _fake_guard_check(_content):
@@ -81,19 +85,33 @@ def _patch_stream_scaffolding(
     build_run_context=None,
     get_trace_info=None,
     flush_langfuse=None,
-    materialize=None,
 ):
+    resolved_conversation = conversation or SimpleNamespace(
+        id=1,
+        uid="user-1",
+        agent_id="test-agent",
+        status="active",
+        workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        extra_metadata={},
+    )
+    if not hasattr(resolved_conversation, "workdir_path"):
+        resolved_conversation.workdir_path = "projects/11111111-1111-4111-8111-111111111111"
+
     async def fake_resolve_agent_runtime(**_kwargs):
         return (
             SimpleNamespace(slug="test-agent", backend_id="ChatbotAgent"),
             agent,
             runtime_context or {},
-            conversation
-            or SimpleNamespace(id=1, uid="user-1", agent_id="test-agent", status="active", extra_metadata={}),
+            resolved_conversation,
         )
 
     monkeypatch.setattr(svc, "_resolve_agent_runtime", fake_resolve_agent_runtime)
     monkeypatch.setattr(svc, "normalize_agent_context_config", _fake_normalize_agent_context_config)
+    monkeypatch.setattr(
+        _FakeConvRepo,
+        "default_attachments",
+        list((resolved_conversation.extra_metadata or {}).get("attachments", [])),
+    )
     monkeypatch.setattr(svc, "ConversationRepository", _FakeConvRepo)
     monkeypatch.setattr(
         svc, "save_messages_from_langgraph_state", save_messages or _fake_save_messages_from_langgraph_state
@@ -101,8 +119,16 @@ def _patch_stream_scaffolding(
     monkeypatch.setattr(svc.content_guard, "check", _fake_guard_check)
     monkeypatch.setattr(svc.content_guard, "check_with_keywords", _fake_guard_check_with_keywords)
     monkeypatch.setattr(svc, "check_and_handle_interrupts", _fake_interrupts)
-    if materialize is not None:
-        monkeypatch.setattr(svc, "materialize_attachment_records", materialize)
+    monkeypatch.setattr(svc, "get_user_skills_root_dir", lambda _uid: None)
+
+    class FakeSandboxBackend:
+        def __init__(self, **_kwargs):
+            pass
+
+        def ensure_available(self):
+            return "sandbox-1"
+
+    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", FakeSandboxBackend)
     monkeypatch.setattr(
         svc,
         "_build_langfuse_run_context",
@@ -132,6 +158,8 @@ class _FakeSession:
 
 
 class _FakeConvRepo:
+    default_attachments: list[dict] = []
+
     def __init__(self, _db):
         self.saved_messages: list[dict] = []
         self.conversations: dict[str, SimpleNamespace] = {}
@@ -145,6 +173,7 @@ class _FakeConvRepo:
                 agent_id="test-agent",
                 thread_id=thread_id,
                 status="active",
+                workdir_path="projects/11111111-1111-4111-8111-111111111111",
                 extra_metadata={},
             ),
         )
@@ -185,6 +214,7 @@ class _FakeConvRepo:
             agent_id=agent_id,
             thread_id=thread_id,
             status="active",
+            workdir_path="projects/11111111-1111-4111-8111-111111111111",
             extra_metadata=metadata or {},
         )
         self.conversations[thread_id] = conversation
@@ -194,7 +224,20 @@ class _FakeConvRepo:
         return []
 
     async def get_attachments(self, conversation_id: int):
-        return []
+        del conversation_id
+        return [dict(item) for item in self.default_attachments]
+
+
+def test_main_run_discards_configured_subagent_runtime_markers() -> None:
+    input_context = {
+        "parent_thread_id": "other-parent",
+        "is_subagent_runtime": True,
+        "temperature": 0.1,
+    }
+
+    svc._apply_subagent_runtime_context(input_context, {"run_type": "chat"})
+
+    assert input_context == {"temperature": 0.1}
 
 
 def test_build_langfuse_run_context_reads_evaluation_from_invocation_meta(monkeypatch: pytest.MonkeyPatch):
@@ -261,10 +304,6 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
 
             return FakeGraph()
 
-    async def fake_materialize(_thread_id, _uid, _attachments):
-        assert db.commit_count == 1
-        calls["materialized"] = _attachments
-
     async def fake_save_messages_from_langgraph_state(
         *,
         agent_instance,
@@ -277,6 +316,9 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
         request_id=None,
         worker_id=None,
         complete_run=False,
+        interrupt_run=False,
+        interrupt_error_type=None,
+        interrupt_error_message=None,
         token_usage=None,
     ):
         calls["saved_state"] = {
@@ -288,14 +330,19 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
             "request_id": request_id,
             "worker_id": worker_id,
             "complete_run": complete_run,
+            "interrupt_run": interrupt_run,
+            "interrupt_error_type": interrupt_error_type,
+            "interrupt_error_message": interrupt_error_message,
             "token_usage": token_usage,
         }
-        return complete_run
+        return complete_run or interrupt_run
 
     _patch_stream_scaffolding(
         monkeypatch,
         agent=FakeAgent(),
-        runtime_context={"temperature": 0.1},
+        runtime_context={
+            "temperature": 0.1,
+        },
         conversation=SimpleNamespace(
             id=1,
             uid="user-1",
@@ -303,8 +350,18 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
             status="active",
             extra_metadata={
                 "attachments": [
-                    {"file_id": "file-1", "file_name": "current.txt", "request_id": "req-1"},
-                    {"file_id": "file-2", "file_name": "history.txt", "request_id": "req-old"},
+                    {
+                        "file_id": "file-1",
+                        "file_name": "current.txt",
+                        "path": "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/uploads/current.txt",
+                        "request_id": "req-1",
+                    },
+                    {
+                        "file_id": "file-2",
+                        "file_name": "history.txt",
+                        "path": "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/uploads/history.txt",
+                        "request_id": "req-old",
+                    },
                 ]
             },
         ),
@@ -320,7 +377,6 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
             "langfuse_session_id": "thread-1",
         },
         flush_langfuse=lambda: calls.setdefault("flushed", True),
-        materialize=fake_materialize,
     )
 
     chunks = []
@@ -348,37 +404,11 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
         "callbacks": ["handler-1"],
         "metadata": {"langfuse_user_id": "user-1", "langfuse_session_id": "thread-1"},
         "tags": ["yuxi", "chat"],
-        "uploads": [
-            {
-                "file_id": "file-1",
-                "file_name": "current.txt",
-                "file_type": None,
-                "file_size": 0,
-                "status": "uploaded",
-                "uploaded_at": None,
-                "path": None,
-                "artifact_url": None,
-                "original_path": None,
-                "original_artifact_url": None,
-                "minio_url": None,
-                "request_id": "req-1",
-            },
-            {
-                "file_id": "file-2",
-                "file_name": "history.txt",
-                "file_type": None,
-                "file_size": 0,
-                "status": "uploaded",
-                "uploaded_at": None,
-                "path": None,
-                "artifact_url": None,
-                "original_path": None,
-                "original_artifact_url": None,
-                "minio_url": None,
-                "request_id": "req-old",
-            },
-        ],
     }
+    model_message = calls["stream_messages"][0]
+    assert model_message.content.startswith("hello\n\n<attachment_context>")
+    assert "current.txt" in model_message.content
+    assert "history.txt" in model_message.content
     assert calls["saved_state"]["trace_info"] == {
         "langfuse_trace_id": "trace-runtime",
         "langfuse_session_id": "thread-1",
@@ -388,10 +418,144 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
     assert calls["saved_state"]["context"].temperature == 0.1
     assert calls["saved_state"]["complete_run"] is True
     assert chunks[-1]["status"] == "finished"
-    assert [attachment["file_id"] for attachment in calls["materialized"]] == ["file-1", "file-2"]
-    assert chunks[0]["msg"]["extra_metadata"]["attachments"] == [calls["stream_kwargs"]["uploads"][0]]
+    assert calls["stream_input_context"]["workdir_relative_path"] == "projects/11111111-1111-4111-8111-111111111111"
+    assert (
+        calls["stream_input_context"]["workdir_path"]
+        == "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
+    )
+    assert calls["stream_input_context"]["runtime_scope_id"] == "thread-1"
+    [init_attachment] = chunks[0]["msg"]["extra_metadata"]["attachments"]
+    assert init_attachment["file_name"] == "current.txt"
+    assert init_attachment["path"].endswith("/uploads/current.txt")
     assert calls["flushed"] is True
     assert isinstance(calls["stream_messages"][0], HumanMessage)
+
+
+@pytest.mark.asyncio
+async def test_stream_agent_chat_creates_conversation_before_reading_workdir(
+    stub_system_options,
+    stub_content_guard,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeAgent:
+        context_schema = _FakeContext
+
+        async def stream_messages_with_state(self, messages, input_context=None, **kwargs):
+            del messages, input_context, kwargs
+            yield "messages", (AIMessageChunk(content="created"), {"node": "llm"})
+
+        async def get_graph(self, *, context=None):
+            del context
+
+            class FakeGraph:
+                async def aget_state(self, _config):
+                    return SimpleNamespace(values={"messages": []})
+
+            return FakeGraph()
+
+    _patch_stream_scaffolding(monkeypatch, agent=FakeAgent())
+    repository_holder: dict[str, _FakeConvRepo] = {}
+
+    class NewThreadConversationRepository(_FakeConvRepo):
+        def __init__(self, db):
+            super().__init__(db)
+            repository_holder["repo"] = self
+
+        async def get_conversation_by_thread_id(self, thread_id: str):
+            del thread_id
+            return None
+
+    async def resolve_new_thread(**_kwargs):
+        return (
+            SimpleNamespace(slug="test-agent", backend_id="ChatbotAgent"),
+            FakeAgent(),
+            {},
+            None,
+        )
+
+    monkeypatch.setattr(svc, "ConversationRepository", NewThreadConversationRepository)
+    monkeypatch.setattr(svc, "_resolve_agent_runtime", resolve_new_thread)
+
+    chunks = []
+    async for chunk in svc.stream_agent_chat(
+        agent_slug="test-agent",
+        thread_id="new-thread",
+        meta={"request_id": "new-request"},
+        input_message=build_chat_input_message("hello"),
+        current_user=SimpleNamespace(id=1, uid="user-1", role="user", department_id="dept-1"),
+        db=_FakeSession(),
+    ):
+        chunks.append(json.loads(chunk.decode("utf-8")))
+
+    assert chunks[-1]["status"] == "finished"
+    assert (
+        repository_holder["repo"].conversations["new-thread"].workdir_path
+        == "projects/11111111-1111-4111-8111-111111111111"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_agent_chat_sandbox_bootstrap_failure_prevents_agent_execution(
+    stub_system_options,
+    stub_content_guard,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    agent_started = False
+
+    class FakeAgent:
+        context_schema = _FakeContext
+
+        async def stream_messages_with_state(self, messages, input_context=None, **kwargs):
+            nonlocal agent_started
+            del messages, input_context, kwargs
+            agent_started = True
+            yield "messages", (AIMessageChunk(content="must not run"), {"node": "llm"})
+
+    @asynccontextmanager
+    async def fake_session_context():
+        yield _FakeSession()
+
+    async def fake_save_partial_message(*_args, **_kwargs):
+        return None
+
+    _patch_stream_scaffolding(
+        monkeypatch,
+        agent=FakeAgent(),
+        conversation=SimpleNamespace(
+            id=1,
+            uid="user-1",
+            agent_id="test-agent",
+            status="active",
+            extra_metadata={"attachments": [{"file_id": "file-1"}]},
+        ),
+    )
+
+    class FailingSandboxBackend:
+        def __init__(self, **_kwargs):
+            pass
+
+        def ensure_available(self):
+            raise RuntimeError("sandbox bootstrap failed")
+
+    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", FailingSandboxBackend)
+    monkeypatch.setattr(svc.pg_manager, "get_async_session_context", fake_session_context)
+    monkeypatch.setattr(svc, "save_partial_message", fake_save_partial_message)
+
+    chunks = []
+    async for chunk in svc.stream_agent_chat(
+        agent_slug="test-agent",
+        thread_id="thread-1",
+        meta={"request_id": "req-1"},
+        input_message=build_chat_input_message("hello"),
+        current_user=SimpleNamespace(id=1, uid="user-1", role="user", department_id="dept-1"),
+        db=_FakeSession(),
+    ):
+        chunks.append(json.loads(chunk.decode("utf-8")))
+
+    assert agent_started is False
+    assert chunks[-1]["status"] == "error"
+    assert "sandbox bootstrap failed" in chunks[-1]["error_message"]
+    assert all(chunk.get("status") != "finished" for chunk in chunks)
 
 
 @pytest.mark.asyncio

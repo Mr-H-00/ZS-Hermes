@@ -11,9 +11,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from arq.worker import RetryJob
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
-from yuxi.agents.checkpointer_config import resolve_checkpointer_backend
+from yuxi.agents.backends.paths import runtime_workdir_path
+from yuxi.agents.backends.sandbox.provider import get_sandbox_provider
 from yuxi.agents.mcp.service import ensure_builtin_mcp_servers_in_db
 from yuxi.agents.skills.service import init_builtin_skills
 from yuxi.repositories.agent_run_repository import TERMINAL_RUN_STATUSES, AgentRunRepository
@@ -34,10 +35,12 @@ from yuxi.services.run_queue_service import (
     clear_cancel_signal,
     get_redis_client,
     has_cancel_signal,
+    publish_cancel_signal,
     wait_for_cancel_signal,
 )
+from yuxi.services.workdir_service import AuthorizedWorkdir, resolve_authorized_workdir
 from yuxi.storage.postgres.manager import pg_manager
-from yuxi.storage.postgres.models_business import AgentRun, Message, User
+from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, User
 from yuxi.storage.redis import get_arq_redis_settings
 from yuxi.utils.auth_utils import AuthUtils
 from yuxi.utils.logging_config import logger
@@ -58,8 +61,58 @@ class RetryableRunError(RetryJob):
     """Error type that should trigger ARQ retry."""
 
 
+class RuntimeCleanupPendingError(RetryJob):
+    """根 Run 已终态，但 execution runtime 的持久清理尚未完成。"""
+
+
 class NonRetryableRunError(Exception):
     """Error type that should not trigger ARQ retry."""
+
+
+async def _validate_run_workdir_binding(run: AgentRun) -> AuthorizedWorkdir:
+    """在执行器边界验证持久 Run 的 Conversation、执行树与 Workdir 归属。"""
+    async with pg_manager.get_async_session_context() as db:
+        binding = await resolve_authorized_workdir(
+            thread_id=str(run.conversation_thread_id),
+            uid=str(run.uid),
+            db=db,
+        )
+        if int(binding.conversation_id) != int(run.conversation_id):
+            raise NonRetryableRunError("AgentRun 的 Conversation 身份不一致")
+
+        persisted_scope = str(run.runtime_scope_id or "").strip()
+        if not persisted_scope:
+            raise NonRetryableRunError("AgentRun 缺少 runtime scope")
+        if run.run_type in {"chat", "resume"} and persisted_scope != str(run.conversation_thread_id):
+            raise NonRetryableRunError(f"{str(run.run_type).capitalize()} AgentRun 的 runtime scope 非法")
+
+        if run.run_type == "subagent":
+            creator_id = str(run.created_by_run_id or "").strip()
+            if not creator_id:
+                raise NonRetryableRunError("SubAgent Run 缺少创建者")
+            repo = AgentRunRepository(db)
+            execution_pair = await repo.get_subagent_run_with_creator(
+                uid=str(run.uid),
+                created_by_run_id=creator_id,
+                run_id=str(run.id),
+            )
+            if execution_pair is None:
+                raise NonRetryableRunError("SubAgent Run 的线程关系非法")
+            creator_run, _persisted_run = execution_pair
+            if creator_run.run_type not in {"chat", "resume"}:
+                raise NonRetryableRunError("SubAgent Run 的创建者非法")
+            creator_binding = await resolve_authorized_workdir(
+                thread_id=str(creator_run.conversation_thread_id),
+                uid=str(run.uid),
+                db=db,
+            )
+            if (
+                persisted_scope != str(creator_run.runtime_scope_id)
+                or int(creator_binding.conversation_id) != int(creator_run.conversation_id)
+                or creator_binding.workdir_path != binding.workdir_path
+            ):
+                raise NonRetryableRunError("SubAgent Run 的 runtime scope 不属于创建者执行树")
+    return binding
 
 
 @dataclass(frozen=True)
@@ -190,7 +243,6 @@ class ChunkedEventWriter:
         if _flush_loading_chunk_immediately(chunk):
             await self.flush(target_thread_id)
             return
-
         if (time.monotonic() - buffer.last_flush) >= self.interval_seconds or buffer.chars >= self.max_chars:
             await self.flush(target_thread_id)
 
@@ -212,6 +264,75 @@ class ChunkedEventWriter:
         buffer.items = []
         buffer.chars = 0
         buffer.last_flush = time.monotonic()
+
+
+async def _release_runtime_if_idle(run: AgentRun) -> bool:
+    """在 PostgreSQL cleanup fence 内串行销毁根 execution runtime。"""
+    if run.run_type == "subagent":
+        return False
+    runtime_scope_id = str(getattr(run, "runtime_scope_id", None) or run.conversation_thread_id)
+    async with pg_manager.get_async_session_context() as db:
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+            {"lock_key": f"yuxi-runtime-cleanup:{run.uid}:{runtime_scope_id}"},
+        )
+        current = await db.scalar(select(AgentRun).where(AgentRun.id == run.id).with_for_update())
+        if current is None:
+            raise RuntimeError(f"Run {run.id} 不存在，不能确认 runtime cleanup Owner")
+        if not current.runtime_cleanup_pending:
+            return True
+        result = await db.execute(
+            select(AgentRun.id)
+            .where(
+                AgentRun.runtime_scope_id == runtime_scope_id,
+                AgentRun.id != current.id,
+                AgentRun.status.notin_(TERMINAL_RUN_STATUSES),
+            )
+            .limit(1)
+        )
+        if result.scalar_one_or_none() is not None:
+            return False
+        workdir_path = await db.scalar(
+            select(Conversation.workdir_path).where(Conversation.id == current.conversation_id)
+        )
+        if not workdir_path:
+            raise RuntimeError(f"Run {run.id} 缺少 Project Workdir，不能安全释放 runtime")
+        await asyncio.to_thread(
+            get_sandbox_provider().release,
+            runtime_scope_id,
+            uid=str(current.uid),
+            clear_cache_on_delete_failure=True,
+            workdir_path=str(workdir_path),
+        )
+        current.runtime_cleanup_pending = False
+        await db.flush()
+    return True
+
+
+async def _release_runtime_before_terminal_event(run: AgentRun | None) -> None:
+    """在终态事件可见前收敛 runtime，避免客户端撞上随后发生的删除。"""
+    if run is None or run.run_type == "subagent":
+        return
+    await _require_runtime_cleanup(run, f"Run {run.id} 的 execution tree 尚未完成 runtime cleanup")
+
+
+async def _require_runtime_cleanup(run: AgentRun, message: str) -> None:
+    """把 provisioner/并发清理失败统一转成 ARQ 可重试的 durable cleanup。"""
+    try:
+        cleaned = await _release_runtime_if_idle(run)
+    except Exception as exc:
+        raise RuntimeCleanupPendingError(message) from exc
+    if not cleaned:
+        raise RuntimeCleanupPendingError(message)
+
+
+async def _finish_execution_tree_children(run: AgentRun) -> None:
+    """收敛 execution tree 后代的数据库终态并通知其停止执行。"""
+    async with pg_manager.get_async_session_context() as db:
+        repo = AgentRunRepository(db)
+        descendants = await repo.cancel_active_execution_tree_descendants(run)
+        await db.commit()
+    await _publish_execution_tree_cancel_signals(descendants)
 
 
 async def _get_run(run_id: str):
@@ -262,6 +383,20 @@ async def _clear_cancel_signal_best_effort(run_id: str) -> None:
         logger.warning(f"Failed to clear non-authoritative AgentRun cancel signal: run={run_id}", exc_info=True)
 
 
+async def _publish_execution_tree_cancel_signals(cancelled: list[tuple[str, str]]) -> None:
+    """尽力通知已由 PostgreSQL 收敛的后代 Run 停止执行。"""
+
+    if not cancelled:
+        return
+    results = await asyncio.gather(
+        *(publish_cancel_signal(run_id) for run_id, _thread_id in cancelled),
+        return_exceptions=True,
+    )
+    for (run_id, _thread_id), result in zip(cancelled, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.warning("Failed to publish execution-tree cancel signal: run=%s", run_id, exc_info=result)
+
+
 async def mark_run_running(run_id: str, worker_id: str) -> bool:
     async with pg_manager.get_async_session_context() as db:
         repo = AgentRunRepository(db)
@@ -285,8 +420,20 @@ async def renew_run_lease(run_id: str, worker_id: str) -> bool:
 
 async def release_run_lease_for_retry(run_id: str, worker_id: str) -> bool:
     """释放当前 attempt 的 lease，允许下一次 ARQ attempt 使用新 token。"""
+    cancelled_descendants: list[tuple[str, str]] = []
     async with pg_manager.get_async_session_context() as db:
-        return await AgentRunRepository(db).release_lease_for_retry(run_id, worker_id=worker_id)
+        repo = AgentRunRepository(db)
+        released = await repo.release_lease_for_retry(run_id, worker_id=worker_id)
+        if released:
+            run = await repo.get_run(run_id)
+            if run is not None:
+                cancelled_descendants = await repo.cancel_active_execution_tree_descendants(run)
+    if cancelled_descendants:
+        await asyncio.gather(
+            *(publish_cancel_signal(child_id) for child_id, _thread_id in cancelled_descendants),
+            return_exceptions=True,
+        )
+    return released
 
 
 async def mark_run_terminal(
@@ -297,6 +444,7 @@ async def mark_run_terminal(
     token_usage: dict | None = None,
     worker_id: str | None = None,
 ):
+    cancelled_descendants: list[tuple[str, str]] = []
     async with pg_manager.get_async_session_context() as db:
         repo = AgentRunRepository(db)
         run, changed = await repo.set_terminal_status(
@@ -307,15 +455,48 @@ async def mark_run_terminal(
             token_usage=token_usage,
             worker_id=worker_id,
         )
+        if changed and run is not None:
+            cancelled_descendants = await repo.cancel_active_execution_tree_descendants(run)
         persisted_status = run.status if run else None
-        return TerminalTransition(status=persisted_status, changed=changed)
+    await _publish_execution_tree_cancel_signals(cancelled_descendants)
+    return TerminalTransition(status=persisted_status, changed=changed)
 
 
 async def reconcile_expired_run_leases(*, now: datetime | None = None) -> list[str]:
     """收敛过期 Run ownership；重复或并发执行只返回本次实际转换的 Run。"""
     async with pg_manager.get_async_session_context() as db:
-        runs = await AgentRunRepository(db).reconcile_expired_leases(now=now)
-        return [run.id for run in runs]
+        runs, cancelled_descendants = await AgentRunRepository(db).reconcile_expired_leases(now=now)
+    if cancelled_descendants:
+        await asyncio.gather(
+            *(publish_cancel_signal(child_id) for child_id, _thread_id in cancelled_descendants),
+            return_exceptions=True,
+        )
+    await reconcile_pending_runtime_cleanups()
+    return [run.id for run in runs]
+
+
+async def reconcile_pending_runtime_cleanups() -> list[str]:
+    """重试 PostgreSQL 持久拥有的 runtime cleanup，并在成功后发布终态。"""
+    async with pg_manager.get_async_session_context() as db:
+        pending_runs = await AgentRunRepository(db).list_pending_runtime_cleanups()
+    cleaned: list[str] = []
+    for run in pending_runs:
+        try:
+            if not await _release_runtime_if_idle(run):
+                continue
+        except Exception:
+            logger.error("Failed to reconcile execution-tree runtime cleanup: run=%s", run.id, exc_info=True)
+            continue
+        if run.status in TERMINAL_RUN_STATUSES:
+            await _append_end_event(run.id, run.status, thread_id=run.conversation_thread_id)
+        if run.status in {"pending", "completed"}:
+            await dispatch_next_request(
+                uid=run.uid,
+                agent_slug=run.agent_slug,
+                thread_id=run.conversation_thread_id,
+            )
+        cleaned.append(run.id)
+    return cleaned
 
 
 async def persist_run_manifest(*, run: AgentRun, user, worker_id: str) -> None:
@@ -481,6 +662,7 @@ async def _finish_run(
     error_message: str | None = None,
     publish_end: bool = True,
 ) -> TerminalTransition:
+    run = await _get_run(run_id)
     token_usage = {"available": False}
     if thread_id:
         state_token_usage = await _read_run_token_usage_from_state(
@@ -498,6 +680,9 @@ async def _finish_run(
         token_usage=token_usage,
         worker_id=worker_id,
     )
+    if transition.status in TERMINAL_RUN_STATUSES:
+        committed_run = await _get_run(run_id)
+        await _release_runtime_before_terminal_event(committed_run or run)
     if publish_end and transition.changed and transition.status:
         await _append_end_event(run_id, transition.status, thread_id=thread_id, payload={"chunk": chunk})
     return transition
@@ -511,6 +696,7 @@ async def _finish_user_cancel(
     current_user,
     worker_id: str,
     writer: ChunkedEventWriter,
+    run: AgentRun,
 ) -> TerminalTransition:
     """在 PostgreSQL 已确认取消后，由当前 owner 写入 cancelled。"""
 
@@ -531,6 +717,8 @@ async def _finish_user_cancel(
         token_usage=state_token_usage or {"available": False},
         worker_id=worker_id,
     )
+    if run.run_type != "subagent":
+        await _release_runtime_before_terminal_event(run)
     if transition.changed:
         await _append_run_event_best_effort(
             run_id,
@@ -569,6 +757,12 @@ async def process_agent_run(ctx, run_id: str):
         return
 
     if run.status in TERMINAL_RUN_STATUSES:
+        await _finish_execution_tree_children(run)
+        cleanup_was_pending = bool(getattr(run, "runtime_cleanup_pending", False))
+        if cleanup_was_pending:
+            await _require_runtime_cleanup(run, f"Run {run_id} 的 execution tree 尚未完成 runtime cleanup")
+        if cleanup_was_pending:
+            await _append_end_event(run_id, run.status, thread_id=run.conversation_thread_id)
         if run.status == "completed":
             await dispatch_next_request(
                 uid=run.uid,
@@ -577,6 +771,12 @@ async def process_agent_run(ctx, run_id: str):
             )
         logger.info(f"Run already terminal, skip: {run_id}, status={run.status}")
         return
+
+    if bool(getattr(run, "runtime_cleanup_pending", False)):
+        await _require_runtime_cleanup(run, f"Run {run_id} 尚未完成 retry runtime cleanup")
+        run = await _get_run(run_id)
+        if run is None:
+            raise NonRetryableRunError(f"Run {run_id} 在 runtime cleanup 后不存在")
 
     worker_id = _run_owner_token(ctx)
     if not await mark_run_running(run_id, worker_id):
@@ -666,6 +866,18 @@ async def process_agent_run(ctx, run_id: str):
             )
             return
 
+        try:
+            workdir_binding = await _validate_run_workdir_binding(run)
+        except Exception as exc:  # noqa: BLE001
+            await mark_run_terminal(
+                run_id,
+                "failed",
+                "invalid_runtime_scope",
+                str(exc),
+                worker_id=worker_id,
+            )
+            return
+
         resume_input = None
         if run_type == "resume":
             resume_input = input_metadata.get("resume")
@@ -726,13 +938,12 @@ async def process_agent_run(ctx, run_id: str):
             "run_type": run_type,
             "created_by_run_id": run.created_by_run_id,
             "worker_id": worker_id,
+            "runtime_scope_id": str(getattr(run, "runtime_scope_id", None) or thread_id),
+            "workdir_relative_path": workdir_binding.workdir_path,
+            "workdir_path": runtime_workdir_path(workdir_binding.workdir_path),
         }
         if run_type == "subagent":
-            # 三个线程 ID 在 subagent_run_service 创建 run 时已写入 runtime，此处不再二次兜底；
-            # 缺失会在 chat_service._apply_subagent_runtime_context 处直接报错。
             meta["parent_thread_id"] = runtime.get("parent_thread_id")
-            meta["file_thread_id"] = runtime.get("file_thread_id")
-            meta["skills_thread_id"] = runtime.get("skills_thread_id")
         if input_metadata.get("source"):
             meta["source"] = input_metadata.get("source")
         if isinstance(input_metadata.get("agent_invocation_meta"), dict):
@@ -815,6 +1026,10 @@ async def process_agent_run(ctx, run_id: str):
 
                     if status == "finished":
                         if chunk.get("terminal_committed") is True:
+                            committed_run = await _get_run(run_id)
+                            if committed_run is not None:
+                                await _finish_execution_tree_children(committed_run)
+                            await _release_runtime_before_terminal_event(committed_run)
                             await _append_end_event(
                                 run_id,
                                 "completed",
@@ -871,7 +1086,7 @@ async def process_agent_run(ctx, run_id: str):
                             worker_id=worker_id,
                             publish_end=False,
                         )
-                        if transition.changed:
+                        if transition.changed or transition.status == "interrupted":
                             await _append_run_event_best_effort(
                                 run_id,
                                 event_type,
@@ -914,7 +1129,7 @@ async def process_agent_run(ctx, run_id: str):
                 worker_id=worker_id,
                 publish_end=False,
             )
-            if transition.changed:
+            if transition.changed or transition.status == "interrupted":
                 await _append_run_event_best_effort(
                     run_id,
                     event_type,
@@ -955,6 +1170,7 @@ async def process_agent_run(ctx, run_id: str):
                 current_user=user,
                 worker_id=worker_id,
                 writer=writer,
+                run=run,
             )
             logger.info(f"Run user cancellation settled: run={run_id}, changed={transition.changed}")
             return
@@ -972,11 +1188,14 @@ async def process_agent_run(ctx, run_id: str):
                 current_user=user,
                 worker_id=worker_id,
                 writer=writer,
+                run=run,
             )
             logger.info(f"Run concurrent user cancellation settled: run={run_id}, changed={transition.changed}")
             return
         if not released:
             logger.warning(f"Infrastructure cancellation could not release AgentRun lease: run={run_id}")
+        raise
+    except RuntimeCleanupPendingError:
         raise
     except ExceptionGroup as e:
         await _flush_writer_best_effort(writer)
@@ -989,12 +1208,16 @@ async def process_agent_run(ctx, run_id: str):
             "request_id": request_id,
             "retryable": False,
         }
-        transition = await mark_run_terminal(
+        transition = await _finish_run(
             run_id,
             "failed",
+            thread_id=thread_id,
+            chunk=error_chunk,
             error_type="worker_error",
             error_message=message,
+            current_user=user,
             worker_id=worker_id,
+            publish_end=False,
         )
         if transition.changed:
             await _append_run_event_best_effort(
@@ -1026,6 +1249,7 @@ async def process_agent_run(ctx, run_id: str):
                     current_user=user,
                     worker_id=worker_id,
                     writer=writer,
+                    run=run,
                 )
                 return
             if _is_last_try(ctx):
@@ -1065,10 +1289,14 @@ async def process_agent_run(ctx, run_id: str):
                         current_user=user,
                         worker_id=worker_id,
                         writer=writer,
+                        run=run,
                     )
                     return
                 logger.warning(f"Run retry skipped after ownership changed: {run_id}")
                 return
+            retry_run = await _get_run(run_id)
+            if retry_run is not None and retry_run.run_type != "subagent":
+                await _require_runtime_cleanup(retry_run, f"Run {run_id} 尚未完成 retry runtime cleanup")
             await _append_run_event_best_effort(
                 run_id,
                 "error",
@@ -1114,10 +1342,12 @@ async def process_agent_run(ctx, run_id: str):
         except Exception:
             logger.error(f"Failed to load AgentRun during lifecycle cleanup: run={run_id}", exc_info=True)
             final_run = None
+        if final_run and final_run.status in TERMINAL_RUN_STATUSES:
+            await _finish_execution_tree_children(final_run)
         if final_run and final_run.status == "cancelled":
             await _clear_cancel_signal_best_effort(run_id)
         # completed 后尝试派发线程的下一个排队请求
-        if final_run and final_run.status == "completed":
+        if final_run and final_run.status == "completed" and not final_run.runtime_cleanup_pending:
             await dispatch_next_request(
                 uid=uid,
                 agent_slug=agent_slug,
@@ -1142,6 +1372,10 @@ async def _reconcile_agent_run_leases_forever() -> None:
             reconciled_ids = await reconcile_expired_run_leases()
             if reconciled_ids:
                 logger.warning(f"Reconciled expired AgentRun leases: count={len(reconciled_ids)}")
+            cleaned_ids = await reconcile_pending_runtime_cleanups()
+            if cleaned_ids:
+                logger.warning(f"Reconciled pending runtime cleanups: count={len(cleaned_ids)}")
+            await recover_pending_dispatches()
             await _publish_reconciliation_health()
         except asyncio.CancelledError:
             raise
@@ -1165,24 +1399,20 @@ async def _worker_startup(ctx):
 
     if not isinstance(ctx, dict):
         raise TypeError("ARQ worker context 必须是字典")
-    checkpointer_backend = resolve_checkpointer_backend()
     AuthUtils.require_security_secrets()
     ctx["worker_id"] = WORKER_ID
     pg_manager.initialize()
     await pg_manager.create_business_tables()
     await pg_manager.ensure_business_schema()
-    if checkpointer_backend == "postgres":
-        await pg_manager.setup_langgraph_checkpointer()
+    await pg_manager.setup_langgraph_checkpointer()
     async with pg_manager.get_async_session_context() as session:
         from yuxi.config.options import (
             ensure_options_in_db,
             invalidate_option_cache,
-            migrate_legacy_system_options,
             system_options,
         )
 
         await ensure_options_in_db(session)
-        await migrate_legacy_system_options(session)
         await session.commit()
     await invalidate_option_cache(system_options.key)
     try:
@@ -1197,6 +1427,7 @@ async def _worker_startup(ctx):
     reconciled_ids = await reconcile_expired_run_leases()
     if reconciled_ids:
         logger.warning(f"Reconciled expired AgentRun leases at startup: count={len(reconciled_ids)}")
+    await reconcile_pending_runtime_cleanups()
     await recover_pending_dispatches()
     await _publish_reconciliation_health()
     ctx[_RECONCILIATION_TASK_KEY] = asyncio.create_task(_reconcile_agent_run_leases_forever())

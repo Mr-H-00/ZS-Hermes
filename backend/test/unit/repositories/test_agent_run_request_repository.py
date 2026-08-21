@@ -21,7 +21,16 @@ async def session():
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:
-        db.add(Conversation(id=10, thread_id="thread-1", uid="user-1", agent_id="main", status="active"))
+        db.add(
+            Conversation(
+                id=10,
+                thread_id="thread-1",
+                workdir_path="projects/workdir-thread-1",
+                uid="user-1",
+                agent_id="main",
+                status="active",
+            )
+        )
         db.add(Message(id=100, conversation_id=10, role="user", content="hello"))
         await db.commit()
         yield db

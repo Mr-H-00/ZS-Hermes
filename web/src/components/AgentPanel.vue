@@ -205,6 +205,16 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import SubagentThreadView from '@/components/SubagentThreadView.vue'
 import {
+  createFilesystemRefreshGate,
+  expandedKeysAfterFilesystemRefresh,
+  reloadPreviewAfterOrderedCacheEntryInvalidation,
+  replacePreviewCacheEntryIfCurrent,
+  refreshExpandedTree,
+  settlePreviewCacheLoad,
+  shouldRefreshActivePreview,
+  startAgentPanelFilesystemPolling
+} from '@/utils/agentPanelFilesystemPolling'
+import {
   deleteViewerFile,
   downloadViewerFile,
   getViewerFileContent,
@@ -212,6 +222,7 @@ import {
   searchViewerFiles
 } from '@/apis/viewer_filesystem'
 import { normalizePreviewResponse } from '@/utils/file_preview'
+import { threadApi } from '@/apis/agent_api'
 
 const props = defineProps({
   agentState: {
@@ -265,8 +276,6 @@ const emit = defineEmits([
   'activate-section',
   'close-section'
 ])
-const DISPLAY_ROOT_DIRECTORY_NAME = 'user-data'
-
 const currentFile = ref(null)
 const currentFilePath = ref('')
 const loadingFiles = ref(false)
@@ -294,9 +303,10 @@ const ensureActiveSectionVisible = async () => {
   const activeTab = sectionTabsRef.value?.querySelector('[role="tab"][aria-selected="true"]')
   activeTab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
 }
+const filesystemRefreshGate = createFilesystemRefreshGate()
 
-// 顶层需要预取子项的目录：outputs/uploads 为空时不展示，workspace 默认展开
-const PREFETCH_DIRECTORY_NAMES = ['outputs', 'uploads', 'workspace']
+// uploads/outputs 只是 Project Workdir 下的目录约定；预取用于决定空目录是否展示。
+const PREFETCH_DIRECTORY_NAMES = ['outputs', 'uploads']
 const HIDE_WHEN_EMPTY_NAMES = ['outputs', 'uploads']
 
 const searchThreadFiles = (query) => searchViewerFiles(props.threadId, query)
@@ -444,31 +454,27 @@ const getFileName = (fileItem) => {
   return '未知文件'
 }
 
-const loadDirectoryChildren = async (directoryPath) => {
-  const res = await getViewerFileSystemTree(props.threadId, directoryPath)
+const loadDirectoryChildren = async (directoryPath, threadId = props.threadId) => {
+  const res = await getViewerFileSystemTree(threadId, directoryPath)
   return sortEntries(res?.entries || []).map((entry) => createTreeNode(entry))
 }
 
-const refreshFileSystem = async () => {
-  if (!props.threadId) {
+const refreshFileSystem = async ({ silent = false } = {}) => {
+  const requestedThreadId = props.threadId
+  if (!requestedThreadId) {
     dynamicTreeData.value = []
     filesystemError.value = ''
     return
   }
+  if (!filesystemRefreshGate.begin(requestedThreadId)) return
 
-  loadingFiles.value = true
+  if (!silent) loadingFiles.value = true
   filesystemError.value = ''
 
   try {
-    const res = await getViewerFileSystemTree(props.threadId, '/')
+    const res = await getViewerFileSystemTree(requestedThreadId, '/')
     if (res?.entries) {
-      const displayRootEntry = res.entries.find(
-        (entry) => entry?.is_dir && entry.name === DISPLAY_ROOT_DIRECTORY_NAME
-      )
-
-      let nodes = displayRootEntry
-        ? await loadDirectoryChildren(displayRootEntry.path)
-        : []
+      let nodes = sortEntries(res.entries).map((entry) => createTreeNode(entry))
 
       // 预取关键目录子项：空的 outputs/uploads 不展示，workspace 默认展开
       const prefetched = await Promise.all(
@@ -476,7 +482,7 @@ const refreshFileSystem = async () => {
           if (!PREFETCH_DIRECTORY_NAMES.includes(node.title)) return { node, children: null }
           let children = null
           try {
-            children = await loadDirectoryChildren(node.key)
+            children = await loadDirectoryChildren(node.key, requestedThreadId)
           } catch (error) {
             console.error('Failed to prefetch children for', node.key, error)
           }
@@ -493,20 +499,30 @@ const refreshFileSystem = async () => {
         return visible
       }, [])
 
+      if (silent && expandedKeys.value.length) {
+        nodes = await refreshExpandedTree(nodes, expandedKeys.value, (directoryPath) =>
+          loadDirectoryChildren(directoryPath, requestedThreadId)
+        )
+      }
+
+      if (!filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) return
       dynamicTreeData.value = nodes
-      expandedKeys.value = nodes
-        .filter((node) => node.title === 'workspace' && node.children?.length)
-        .map((node) => node.key)
+      expandedKeys.value = expandedKeysAfterFilesystemRefresh(expandedKeys.value, { silent })
       selectedKeys.value = props.activePreviewPath ? [props.activePreviewPath] : []
-    } else {
+      if (silent) await refreshActivePreviewIfChanged(nodes, requestedThreadId)
+    } else if (filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) {
       dynamicTreeData.value = []
     }
   } catch (error) {
+    if (!filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) return
     dynamicTreeData.value = []
     filesystemError.value = error?.message || '加载文件系统失败'
     console.error('Failed to load root files', error)
   } finally {
-    loadingFiles.value = false
+    filesystemRefreshGate.finish(requestedThreadId)
+    if (!silent && filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) {
+      loadingFiles.value = false
+    }
   }
 }
 
@@ -521,6 +537,7 @@ const loadData = async (treeNode) => {
   }
 }
 
+let stopFilesystemPolling = null
 let previewRequestSeq = 0
 
 const revokeCurrentPreviewUrl = () => {
@@ -530,7 +547,7 @@ const revokeCurrentPreviewUrl = () => {
   }
 }
 
-const previewCacheKey = (filePath) => `${props.threadId}:${filePath}`
+const previewCacheKey = (filePath, threadId = props.threadId) => `${threadId}:${filePath}`
 
 const prunePreviewCache = (activeKey) => {
   const readyEntries = [...props.previewCache.entries()]
@@ -545,11 +562,16 @@ const prunePreviewCache = (activeKey) => {
   }
 }
 
-const loadActivePreview = async () => {
+const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
+  const requestedThreadId = props.threadId
   const filePath = props.activePreviewPath
   const requestSeq = ++previewRequestSeq
+  const requestIsCurrent = () =>
+    requestSeq === previewRequestSeq &&
+    requestedThreadId === props.threadId &&
+    filePath === props.activePreviewPath
 
-  if (!filePath || !props.threadId) {
+  if (!filePath || !requestedThreadId) {
     revokeCurrentPreviewUrl()
     currentFile.value = null
     currentFilePath.value = ''
@@ -558,6 +580,7 @@ const loadActivePreview = async () => {
 
   const baseFile = {
     ...(activePreviewTab.value || {}),
+    ...(baseFileOverride || {}),
     path: filePath,
     name: activePreviewTab.value?.name || getFileName({ path: filePath }),
     type: 'file'
@@ -573,21 +596,30 @@ const loadActivePreview = async () => {
     previewUrl: ''
   }
 
-  const cacheKey = previewCacheKey(filePath)
+  const cacheKey = previewCacheKey(filePath, requestedThreadId)
   const cachedEntry = props.previewCache.get(cacheKey)
   if (cachedEntry?.status === 'ready') {
     cachedEntry.lastAccessed = Date.now()
-    currentFile.value = cachedEntry.file
+    if (requestIsCurrent()) currentFile.value = cachedEntry.file
     return
   }
 
   if (cachedEntry?.status === 'loading') {
     try {
       const cachedFile = await cachedEntry.promise
-      if (requestSeq === previewRequestSeq) currentFile.value = cachedFile
+      const currentEntry = props.previewCache.get(cacheKey)
+      const cacheStillOwnsFile =
+        currentEntry === cachedEntry ||
+        (currentEntry?.status === 'ready' && currentEntry.file === cachedFile)
+      if (requestIsCurrent() && cacheStillOwnsFile) currentFile.value = cachedFile
     } catch {
-      props.previewCache.delete(cacheKey)
-      if (requestSeq === previewRequestSeq) {
+      const removed = replacePreviewCacheEntryIfCurrent(
+        props.previewCache,
+        cacheKey,
+        cachedEntry,
+        null
+      )
+      if (requestIsCurrent() && (removed || !props.previewCache.has(cacheKey))) {
         currentFile.value = {
           ...baseFile,
           content: '文件预览失败',
@@ -602,19 +634,35 @@ const loadActivePreview = async () => {
   }
 
   const loadPromise = (async () => {
-    const res = await getViewerFileContent(props.threadId, filePath)
+    const res = baseFile.artifact
+      ? await threadApi.previewThreadArtifact(requestedThreadId, filePath)
+      : await getViewerFileContent(requestedThreadId, filePath)
     return normalizePreviewResponse(res, baseFile)
   })()
-  props.previewCache.set(cacheKey, { status: 'loading', promise: loadPromise })
+  const loadingEntry = { status: 'loading', promise: loadPromise }
+  props.previewCache.set(cacheKey, loadingEntry)
 
   try {
     const nextFile = await loadPromise
-    props.previewCache.set(cacheKey, { status: 'ready', file: nextFile, lastAccessed: Date.now() })
+    const published = settlePreviewCacheLoad({
+      previewCache: props.previewCache,
+      cacheKey,
+      loadingEntry,
+      nextFile,
+      lastAccessed: Date.now(),
+      revokeObjectURL: window.URL.revokeObjectURL.bind(window.URL)
+    })
+    if (!published) return
     prunePreviewCache(cacheKey)
-    if (requestSeq === previewRequestSeq) currentFile.value = nextFile
+    if (requestIsCurrent()) currentFile.value = nextFile
   } catch (error) {
-    props.previewCache.delete(cacheKey)
-    if (requestSeq !== previewRequestSeq) return
+    const removed = replacePreviewCacheEntryIfCurrent(
+      props.previewCache,
+      cacheKey,
+      loadingEntry,
+      null
+    )
+    if (!requestIsCurrent() || !removed) return
 
     currentFile.value = {
       ...baseFile,
@@ -625,6 +673,50 @@ const loadActivePreview = async () => {
       previewUrl: ''
     }
   }
+}
+
+const findTreeNode = (nodes, filePath) => {
+  for (const node of nodes) {
+    if (node.key === filePath) return node
+    if (node.children?.length) {
+      const nested = findTreeNode(node.children, filePath)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+const refreshActivePreviewIfChanged = async (nodes, requestedThreadId) => {
+  const tab = activePreviewTab.value
+  if (!tab || requestedThreadId !== props.threadId) return
+  let latestFile = findTreeNode(nodes, tab.path)?.fileData || null
+  if (!latestFile) {
+    const parentPath = tab.path.split('/').slice(0, -1).join('/') || '/'
+    try {
+      latestFile = (await loadDirectoryChildren(parentPath, requestedThreadId)).find(
+        (node) => node.key === tab.path
+      )?.fileData
+    } catch {
+      return
+    }
+  }
+  if (!shouldRefreshActivePreview(tab, latestFile)) return
+  if (
+    requestedThreadId !== props.threadId ||
+    tab.path !== props.activePreviewPath ||
+    tab !== activePreviewTab.value
+  ) {
+    return
+  }
+  const nextTab = { ...tab, ...(latestFile || {}) }
+  const cacheKey = previewCacheKey(tab.path, requestedThreadId)
+  await reloadPreviewAfterOrderedCacheEntryInvalidation({
+    previewCache: props.previewCache,
+    cacheKey,
+    revokeObjectURL: window.URL.revokeObjectURL.bind(window.URL),
+    notifyPreviewChanged: () => emit('open-preview', nextTab, props.viewMode === 'tree'),
+    reloadPreview: () => loadActivePreview({ baseFileOverride: nextTab })
+  })
 }
 
 const onFileSelect = (nextSelectedKeys, { node }) => {
@@ -692,14 +784,15 @@ const downloadFile = async (fileItem) => {
   }
 }
 
-const emitRefresh = () => {
+const emitRefresh = async () => {
   for (const [key, entry] of props.previewCache) {
     if (key.startsWith(`${props.threadId}:`) && entry.file?.previewUrl) {
       window.URL.revokeObjectURL(entry.file.previewUrl)
     }
     if (key.startsWith(`${props.threadId}:`)) props.previewCache.delete(key)
   }
-  refreshFileSystem()
+  await refreshFileSystem()
+  if (props.activePreviewPath) await loadActivePreview()
   emit('refresh', props.threadId)
 }
 
@@ -769,9 +862,16 @@ const stopResize = (e) => {
 
 onMounted(() => {
   refreshFileSystem()
+  stopFilesystemPolling = startAgentPanelFilesystemPolling({
+    refresh: () => refreshFileSystem({ silent: true })
+  })
 })
 
 onUnmounted(() => {
+  if (stopFilesystemPolling) {
+    stopFilesystemPolling()
+    stopFilesystemPolling = null
+  }
   if (resizeFrameId) {
     window.cancelAnimationFrame(resizeFrameId)
     resizeFrameId = 0
@@ -786,13 +886,13 @@ onUnmounted(() => {
 watch(
   () => props.threadId,
   (threadId) => {
+    loadingFiles.value = false
+    dynamicTreeData.value = []
+    expandedKeys.value = []
+    selectedKeys.value = []
+    filesystemError.value = ''
     if (threadId) {
       refreshFileSystem()
-    } else {
-      dynamicTreeData.value = []
-      expandedKeys.value = []
-      selectedKeys.value = []
-      filesystemError.value = ''
     }
   }
 )

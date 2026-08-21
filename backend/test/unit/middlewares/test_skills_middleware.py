@@ -7,11 +7,8 @@ from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.types import Command
 
 import yuxi.agents.middlewares.skills as skills_middleware
-from yuxi.agents.middlewares.skills import (
-    SkillsMiddleware,
-    resolve_runtime_skills_for_context,
-    resolve_skill_gated_tools,
-)
+from yuxi.agents.middlewares.skills import SkillsMiddleware
+from yuxi.agents.skills.runtime import resolve_skill_gated_tools
 from yuxi.agents.toolkits.service import resolve_configured_runtime_tools
 
 _KB_TOOL_NAMES = {
@@ -27,68 +24,36 @@ def _system_message_text(message: SystemMessage) -> str:
     return "\n".join(block.get("text", "") for block in message.content_blocks if isinstance(block, dict))
 
 
-@pytest.mark.asyncio
-async def test_resolve_runtime_skills_derives_prompt_and_readable_closure(monkeypatch):
-    async def fake_list_skills_from_db(db=None, user=None):
-        del db, user
-        return [
-            SimpleNamespace(
-                slug="alpha",
-                name="Alpha",
-                description="alpha desc",
-                source_scope="shared",
-                source_dir="/tmp/shared/alpha",
-                tool_dependencies=[],
-                mcp_dependencies=[],
-                skill_dependencies=["beta"],
-            ),
-            SimpleNamespace(
-                slug="beta",
-                name="Beta",
-                description="beta desc",
-                source_scope="personal",
-                source_dir="/tmp/personal/beta",
-                tool_dependencies=[],
-                mcp_dependencies=[],
-                skill_dependencies=[],
-            ),
-        ]
-
-    monkeypatch.setattr(skills_middleware, "_list_skills_from_db", fake_list_skills_from_db)
-
-    context = SimpleNamespace(skills=["alpha", "missing"])
-
-    scope = await resolve_runtime_skills_for_context(context)
-
-    assert scope["context_skills"] == ["alpha"]
-    assert scope["prompt_skills"] == ["alpha", "beta"]
-    assert scope["readable_skills"] == ["alpha", "beta"]
-    assert set(scope["runtime_skill_metadata"]) == {"alpha", "beta"}
-    assert scope["runtime_skill_metadata"]["alpha"]["path"] == "/home/gem/skills/alpha/SKILL.md"
-    assert (
-        scope["runtime_skill_metadata"]["beta"]["path"] == "/home/gem/user-data/workspace/agents/skills/beta/SKILL.md"
-    )
-    assert scope["runtime_skill_sources"] == {"alpha": "/tmp/shared/alpha"}
-    assert scope["runtime_skill_dependency_map"]["alpha"]["skills"] == ["beta"]
+def _runtime_skill(
+    slug: str,
+    *,
+    name: str | None = None,
+    description: str = "",
+    tools: list[str] | None = None,
+) -> dict:
+    return {
+        "name": name or slug,
+        "description": description,
+        "path": f"/home/gem/skills/{slug}/SKILL.md",
+        "tools": tools or [],
+        "mcps": [],
+        "skills": [],
+    }
 
 
 @pytest.mark.asyncio
-async def test_skills_prompt_uses_prepared_prompt_skills_at_request_level():
+async def test_skills_prompt_uses_effective_skills_at_request_level():
     context = SimpleNamespace(
         system_prompt="context base",
         skills=["configured-only"],
-        _prompt_skills=["alpha"],
-        _runtime_skill_metadata={
-            "alpha": {
-                "name": "Alpha",
-                "description": "alpha desc",
-                "path": "/home/gem/skills/alpha/SKILL.md",
-            },
-            "configured-only": {
-                "name": "Configured Only",
-                "description": "should not appear",
-                "path": "/home/gem/skills/configured-only/SKILL.md",
-            },
+        _effective_skill_slugs=["alpha"],
+        _runtime_skills={
+            "alpha": _runtime_skill("alpha", name="Alpha", description="alpha desc"),
+            "configured-only": _runtime_skill(
+                "configured-only",
+                name="Configured Only",
+                description="should not appear",
+            ),
         },
     )
 
@@ -135,10 +100,10 @@ async def test_awrap_model_call_mounts_dependencies_only_for_readable_activated_
         def __init__(self, tools=None):
             self.runtime = SimpleNamespace(
                 context=SimpleNamespace(
-                    _readable_skills=["alpha"],
-                    _runtime_skill_dependency_map={
-                        "alpha": {"tools": ["tool-a"], "mcps": [], "skills": []},
-                        "beta": {"tools": ["tool-b"], "mcps": [], "skills": []},
+                    _effective_skill_slugs=["alpha"],
+                    _runtime_skills={
+                        "alpha": _runtime_skill("alpha", tools=["tool-a"]),
+                        "beta": _runtime_skill("beta", tools=["tool-b"]),
                     },
                     mcps=[],
                 )
@@ -158,7 +123,7 @@ async def test_awrap_model_call_mounts_dependencies_only_for_readable_activated_
         captured["tools"] = [tool.name for tool in request.tools]
         return "ok"
 
-    result = await SkillsMiddleware().awrap_model_call(FakeRequest(), handler)
+    result = await SkillsMiddleware(enable_skills_prompt=False).awrap_model_call(FakeRequest(), handler)
 
     assert result == "ok"
     assert captured["tools"] == ["tool-a"]
@@ -170,19 +135,18 @@ async def test_awrap_model_call_mounts_knowledge_base_skill_tools():
         def __init__(self, tools=None):
             self.runtime = SimpleNamespace(
                 context=SimpleNamespace(
-                    _readable_skills=["knowledge-base"],
-                    _runtime_skill_dependency_map={
-                        "knowledge-base": {
-                            "tools": [
+                    _effective_skill_slugs=["knowledge-base"],
+                    _runtime_skills={
+                        "knowledge-base": _runtime_skill(
+                            "knowledge-base",
+                            tools=[
                                 "list_kbs",
                                 "query_kb",
                                 "find_kb_document",
                                 "open_kb_document",
                                 "get_mindmap",
                             ],
-                            "mcps": [],
-                            "skills": [],
-                        }
+                        )
                     },
                     mcps=[],
                 )
@@ -202,7 +166,7 @@ async def test_awrap_model_call_mounts_knowledge_base_skill_tools():
         captured["tools"] = {tool.name for tool in request.tools}
         return "ok"
 
-    result = await SkillsMiddleware().awrap_model_call(FakeRequest(), handler)
+    result = await SkillsMiddleware(enable_skills_prompt=False).awrap_model_call(FakeRequest(), handler)
 
     assert result == "ok"
     assert captured["tools"] == {
@@ -221,8 +185,8 @@ async def test_resolve_skill_gated_tools_registers_kb_tools():
     context = SimpleNamespace(
         tools=None,
         mcps=None,
-        _readable_skills=["knowledge-base"],
-        _runtime_skill_dependency_map={"knowledge-base": {"tools": sorted(_KB_TOOL_NAMES), "mcps": [], "skills": []}},
+        _effective_skill_slugs=["knowledge-base"],
+        _runtime_skills={"knowledge-base": _runtime_skill("knowledge-base", tools=sorted(_KB_TOOL_NAMES))},
     )
 
     gated_tools = resolve_skill_gated_tools(context)
@@ -240,9 +204,9 @@ def _make_gated_request(activated):
         def __init__(self, tools):
             self.runtime = SimpleNamespace(
                 context=SimpleNamespace(
-                    _readable_skills=["knowledge-base"],
-                    _runtime_skill_dependency_map={
-                        "knowledge-base": {"tools": ["list_kbs", "query_kb"], "mcps": [], "skills": []}
+                    _effective_skill_slugs=["knowledge-base"],
+                    _runtime_skills={
+                        "knowledge-base": _runtime_skill("knowledge-base", tools=["list_kbs", "query_kb"])
                     },
                     mcps=[],
                 )
@@ -270,7 +234,7 @@ async def test_awrap_model_call_hides_gated_tools_until_activated():
         captured["tools"] = {tool.name for tool in req.tools}
         return "ok"
 
-    await SkillsMiddleware().awrap_model_call(request, handler)
+    await SkillsMiddleware(enable_skills_prompt=False).awrap_model_call(request, handler)
 
     assert captured["tools"] == {"read_file"}
 
@@ -284,24 +248,17 @@ async def test_awrap_model_call_keeps_gated_tools_when_activated():
         captured["tools"] = {tool.name for tool in req.tools}
         return "ok"
 
-    await SkillsMiddleware().awrap_model_call(request, handler)
+    await SkillsMiddleware(enable_skills_prompt=False).awrap_model_call(request, handler)
 
     assert captured["tools"] == {"read_file", "list_kbs", "query_kb"}
 
 
-@pytest.mark.parametrize(
-    "file_path",
-    [
-        "/home/gem/skills/alpha/SKILL.md",
-        "/home/gem/user-data/workspace/agents/skills/alpha/SKILL.md",
-    ],
-)
-def test_read_file_activates_only_readable_skill(file_path: str) -> None:
+def test_read_file_activates_only_readable_skill() -> None:
     middleware = SkillsMiddleware()
     result = ToolMessage(content="ok", tool_call_id="tool-1", name="read_file")
     request = SimpleNamespace(
-        runtime=SimpleNamespace(context=SimpleNamespace(_readable_skills=["alpha"])),
-        tool_call={"name": "read_file", "args": {"file_path": file_path}},
+        runtime=SimpleNamespace(context=SimpleNamespace(_effective_skill_slugs=["alpha"])),
+        tool_call={"name": "read_file", "args": {"file_path": "/home/gem/skills/alpha/SKILL.md"}},
     )
 
     updated = middleware._process_tool_call_result(result, request)
@@ -310,11 +267,19 @@ def test_read_file_activates_only_readable_skill(file_path: str) -> None:
     assert updated.update["activated_skills"] == ["alpha"]
 
 
+def test_personal_workspace_path_activates_skill() -> None:
+    middleware = SkillsMiddleware()
+
+    slug = middleware._extract_skill_slug_from_skill_md_path("/home/gem/user-data/agents/skills/alpha/SKILL.md")
+
+    assert slug == "alpha"
+
+
 def test_read_file_denies_skill_outside_readable_scope() -> None:
     middleware = SkillsMiddleware()
     result = ToolMessage(content="ok", tool_call_id="tool-1", name="read_file")
     request = SimpleNamespace(
-        runtime=SimpleNamespace(context=SimpleNamespace(_readable_skills=["alpha"])),
+        runtime=SimpleNamespace(context=SimpleNamespace(_effective_skill_slugs=["alpha"])),
         tool_call={"name": "read_file", "args": {"file_path": "/home/gem/skills/beta/SKILL.md"}},
     )
 

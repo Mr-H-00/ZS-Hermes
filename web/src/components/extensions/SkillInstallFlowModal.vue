@@ -126,8 +126,8 @@
                 :aria-pressed="installTarget === 'personal'"
                 @click="installTarget = 'personal'"
               >
-                <span class="install-target-title">个人工作区 <b>推荐</b></span>
-                <span>仅自己可用，保存在个人 workspace，不进入平台数据库。</span>
+                <span class="install-target-title">个人 Skill <b>推荐</b></span>
+                <span>仅自己可用，保存在个人 Skill 持久源，不进入平台数据库。</span>
               </button>
               <button
                 v-if="userStore.isAdmin"
@@ -308,7 +308,7 @@ const shareScopeLabel = computed(() => {
   )
 })
 const installTargetLabel = computed(() =>
-  installTarget.value === 'personal' ? '个人工作区' : shareScopeLabel.value
+  installTarget.value === 'personal' ? '个人 Skill' : shareScopeLabel.value
 )
 const failedInstallItems = computed(() =>
   installItems.value.filter((item) => item.status === 'failed')

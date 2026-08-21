@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-import uuid
 from pathlib import Path
 
 import httpx
 import pytest
+from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
@@ -15,8 +14,8 @@ async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], age
         "/api/chat/thread",
         json={
             "agent_id": agent_id,
-            "title": f"attachment-state-e2e-{uuid.uuid4().hex[:8]}",
-            "metadata": {"_yuxi_e2e": True, "test": "attachment-state-e2e"},
+            "title": make_test_conversation_title("attachment-state-e2e"),
+            "metadata": make_test_conversation_metadata("attachment-state-e2e", e2e=True),
         },
         headers=headers,
     )
@@ -35,14 +34,27 @@ async def _upload_attachment(
     file_path: Path,
 ) -> dict:
     with file_path.open("rb") as handle:
-        response = await client.post(
-            f"/api/chat/thread/{thread_id}/attachments",
+        upload_response = await client.post(
+            "/api/chat/attachments/tmp",
             files={"file": (file_path.name, handle)},
             headers=headers,
         )
-
-    assert response.status_code == 200, response.text
-    return dict(response.json())
+    assert upload_response.status_code == 200, upload_response.text
+    uploaded = upload_response.json()
+    confirm_response = await client.post(
+        f"/api/chat/thread/{thread_id}/attachments/confirm",
+        json={
+            "attachments": [
+                {
+                    "file_type": uploaded.get("file_type"),
+                    "object_name": uploaded["object_name"],
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert confirm_response.status_code == 200, confirm_response.text
+    return dict(confirm_response.json()["attachments"][0])
 
 
 async def _list_attachments(client: httpx.AsyncClient, headers: dict[str, str], *, thread_id: str) -> list[dict]:
@@ -51,38 +63,7 @@ async def _list_attachments(client: httpx.AsyncClient, headers: dict[str, str], 
     return list(response.json().get("attachments") or [])
 
 
-async def _get_agent_state(
-    client: httpx.AsyncClient,
-    headers: dict[str, str],
-    *,
-    thread_id: str,
-) -> dict:
-    response = await client.get(f"/api/chat/thread/{thread_id}/state", headers=headers)
-    assert response.status_code == 200, response.text
-    return dict(response.json())
-
-
-async def _wait_for_uploaded_file_in_state(
-    client: httpx.AsyncClient,
-    headers: dict[str, str],
-    *,
-    thread_id: str,
-    file_name: str,
-    timeout: float = 60.0,
-) -> dict:
-    """轮询等待上传的附件反映进 agent_state["files"]，返回最终的 files 字典。"""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        state_payload = await _get_agent_state(client, headers, thread_id=thread_id)
-        agent_state = state_payload.get("agent_state") or {}
-        files = agent_state.get("files") or {}
-        if any(file_name in str(path) for path in files):
-            return dict(files)
-        await asyncio.sleep(1)
-    return {}
-
-
-async def test_attachment_upload_is_reflected_in_agent_state(
+async def test_attachment_confirm_is_reflected_in_thread_metadata(
     tmp_path: Path,
     e2e_client: httpx.AsyncClient,
     e2e_headers: dict[str, str],
@@ -108,10 +89,4 @@ async def test_attachment_upload_is_reflected_in_agent_state(
     assert test_file.name in attachment_names, attachments
     assert attachment_payload.get("file_name") == test_file.name, attachment_payload
 
-    files = await _wait_for_uploaded_file_in_state(
-        e2e_client,
-        e2e_headers,
-        thread_id=thread_id,
-        file_name=test_file.name,
-    )
-    assert files, f"上传附件未反映进 agent_state['files']: {files}"
+    assert attachment_payload["original_path"].endswith(test_file.name)

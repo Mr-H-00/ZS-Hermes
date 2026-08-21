@@ -631,6 +631,7 @@ async def persist_agent_run_record(
     *,
     agent_slug: str,
     conversation_thread_id: str,
+    runtime_scope_id: str | None = None,
     current_uid: str,
     db: AsyncSession,
     request_id: str,
@@ -652,6 +653,7 @@ async def persist_agent_run_record(
             run = await AgentRunRepository(db).create_run(
                 run_id=run_id,
                 conversation_thread_id=conversation_thread_id,
+                runtime_scope_id=runtime_scope_id,
                 agent_slug=agent_slug,
                 uid=str(current_uid),
                 request_id=request_id,
@@ -882,20 +884,13 @@ async def request_cancel_agent_run(
 ):
     """请求取消一个 run，并可同时向仍活跃的子 run 发布取消信号。"""
     repo = AgentRunRepository(db)
-    run = await repo.get_run_for_user(run_id, str(current_uid))
-    if not run:
+    run, cancelled_ids = await repo.request_cancel_execution_tree(
+        run_id=run_id,
+        uid=str(current_uid),
+        cascade_descendants=cascade_children,
+    )
+    if run is None:
         raise HTTPException(status_code=404, detail="运行任务不存在")
-
-    # FOR UPDATE 写锁在同一会话上必须串行；取消信号之间互不依赖，统一并发发布。
-    cancelled_ids = []
-    if cascade_children:
-        child_runs = await repo.list_active_child_runs_for_user(run_id, str(current_uid))
-        for child_run in child_runs:
-            await repo.request_cancel(child_run.id)
-            cancelled_ids.append(child_run.id)
-
-    run = await repo.request_cancel(run_id)
-    cancelled_ids.append(run_id)
     await db.commit()
     await asyncio.gather(*(publish_cancel_signal(cid) for cid in cancelled_ids))
     return run
@@ -974,7 +969,11 @@ async def stream_agent_run_events(
             if emitted_terminal:
                 return
 
-            if run.status in TERMINAL_RUN_STATUSES and not events:
+            if (
+                run.status in TERMINAL_RUN_STATUSES
+                and not bool(getattr(run, "runtime_cleanup_pending", False))
+                and not events
+            ):
                 terminal_seq = last_seq
                 if terminal_seq in {"", "0-0"}:
                     terminal_seq = await get_last_run_stream_seq(run_id)

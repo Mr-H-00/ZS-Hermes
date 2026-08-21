@@ -900,7 +900,7 @@ const confirmDeletePreviewSkill = () => {
     title: `卸载 ${target.name || target.slug}`,
     content:
       target.sourceScope === 'personal'
-        ? '卸载后会删除个人工作区中的 Skill；如有同名共享版本，Agent 将恢复使用共享版本。'
+        ? '卸载后会删除个人 Skill；如有同名共享版本，Agent 将恢复使用共享版本。'
         : '卸载后会删除该 Skill 的数据库记录和本地文件，操作不可恢复。',
     okText: '卸载',
     okType: 'danger',

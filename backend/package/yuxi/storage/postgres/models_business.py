@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -29,6 +30,27 @@ JSON_VALUE = JSON().with_variant(JSONB, "postgresql")
 MAX_LOGIN_FAILED_ATTEMPTS = 5
 LOGIN_LOCK_DURATION_SECONDS = 300
 AGENT_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled", "interrupted")
+AGENT_RUN_SHAPE_CONSTRAINT_NAME = "ck_agent_runs_nonterminal_shape"
+AGENT_RUN_SHAPE_CONSTRAINT_SQL = """
+status IN ('completed', 'failed', 'cancelled', 'interrupted')
+OR (
+    runtime_scope_id <> ''
+ AND conversation_thread_id <> ''
+ AND ((run_type = 'chat'
+     AND runtime_scope_id = conversation_thread_id
+     AND created_by_run_id IS NULL
+     AND subagent_thread_relation_id IS NULL)
+ OR (run_type = 'resume'
+     AND runtime_scope_id = conversation_thread_id
+     AND created_by_run_id IS NOT NULL
+     AND subagent_thread_relation_id IS NULL)
+ OR (run_type = 'subagent'
+     AND created_by_run_id IS NOT NULL
+     AND subagent_thread_relation_id IS NOT NULL))
+)
+"""
+
+
 # 新建线程的初始已查看标记，用于区分"尚无任何 Run"与"上线前的历史会话"，
 # 避免 startup 回填把后续新产生的未读状态误清为已读。不会与真实 Run id 冲突。
 UNVIEWED_RUN_MARKER = "__unviewed__"
@@ -248,7 +270,7 @@ class Skill(Base):
     tool_dependencies = Column(JSON, nullable=False, default=list, comment="依赖的内置工具名列表")
     mcp_dependencies = Column(JSON, nullable=False, default=list, comment="依赖的 MCP 服务名列表")
     skill_dependencies = Column(JSON, nullable=False, default=list, comment="依赖的其他 skill slug 列表")
-    dir_path = Column(String(512), nullable=False, comment="技能目录路径（相对 save_dir）")
+    dir_path = Column(String(512), nullable=False, comment="共享技能目录路径（相对 Skill 数据根目录）")
     version = Column(String(64), nullable=True, comment="技能版本（内置 skill 使用语义化版本）")
     content_hash = Column(String(128), nullable=True, comment="技能目录内容哈希（内置 skill 安装时计算）")
     share_config = Column(JSON_VALUE, nullable=False, comment="共享权限配置")
@@ -294,6 +316,12 @@ class Conversation(Base):
     status = Column(String(20), default="active", comment="Status: active/archived/deleted")
     is_pinned = Column(Boolean, default=False, nullable=False, index=True, comment="Is pinned to top")
     last_viewed_run_id = Column(String(64), nullable=True, comment="Latest top-level run id viewed by user")
+    workdir_path = Column(
+        String(512),
+        nullable=False,
+        index=True,
+        comment="UserWorkspace-relative Workdir path",
+    )
     created_at = Column(DateTime, default=utc_now_naive, comment="Creation time")
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, comment="Update time")
     extra_metadata = Column(JSON, nullable=True, comment="Additional metadata")
@@ -314,6 +342,7 @@ class Conversation(Base):
             "title": self.title,
             "status": self.status,
             "is_pinned": bool(self.is_pinned),
+            "workdir_path": self.workdir_path,
             "created_at": format_utc_datetime(self.created_at),
             "updated_at": format_utc_datetime(self.updated_at),
             "metadata": metadata,
@@ -845,6 +874,15 @@ class AgentRun(Base):
 
     id = Column(String(64), primary_key=True, comment="Run ID (UUID)")
     conversation_thread_id = Column(String(64), index=True, nullable=False, comment="Conversation thread ID snapshot")
+    runtime_scope_id = Column(String(64), index=True, nullable=False, comment="Root conversation runtime scope")
+    runtime_cleanup_pending = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+        comment="Root terminal Run still owns execution runtime cleanup",
+    )
     agent_slug = Column(String(64), index=True, nullable=False, comment="Agent slug")
     uid = Column(String(64), index=True, nullable=False, comment="UID")
     status = Column(
@@ -898,10 +936,19 @@ class AgentRun(Base):
     created_at = Column(DateTime, default=utc_now_naive, comment="Creation time")
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, comment="Update time")
 
+    __table_args__ = (
+        CheckConstraint(
+            AGENT_RUN_SHAPE_CONSTRAINT_SQL,
+            name=AGENT_RUN_SHAPE_CONSTRAINT_NAME,
+        ),
+    )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "conversation_thread_id": self.conversation_thread_id,
+            "runtime_scope_id": self.runtime_scope_id,
+            "runtime_cleanup_pending": bool(self.runtime_cleanup_pending),
             "agent_slug": self.agent_slug,
             "uid": self.uid,
             "status": self.status,

@@ -4,9 +4,7 @@ Shared pytest fixtures for integration tests that exercise the live API service.
 
 from __future__ import annotations
 
-import json
 import os
-import subprocess
 import sys
 import uuid
 from collections.abc import AsyncGenerator
@@ -22,7 +20,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from test.live_api_cleanup import cleanup_pytest_knowledge_resources  # noqa: E402
+from test.live_api_cleanup import (  # noqa: E402
+    cleanup_provisioned_sandboxes,
+    cleanup_pytest_knowledge_resources,
+    cleanup_test_chat_resources,
+)
 from yuxi.config.runtime import lite_mode_enabled  # noqa: E402
 
 load_dotenv(PROJECT_ROOT / ".env", override=False)
@@ -35,7 +37,8 @@ LITE_MODE = lite_mode_enabled()
 
 _ADMIN_TOKEN_CACHE: str | None = None
 HTTP_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
-SANDBOX_CONTAINER_PREFIX = os.getenv("YUXI_SANDBOX_CONTAINER_PREFIX", "yuxi-sandbox")
+SANDBOX_PROVISIONER_URL = os.getenv("SANDBOX_PROVISIONER_URL", "http://sandbox-provisioner:8002").rstrip("/")
+SANDBOX_PROVISIONER_TOKEN = os.getenv("SANDBOX_PROVISIONER_TOKEN", "")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -118,7 +121,7 @@ def cleanup_test_knowledge_resources():
     async def run_cleanup() -> None:
         global _ADMIN_TOKEN_CACHE
 
-        if LITE_MODE or not ADMIN_LOGIN or not ADMIN_PASSWORD:
+        if not ADMIN_LOGIN or not ADMIN_PASSWORD:
             return
 
         if not _ADMIN_TOKEN_CACHE:
@@ -143,61 +146,43 @@ def cleanup_test_knowledge_resources():
         headers = {"Authorization": f"Bearer {_ADMIN_TOKEN_CACHE}"}
 
         async with httpx.AsyncClient(base_url=API_BASE_URL, timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
-            await cleanup_pytest_knowledge_resources(client, headers)
+            current_user = await client.get("/api/auth/me", headers=headers)
+            if current_user.status_code != 200:
+                raise RuntimeError(f"Test resource cleanup failed to read current user: {current_user.text}")
+            cleanup_uid = str(current_user.json().get("uid") or "")
+            if not cleanup_uid:
+                raise RuntimeError("Test resource cleanup current user payload is missing uid")
+
+            await cleanup_test_chat_resources(client, headers, owner_uid=cleanup_uid)
+            if not LITE_MODE:
+                await cleanup_pytest_knowledge_resources(client, headers)
 
     anyio.run(run_cleanup)
     yield
     anyio.run(run_cleanup)
 
 
-def _docker_api_request(method: str, path: str) -> list[dict] | dict:
-    cmd = [
-        "curl",
-        "-sS",
-        "--unix-socket",
-        os.getenv("YUXI_DOCKER_API_SOCKET", "/var/run/docker.sock"),
-        "-X",
-        method,
-        f"{os.getenv('YUXI_DOCKER_API_BASE', 'http://localhost').rstrip('/')}{path}",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Docker API request failed")
-    text = (result.stdout or "").strip()
-    if not text:
-        return {}
-    return json.loads(text)
+def _cleanup_provisioned_sandboxes() -> None:
+    if not SANDBOX_PROVISIONER_TOKEN:
+        raise RuntimeError("SANDBOX_PROVISIONER_TOKEN is required for integration sandbox cleanup")
 
+    async def run_cleanup() -> None:
+        headers = {"Authorization": f"Bearer {SANDBOX_PROVISIONER_TOKEN}"}
+        async with httpx.AsyncClient(
+            base_url=SANDBOX_PROVISIONER_URL,
+            timeout=HTTP_TIMEOUT,
+            follow_redirects=True,
+        ) as client:
+            await cleanup_provisioned_sandboxes(client, headers)
 
-def _cleanup_sandbox_containers() -> None:
-    try:
-        containers = _docker_api_request("GET", "/containers/json?all=true")
-    except Exception as exc:
-        print(f"Warning: Failed to list sandbox containers for cleanup: {exc}")
-        return
-
-    for container in containers if isinstance(containers, list) else []:
-        names = container.get("Names") or []
-        if not any(name.lstrip("/").startswith(f"{SANDBOX_CONTAINER_PREFIX}-") for name in names):
-            continue
-        container_id = container.get("Id")
-        if not container_id:
-            continue
-        try:
-            _docker_api_request("POST", f"/containers/{container_id}/stop?t=2")
-        except Exception:
-            pass
-        try:
-            _docker_api_request("DELETE", f"/containers/{container_id}?force=true")
-        except Exception as exc:
-            print(f"Warning: Failed to cleanup sandbox container {container_id[:12]}: {exc}")
+    anyio.run(run_cleanup)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_test_sandboxes():
-    _cleanup_sandbox_containers()
+    _cleanup_provisioned_sandboxes()
     yield
-    _cleanup_sandbox_containers()
+    _cleanup_provisioned_sandboxes()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -240,6 +225,11 @@ async def standard_user(test_client: httpx.AsyncClient, admin_headers: dict[str,
             "headers": {"Authorization": f"Bearer {access_token}"},
         }
     finally:
+        await cleanup_test_chat_resources(
+            test_client,
+            {"Authorization": f"Bearer {access_token}"},
+            owner_uid=str(user_payload["uid"]),
+        )
         cleanup_error = None
         for _ in range(3):
             response = await test_client.delete(f"/api/auth/users/{user_payload['id']}", headers=admin_headers)

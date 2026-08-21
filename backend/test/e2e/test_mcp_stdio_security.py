@@ -28,7 +28,7 @@ async def test_stdio_mcp_payload_is_rejected_without_side_effects(e2e_client, e2
     """恶意 stdio 请求应在持久化和进程启动前被拒绝。"""
     unique_id = uuid.uuid4().hex[:8]
     slug = f"pytest-unsafe-mcp-{unique_id}"
-    marker = Path(f"/app/saves/{slug}.marker")
+    marker = Path(f"/tmp/{slug}.marker")
 
     try:
         response = await e2e_client.post(
@@ -69,7 +69,7 @@ async def test_legacy_stdio_mcp_is_disabled_without_starting_process(
     """历史 stdio 记录应被迁移逻辑和运行时加载双重拦截。"""
     unique_id = uuid.uuid4().hex[:8]
     slug = f"pytest-legacy-stdio-{unique_id}"
-    marker = Path(f"/app/saves/{slug}.marker")
+    marker = Path(f"/tmp/{slug}.marker")
 
     try:
         async with current_loop_pg_manager.get_async_session_context() as db:

@@ -1,41 +1,68 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 
 from yuxi.services import ocr_service
-from yuxi.agents.backends.sandbox.paths import (
-    ensure_thread_dirs,
-    sandbox_outputs_dir,
-    sandbox_uploads_dir,
-    sandbox_workspace_dir,
-    virtual_path_for_thread_file,
-)
+from yuxi.agents.toolkits.buildin import tools as buildin_tools
 from yuxi.agents.toolkits.buildin.tools import ocr_parse_file
 
 pytestmark = pytest.mark.unit
+
+
+def _patch_sandbox_backend(monkeypatch: pytest.MonkeyPatch, files: dict[str, bytes]):
+    class FakeBackend:
+        def __init__(self, **kwargs):
+            self.scope = kwargs
+
+        def download_authorized_file_to_path(self, path, target_path, max_bytes):
+            if path not in files:
+                raise ValueError("not a regular file")
+            content = files[path]
+            assert len(content) <= max_bytes
+            Path(target_path).write_bytes(content)
+            return len(content)
+
+        def regular_file_exists(self, path):
+            return path in files
+
+        def upload_authorized_file_from_path(self, path, source_path):
+            files[path] = Path(source_path).read_bytes()
+
+    monkeypatch.setattr(buildin_tools, "ProvisionerSandboxBackend", FakeBackend, raising=False)
+    return files
 
 
 def _runtime(
     *,
     thread_id: str = "thread-1",
     uid: str = "user-1",
-    file_thread_id: str | None = None,
 ) -> SimpleNamespace:
-    configurable = {"thread_id": thread_id, "uid": uid}
-    if file_thread_id:
-        configurable["file_thread_id"] = file_thread_id
+    configurable = {
+        "thread_id": thread_id,
+        "runtime_scope_id": thread_id,
+        "workdir_relative_path": "projects/11111111-1111-4111-8111-111111111111",
+        "workdir_path": "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111",
+        "uid": uid,
+    }
     return SimpleNamespace(
         config={"configurable": configurable},
-        context=SimpleNamespace(thread_id=thread_id, uid=uid, file_thread_id=file_thread_id),
+        context=SimpleNamespace(
+            thread_id=thread_id,
+            runtime_scope_id=thread_id,
+            workdir_relative_path="projects/11111111-1111-4111-8111-111111111111",
+            workdir_path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111",
+            uid=uid,
+        ),
         state={},
     )
 
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_writes_markdown_to_outputs(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
 
     def resolve_engine(engine_id, default_engine):
@@ -45,10 +72,8 @@ async def test_ocr_parse_file_writes_markdown_to_outputs(tmp_path, monkeypatch: 
     monkeypatch.setattr(ocr_service, "resolve_ocr_engine_id", resolve_engine)
     thread_id = "thread-1"
     uid = "user-1"
-    ensure_thread_dirs(thread_id, uid)
-    source_path = sandbox_workspace_dir(thread_id, uid) / "scan.png"
-    source_path.write_bytes(b"fake image")
-    source_virtual_path = virtual_path_for_thread_file(thread_id, source_path, uid=uid)
+    source_virtual_path = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/scan.png"
+    sandbox_files = _patch_sandbox_backend(monkeypatch, {source_virtual_path: b"fake image"})
     captured: dict[str, object] = {}
 
     async def fake_parse_document(source: str, params: dict | None = None, db=None) -> str:
@@ -65,23 +90,21 @@ async def test_ocr_parse_file_writes_markdown_to_outputs(tmp_path, monkeypatch: 
         runtime=_runtime(thread_id=thread_id, uid=uid),
     )
 
-    output_root = sandbox_outputs_dir(thread_id) / "ocr"
-    output_path = output_root / "scan.md"
-    assert output_path.exists()
-    assert output_path.read_text(encoding="utf-8").startswith("识别结果")
+    output_virtual_path = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/outputs/ocr/scan.md"
+    assert sandbox_files[output_virtual_path].decode("utf-8").startswith("识别结果")
     assert result["source_path"] == source_virtual_path
-    assert result["parsed_path"] == virtual_path_for_thread_file(thread_id, output_path, uid=uid)
+    assert result["parsed_path"] == output_virtual_path
     assert result["ocr_engine"] == "mineru_ocr"
-    assert result["char_count"] == len(output_path.read_text(encoding="utf-8"))
+    assert result["char_count"] == len(sandbox_files[output_virtual_path].decode("utf-8"))
     assert result["truncated"] is True
     assert len(result["preview"]) <= 1200
-    assert captured["source"] == str(source_path)
+    assert Path(str(captured["source"])).suffix == ".png"
     assert captured["params"] == {"ocr_engine": "mineru_ocr"}
 
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_uses_default_engine(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
 
     def resolve_engine(engine_id, default_engine):
@@ -92,10 +115,8 @@ async def test_ocr_parse_file_uses_default_engine(tmp_path, monkeypatch: pytest.
     monkeypatch.setattr(ocr_service, "resolve_ocr_engine_id", resolve_engine)
     thread_id = "thread-1"
     uid = "user-1"
-    ensure_thread_dirs(thread_id, uid)
-    source_path = sandbox_uploads_dir(thread_id) / "upload.pdf"
-    source_path.write_bytes(b"fake pdf")
-    source_virtual_path = virtual_path_for_thread_file(thread_id, source_path, uid=uid)
+    source_virtual_path = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/uploads/upload.pdf"
+    _patch_sandbox_backend(monkeypatch, {source_virtual_path: b"fake pdf"})
     captured: dict[str, object] = {}
 
     async def fake_parse_document(source: str, params: dict | None = None, db=None) -> str:
@@ -116,14 +137,12 @@ async def test_ocr_parse_file_uses_default_engine(tmp_path, monkeypatch: pytest.
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_accepts_disable_for_pdf(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
     thread_id = "thread-1"
     uid = "user-1"
-    ensure_thread_dirs(thread_id, uid)
-    source_path = sandbox_uploads_dir(thread_id) / "text-layer.pdf"
-    source_path.write_bytes(b"fake pdf")
-    source_virtual_path = virtual_path_for_thread_file(thread_id, source_path, uid=uid)
+    source_virtual_path = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/uploads/text-layer.pdf"
+    _patch_sandbox_backend(monkeypatch, {source_virtual_path: b"fake pdf"})
     captured: dict[str, object] = {}
 
     async def fake_parse_document(source: str, params: dict | None = None, db=None) -> str:
@@ -155,7 +174,7 @@ async def test_ocr_parse_file_accepts_disable_for_pdf(tmp_path, monkeypatch: pyt
 async def test_ocr_parse_file_rejects_path_outside_user_data(
     tmp_path, monkeypatch: pytest.MonkeyPatch, file_path: str
 ) -> None:
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
 
     with pytest.raises(ValueError, match="只允许解析"):
@@ -164,14 +183,14 @@ async def test_ocr_parse_file_rejects_path_outside_user_data(
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_rejects_directory(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
     thread_id = "thread-1"
     uid = "user-1"
-    ensure_thread_dirs(thread_id, uid)
-    dir_virtual_path = virtual_path_for_thread_file(thread_id, sandbox_workspace_dir(thread_id, uid), uid=uid)
+    dir_virtual_path = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/directory"
+    _patch_sandbox_backend(monkeypatch, {})
 
-    with pytest.raises(ValueError, match="路径不是普通文件"):
+    with pytest.raises(ValueError, match="不存在或不是普通文件"):
         await ocr_parse_file.coroutine(file_path=dir_virtual_path, runtime=_runtime(thread_id=thread_id, uid=uid))
 
 

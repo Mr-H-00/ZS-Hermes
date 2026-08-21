@@ -94,15 +94,24 @@ class ConversationRepository:
         title: str | None = None,
         thread_id: str | None = None,
         metadata: dict | None = None,
+        workdir_path: str | None = None,
     ) -> Conversation:
         """创建对话和统计记录但只 flush，供外层事务继续绑定关系。"""
+        from yuxi.workspace.paths import allocate_default_user_workdir_path
+        from yuxi.workspace.workdir import Workdir
+
         if not thread_id:
             thread_id = str(uuid_lib.uuid4())
 
         metadata = (metadata or {}).copy()
-        metadata.setdefault("attachments", [])
+        metadata["attachments"] = []
 
         normalized_title = self._normalize_title(title)
+
+        if workdir_path is None:
+            normalized_workdir_path = allocate_default_user_workdir_path()
+        else:
+            normalized_workdir_path = Workdir.open_existing(str(uid), workdir_path).relative_path
 
         conversation = Conversation(
             thread_id=thread_id,
@@ -112,6 +121,7 @@ class ConversationRepository:
             status="active",
             extra_metadata=metadata,
             last_viewed_run_id=UNVIEWED_RUN_MARKER,
+            workdir_path=normalized_workdir_path,
         )
 
         self.db.add(conversation)
@@ -131,6 +141,7 @@ class ConversationRepository:
         title: str | None = None,
         thread_id: str | None = None,
         metadata: dict | None = None,
+        workdir_path: str | None = None,
     ) -> Conversation:
         """创建并提交一个完整对话，适用于不需要外层事务编排的入口。"""
         conversation = await self.add_conversation(
@@ -139,9 +150,13 @@ class ConversationRepository:
             title=title,
             thread_id=thread_id,
             metadata=metadata,
+            workdir_path=workdir_path,
         )
         await self.db.commit()
         await self.db.refresh(conversation)
+        from yuxi.workspace.paths import ensure_bound_user_workdir
+
+        ensure_bound_user_workdir(str(uid), conversation.workdir_path)
         return conversation
 
     async def get_conversation_by_thread_id(self, thread_id: str) -> Conversation | None:

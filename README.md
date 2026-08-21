@@ -73,6 +73,9 @@ cd Yuxi
 docker compose up --build
 ```
 
+从旧文件布局升级到 v0.7.2 时不能直接 `up`；停机迁移命令、失败恢复与 Kubernetes 边界只在
+[生产部署指南](docs/advanced/deployment.md#2-启动服务) 中维护。
+
 **3. 访问平台**
 
 等待启动完成后，浏览器打开 `http://localhost:5173`，使用初始化时生成的管理员账户登录即可。

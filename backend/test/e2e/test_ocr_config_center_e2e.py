@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
 import httpx
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from test.live_api_cleanup import remove_e2e_thread_storage
+from test.live_api_cleanup import (
+    make_test_conversation_metadata,
+    make_test_conversation_title,
+    remove_e2e_thread_storage,
+)
 from yuxi.storage.minio.client import get_minio_client
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -47,8 +50,8 @@ async def test_admin_ocr_config_drives_real_tmp_attachment_parse(
             "/api/chat/thread",
             json={
                 "agent_id": e2e_agent_context["agent_slug"],
-                "title": f"ocr-config-e2e-{uuid.uuid4().hex[:8]}",
-                "metadata": {"_yuxi_e2e": True, "test": "ocr-config-e2e"},
+                "title": make_test_conversation_title("ocr-config-e2e"),
+                "metadata": make_test_conversation_metadata("ocr-config-e2e", e2e=True),
             },
             headers=e2e_headers,
         )
@@ -70,8 +73,6 @@ async def test_admin_ocr_config_drives_real_tmp_attachment_parse(
             "/api/chat/attachments/tmp/parse",
             json={
                 "object_name": uploaded["object_name"],
-                "file_name": uploaded["file_name"],
-                "bucket_name": uploaded["bucket_name"],
                 "parse_method": None,
             },
             headers=e2e_headers,
@@ -85,9 +86,7 @@ async def test_admin_ocr_config_drives_real_tmp_attachment_parse(
             json={
                 "attachments": [
                     {
-                        "file_name": uploaded["file_name"],
                         "file_type": uploaded["file_type"],
-                        "bucket_name": uploaded["bucket_name"],
                         "object_name": uploaded["object_name"],
                         "parsed_object_name": parsed["parsed_object_name"],
                     }
@@ -163,7 +162,7 @@ async def _cleanup_created_resources(
         if parsed:
             object_names.append(parsed["parsed_object_name"])
         for object_name in object_names:
-            assert await minio_client.adelete_file(uploaded["bucket_name"], object_name)
+            assert await minio_client.adelete_file(minio_client.KB_BUCKETS["documents"], object_name)
 
     if thread_id:
         response = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)

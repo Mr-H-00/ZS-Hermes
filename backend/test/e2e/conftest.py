@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from test.live_api_cleanup import (  # noqa: E402
-    cleanup_e2e_chat_resources,
+    cleanup_test_chat_resources,
     cleanup_pytest_knowledge_resources,
 )
 from yuxi.config.runtime import lite_mode_enabled  # noqa: E402
@@ -50,7 +50,7 @@ def e2e_base_url() -> str:
 def cleanup_e2e_test_resources(e2e_base_url: str):
     """在 E2E 会话前后清理测试对话、临时智能体和知识库。"""
 
-    if LITE_MODE or not CLEANUP_USERNAME or not CLEANUP_PASSWORD:
+    if not CLEANUP_USERNAME or not CLEANUP_PASSWORD:
         yield
         return
 
@@ -82,8 +82,9 @@ def cleanup_e2e_test_resources(e2e_base_url: str):
             if not cleanup_uid:
                 raise RuntimeError("E2E cleanup current user payload is missing uid")
 
-            await cleanup_e2e_chat_resources(client, headers, owner_uid=cleanup_uid)
-            await cleanup_pytest_knowledge_resources(client, headers)
+            await cleanup_test_chat_resources(client, headers, owner_uid=cleanup_uid)
+            if not LITE_MODE:
+                await cleanup_pytest_knowledge_resources(client, headers)
 
     anyio.run(run_cleanup)
     yield

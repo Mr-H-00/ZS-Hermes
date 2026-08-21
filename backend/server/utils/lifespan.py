@@ -3,7 +3,6 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from yuxi.agents.checkpointer_config import resolve_checkpointer_backend
 from yuxi.config.runtime import lite_mode_enabled
 from yuxi.services.task_service import tasker
 from yuxi.agents.mcp.service import ensure_builtin_mcp_servers_in_db
@@ -58,7 +57,6 @@ async def _startup(app: FastAPI) -> None:
     app.state.startup_complete = False
     app.state.startup_components = {}
     lite_mode = lite_mode_enabled()
-    checkpointer_backend = resolve_checkpointer_backend()
 
     await _initialize_startup_component(
         app,
@@ -80,13 +78,11 @@ async def _startup(app: FastAPI) -> None:
     from yuxi.config.options import (
         ensure_options_in_db,
         invalidate_option_cache,
-        migrate_legacy_system_options,
         system_options,
     )
 
     async with pg_manager.get_async_session_context() as session:
         await ensure_options_in_db(session)
-        await migrate_legacy_system_options(session)
         await session.commit()
     await invalidate_option_cache(system_options.key)
 
@@ -195,8 +191,7 @@ async def _startup(app: FastAPI) -> None:
         operation=init_sandbox_provider,
     )
 
-    if checkpointer_backend == "postgres":
-        await pg_manager.setup_langgraph_checkpointer()
+    await pg_manager.setup_langgraph_checkpointer()
 
     await tasker.start()
     app.state.startup_complete = True

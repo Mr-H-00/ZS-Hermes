@@ -8,7 +8,12 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from yuxi.storage.postgres.models_business import AGENT_RUN_TERMINAL_STATUSES, UNVIEWED_RUN_MARKER
+from yuxi.storage.postgres.models_business import (
+    AGENT_RUN_SHAPE_CONSTRAINT_NAME,
+    AGENT_RUN_SHAPE_CONSTRAINT_SQL,
+    AGENT_RUN_TERMINAL_STATUSES,
+    UNVIEWED_RUN_MARKER,
+)
 from yuxi.storage.postgres.models_business import Base as BusinessBase
 from yuxi.storage.postgres.models_knowledge import Base as KnowledgeBase
 from yuxi.utils import logger
@@ -47,6 +52,78 @@ AGENT_RUN_FACT_SCHEMA_STATEMENTS = (
         "ON agent_run_attempts(run_id, attempt_no)"
     ),
     "CREATE INDEX IF NOT EXISTS ix_agent_run_attempts_open ON agent_run_attempts(run_id, finished_at)",
+)
+WORKDIR_PATH_SCHEMA_STATEMENTS = (
+    "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS workdir_path VARCHAR(512)",
+    """
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM conversations WHERE workdir_path IS NULL) THEN
+            RAISE EXCEPTION 'Conversation workdir_path requires storage-migrator cutover';
+        END IF;
+    END $$
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_conversations_workdir_path ON conversations(workdir_path)",
+)
+V071_WORKDIR_CUTOVER_STATEMENTS = (
+    "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS workdir_path VARCHAR(512)",
+    """
+    UPDATE conversations
+    SET workdir_path = 'projects/' || (md5(uid || ':' || thread_id)::uuid)::text
+    WHERE workdir_path IS NULL
+    """,
+    """
+    UPDATE conversations AS child
+    SET workdir_path = parent.workdir_path
+    FROM subagent_threads AS relation
+    JOIN conversations AS parent ON parent.id = relation.parent_conversation_id
+    WHERE child.id = relation.child_conversation_id
+      AND child.workdir_path IS DISTINCT FROM parent.workdir_path
+    """,
+    "ALTER TABLE IF EXISTS conversations ALTER COLUMN workdir_path SET NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_conversations_workdir_path ON conversations(workdir_path)",
+)
+RUNTIME_SCOPE_SCHEMA_STATEMENTS = (
+    "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS runtime_scope_id VARCHAR(64)",
+    (
+        "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS "
+        "runtime_cleanup_pending BOOLEAN NOT NULL DEFAULT FALSE"
+    ),
+    """
+    UPDATE agent_runs AS run
+    SET runtime_scope_id = COALESCE(
+        (
+            SELECT parent.thread_id
+            FROM subagent_threads AS relation
+            JOIN conversations AS parent ON parent.id = relation.parent_conversation_id
+            WHERE relation.id = run.subagent_thread_relation_id
+        ),
+        run.conversation_thread_id
+    )
+    WHERE run.runtime_scope_id IS NULL
+    """,
+    "ALTER TABLE IF EXISTS agent_runs ALTER COLUMN runtime_scope_id SET NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_agent_runs_runtime_scope_id ON agent_runs(runtime_scope_id)",
+    ("CREATE INDEX IF NOT EXISTS ix_agent_runs_runtime_cleanup_pending ON agent_runs(runtime_cleanup_pending)"),
+    f"""
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = '{AGENT_RUN_SHAPE_CONSTRAINT_NAME}'
+              AND conrelid = 'agent_runs'::regclass
+        ) THEN
+            BEGIN
+                ALTER TABLE agent_runs
+                ADD CONSTRAINT {AGENT_RUN_SHAPE_CONSTRAINT_NAME}
+                CHECK ({AGENT_RUN_SHAPE_CONSTRAINT_SQL}) NOT VALID;
+            EXCEPTION WHEN duplicate_object THEN
+                NULL;
+            END;
+        END IF;
+    END $$
+    """,
 )
 
 
@@ -716,6 +793,7 @@ class PostgresManager(metaclass=SingletonMeta):
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
             """,
+            *WORKDIR_PATH_SCHEMA_STATEMENTS,
             "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS agent_slug VARCHAR(64)",
             "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS conversation_thread_id VARCHAR(64)",
             "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS created_by_run_id VARCHAR(64)",
@@ -826,6 +904,7 @@ class PostgresManager(metaclass=SingletonMeta):
                 END IF;
             END $$;
             """,
+            *RUNTIME_SCOPE_SCHEMA_STATEMENTS,
             """
             UPDATE subagent_threads st
             SET subagent_slug = c.agent_id

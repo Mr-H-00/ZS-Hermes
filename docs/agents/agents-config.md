@@ -91,11 +91,11 @@ class MyAgent(BaseAgent):
 | `model_retry_times` | 模型调用失败时的最大重试次数 |
 | `thread_id` / `uid` | 运行期标识，不作为页面配置项暴露 |
 
-`tools`、`knowledges`、`mcps`、`skills` 在未显式配置时会默认启用当前用户可访问的全部资源。
+`tools`、`knowledges`、`mcps`、`skills` 在未显式配置时会默认启用当前用户可访问的全部资源；显式保存空列表表示不启用该类资源。
 
 `ChatBotContext` 在 `BaseContext` 之上增加 `subagents` 字段，表示当前主 Agent 允许调用的子智能体。`subagents` 未显式配置或保存空列表时会默认启用当前用户可见的全部子智能体；显式选择后则作为允许列表过滤。
 
-`SubAgentContext` 在 `BaseContext` 之上增加 `parent_thread_id`、`file_thread_id`、`skills_thread_id` 与 `is_subagent_runtime` 等隐藏运行态字段，不包含 `subagents`，因此子智能体不能继续配置下一层子智能体。
+`SubAgentContext` 在 `BaseContext` 之上增加 `parent_thread_id` 与 `is_subagent_runtime` 等隐藏运行态字段，不包含 `subagents`，因此子智能体不能继续配置下一层子智能体。
 
 ### 3.2 前端配置项如何从 Context 生成
 
@@ -226,22 +226,23 @@ Graph 构建直接依赖 Context。普通 Agent 在归一化后的 `context.suba
 `get_graph()` 创建 LangGraph 前会先调用 `prepare_agent_runtime_context`，用当前用户重新过滤资源字段，并派生运行时字段：
 
 - `_visible_knowledge_bases`：当前会话实际可查询的知识库对象
-- `_prompt_skills`：需要注入提示词的 Skill 闭包
-- `_readable_skills`：当前运行时可读的 Skill 闭包，包括共享只读投影与个人工作区 Skill
+- `_effective_skill_slugs`：需要注入提示词并允许激活的 Skill 依赖闭包；它不是文件系统权限边界
+- `_runtime_skills`：由当前授权快照派生的 Skill Prompt 元数据与依赖
 
 随后 Graph 构建会直接使用这份 Context：
 
 - `load_chat_model(context.model)` 选择主模型
 - `build_prompt_with_context(context)` 生成系统提示词
 - `resolve_configured_runtime_tools(context)` 组装已配置的内置工具和 MCP 工具
-- `SkillsMiddleware` 根据 `_prompt_skills` 注入 Skill 提示段，并在 Skill 被激活后按需让模型看见其工具与 MCP 依赖；知识库工具由内置 `knowledge-base` Skill 提供
-- `save_attachments_to_fs` 将线程附件转换为运行时可读的文件提示
+- `SkillsMiddleware` 根据 `_effective_skill_slugs` 注入 Skill 提示段，并在 Skill 被激活后按需让模型看见其工具与 MCP 依赖；知识库工具由内置 `knowledge-base` Skill 提供
+- Chat service 将线程历史附件的文件名和路径追加到本轮模型可见的用户消息，持久化消息保持原文
 
 文件系统与沙盒接入同样读取这些运行时字段：
 
-- 普通 Agent 默认使用当前 `thread_id` 作为文件与 Skills 作用域
-- 子智能体使用 child `thread_id` 做 checkpoint，`file_thread_id` 指向父会话 uploads/outputs，`skills_thread_id` 指向子智能体自身 Skills 作用域
-- 通过 `_readable_skills` 与来源映射决定共享/内置 Skill 的 `/home/gem/skills` 投影；个人 Skill 直接读取工作区
+- 普通 Agent 使用根 Conversation 的 `runtime_scope_id` 连接 execution Sandbox，并以 Conversation 的 `workdir_path` 选择 UserWorkspace 中的当前 Workdir
+- 子智能体保留 child `thread_id` 作为 LangGraph checkpoint，但继承根 Conversation 的 runtime 与 Workdir
+- `/home/gem/user-data/<workdir_path>` 是当前执行树的默认工作目录；`uploads`、`outputs` 只是子目录约定
+- `/home/gem/skills` 使用当前用户的共享/内置 Skill 授权投影；个人 Skill 使用 `/home/gem/user-data/agents/skills`。`_effective_skill_slugs` 只决定当前 Agent 在 Prompt 和工具层激活哪些 Skill，不改变 sandbox 身份或挂载
 
 所以 Context 既是输入配置，也是 Graph 创建前整理出的运行时资源上下文。
 
@@ -249,7 +250,7 @@ Graph 构建直接依赖 Context。普通 Agent 在归一化后的 `context.suba
 
 文件系统服务从 `config_json.context` 还原 runtime context，并将其用于：
 
-- 判断当前线程下 Agent 可见的 Skills
+- 判断当前 Agent 在 Prompt 和工具层激活的 Skills
 - 构造 Agent 视图的 composite backend
 - 构造 Viewer 视图的文件系统展示
 
@@ -257,7 +258,7 @@ Graph 构建直接依赖 Context。普通 Agent 在归一化后的 `context.suba
 
 - Agent 文件工具
 - Viewer 文件浏览器
-- Skills 可见性
+- Skills 的 Prompt/工具激活集合
 - 沙盒挂载语义
 
 ### 4.6 恢复运行阶段

@@ -30,30 +30,9 @@ async def test_optional_startup_component_failure_is_structured_without_raw_mess
     assert "password" not in str(app.state.startup_components)
 
 
-async def test_invalid_checkpointer_backend_fails_before_startup_side_effects(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """非法 checkpoint 配置不能等到首个 Agent 请求才暴露。"""
-
-    monkeypatch.setenv("LANGGRAPH_CHECKPOINTER_BACKEND", "unknown")
-
-    def forbidden_initialize() -> None:
-        raise AssertionError("database startup must not begin")
-
-    monkeypatch.setattr(lifespan_module.pg_manager, "initialize", forbidden_initialize)
-
-    app = FastAPI()
-    with pytest.raises(ValueError, match="unknown"):
-        await lifespan_module._startup(app)
-
-    assert app.state.startup_complete is False
-    assert app.state.startup_components == {}
-
-
 async def test_invalid_security_secrets_fail_before_database_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("LANGGRAPH_CHECKPOINTER_BACKEND", "postgres")
     monkeypatch.delenv("API_KEY_DERIVATION_SECRET", raising=False)
 
     def forbidden_initialize() -> None:

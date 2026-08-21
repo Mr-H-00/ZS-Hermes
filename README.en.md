@@ -74,6 +74,10 @@ cd Yuxi
 docker compose up --build
 ```
 
+Do not run `up` directly when upgrading an existing installation to the v0.7.2
+storage layout. The single owning procedure is the
+[production deployment guide](docs/advanced/deployment.md#2-启动服务).
+
 **3. Open the platform**
 
 Once the services are ready, open `http://localhost:5173` in your browser and sign in with the admin account generated during initialization.

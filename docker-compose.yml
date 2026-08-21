@@ -3,8 +3,8 @@ x-api-worker-env: &api-worker-env
   LITE_MODE: ${LITE_MODE:-false}
   RUNNING_IN_DOCKER: "true"
   YUXI_ENV: development
-  LANGGRAPH_CHECKPOINTER_BACKEND: ${LANGGRAPH_CHECKPOINTER_BACKEND:-postgres}
   API_KEY_DERIVATION_SECRET: ${API_KEY_DERIVATION_SECRET:?Set API_KEY_DERIVATION_SECRET in .env [v0.7.2+], or rerun `bash scripts/init.sh`.}
+  NLTK_DATA: /home/yuxi/nltk_data
   # DBs and other services
   POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-yuxi}}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
@@ -19,7 +19,6 @@ x-api-worker-env: &api-worker-env
   MINERU_API_URI: ${MINERU_API_URI:-http://mineru-api:30001}
   PADDLEX_URI: ${PADDLEX_URI:-http://paddlex:8080}
   # Sandbox related
-  YUXI_DOCKER_API_BASE: ${YUXI_DOCKER_API_BASE:-http://localhost}
   SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-provisioner}
   SANDBOX_PROVISIONER_URL: ${SANDBOX_PROVISIONER_URL:-http://sandbox-provisioner:8002}
   SANDBOX_PROVISIONER_TOKEN: ${SANDBOX_PROVISIONER_TOKEN:?Set SANDBOX_PROVISIONER_TOKEN in .env [v0.7.1+], or rerun `bash scripts/init.sh`.}
@@ -37,6 +36,8 @@ x-api-worker-env: &api-worker-env
   READINESS_CACHE_TTL_SECONDS: ${READINESS_CACHE_TTL_SECONDS:-1}
   YUXI_CORS_ORIGINS: ${YUXI_CORS_ORIGINS:-}
   YUXI_DATASET_PERSIST_BATCH_SIZE: ${YUXI_DATASET_PERSIST_BATCH_SIZE:-1}
+  YUXI_SKILL_DATA_DIR: /app/skill-sources
+  YUXI_SKILL_PROJECTION_DIR: /app/skill-projections
   # 其他环境变量
   NO_PROXY: localhost,127.0.0.1,milvus,graph,minio,milvus-etcd-dev,etcd,mineru,paddlex,sandbox-provisioner,api.siliconflow.cn
   no_proxy: localhost,127.0.0.1,milvus,graph,minio,milvus-etcd-dev,etcd,mineru,paddlex,sandbox-provisioner,api.siliconflow.cn
@@ -49,17 +50,17 @@ services:
     image: yuxi-api:${YUXI_VERSION:-0.7.2.dev0}
     container_name: api-dev
     working_dir: /app
+    user: "1000:1000"
     volumes:
       - ./backend/server:/app/server
       - ./backend/package:/app/package
-      - ./docker/volumes/yuxi:/app/saves
-      - ./docker/volumes/models:/app/models
+      - ./docker/volumes/yuxi/threads:/app/user-data
+      - ./docker/volumes/yuxi/skill-sources:/app/skill-sources
+      - ./docker/volumes/yuxi/skill-projections:/app/skill-projections
       - ./backend/test:/app/test
       - ./backend/scripts:/app/scripts
       - ./docker/sandbox_provisioner:/app/docker/sandbox_provisioner:ro
-      - ./.env:/app/.env
-      - /var/run/docker.sock:/var/run/docker.sock
-      - nltk_data:/root/nltk_data  # 使用命名卷持久化NLTK数据，避免路径展开差异
+      - nltk_data:/home/yuxi/nltk_data
     ports:
       - "5050:5050"
     networks:
@@ -71,6 +72,8 @@ services:
     # region api_envs
     environment:
       <<: *api-worker-env
+      YUXI_RUNTIME_DIR: /app/runtime/api
+      YUXI_USER_DATA_DIR: /app/user-data
     # endregion api_envs
     command: uv run --no-sync --no-dev uvicorn server.main:app --host 0.0.0.0 --port 5050 --reload --reload-dir /app/server --reload-dir /app/package --timeout-graceful-shutdown 5
     restart: unless-stopped
@@ -89,6 +92,8 @@ services:
         condition: service_healthy
       sandbox-provisioner:
         condition: service_healthy
+      storage-migrator:
+        condition: service_completed_successfully
 
   worker:
     build:
@@ -97,18 +102,18 @@ services:
     image: yuxi-api:${YUXI_VERSION:-0.7.2.dev0}
     container_name: worker-dev
     working_dir: /app
+    user: "1000:1000"
     volumes:
       - ./backend/server:/app/server
       - ./backend/package:/app/package
-      - ./docker/volumes/yuxi:/app/saves
-      - ./docker/volumes/models:/app/models
+      - ./docker/volumes/yuxi/threads:/app/user-data
+      - ./docker/volumes/yuxi/skill-sources:/app/skill-sources
+      - ./docker/volumes/yuxi/skill-projections:/app/skill-projections
       - ./backend/test:/app/test
       - ./backend/scripts:/app/scripts
       - ./docker/sandbox_provisioner:/app/docker/sandbox_provisioner:ro
-      - ./.env:/app/.env
       - ./backend/pyproject.toml:/app/pyproject.toml
       - ./backend/uv.lock:/app/uv.lock
-      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - app-network
     extra_hosts:
@@ -117,6 +122,8 @@ services:
       - .env
     environment:
       <<: *api-worker-env
+      YUXI_RUNTIME_DIR: /app/runtime/worker
+      YUXI_USER_DATA_DIR: /app/user-data
     command: watchfiles --filter python "arq server.worker_main.WorkerSettings" /app/server /app/package
     restart: unless-stopped
     healthcheck:
@@ -134,6 +141,37 @@ services:
         condition: service_healthy
       sandbox-provisioner:
         condition: service_healthy
+      storage-migrator:
+        condition: service_completed_successfully
+
+  storage-migrator:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: yuxi-api:${YUXI_VERSION:-0.7.2.dev0}
+    working_dir: /app
+    user: "0:0"
+    volumes:
+      - ./backend/package:/app/package:ro
+      - ./docker/volumes/yuxi:/app/legacy-saves
+      - ./docker/volumes/yuxi/threads:/app/user-data
+      - ./docker/volumes/yuxi/skill-sources:/app/skill-sources
+      - ./docker/volumes/yuxi/skill-projections:/app/skill-projections
+      - nltk_data:/home/yuxi/nltk_data
+    networks:
+      - app-network
+    env_file:
+      - .env
+    environment:
+      <<: *api-worker-env
+      YUXI_RUNTIME_DIR: /app/runtime/storage-migrator
+      YUXI_LEGACY_STORAGE_DIR: /app/legacy-saves
+      YUXI_USER_DATA_DIR: /app/user-data
+    command: uv run --no-sync --no-dev python -m yuxi.storage_migration
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   sandbox-provisioner:
     build:
@@ -142,7 +180,8 @@ services:
     image: yuxi-sandbox-provisioner:${YUXI_VERSION:-0.7.2.dev0}
     container_name: sandbox-provisioner
     volumes:
-      - ./docker/volumes/yuxi:/app/saves
+      - ./docker/volumes/yuxi/threads:/app/user-data
+      - ./docker/volumes/yuxi/skill-projections:/app/skill-projections
       - ./docker/sandbox_provisioner/app.py:/app/app.py:ro
       - ./docker/sandbox_provisioner/sandbox.env:/app/sandbox.env:ro
       - /var/run/docker.sock:/var/run/docker.sock
@@ -170,13 +209,14 @@ services:
       - NO_PROXY=localhost,127.0.0.1,host.docker.internal
       # Docker backend only
       - DOCKER_NETWORK_PREFIX=${SANDBOX_DOCKER_NETWORK_PREFIX:-yuxi-know-sandbox}
-      - DOCKER_THREADS_HOST_PATH=${SANDBOX_DOCKER_THREADS_HOST_PATH:-}
+      - DOCKER_USER_DATA_HOST_PATH=${SANDBOX_DOCKER_USER_DATA_HOST_PATH:-}
+      - DOCKER_SKILL_PROJECTIONS_HOST_PATH=${SANDBOX_DOCKER_SKILL_PROJECTIONS_HOST_PATH:-}
       - DOCKER_SANDBOX_PREFIX=${SANDBOX_DOCKER_SANDBOX_PREFIX:-yuxi-sandbox}
       # Kubernetes backend only
       - K8S_NAMESPACE=${SANDBOX_K8S_NAMESPACE:-yuxi-know}
       - NODE_HOST=${SANDBOX_NODE_HOST:-host.docker.internal}
       - KUBECONFIG_PATH=${KUBECONFIG_PATH:-}
-      - THREAD_PVC=${THREAD_PVC:-yuxi-thread}
+      - USER_DATA_PVC=${USER_DATA_PVC:-yuxi-user-data}
       - SKILLS_PVC=${SKILLS_PVC:-yuxi-skills}
     command: >
       sh -lc "python -c 'import docker' >/dev/null 2>&1 || pip install --no-cache-dir 'docker>=7.1.0';
@@ -188,6 +228,9 @@ services:
       retries: 6
       start_period: 10s
     restart: unless-stopped
+    depends_on:
+      storage-migrator:
+        condition: service_completed_successfully
 
   web:
     build:

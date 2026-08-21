@@ -113,14 +113,15 @@ class TaskToolSchema(BaseModel):
 
 ### 文件系统与沙盒作用域
 
-子智能体与主 Agent 共享文件系统时使用拆分作用域：
+子智能体与主 Agent 使用同一个 execution-tree runtime 和 Project Workdir：
 
 | 路径/作用域 | 普通 Agent | 子智能体 |
 |------|------|------|
 | LangGraph checkpoint | 当前 `thread_id` | child `thread_id` |
-| `/home/gem/user-data/workspace` | 当前 `uid` 的共享工作区 | 同一 `uid` 的共享工作区 |
-| `/home/gem/user-data/uploads` | 当前会话文件作用域 | 父会话 `file_thread_id` |
-| `/home/gem/user-data/outputs` | 当前会话文件作用域 | 父会话 `file_thread_id` |
-| `/home/gem/skills` | 当前 Agent 的 Skills 作用域 | 子智能体自己的 `skills_thread_id` |
+| Sandbox runtime | 根 Conversation `runtime_scope_id` | 同一个根 `runtime_scope_id` |
+| `/home/gem/user-data/<workdir_path>` | 当前 Workdir（cwd） | 同一个 Workdir（cwd） |
+| `/home/gem/user-data` | 当前 `uid` 的 UserWorkspace | 同一 `uid` 的 UserWorkspace |
+| `/home/gem/skills` | 当前用户的共享/内置 Skills 投影 | 同一用户的共享/内置 Skills 投影 |
+| `/home/gem/user-data/agents/skills` | 当前用户的个人 Skills | 同一用户的个人 Skills |
 
-这保证子智能体可以读取父会话上传、产物也会回到父会话 artifacts 中，同时子智能体的 Skills 不会污染主 Agent。
+父子 Agent 因此直接读取同一份实时 POSIX 字节，不经过 checkpoint、复制或合并。各自仍使用独立 LangGraph 上下文，并由 Agent 配置分别决定哪些 Skill 描述与工具进入模型上下文。

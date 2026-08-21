@@ -24,10 +24,17 @@ async def session():
 
 
 async def _seed_messages(session):
-    conversation = Conversation(thread_id="thread-1", uid="user-1", agent_id="main", status="active")
+    conversation = Conversation(
+        thread_id="thread-1",
+        workdir_path="projects/workdir-thread-1",
+        uid="user-1",
+        agent_id="main",
+        status="active",
+    )
     run = AgentRun(
         id="run-1",
         conversation_thread_id="thread-1",
+        runtime_scope_id="thread-1",
         agent_slug="main",
         uid="user-1",
         status="completed",
@@ -38,6 +45,7 @@ async def _seed_messages(session):
     other_run = AgentRun(
         id="run-2",
         conversation_thread_id="thread-1",
+        runtime_scope_id="thread-1",
         agent_slug="main",
         uid="user-1",
         status="completed",

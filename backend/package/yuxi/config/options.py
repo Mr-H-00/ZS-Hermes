@@ -11,7 +11,6 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-import tomli
 from pydantic import HttpUrl, TypeAdapter
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,15 +19,10 @@ from yuxi.storage.postgres.models_business import ConfigOption
 from yuxi.storage.redis import get_async_redis_client
 from yuxi.utils.logging_config import logger
 
-from . import get_save_dir
-
 OPTION_CACHE_PREFIX = "yuxi:config_option:"
 OPTION_CACHE_VERSION_PREFIX = "yuxi:config_option_version:"
 OPTION_CACHE_TTL_SECONDS = 300
-_LEGACY_SYSTEM_CONFIG_KEY = "system_runtime_config"
-_BASE_TOML_MIGRATED_PARAM = "base_toml_migrated"
-_SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM = "migration_version"
-_SYSTEM_OPTIONS_MIGRATION_VERSION = 1
+SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM = "migration_version"
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,9 +283,8 @@ async def ensure_options_in_db(db: AsyncSession) -> list[ConfigOption]:
             record.description = definition.description
             params = dict(definition.params)
             if definition.key == system_options.key:
-                params[_BASE_TOML_MIGRATED_PARAM] = bool((record.params or {}).get(_BASE_TOML_MIGRATED_PARAM))
-                params[_SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM] = int(
-                    (record.params or {}).get(_SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM) or 0
+                params[SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM] = int(
+                    (record.params or {}).get(SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM) or 0
                 )
             record.params = params
         synced.append(record)
@@ -301,9 +294,7 @@ async def ensure_options_in_db(db: AsyncSession) -> list[ConfigOption]:
 
 async def list_options(db: AsyncSession) -> list[ConfigOption]:
     result = await db.execute(
-        select(ConfigOption)
-        .where(ConfigOption.key.notin_((system_options.key, _LEGACY_SYSTEM_CONFIG_KEY)))
-        .order_by(ConfigOption.id.asc())
+        select(ConfigOption).where(ConfigOption.key != system_options.key).order_by(ConfigOption.id)
     )
     return list(result.scalars().all())
 
@@ -312,52 +303,6 @@ async def get_option(db: AsyncSession, key: str) -> ConfigOption | None:
     statement = select(ConfigOption).where(ConfigOption.key == key).execution_options(populate_existing=True)
     result = await db.execute(statement)
     return result.scalar_one_or_none()
-
-
-async def migrate_legacy_system_options(db: AsyncSession) -> None:
-    """将旧 base.toml 的合法系统字段一次性迁移到 system_options。"""
-    statement = select(ConfigOption).where(ConfigOption.key == system_options.key).with_for_update()
-    result = await db.execute(statement)
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise RuntimeError("系统配置项不存在")
-
-    params = dict(record.params or {})
-    if int(params.get(_SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM) or 0) >= _SYSTEM_OPTIONS_MIGRATION_VERSION:
-        return
-
-    migrated = dict(record.value or {})
-    legacy_record = await get_option(db, _LEGACY_SYSTEM_CONFIG_KEY)
-    if legacy_record is not None:
-        raw = dict(legacy_record.value or {})
-    else:
-        config_file = get_save_dir() / "config" / "base.toml"
-        raw = {}
-        if config_file.exists():
-            try:
-                with config_file.open("rb") as file:
-                    raw = tomli.load(file)
-            except (OSError, tomli.TOMLDecodeError) as exc:
-                logger.warning(f"Failed to migrate legacy config file {config_file}: {exc}")
-                return
-
-    # 旧配置只负责补充尚未存在的字段，不能覆盖已经落库的管理员值。
-    if raw:
-        allowed = {field["key"] for field in system_options.fields}
-        for key, value in raw.items():
-            if key in allowed and key not in migrated:
-                field = next(field for field in system_options.fields if field["key"] == key)
-                try:
-                    migrated[key] = _normalize_value(field, value)
-                except ValueError as exc:
-                    logger.warning(f"Skipped invalid legacy config field {key}: {exc}")
-
-    record.value = migrated
-    record.updated_by = "system-migration"
-    params[_BASE_TOML_MIGRATED_PARAM] = True
-    params[_SYSTEM_OPTIONS_MIGRATION_VERSION_PARAM] = _SYSTEM_OPTIONS_MIGRATION_VERSION
-    record.params = params
-    await db.flush()
 
 
 def serialize_option(record: ConfigOption) -> dict[str, Any]:
@@ -414,7 +359,7 @@ async def update_option_value(
     updated = dict(record.value or {})
     for field_key, raw_value in value.items():
         field = fields[field_key]
-        updated[field_key] = _normalize_value(field, raw_value)
+        updated[field_key] = normalize_option_value(field, raw_value)
     record.value = updated
     record.updated_by = updated_by
     await db.flush()
@@ -442,7 +387,7 @@ def _fields(record: ConfigOption) -> list[dict[str, Any]]:
     return list((record.params or {}).get("fields") or [])
 
 
-def _normalize_value(field: dict[str, Any], value: Any) -> Any:
+def normalize_option_value(field: dict[str, Any], value: Any) -> Any:
     if field.get("type") == "boolean":
         if not isinstance(value, bool):
             raise ValueError("配置值必须是布尔值")

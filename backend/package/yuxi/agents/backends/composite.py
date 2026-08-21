@@ -11,15 +11,10 @@ from deepagents.backends.composite import (
 from deepagents.backends.protocol import FileInfo, GlobResult
 from deepagents.middleware.filesystem import FilesystemMiddleware
 
-from yuxi.agents.skills.service import (
-    get_thread_skills_root_dir,
-    normalize_string_list,
-    sync_thread_readable_skills_async,
-)
-from yuxi.utils.paths import VIRTUAL_PATH_CONVERSATION_HISTORY, VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_OUTPUTS
+from yuxi.agents.backends.paths import runtime_workdir_path, workdir_runtime_paths
+from yuxi.agents.skills.service import refresh_user_skill_projection_async
 
 from .sandbox import ProvisionerSandboxBackend
-from .skills_backend import SelectedSkillsReadonlyBackend
 
 _TOOL_RESULT_EVICTION_EXEMPT_TOOLS = frozenset({"read_file", "open_kb_document"})
 
@@ -118,11 +113,13 @@ class YuxiFilesystemMiddleware(FilesystemMiddleware):
 
 @dataclass(frozen=True)
 class _BackendScope:
-    thread_id: str
+    runtime_scope_id: str
+    workdir_relative_path: str
     uid: str
-    skill_sources: dict[str, str]
-    file_thread_id: str
-    skills_thread_id: str
+
+    @property
+    def workdir_path(self) -> str:
+        return runtime_workdir_path(self.workdir_relative_path)
 
     @classmethod
     def from_runtime(cls, runtime) -> _BackendScope:
@@ -134,12 +131,11 @@ class _BackendScope:
             configurable if isinstance(configurable, dict) else {},
             context,
             state if isinstance(state, dict) else {},
-            readable_skills_source=context,
             error_context="runtime configurable context",
         )
 
     @classmethod
-    def from_sources(cls, *sources, readable_skills_source, error_context: str) -> _BackendScope:
+    def from_sources(cls, *sources, error_context: str) -> _BackendScope:
         def string_value(key: str) -> str | None:
             for source in sources:
                 value = source.get(key) if isinstance(source, dict) else getattr(source, key, None)
@@ -155,55 +151,33 @@ class _BackendScope:
         if not uid:
             raise ValueError(f"uid is required in {error_context}")
 
-        selected = getattr(readable_skills_source, "_readable_skills", [])
-        readable_skills = normalize_string_list(selected if isinstance(selected, list) else [])
-        raw_sources = getattr(readable_skills_source, "_runtime_skill_sources", {})
-        skill_sources = {
-            slug: str(path)
-            for slug, path in (raw_sources.items() if isinstance(raw_sources, dict) else [])
-            if slug in readable_skills and isinstance(path, str) and path
-        }
+        runtime_scope_id = string_value("runtime_scope_id") or thread_id
+        relative_path = string_value("workdir_relative_path") or ""
         return cls(
-            thread_id=thread_id,
+            runtime_scope_id=runtime_scope_id,
+            workdir_relative_path=relative_path,
             uid=uid,
-            skill_sources=skill_sources,
-            file_thread_id=string_value("file_thread_id") or thread_id,
-            skills_thread_id=string_value("skills_thread_id") or thread_id,
         )
 
     def create_backend(self) -> CompositeBackend:
-        thread_skills_root = get_thread_skills_root_dir(self.skills_thread_id)
+        if not self.workdir_relative_path:
+            raise ValueError("workdir path is required in runtime context")
         return CustomCompositeBackend(
             default=ProvisionerSandboxBackend(
-                thread_id=self.thread_id,
+                thread_id=self.runtime_scope_id,
                 uid=self.uid,
-                readable_skills=list(self.skill_sources),
-                skill_sources=self.skill_sources,
-                file_thread_id=self.file_thread_id,
-                skills_thread_id=self.skills_thread_id,
+                workdir_path=self.workdir_relative_path,
+                create_if_missing=False,
             ),
-            routes={
-                "/skills/": SelectedSkillsReadonlyBackend(
-                    selected_slugs=list(self.skill_sources),
-                    root_dir=thread_skills_root,
-                ),
-            },
-            artifacts_root=VIRTUAL_PATH_OUTPUTS,
+            routes={},
+            artifacts_root=self.workdir_path,
         )
 
 
 async def sync_agent_context_skills(context) -> None:
-    """在 Agent Run 初始化时同步当前上下文的共享 Skill 投影。"""
-    scope = _BackendScope.from_sources(
-        context,
-        readable_skills_source=context,
-        error_context="runtime context",
-    )
-    await sync_thread_readable_skills_async(
-        scope.skills_thread_id,
-        list(scope.skill_sources),
-        scope.skill_sources,
-    )
+    """在 Agent Run 初始化时同步当前用户获授权的共享 Skill 投影。"""
+    scope = _BackendScope.from_sources(context, error_context="runtime context")
+    await refresh_user_skill_projection_async(scope.uid)
 
 
 def create_agent_composite_backend(runtime) -> CompositeBackend:
@@ -213,24 +187,22 @@ def create_agent_composite_backend(runtime) -> CompositeBackend:
 def create_agent_filesystem_middleware(
     tool_token_limit_before_evict: int | None = None,
     *,
-    context=None,
+    context,
 ) -> FilesystemMiddleware:
-    backend = create_agent_composite_backend
-    if context is not None:
+    scope = _BackendScope.from_sources(
+        context,
+        error_context="runtime context",
+    )
 
-        def build_context_backend(_runtime):
-            """按可变运行上下文重建文件作用域，读取已同步的 Skill 投影。"""
-            return _BackendScope.from_sources(
-                context,
-                readable_skills_source=context,
-                error_context="runtime context",
-            ).create_backend()
+    def build_context_backend(_runtime):
+        """按可变运行上下文重建文件作用域，读取已同步的共享 Skill 投影。"""
+        return scope.create_backend()
 
-        backend = build_context_backend
     middleware = YuxiFilesystemMiddleware(
-        backend=backend,
+        backend=build_context_backend,
         tool_token_limit_before_evict=tool_token_limit_before_evict,
     )
-    middleware._large_tool_results_prefix = VIRTUAL_PATH_LARGE_TOOL_RESULTS
-    middleware._conversation_history_prefix = VIRTUAL_PATH_CONVERSATION_HISTORY
+    large_results, history = workdir_runtime_paths(scope.workdir_path)
+    middleware._large_tool_results_prefix = large_results
+    middleware._conversation_history_prefix = history
     return middleware

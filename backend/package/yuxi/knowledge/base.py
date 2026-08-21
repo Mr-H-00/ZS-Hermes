@@ -14,16 +14,6 @@ from yuxi.knowledge.schemas import (
     SearchResultSchema,
 )
 from yuxi.knowledge.utils import resolve_processing_params, sanitize_processing_params
-from yuxi.services.file_preview import (
-    MAX_BINARY_PREVIEW_SIZE_BYTES,
-    OfficePreviewConversionError,
-    convert_office_to_pdf,
-    detect_media_type,
-    is_binary_preview_type,
-    is_office_pdf_preview_file,
-    render_preview_payload,
-    render_preview_too_large_payload,
-)
 from yuxi.utils import logger
 from yuxi.utils.datetime_utils import utc_isoformat
 
@@ -540,109 +530,6 @@ class KnowledgeBase(ABC):
             ),
             "readonly": True,
         }
-
-    @staticmethod
-    def _office_pdf_preview_path(kb_id: str, file_id: str) -> str:
-        return f"{kb_id}/preview/{file_id}.pdf"
-
-    async def _ensure_office_pdf_preview(self, kb_id: str, file_id: str, file_meta: dict) -> str:
-        from yuxi.storage.minio import get_minio_client
-
-        filename = file_meta.get("filename") or file_meta.get("original_filename") or file_id
-        if not is_office_pdf_preview_file(filename):
-            raise ValueError("当前文件类型不支持 PDF 预览")
-
-        minio_client = get_minio_client()
-        bucket_name = minio_client.KB_BUCKETS["parsed"]
-        object_name = self._office_pdf_preview_path(kb_id, file_id)
-        if await minio_client.astat_file(bucket_name, object_name) is not None:
-            return f"minio://{bucket_name}/{object_name}"
-
-        original_path = self._original_file_path(file_meta)
-        if not original_path:
-            raise ValueError("文件没有可转换的原始内容")
-
-        raw_content = await self._read_minio_bytes(original_path)
-        try:
-            pdf_content = await convert_office_to_pdf(filename, raw_content)
-        except OfficePreviewConversionError as exc:
-            raise ValueError(str(exc)) from exc
-        await minio_client.aupload_file(
-            bucket_name=bucket_name,
-            object_name=object_name,
-            data=pdf_content,
-            content_type="application/pdf",
-        )
-        return f"minio://{bucket_name}/{object_name}"
-
-    async def _get_minio_file_size(self, file_path: str) -> int | None:
-        from yuxi.knowledge.utils.kb_utils import is_minio_url, parse_minio_url
-        from yuxi.storage.minio import get_minio_client
-
-        if not file_path or not is_minio_url(file_path):
-            return None
-        bucket_name, object_name = parse_minio_url(file_path)
-        return await get_minio_client().astat_file(bucket_name, object_name)
-
-    async def read_file_preview(self, kb_id: str, file_id: str) -> dict:
-        file_meta = await self._get_file_meta(kb_id, file_id)
-        if file_meta.get("is_folder"):
-            raise ValueError("Cannot preview a folder")
-
-        filename = file_meta.get("filename") or file_meta.get("original_filename") or file_id
-        response = {
-            "source": "knowledge",
-            "kb_id": kb_id,
-            "file_id": file_id,
-            "filename": filename,
-            "readonly": True,
-        }
-
-        original_path = self._original_file_path(file_meta)
-        if not original_path:
-            return {
-                **response,
-                "content": None,
-                "preview_type": "unsupported",
-                "supported": False,
-                "message": "文件没有可预览的原始内容",
-            }
-
-        file_size = file_meta.get("size")
-        if file_size is None:
-            file_size = await self._get_minio_file_size(original_path)
-        if file_size is not None and int(file_size) > MAX_BINARY_PREVIEW_SIZE_BYTES:
-            return {**response, **render_preview_too_large_payload()}
-
-        if is_office_pdf_preview_file(filename):
-            preview_path = await self._ensure_office_pdf_preview(kb_id, file_id, file_meta)
-            stem = filename.rsplit(".", 1)[0] or file_id
-            return {
-                **response,
-                "content": await self._read_minio_bytes(preview_path),
-                "filename": f"{stem}.pdf",
-                "media_type": "application/pdf",
-                "preview_type": "pdf",
-                "supported": True,
-                "message": None,
-                "binary": True,
-            }
-
-        raw_content = await self._read_minio_bytes(original_path)
-        if len(raw_content) > MAX_BINARY_PREVIEW_SIZE_BYTES:
-            return {**response, **render_preview_too_large_payload()}
-        payload = render_preview_payload(filename, raw_content)
-        if is_binary_preview_type(payload["preview_type"]) and payload["supported"]:
-            return {
-                **response,
-                "content": raw_content,
-                "media_type": detect_media_type(filename, raw_content),
-                "preview_type": payload["preview_type"],
-                "supported": True,
-                "message": None,
-                "binary": True,
-            }
-        return {**response, **payload}
 
     async def get_file_download(self, kb_id: str, file_id: str, variant: str = "original") -> dict:
         file_meta = await self._get_file_meta(kb_id, file_id)

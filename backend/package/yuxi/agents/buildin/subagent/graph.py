@@ -22,7 +22,6 @@ from yuxi.agents.middlewares import (
     ImageInputCompatibilityMiddleware,
     TokenUsageMiddleware,
     create_summary_middleware,
-    save_attachments_to_fs,
 )
 from yuxi.agents.middlewares.skills import SkillsMiddleware
 from yuxi.agents.tool_approval import SENSITIVE_BACKEND_TOOLS, normalize_tool_approval_mode
@@ -78,6 +77,7 @@ async def _build_middlewares(context, tool_approval_mode: str):
     model_spec = resolve_chat_model_spec(context.model)
     summary_middleware = create_summary_middleware(
         model=load_chat_model(fully_specified_name=model_spec),
+        workdir_path=context.workdir_path,
         trigger=("tokens", summary_trigger_tokens),
         keep=("messages", summary_keep_messages),
         summary_prompt=summary_prompt,
@@ -91,7 +91,6 @@ async def _build_middlewares(context, tool_approval_mode: str):
             getattr(context, "tool_token_limit", DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS) * 1024,
             context=context,
         ),
-        save_attachments_to_fs,
         SkillsMiddleware(),
         summary_middleware,
         TodoListMiddleware(system_prompt=TODO_MID_PROMPT),

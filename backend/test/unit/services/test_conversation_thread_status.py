@@ -29,6 +29,7 @@ async def session():
 async def _seed_conversation(db, *, thread_id: str, last_viewed_run_id: str | None = None) -> Conversation:
     conversation = Conversation(
         thread_id=thread_id,
+        workdir_path=f"projects/workdir-{thread_id}",
         uid="user-1",
         agent_id="main",
         title=f"conv-{thread_id}",
@@ -45,11 +46,14 @@ async def _seed_run(db, *, thread_id: str, run_id: str, status: str, run_type: s
     run = AgentRun(
         id=run_id,
         conversation_thread_id=thread_id,
+        runtime_scope_id=thread_id,
         agent_slug="main",
         uid="user-1",
         status=status,
         request_id=f"req-{run_id}",
         run_type=run_type,
+        created_by_run_id="root-run" if run_type == "subagent" else None,
+        subagent_thread_relation_id=1 if run_type == "subagent" else None,
         input_payload={},
     )
     db.add(run)
@@ -108,6 +112,7 @@ async def test_list_threads_view_ignores_subagent_and_other_users(session):
         AgentRun(
             id="run-other",
             conversation_thread_id="thread-other-user",
+            runtime_scope_id="thread-other-user",
             agent_slug="main",
             uid="user-2",
             status="running",
@@ -171,6 +176,28 @@ async def test_new_thread_creation_uses_unviewed_marker(session):
     )
 
     assert conversation.last_viewed_run_id == UNVIEWED_RUN_MARKER
+
+
+async def test_new_thread_creation_cannot_seed_attachment_records(session):
+    conversation = await ConversationRepository(session).add_conversation(
+        uid="user-1",
+        agent_id="main",
+        thread_id="thread-reserved-metadata",
+        metadata={"attachments": [{"bucket_name": "private", "object_name": "secret"}]},
+    )
+
+    assert conversation.extra_metadata["attachments"] == []
+
+
+async def test_create_thread_view_rejects_client_attachment_metadata():
+    with pytest.raises(svc.HTTPException, match="服务端保留字段"):
+        await svc.create_thread_view(
+            agent_slug="main",
+            title="malicious",
+            metadata={"attachments": [{"bucket_name": "private", "object_name": "secret"}]},
+            db=None,
+            current_uid="user-1",
+        )
 
 
 async def test_marker_thread_with_terminal_run_shows_ready_then_done(session):

@@ -874,7 +874,6 @@ const { getThreadState, resetOnGoingConv, stopThreadStream } = useAgentThreadSta
 
 // 组件级别的消息、附件与提示状态
 const threadMessages = ref({})
-const threadFilesMap = ref({})
 const threadAttachmentsMap = ref({})
 const attachmentUploadModalOpen = ref(false)
 const attachmentInitialFiles = ref([])
@@ -2565,7 +2564,6 @@ const createThread = async (agentId, title = '新的对话') => {
     })
     if (thread) {
       threadMessages.value[thread.id] = []
-      threadFilesMap.value[thread.id] = []
       threadAttachmentsMap.value[thread.id] = []
     }
     return thread
@@ -2621,18 +2619,6 @@ const restoreThreadModelSelection = (threadId, history) => {
   restoreField(selectedModelByThread, (spec) => spec, 'model_spec')
 }
 
-const fetchThreadFiles = async (threadId) => {
-  if (!threadId) return
-  try {
-    const response = await threadApi.listThreadFiles(threadId, '/home/gem/user-data', false)
-    const entries = Array.isArray(response?.files) ? response.files : []
-    threadFilesMap.value[threadId] = entries
-  } catch (error) {
-    console.warn('Failed to fetch thread files:', error)
-    threadFilesMap.value[threadId] = []
-  }
-}
-
 const fetchThreadAttachments = async (threadId) => {
   if (!threadId) return
   try {
@@ -2646,14 +2632,9 @@ const fetchThreadAttachments = async (threadId) => {
   }
 }
 
-const refreshThreadFilesAndAttachments = async (threadId) => {
-  if (!threadId) return
-  await Promise.all([fetchThreadFiles(threadId), fetchThreadAttachments(threadId)])
-}
-
 const handleArtifactSaved = async () => {
   if (!currentChatId.value) return
-  await refreshThreadFilesAndAttachments(currentChatId.value)
+  await fetchThreadAttachments(currentChatId.value)
   showFileTreePanel()
 }
 
@@ -2751,7 +2732,7 @@ const handleTmpAttachmentsAdded = async () => {
 
   await Promise.all([
     fetchAgentState(currentAgentId.value, threadId),
-    refreshThreadFilesAndAttachments(threadId)
+    fetchThreadAttachments(threadId)
   ])
   showFileTreePanel()
 }
@@ -2770,7 +2751,7 @@ const handleAttachmentRemove = async (attachment) => {
     await threadApi.deleteThreadAttachment(threadId, fileId)
     await Promise.all([
       fetchAgentState(currentAgentId.value, threadId),
-      refreshThreadFilesAndAttachments(threadId)
+      fetchThreadAttachments(threadId)
     ])
   } catch (error) {
     threadAttachmentsMap.value[threadId] = previousAttachments
@@ -3302,7 +3283,7 @@ const handleAgentStateRefresh = async (threadId = null) => {
   try {
     await Promise.all([
       fetchAgentState(currentAgentId.value, chatId),
-      refreshThreadFilesAndAttachments(chatId)
+      fetchThreadAttachments(chatId)
     ])
   } finally {
     isRefreshingState.value = false
@@ -3459,7 +3440,6 @@ const loadChatsList = async () => {
     threads.value = []
     resetAgentPanelState()
     setCurrentThreadId(null)
-    threadFilesMap.value = {}
     threadAttachmentsMap.value = {}
     return
   }
@@ -3539,7 +3519,6 @@ watch(
       // 清理当前线程状态
       setCurrentThreadId(null)
       threadMessages.value = {}
-      threadFilesMap.value = {}
       threadAttachmentsMap.value = {}
       resetAgentPanelState()
       // 清理所有线程状态

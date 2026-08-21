@@ -5,12 +5,12 @@ import uuid
 from dataclasses import MISSING, dataclass, field, fields
 from typing import Any, get_origin
 
-from yuxi.agents.backends.sandbox.paths import sandbox_workspace_agent_context_file
 from yuxi.agents.tool_approval import DEFAULT_TOOL_APPROVAL_MODE
 from yuxi.config.options import system_options
 from yuxi.config.runtime import lite_mode_enabled
 from yuxi.utils.logging_config import logger
-from yuxi.utils.paths import WORKSPACE_AGENT_CONTEXT_FILES
+from yuxi.workspace.filesystem import Workspace
+from yuxi.workspace.paths import WORKSPACE_AGENT_CONTEXT_FILES
 
 WORKSPACE_AGENTS_PROMPT_MAX_BYTES = 64 * 1024
 DEFAULT_SUMMARY_THRESHOLD_K = 100  # 100K tokens
@@ -62,13 +62,15 @@ def _role_can_access(auth: str | None, role: str | None) -> bool:
     return False
 
 
-def _load_workspace_agent_context(thread_id: str, uid: str) -> str:
+def _load_workspace_agent_context(uid: str) -> str:
     sections: list[str] = []
+    filesystem = Workspace(uid)
     for filename in WORKSPACE_AGENT_CONTEXT_FILES:
-        context_file = sandbox_workspace_agent_context_file(thread_id, uid, filename)
         try:
-            with context_file.open("rb") as buffer:
-                content = buffer.read(WORKSPACE_AGENTS_PROMPT_MAX_BYTES + 1)
+            content, truncated = filesystem.read_authorized_file_prefix(
+                f"/agents/{filename}",
+                WORKSPACE_AGENTS_PROMPT_MAX_BYTES,
+            )
         except FileNotFoundError:
             continue
         except IsADirectoryError:
@@ -81,7 +83,7 @@ def _load_workspace_agent_context(thread_id: str, uid: str) -> str:
         prompt = content[:WORKSPACE_AGENTS_PROMPT_MAX_BYTES].decode("utf-8", errors="replace").strip()
         if not prompt:
             continue
-        if len(content) > WORKSPACE_AGENTS_PROMPT_MAX_BYTES:
+        if truncated:
             prompt = f"{prompt}\n\n[{filename} 内容已截断]"
         sections.append(f"用户工作区 agents/{filename} 内容：\n{prompt}")
     return "\n\n".join(sections)
@@ -96,7 +98,7 @@ async def build_agent_input_context(
     request_id: str | None = None,
 ) -> dict:
     input_context = dict(agent_config or {})
-    agent_context = await asyncio.to_thread(_load_workspace_agent_context, thread_id, uid)
+    agent_context = await asyncio.to_thread(_load_workspace_agent_context, uid)
 
     if agent_context:
         base_prompt = str(input_context.get("system_prompt") or "").rstrip()
@@ -151,9 +153,10 @@ class BaseContext:
     """
 
     def update(self, data: dict):
-        """更新配置字段"""
+        """用运行时输入更新已声明的配置字段。"""
+        declared_fields = {item.name for item in fields(self)}
         for key, value in data.items():
-            if hasattr(self, key):
+            if key in declared_fields:
                 setattr(self, key, value)
 
     thread_id: str = field(
@@ -174,6 +177,21 @@ class BaseContext:
     request_id: str | None = field(
         default=None,
         metadata={"name": "请求 ID", "configurable": False, "hide": True},
+    )
+
+    runtime_scope_id: str | None = field(
+        default=None,
+        metadata={"name": "Sandbox Runtime Scope", "configurable": False, "hide": True},
+    )
+
+    workdir_relative_path: str | None = field(
+        default=None,
+        metadata={"name": "Workdir Relative Path", "configurable": False, "hide": True},
+    )
+
+    workdir_path: str | None = field(
+        default=None,
+        metadata={"name": "Workdir Virtual Path", "configurable": False, "hide": True},
     )
 
     system_prompt: str = field(
@@ -546,7 +564,7 @@ async def prepare_agent_runtime_context(
     if not uid:
         return context
 
-    from yuxi.agents.middlewares.skills import resolve_runtime_skills_for_context
+    from yuxi.agents.skills.runtime import resolve_runtime_skills_for_context
     from yuxi.repositories.user_repository import UserRepository
     from yuxi.storage.postgres.manager import pg_manager
 
@@ -560,11 +578,8 @@ async def prepare_agent_runtime_context(
                 if hasattr(context, field_name):
                     setattr(context, field_name, [])
             setattr(context, "_visible_knowledge_bases", [])
-            setattr(context, "_prompt_skills", [])
-            setattr(context, "_readable_skills", [])
-            setattr(context, "_runtime_skill_metadata", {})
-            setattr(context, "_runtime_skill_dependency_map", {})
-            setattr(context, "_runtime_skill_sources", {})
+            setattr(context, "_effective_skill_slugs", [])
+            setattr(context, "_runtime_skills", {})
             return context
 
         raw_resources = {
@@ -591,10 +606,7 @@ async def prepare_agent_runtime_context(
             await resolve_visible_knowledge_bases_for_context(context)
         skill_scope = await resolve_runtime_skills_for_context(context, db=db, user=user)
         context.skills = skill_scope["context_skills"]
-        setattr(context, "_prompt_skills", skill_scope["prompt_skills"])
-        setattr(context, "_readable_skills", skill_scope["readable_skills"])
-        setattr(context, "_runtime_skill_metadata", skill_scope["runtime_skill_metadata"])
-        setattr(context, "_runtime_skill_dependency_map", skill_scope["runtime_skill_dependency_map"])
-        setattr(context, "_runtime_skill_sources", skill_scope.get("runtime_skill_sources", {}))
+        setattr(context, "_effective_skill_slugs", skill_scope["effective_skills"])
+        setattr(context, "_runtime_skills", skill_scope["runtime_skills"])
 
     return context

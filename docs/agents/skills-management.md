@@ -8,14 +8,15 @@ Skill 将使用说明、提示词、工具依赖和领域资料组织为可复�
 
 ## 架构设计
 
-Skills 系统分为平台共享与个人工作区两层。共享 Skill 采用「文件系统存内容，数据库存索引」；个人 Skill 只存在于当前用户 workspace，并使用 Redis 保存 5 分钟的元数据快照：
+共享/内置 Skill 使用独立 Skill 持久域，采用「文件系统存内容，数据库存索引」；个人 Skill 则属于
+UserWorkspace，按 uid 隔离，不进入共享 Skill 数据表，并使用 Redis 保存 5 分钟的元数据快照：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Skills 存储架构                         │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│   /app/saves/skills/          数据库索引                    │
+│   skill-sources/shared/       数据库索引                    │
 │   ├── skill-a/               ┌──────────────┐              │
 │   │   ├── SKILL.md           │ skills 表    │              │
 │   │   ├── tools/             │ - slug       │              │
@@ -28,9 +29,10 @@ Skills 系统分为平台共享与个人工作区两层。共享 Skill 采用「
 │                              │ - deps...     │              │
 │                              └──────────────┘              │
 │                                                             │
-│   workspace/agents/skills/    Redis 临时索引                │
-│   └── my-skill/              - 按 uid 隔离                 │
-│       └── SKILL.md           - 5 分钟失效                  │
+│   user-data/shared/<uid>/workspace/agents/skills/           │
+│   └── my-skill/              Redis 临时索引                │
+│       └── SKILL.md           - 按 uid 隔离                 │
+│                              - 5 分钟失效                  │
 │                              - 安装/删除/刷新后立即更新     │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -38,14 +40,15 @@ Skills 系统分为平台共享与个人工作区两层。共享 Skill 采用「
 
 ### 存储结构
 
-- **文件系统**：`/app/saves/skills` 目录下，每个 Skill 占用一个子目录
+- **文件系统**：共享来源位于 `skill-sources/shared`；个人来源位于对应 UserWorkspace 的 `agents/skills`
 - **数据库索引**：`skills` 表存储元数据（slug、name、description、来源、共享范围、启用状态、依赖关系等）
 - **关联机制**：通过 `dir_path` 字段关联文件系统目录与数据库记录
-- **个人工作区**：`workspace/agents/skills/<slug>` 保存当前用户个人 Skill，不创建数据库记录
+- **个人来源**：`user-data/shared/<uid>/workspace/agents/skills/<slug>` 保存当前用户个人 Skill，不创建数据库记录
 - **个人缓存**：解析后的名称、slug 和描述按用户缓存到 Redis，默认 5 分钟失效
 
 ::: tip 两种存储边界
-共享 Skill 必须通过系统导入并写入数据库；个人 Skill 可以由安装流程写入工作区，也可以在工作区中手动维护。手动修改后点击 Skills 页刷新，或等待最多 5 分钟重新解析。
+共享 Skill 必须通过系统导入并写入数据库；个人 Skill 由个人安装、删除与刷新接口管理。共享/内置 Skill
+通过只读投影访问，个人 Skill 通过 UserWorkspace 的既有挂载直接访问。
 :::
 
 ## 创建方式
@@ -53,10 +56,10 @@ Skills 系统分为平台共享与个人工作区两层。共享 Skill 采用「
 系统提供以下方式创建或安装 Skills：
 
 1. **推荐 Skill 安装**：在 Skills 管理页的推荐分组点击 `+`，系统会拉取对应远程来源并生成安装草稿
-2. **ZIP / SKILL.md 上传**：上传后先解析为安装草稿，再选择安装到个人工作区或共享 Skill 库
+2. **ZIP / SKILL.md 上传**：上传后先解析为安装草稿，再选择安装到个人 Skill 源或共享 Skill 库
 3. **远程仓库安装**：填写 skills 仓库地址、ModelScope Skill 地址或合集地址，下载并解析后选择安装位置
 4. **在线编辑**：对已有且可管理的 Skill 在线创建目录、编辑文件和维护依赖
-5. **Agent 内安装**：主智能体可通过 `install_skill` 工具安装个人工作区 Skill；子智能体禁用该工具
+5. **Agent 内安装**：主智能体可通过 `install_skill` 工具安装个人 Skill，并读取工具返回的 `SKILL.md` 路径；子智能体禁用该工具
 
 个人 Skill 不解析 `tool_dependencies`、`mcp_dependencies` 或 `skill_dependencies`。需要平台依赖、共享范围或在线管理时，应选择共享安装。
 
@@ -129,7 +132,7 @@ description: 这是一个用于处理特定任务的技能
 1. 在系统设置的「Skills 管理」页面查看「推荐」分组
 2. 未安装的推荐 Skill 会以普通 Skill 卡片样式展示，右侧显示 `+`
 3. 点击推荐卡片或 `+` 后，系统会使用该 Skill 的远程来源拉取内容
-4. 拉取成功后会弹出安装草稿，选择个人工作区或共享 Skill 后完成安装
+4. 拉取成功后会弹出安装草稿，选择个人 Skill 或共享 Skill 后完成安装
 
 已安装的推荐 Skill 不会继续显示在「推荐」分组中。
 
@@ -160,14 +163,14 @@ description: 这是一个用于处理特定任务的技能
    - `https://modelscope.cn/collections/MiniMax/MiniMax-Office-skills`
 3. 点击“拉取技能”获取该来源中可发现的 Skills 列表
 4. 单个 Skill 地址通常会自动选中；仓库或合集地址可在列表中勾选一个或多个 Skills
-5. 点击“解析并确认”，系统返回安装草稿；选择个人工作区或共享 Skill 后正式安装
+5. 点击“解析并确认”，系统返回安装草稿；选择个人 Skill 或共享 Skill 后正式安装
 
 也可以切换到“全局搜索发现”，输入关键字检索 skills.sh 上的开源 Skills，再选择结果安装。
 
 系统会在后端：
 - 只接受管理员白名单中的 HTTPS 来源；GitHub `owner/repo` 简写按 `github.com` 校验
 - 在不继承全局或用户环境变量的一次性 Sandbox 中执行 `npx skills`，Kubernetes Sandbox 不挂载 ServiceAccount token
-- 通过 Sandbox 文件 API 提取对应 Skill，严格校验返回的相对路径，并限制文件数、目录深度和总大小；个人确认写入 workspace，共享确认写入 `/app/saves/skills` 与数据库
+- 通过 Sandbox 文件 API 提取对应 Skill，严格校验返回的相对路径，并限制文件数、目录深度和总大小；个人确认写入 UserWorkspace 的 `agents/skills/<slug>`，共享确认写入 `skill-sources/shared/<slug>` 与数据库
 
 来源白名单用于限制产品允许的远程仓库，并不等同于 Sandbox 网络出口防火墙。
 
@@ -185,7 +188,7 @@ ModelScope 合集地址可以作为远程来源填写，例如 `https://modelsco
 只有具备 `can_manage` 权限的用户才能编辑文件、依赖、共享范围和启用状态。
 
 ::: tip 安装位置决定管理能力
-个人工作区适合公开、平台无关或用户自定义 Skill；共享 Skill 适合需要工具、MCP、Skill 依赖以及部门或全局共享的能力。
+个人 Skill 适合平台无关或用户自定义能力；共享 Skill 适合需要工具、MCP、Skill 依赖以及部门或全局共享的能力。
 :::
 
 ## 依赖系统
@@ -210,14 +213,17 @@ Skill 加载分为三个阶段：
 
 当 Agent 会话启动时，系统会：
 1. 在创建 Graph 前读取已过滤的 `context.skills` 列表
-2. 递归展开 `skill_dependencies`，派生 `_prompt_skills` 和 `_readable_skills`
-3. 将 `_prompt_skills` 对应的技能说明注入到系统提示词中
+2. 递归展开 `skill_dependencies`，派生统一的 `_effective_skill_slugs`
+3. 将有效 Skill 对应的技能说明注入到系统提示词中
 
-配置某个 Skill 后，其依赖 Skill 会立即进入提示词。共享与内置 Skill 投影到沙盒只读路径 `/home/gem/skills`，个人 Skill 直接使用 `/home/gem/user-data/workspace/agents/skills/<slug>`。
+这意味着：只要配置了某个 Skill，它的依赖 Skill 就会立即进入提示词。文件系统权限与选中集合分离：
+当前用户授权的共享、内置 Skill 进入 `/home/gem/skills` 只读投影，个人 Skill 保留在
+`/home/gem/user-data/agents/skills`。
 
 **阶段二：技能激活**
 
-当 Agent 通过 `read_file` 读取共享路径 `/home/gem/skills/<slug>/SKILL.md` 或个人工作区路径 `/home/gem/user-data/workspace/agents/skills/<slug>/SKILL.md` 时，系统将该操作视为 Skill 激活，并执行：
+当 Agent 通过 `read_file` 读取共享路径 `/home/gem/skills/<slug>/SKILL.md` 或个人路径
+`/home/gem/user-data/agents/skills/<slug>/SKILL.md` 时，视为“激活”该技能。系统会：
 1. 验证该技能在可见列表中
 2. 将其添加到 `activated_skills` 列表
 3. 后续的模型调用会使用激活列表来加载依赖
@@ -240,13 +246,13 @@ Skill 加载分为三个阶段：
 - **pro-skill**：依赖 `advanced-skill`
 
 当在 Agent 配置中只选择 `pro-skill` 时：
-1. 启动阶段：`_readable_skills` = [`pro-skill`, `advanced-skill`, `base-skill`]（自动展开依赖链）
-2. Agent 首次调用任何 skill 时：所有三个 Skill 都可读
+1. 启动阶段：`_effective_skill_slugs` = [`pro-skill`, `advanced-skill`, `base-skill`]（自动展开可激活的依赖链）
+2. 文件系统仍可读当前用户授权的其他 Skill，但它们不会因此进入 Prompt 或变成可激活工具
 3. 当 Agent 读取 `pro-skill/SKILL.md` 时：触发激活，工具和 MCP 依赖被加载
 
 ## 权限管理
 
-数据库中的共享与内置 Skills 使用 `source_type`、`share_config` 和 `enabled` 控制来源、共享范围和启用状态。个人工作区 Skill 由认证用户目录天然隔离，不携带 `share_config`，避免与数据库“指定用户共享”语义混淆。
+数据库中的共享与内置 Skills 使用 `source_type`、`share_config` 和 `enabled` 控制来源、共享范围和启用状态。个人 Skill 由 UserWorkspace 的 uid 目录隔离，不携带 `share_config`，避免与数据库“指定用户共享”语义混淆。
 
 | 字段 | 说明 |
 |------|------|
@@ -259,16 +265,16 @@ Skill 加载分为三个阶段：
 | 用户 | 可见 / 可用 | 可管理 |
 |------|-------------|--------|
 | 超级管理员 / 管理员 | 可查看可管理或已启用且可访问的 Skills | 可管理所有非内置 Skills；可启停内置 Skills |
-| 普通用户 | 可查看已启用且对自己可访问的 Skills，只能把新 Skill 安装到个人工作区 | 可管理自己创建的非内置 Skills |
+| 普通用户 | 可查看已启用且对自己可访问的 Skills，只能把新 Skill 安装到个人来源 | 可管理自己创建的非内置 Skills |
 | 内置 Skills | 默认全局共享并启用 | 管理员可启停；不允许删除或直接编辑文件 |
-| 个人工作区 Skills | 只对当前用户可见，文件与缓存按 uid 隔离 | 当前用户可预览、删除和手动刷新 |
+| 个人 Skills | 只对当前用户可见，文件与缓存按 uid 隔离 | 当前用户可预览、删除和手动刷新 |
 
 共享范围限制：
 
 - `global`：所有用户可访问
 - `department`：指定部门用户可访问
 - `user`：指定用户可访问
-- 只有管理员可以把 Skill 安装到平台共享 Skill 库；普通用户安装固定进入个人工作区，不创建数据库记录，也不配置共享范围
+- 只有管理员可以把 Skill 安装到平台共享 Skill 库；普通用户安装固定进入个人来源，不创建数据库记录，也不配置共享范围
 
 旧版单层共享范围会在 PostgreSQL 启动迁移中复制为读取和管理范围；运行时接口仅接受 v2 配置。
 
@@ -279,7 +285,7 @@ Skill 加载分为三个阶段：
 ### Agent 如何使用 Skills
 
 1. **提示词注入**：系统在每次模型请求时动态注入可用 Skills 的描述（请求级注入，避免污染 runtime context）
-2. **文件访问**：共享与内置 Skill 从只读 `/home/gem/skills/<slug>/...` 读取；个人 Skill 直接从工作区读取
+2. **文件访问**：共享与内置 Skill 从只读 `/home/gem/skills/<slug>/...` 读取；个人 Skill 从 `/home/gem/user-data/agents/skills/<slug>/...` 读取
 3. **工具调用**：当 Agent 需要使用某个 Skill 时，会先读取对应的 SKILL.md 了解使用方法
 
 ### 文件操作限制
@@ -290,18 +296,19 @@ Skill 加载分为三个阶段：
 - **路径安全**：所有路径都经过安全校验，防止目录穿越攻击
 
 ::: tip 只读不等于不可执行
-`/home/gem/skills` 对 Agent 是只读的，但沙盒命令工具仍可执行其中的脚本。Skill 应写清依赖、运行方式和产物位置；脚本产生的文件应保存到 workspace 或 outputs，Skill 目录禁止写入。
+`/home/gem/skills` 对 Agent 是只读的，但沙盒命令工具仍可执行其中的脚本。Skill 应把依赖、运行方式和产物位置写清楚；脚本若需要写文件，应写入当前 Project Workdir 或 User Data，而不是 Skill 目录。
 :::
 
-个人 Skill 位于 `/home/gem/user-data/workspace/agents/skills`，属于用户可写工作区。运行时不会再把它复制到线程 `/home/gem/skills` 目录，因此工作区中的修改会直接成为后续读取内容。
+个人 Skill 的来源和运行时文件都位于 UserWorkspace 的 `agents/skills/<slug>`。Run 初始化不会复制或
+投影个人 Skill；UserWorkspace 挂载直接提供 `/home/gem/user-data/agents/skills/<slug>`。
 
-### 会话隔离
+### 选择与授权
 
-每个 Agent 会话都有独立的 Skills 可见集：
-- 不同会话可以配置不同的 Skills
-- 同一会话内修改 `context.skills` 会重建共享与内置 Skill 的只读投影
-- 个人 Skill 元数据最多缓存 5 分钟；安装、删除和 Skills 页手动刷新会立即更新缓存
-- 每次构建运行时只同步最终生效的共享与内置 Skill；个人版本同名覆盖时直接使用工作区路径
+- `context.skills=None` 表示选择当前用户可访问的全部 Skill，`[]` 表示不选择 Skill，非空列表表示显式白名单
+- 不同 Agent 可以配置不同的 `context.skills`，该列表只决定 Prompt 和工具激活
+- 共享文件投影以 uid 授权集合为边界，不随会话或 Agent 选择分叉；个人 Skill 不进入该投影
+- Run 初始化以 uid 级数据库锁读取最新授权，并以共享卷文件锁串行替换投影；授权上下文缺失时直接失败
+- 个人版本与共享版本同 slug 时，Prompt 元数据使用个人路径，共享投影不复制个人版本
 
 ## 维护建议
 

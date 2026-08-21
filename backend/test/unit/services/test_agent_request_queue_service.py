@@ -11,8 +11,10 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.services.agent_request_queue_service import (
+    DispatchResult,
     NOT_IMPLEMENTED_QUEUE_POLICIES,
     cancel_queued_request,
+    finalize_dispatch,
     intake_request,
     steer_queued_request,
     validate_queue_policy,
@@ -21,6 +23,46 @@ from yuxi.storage.postgres.models_business import AgentRunRequest, Base, Message
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.unit]
+
+
+# ── finalize ordering ──
+
+
+@pytest.mark.asyncio
+async def test_finalize_dispatch_materializes_workdir_after_commit_before_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    events: list[str] = []
+
+    class Db:
+        async def commit(self):
+            events.append("commit")
+
+    def ensure_workdir(uid: str, workdir_path: str):
+        assert uid == "user-1"
+        assert workdir_path == "projects/11111111-1111-4111-8111-111111111111"
+        events.append("materialize")
+
+    async def enqueue(run_id: str):
+        assert run_id == "run-1"
+        events.append("enqueue")
+
+    from yuxi.services import agent_request_queue_service as service
+
+    monkeypatch.setattr(service, "ensure_bound_user_workdir", ensure_workdir)
+    monkeypatch.setattr(service, "enqueue_agent_run", enqueue)
+
+    await finalize_dispatch(
+        db=Db(),
+        dispatch=DispatchResult(
+            request_id="request-1",
+            run_id="run-1",
+            uid="user-1",
+            workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        ),
+    )
+
+    assert events == ["commit", "materialize", "enqueue"]
 
 
 # ── validate_queue_policy ──
@@ -194,7 +236,16 @@ async def session():
 async def _seed_thread(session, *, uid="user-1", msg_id=100, conv_id=10):
     from yuxi.storage.postgres.models_business import Conversation, Message
 
-    session.add(Conversation(id=conv_id, thread_id="t1", uid=uid, agent_id="main", status="active"))
+    session.add(
+        Conversation(
+            id=conv_id,
+            thread_id="t1",
+            workdir_path=f"projects/workdir-{uid}-t1",
+            uid=uid,
+            agent_id="main",
+            status="active",
+        )
+    )
     session.add(Message(id=msg_id, conversation_id=conv_id, role="user", content="hi"))
     await session.commit()
 
@@ -218,12 +269,14 @@ async def _seed_active_run(session, *, source="chat", status="running", run_type
         AgentRun(
             id="active-run",
             conversation_thread_id="t1",
+            runtime_scope_id="t1",
             agent_slug="main",
             uid="user-1",
             status=status,
             request_id="active-request",
             conversation_id=10,
             run_type=run_type,
+            created_by_run_id="interrupted-run" if run_type == "resume" else None,
             input_payload={},
         )
     )
@@ -495,7 +548,16 @@ async def test_intake_idempotent_rejects_scope_mismatch(session):
     from yuxi.storage.postgres.models_business import Conversation
 
     await _seed_thread(session)
-    session.add(Conversation(id=11, thread_id="t2", uid="user-1", agent_id="other", status="active"))
+    session.add(
+        Conversation(
+            id=11,
+            thread_id="t2",
+            workdir_path="projects/workdir-user-1-t2",
+            uid="user-1",
+            agent_id="other",
+            status="active",
+        )
+    )
     await _create_request(session, request_id="req-scope")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -564,6 +626,7 @@ async def test_dispatch_sets_delivery_status_dispatched(session):
         agent_slug="main",
         thread_id="t1",
         conversation_id=10,
+        workdir_path="projects/workdir-user-1-t1",
     )
     assert dispatched is not None
 
@@ -602,6 +665,7 @@ async def test_dispatches_multiple_queued_requests_one_at_a_time(session):
         agent_slug="main",
         thread_id="t1",
         conversation_id=10,
+        workdir_path="projects/workdir-user-1-t1",
     )
     await session.commit()
     assert dispatched_b is not None
@@ -638,12 +702,25 @@ async def test_dispatches_multiple_queued_requests_one_at_a_time(session):
     )
     assert completed is True
     await session.commit()
+    blocked_c = await _dispatch_ready_head(
+        db=session,
+        uid="user-1",
+        agent_slug="main",
+        thread_id="t1",
+        conversation_id=10,
+        workdir_path="projects/workdir-user-1-t1",
+    )
+    assert blocked_c is None
+    persisted_b = await run_repository.get_run(run_b)
+    persisted_b.runtime_cleanup_pending = False
+    await session.commit()
     dispatched_c = await _dispatch_ready_head(
         db=session,
         uid="user-1",
         agent_slug="main",
         thread_id="t1",
         conversation_id=10,
+        workdir_path="projects/workdir-user-1-t1",
     )
     await session.commit()
 
@@ -669,6 +746,7 @@ async def test_reject_with_active_run_persists_request_and_is_idempotent(session
         AgentRun(
             id=str(_uuid.uuid4()),
             conversation_thread_id="t1",
+            runtime_scope_id="t1",
             agent_slug="main",
             uid="user-1",
             request_id="existing",
@@ -744,6 +822,7 @@ async def _seed_terminal_run(session, *, run_id: str, status: str, created_at, f
         AgentRun(
             id=run_id,
             conversation_thread_id="t1",
+            runtime_scope_id="t1",
             agent_slug="main",
             uid="user-1",
             request_id=f"request-{run_id}",
@@ -875,6 +954,8 @@ async def test_continue_dispatches_only_paused_fifo_head(session):
 
     repo = AgentRunRequestRepository(session)
     assert dispatched.request_id == "request-b"
+    assert dispatched.uid == "user-1"
+    assert dispatched.workdir_path == "projects/workdir-user-1-t1"
     assert (await repo.get_by_request_id("request-b")).status == "dispatched"
     assert await repo.get_queue_position("request-c") == 1
 

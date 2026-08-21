@@ -59,6 +59,13 @@ ROUTER_DB_METHODS = frozenset(
     }
 )
 ROUTER_DB_RECEIVERS = frozenset({"db", "session", "connection", "database"})
+WORKSPACE_HOST_PATH_EXPORTS = frozenset(
+    {
+        "global_user_data_dir",
+        "user_workspace_dir",
+        "user_workdir_host_dir",
+    }
+)
 DIRECT_WEB_API_LITERAL = re.compile(r"(?P<quote>['\"`])/api(?:[/ ?]|(?P=quote))")
 AGENTS_FILE_BUDGETS = {
     "AGENTS.md": 5000,
@@ -108,6 +115,7 @@ WORKFLOW_CONTRACTS = (
         required_paths=(
             ".env.template",
             "backend/**",
+            "docker/**",
             "scripts/init.sh",
             "scripts/init.ps1",
             "scripts/test_init_security.ps1",
@@ -122,12 +130,14 @@ WORKFLOW_CONTRACTS = (
     WorkflowContract(
         path=".github/workflows/system-tests.yml",
         commands=(
-            "docker compose exec -T api uv run pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_declares_cli_knowledge_capabilities test/integration/api/test_system_router_api.py::test_lite_startup_does_not_create_knowledge_schema -q",
-            "docker compose exec -T api uv run pytest test/integration/services/test_agent_request_queue_concurrency.py -q",
-            "docker compose exec -T api uv run pytest test/integration/services/test_agent_run_lease.py -q",
-            "docker compose exec -T api uv run pytest test/integration/api/test_agent_run_result_causality.py -q",
+            "docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_declares_cli_knowledge_capabilities test/integration/api/test_system_router_api.py::test_lite_startup_does_not_create_knowledge_schema -q",
+            "docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_request_queue_concurrency.py -q",
+            "docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_run_lease.py -q",
+            "docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_agent_run_result_causality.py -q",
             "docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest test/e2e/test_deterministic_agent_path_e2e.py -q",
-            "docker compose exec -T api uv run pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q",
+            "docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q",
+            "docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_workdir_user_workspace.py test/integration/services/test_user_skill_projection.py test/integration/api/test_skill_artifact_authorization.py -q",
+            "docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_project_workdir_provisioner.py -q",
         ),
         required_paths=(
             "backend/package/yuxi/**",
@@ -135,6 +145,7 @@ WORKFLOW_CONTRACTS = (
             "backend/test/integration/**",
             "backend/test/e2e/**",
             "backend/test/support/**",
+            "docker/**",
             ".github/workflows/system-tests.yml",
         ),
     ),
@@ -178,7 +189,7 @@ def _require_repository_path(
 
 
 def _normalized(text: str) -> str:
-    return " ".join(text.split())
+    return " ".join(text.replace("\\\n", " ").split())
 
 
 def _yaml_scalar(value: str) -> str:
@@ -483,14 +494,15 @@ def _validate_workflows(root: Path, errors: list[str]) -> list[dict[str, Any]]:
                 errors.append(
                     f"workflow 命令只存在于被跳过或吞错的 step：{contract.path} -> {command}"
                 )
-
         paths: list[str] | None = None
         if contract.trigger == "pull_request":
             has_pr, paths, paths_ignore = _workflow_pull_request_filters(text)
             if not has_pr:
                 errors.append(f"workflow 不监听 pull_request：{contract.path}")
             if contract.unfiltered_pull_request and (paths is not None or paths_ignore):
-                errors.append(f"全仓信任 workflow 不得使用 path filter：{contract.path}")
+                errors.append(
+                    f"全仓信任 workflow 不得使用 path filter：{contract.path}"
+                )
             if paths_ignore:
                 errors.append(
                     f"阻断 workflow 不得用 paths-ignore 隐藏变更：{contract.path}"
@@ -554,7 +566,9 @@ def _markdown_body_line(
             stripped = body[active_list_indent:]
             nested_item = MARKDOWN_LIST_ITEM.match(stripped)
             if nested_item:
-                content_indent = active_list_indent + _list_item_content_indent(nested_item)
+                content_indent = active_list_indent + _list_item_content_indent(
+                    nested_item
+                )
                 return nested_item.group("content"), quote_depth, content_indent
             return stripped, quote_depth, active_list_indent
         active_list_indent = None
@@ -672,7 +686,9 @@ def _evidence_rows(lines: list[str]) -> list[list[str]]:
         stripped = line.strip()
         if not stripped.startswith("|"):
             break
-        rows.append([cell.strip().strip("`") for cell in stripped.strip("|").split("|")])
+        rows.append(
+            [cell.strip().strip("`") for cell in stripped.strip("|").split("|")]
+        )
     return rows
 
 
@@ -734,7 +750,9 @@ def _validate_decisions(root: Path, errors: list[str]) -> list[dict[str, str]]:
                         errors.append(f"{relative} proposed 验收标准缺少证据矩阵数据行")
                     for row in rows:
                         if len(row) != 6 or not all(row):
-                            errors.append(f"{relative} proposed 证据矩阵必须填写全部六列")
+                            errors.append(
+                                f"{relative} proposed 证据矩阵必须填写全部六列"
+                            )
                             continue
                         if row[-1] not in EVIDENCE_RESULTS:
                             errors.append(
@@ -815,9 +833,7 @@ def _validate_agents_files(root: Path, errors: list[str]) -> list[dict[str, Any]
                 if not (path.parent / target).resolve().exists():
                     errors.append(f"AGENTS 指令引用失效：{relative} -> {link}")
         if len(text) > budget:
-            errors.append(
-                f"AGENTS 指令超出字符预算：{relative} {len(text)} > {budget}"
-            )
+            errors.append(f"AGENTS 指令超出字符预算：{relative} {len(text)} > {budget}")
         projection.append({"path": relative, "chars": len(text), "budget": budget})
     return projection
 
@@ -912,6 +928,60 @@ def _validate_web_api_boundary(root: Path, errors: list[str]) -> int:
     return checked
 
 
+def _validate_workspace_host_path_boundary(root: Path, errors: list[str]) -> int:
+    """普通 use-case 与 repository 不得取得 UserWorkspace 宿主路径。"""
+
+    checked = 0
+    for source_root in (
+        root / "backend/package/yuxi/services",
+        root / "backend/package/yuxi/repositories",
+    ):
+        for path in sorted(source_root.rglob("*.py")):
+            checked += 1
+            relative = path.relative_to(root)
+            source = path.read_text(encoding="utf-8")
+            try:
+                tree = ast.parse(source, filename=str(relative))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                forbidden: set[str] = set()
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module == "yuxi.workspace.paths"
+                ):
+                    forbidden.update(
+                        WORKSPACE_HOST_PATH_EXPORTS.intersection(
+                            alias.name for alias in node.names
+                        )
+                    )
+                elif isinstance(node, ast.ImportFrom) and node.module == "yuxi.config":
+                    if any(alias.name == "get_user_data_dir" for alias in node.names):
+                        forbidden.add("get_user_data_dir")
+                elif (
+                    isinstance(node, ast.ImportFrom) and node.module == "yuxi.workspace"
+                ):
+                    if any(alias.name == "paths" for alias in node.names):
+                        forbidden.add("paths module")
+                elif isinstance(node, ast.Import):
+                    imported = {alias.name for alias in node.names}
+                    if "yuxi.workspace.paths" in imported:
+                        forbidden.add("paths module")
+                    if "yuxi.config" in imported:
+                        forbidden.add("config module")
+                if forbidden:
+                    errors.append(
+                        "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path："
+                        f"{relative}:{node.lineno} -> {', '.join(sorted(forbidden))}"
+                    )
+            if "YUXI_USER_DATA_DIR" in source:
+                errors.append(
+                    "普通 Service/Repository 不得读取 UserWorkspace 宿主根环境变量："
+                    f"{relative}"
+                )
+    return checked
+
+
 def verify(root: Path) -> tuple[list[str], dict[str, Any]]:
     """验证 Owner-local 契约，并返回按需派生的审计投影。"""
 
@@ -929,6 +999,9 @@ def verify(root: Path) -> tuple[list[str], dict[str, Any]]:
     document_files = _validate_document_prose(resolved_root, errors)
     router_files = _validate_router_boundaries(resolved_root, errors)
     web_files = _validate_web_api_boundary(resolved_root, errors)
+    workspace_boundary_files = _validate_workspace_host_path_boundary(
+        resolved_root, errors
+    )
     projection = {
         "derived": True,
         "authority": "owner-local code, tests, decisions and workflows",
@@ -940,6 +1013,7 @@ def verify(root: Path) -> tuple[list[str], dict[str, Any]]:
             "document_files_checked": document_files,
             "router_files_checked": router_files,
             "web_source_files_checked": web_files,
+            "workspace_boundary_files_checked": workspace_boundary_files,
         },
     }
     return errors, projection

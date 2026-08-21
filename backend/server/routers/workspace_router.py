@@ -6,20 +6,15 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from server.utils.auth_middleware import get_db, get_required_user
+from server.utils.auth_middleware import get_required_user
 from yuxi.services.workspace_service import (
-    build_owned_thread_titles,
     create_workspace_directory,
     delete_workspace_path,
     download_workspace_file,
-    is_workspace_chat_path,
     list_workspace_tree,
     read_workspace_file_content,
     search_workspace_files,
     upload_workspace_files,
-    workspace_path_uses_chat_mapping,
     write_workspace_file_content,
 )
 from yuxi.storage.postgres.models_business import User
@@ -112,17 +107,12 @@ async def get_workspace_tree(
     recursive: bool = Query(False, description="是否递归返回子目录文件"),
     files_only: bool = Query(False, description="是否仅返回文件"),
     current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    thread_titles = (
-        await build_owned_thread_titles(db, str(current_user.uid)) if workspace_path_uses_chat_mapping(path) else None
-    )
     return await list_workspace_tree(
         path=path,
         recursive=recursive,
         files_only=files_only,
         current_user=current_user,
-        thread_titles=thread_titles,
     )
 
 
@@ -158,10 +148,8 @@ def _preview_response(data):
 async def get_workspace_file(
     path: str = Query(..., description="工作区文件路径"),
     current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    thread_titles = await build_owned_thread_titles(db, str(current_user.uid)) if is_workspace_chat_path(path) else None
-    return await read_workspace_file_content(path=path, current_user=current_user, thread_titles=thread_titles)
+    return await read_workspace_file_content(path=path, current_user=current_user)
 
 
 @workspace_knowledge.get("/knowledge/tree", response_model=dict)
@@ -209,8 +197,11 @@ async def get_workspace_knowledge_file(
     current_user: User = Depends(get_required_user),
 ):
     await _ensure_knowledge_read_access(current_user, kb_id)
+    await _ensure_knowledge_supports_documents(kb_id)
     try:
-        return _preview_response(await _get_knowledge_base().read_file_preview(kb_id=kb_id, file_id=file_id))
+        from yuxi.knowledge.preview import read_knowledge_file_preview
+
+        return _preview_response(await read_knowledge_file_preview(kb_id=kb_id, file_id=file_id))
     except ValueError as error:
         _raise_knowledge_read_error(error)
 
@@ -281,7 +272,5 @@ async def upload_workspace_files_route(
 async def download_workspace(
     path: str = Query(..., description="工作区文件路径"),
     current_user: User = Depends(get_required_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    thread_titles = await build_owned_thread_titles(db, str(current_user.uid)) if is_workspace_chat_path(path) else None
-    return await download_workspace_file(path=path, current_user=current_user, thread_titles=thread_titles)
+    return await download_workspace_file(path=path, current_user=current_user)

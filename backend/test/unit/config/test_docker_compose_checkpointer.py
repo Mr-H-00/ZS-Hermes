@@ -19,15 +19,13 @@ def _project_root() -> Path:
     pytest.skip("当前测试环境未挂载仓库根目录")
 
 
-def test_api_and_worker_default_to_postgres_checkpointer():
-    """开发与生产 Compose 必须给 API/worker 使用相同的 PostgreSQL 默认值。"""
+def test_compose_does_not_expose_checkpoint_backend_or_local_storage():
+    """LangGraph checkpoint 固定使用 PostgreSQL，不保留本地后端配置面。"""
     project_root = _project_root()
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         compose = yaml.safe_load((project_root / filename).read_text())
-
-        assert compose["x-api-worker-env"]["LANGGRAPH_CHECKPOINTER_BACKEND"] == (
-            "${LANGGRAPH_CHECKPOINTER_BACKEND:-postgres}"
-        )
+        assert "LANGGRAPH_CHECKPOINTER_BACKEND" not in compose["x-api-worker-env"]
+        assert "YUXI_CHECKPOINT_DIR" not in compose["x-api-worker-env"]
 
 
 def test_api_key_derivation_secret_is_required_for_api_and_worker():

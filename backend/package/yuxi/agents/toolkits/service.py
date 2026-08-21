@@ -133,7 +133,7 @@ async def resolve_configured_runtime_tools(context) -> list[Any]:
     # Skill 依赖的本地工具：必须随基础工具一起注册进 create_agent 的 ToolNode 才可执行，
     # 否则 Skill 激活后模型虽能发起调用，执行器仍报 "not a valid tool"。
     # 默认绑定给模型的可见性由 SkillsMiddleware 按 Skill 激活状态门控（保持按需加载）。
-    from yuxi.agents.middlewares.skills import resolve_skill_gated_tools
+    from yuxi.agents.skills.runtime import resolve_skill_gated_tools
 
     for tool in resolve_skill_gated_tools(context):
         if tool.name in selected_tool_names:

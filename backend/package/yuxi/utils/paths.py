@@ -1,29 +1,81 @@
+import errno
 import os
+import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-_raw_prefix = os.getenv("SANDBOX_VIRTUAL_PATH_PREFIX")
-VIRTUAL_PATH_PREFIX = (_raw_prefix.strip() if _raw_prefix else "/home/gem/user-data") or "/home/gem/user-data"
-if not VIRTUAL_PATH_PREFIX.startswith("/"):
-    VIRTUAL_PATH_PREFIX = f"/{VIRTUAL_PATH_PREFIX}"
-WORKSPACE_DIR_NAME = "workspace"
-WORKSPACE_AGENTS_DIR_NAME = "agents"
-WORKSPACE_AGENT_CONTEXT_FILES = {
-    "AGENTS.md": "# AGENTS\n\n以下是约束 Agent 行为的一些要求\n",
-    "USER.md": "# USER\n\n以下是有关用户的一些信息\n",
-    "MEMORY.md": "# MEMORY\n\n以下是 Agent 需要记住的一些信息\n",
-}
-UPLOADS_DIR_NAME = "uploads"
-OUTPUTS_DIR_NAME = "outputs"
-LARGE_TOOL_RESULTS_DIR_NAME = "large_tool_results"
-CONVERSATION_HISTORY_DIR_NAME = "conversation_history"
-VIRTUAL_SKILLS_PATH = "/home/gem/skills"
+_DIRECTORY_OPEN_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
-VIRTUAL_PATH_WORKSPACE = (Path(VIRTUAL_PATH_PREFIX) / WORKSPACE_DIR_NAME).as_posix()
-VIRTUAL_PATH_WORKSPACE_SKILLS = (Path(VIRTUAL_PATH_WORKSPACE) / WORKSPACE_AGENTS_DIR_NAME / "skills").as_posix()
-VIRTUAL_PATH_UPLOADS = (Path(VIRTUAL_PATH_PREFIX) / UPLOADS_DIR_NAME).as_posix()
-VIRTUAL_PATH_OUTPUTS = (Path(VIRTUAL_PATH_PREFIX) / OUTPUTS_DIR_NAME).as_posix()
-VIRTUAL_PATH_LARGE_TOOL_RESULTS = (Path(VIRTUAL_PATH_OUTPUTS) / LARGE_TOOL_RESULTS_DIR_NAME).as_posix()
-VIRTUAL_PATH_CONVERSATION_HISTORY = (Path(VIRTUAL_PATH_OUTPUTS) / CONVERSATION_HISTORY_DIR_NAME).as_posix()
+
+def open_directory_fd(root: Path | int, parts: tuple[str, ...], *, create: bool = False) -> int:
+    """从可信目录逐层 no-follow 打开路径，返回调用方负责关闭的 fd。
+
+    ``parts`` 必须是已校验的单路径组件；传入 fd 时函数复制而不接管原 fd。
+    """
+    directory_fd = os.dup(root) if isinstance(root, int) else os.open(root, _DIRECTORY_OPEN_FLAGS)
+    try:
+        for part in parts:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=directory_fd)
+                except FileExistsError:
+                    pass
+            try:
+                child_fd = os.open(part, _DIRECTORY_OPEN_FLAGS, dir_fd=directory_fd)
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    try:
+                        item_stat = os.stat(part, dir_fd=directory_fd, follow_symlinks=False)
+                    except OSError:
+                        raise exc
+                    if stat.S_ISLNK(item_stat.st_mode):
+                        raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), part) from exc
+                raise
+            previous_fd = directory_fd
+            directory_fd = child_fd
+            os.close(previous_fd)
+        return directory_fd
+    except BaseException:
+        os.close(directory_fd)
+        raise
+
+
+@contextmanager
+def open_regular_file_fd(
+    root: Path | int,
+    parts: tuple[str, ...],
+    *,
+    writable: bool = False,
+) -> Iterator[tuple[int, os.stat_result]]:
+    """从可信根 no-follow 打开普通文件，并在同一 fd 上校验类型。"""
+    if not parts:
+        raise IsADirectoryError(str(root))
+    try:
+        parent_fd = open_directory_fd(root, parts[:-1])
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise PermissionError("symlink paths are not allowed") from exc
+        raise
+    file_fd = None
+    try:
+        flags = (os.O_WRONLY if writable else os.O_RDONLY) | os.O_NOFOLLOW | os.O_NONBLOCK
+        try:
+            file_fd = os.open(parts[-1], flags, dir_fd=parent_fd)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise PermissionError("symlink paths are not allowed") from exc
+            raise
+        file_stat = os.fstat(file_fd)
+        if stat.S_ISDIR(file_stat.st_mode):
+            raise IsADirectoryError(parts[-1])
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise PermissionError("only regular files are allowed")
+        yield file_fd, file_stat
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(parent_fd)
 
 
 def ensure_within_root(path: Path, root: Path, *, error_message: str) -> Path:
@@ -36,20 +88,7 @@ def ensure_within_root(path: Path, root: Path, *, error_message: str) -> Path:
 
 
 __all__ = [
-    "VIRTUAL_PATH_PREFIX",
-    "WORKSPACE_DIR_NAME",
-    "WORKSPACE_AGENTS_DIR_NAME",
-    "WORKSPACE_AGENT_CONTEXT_FILES",
-    "UPLOADS_DIR_NAME",
-    "OUTPUTS_DIR_NAME",
-    "LARGE_TOOL_RESULTS_DIR_NAME",
-    "CONVERSATION_HISTORY_DIR_NAME",
-    "VIRTUAL_PATH_WORKSPACE",
-    "VIRTUAL_PATH_WORKSPACE_SKILLS",
-    "VIRTUAL_PATH_UPLOADS",
-    "VIRTUAL_PATH_OUTPUTS",
-    "VIRTUAL_PATH_LARGE_TOOL_RESULTS",
-    "VIRTUAL_PATH_CONVERSATION_HISTORY",
-    "VIRTUAL_SKILLS_PATH",
+    "open_directory_fd",
+    "open_regular_file_fd",
     "ensure_within_root",
 ]

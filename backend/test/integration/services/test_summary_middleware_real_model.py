@@ -12,7 +12,11 @@ from yuxi.agents.models import load_chat_model
 from yuxi.agents.middlewares.summary import YuxiSummarizationMiddleware
 from yuxi.models.providers.cache import ModelInfo
 from yuxi.models.providers.builtin import BUILTIN_PROVIDERS
-from yuxi.utils.paths import VIRTUAL_PATH_CONVERSATION_HISTORY, VIRTUAL_PATH_LARGE_TOOL_RESULTS
+from yuxi.agents.backends.paths import workdir_runtime_paths
+
+VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_CONVERSATION_HISTORY = workdir_runtime_paths(
+    "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
+)
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="session"),

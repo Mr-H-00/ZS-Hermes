@@ -30,6 +30,6 @@ default_model = values["default_model"]
 
 管理员更新配置后，服务先提交 PostgreSQL，再失效 Redis 缓存。运行中的 API 和 worker 会在下一次读取时获得最新配置，不需要重启。
 
-`SAVE_DIR`、数据库、Redis、sandbox 和 LangGraph checkpointer 后端仍属于启动期环境变量配置。运行中的已初始化组件不承诺这些配置热更新，修改后需要重启服务。
+Project、User Data、Skill source 与 Skill projection 使用各自的显式存储目录；数据库、Redis 和 sandbox 仍属于启动期环境变量配置。LangGraph checkpoint 固定使用 PostgreSQL，不提供后端选择。运行中的已初始化组件不承诺启动期配置热更新，修改后需要重启服务。
 
-升级时，服务会一次性把旧 `saves/config/base.toml` 或旧数据库系统配置迁移到 PostgreSQL；已存在的管理员值不会被旧配置覆盖。迁移完成后不再读取 `base.toml`。
+系统配置以 PostgreSQL 为唯一事实源。旧数据库系统配置仍可一次性迁移；`SAVE_DIR` 与 `saves/config/base.toml` 已不再进入 shipping 配置面。

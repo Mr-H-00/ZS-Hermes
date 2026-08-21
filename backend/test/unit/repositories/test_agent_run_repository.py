@@ -37,6 +37,7 @@ async def _bind_valid_output(
     if run.conversation_id is None:
         conversation = Conversation(
             thread_id=run.conversation_thread_id,
+            workdir_path=f"projects/workdir-{run.conversation_thread_id}",
             uid=run.uid,
             agent_id=run.agent_slug,
             status="active",
@@ -62,6 +63,7 @@ async def _seed_subagent_runs(db, *, relation_child_thread_id: str = "child-thre
     child_run = AgentRun(
         id="child-run",
         conversation_thread_id="child-thread",
+        runtime_scope_id="parent-thread",
         agent_slug="worker",
         uid="user-1",
         status="completed",
@@ -74,8 +76,22 @@ async def _seed_subagent_runs(db, *, relation_child_thread_id: str = "child-thre
     )
     db.add_all(
         [
-            Conversation(id=10, thread_id="parent-thread", uid="user-1", agent_id="main", status="active"),
-            Conversation(id=20, thread_id="child-thread", uid="user-1", agent_id="worker", status="subagent"),
+            Conversation(
+                id=10,
+                thread_id="parent-thread",
+                workdir_path="projects/workdir-parent-thread",
+                uid="user-1",
+                agent_id="main",
+                status="active",
+            ),
+            Conversation(
+                id=20,
+                thread_id="child-thread",
+                workdir_path="projects/workdir-parent-thread",
+                uid="user-1",
+                agent_id="worker",
+                status="subagent",
+            ),
             SubagentThread(
                 id=77,
                 uid="user-1",
@@ -88,6 +104,7 @@ async def _seed_subagent_runs(db, *, relation_child_thread_id: str = "child-thre
             AgentRun(
                 id="parent-run",
                 conversation_thread_id="parent-thread",
+                runtime_scope_id="parent-thread",
                 agent_slug="main",
                 uid="user-1",
                 status="completed",
@@ -103,22 +120,25 @@ async def _seed_subagent_runs(db, *, relation_child_thread_id: str = "child-thre
     return child_run
 
 
-async def test_get_subagent_run_for_creator_returns_child_run(session):
+async def test_get_subagent_run_with_creator_returns_execution_pair(session):
     child_run = await _seed_subagent_runs(session)
 
-    result = await AgentRunRepository(session).get_subagent_run_for_creator(
+    result = await AgentRunRepository(session).get_subagent_run_with_creator(
         uid="user-1",
         created_by_run_id="parent-run",
         run_id="child-run",
     )
 
-    assert result is child_run
+    assert result is not None
+    creator_run, persisted_child_run = result
+    assert creator_run.id == "parent-run"
+    assert persisted_child_run is child_run
 
 
-async def test_get_subagent_run_for_creator_returns_none_for_relation_mismatch(session):
+async def test_get_subagent_run_with_creator_returns_none_for_relation_mismatch(session):
     await _seed_subagent_runs(session, relation_child_thread_id="other-child-thread")
 
-    result = await AgentRunRepository(session).get_subagent_run_for_creator(
+    result = await AgentRunRepository(session).get_subagent_run_with_creator(
         uid="user-1",
         created_by_run_id="parent-run",
         run_id="child-run",
@@ -146,13 +166,81 @@ async def test_create_run_persists_origin_snapshot(session):
     assert run.channel == "api"
     assert run.external_id == "external-1"
     assert run.origin_metadata == {"agent_invocation_meta": {"trace_id": "trace-1"}}
+    assert run.runtime_scope_id == "thread-1"
+
+
+async def test_create_subagent_run_persists_explicit_root_runtime_scope(session):
+    run = await AgentRunRepository(session).create_run(
+        run_id="child-run-scope",
+        conversation_thread_id="child-thread",
+        runtime_scope_id="root-thread",
+        agent_slug="worker",
+        uid="user-1",
+        request_id="child-request-scope",
+        input_payload={},
+        run_type="subagent",
+        created_by_run_id="root-run",
+        subagent_thread_relation_id=1,
+    )
+
+    assert run.runtime_scope_id == "root-thread"
+
+
+async def test_storage_migration_converges_every_nonterminal_run_without_runtime_cleanup(session):
+    repository = AgentRunRepository(session)
+    runs = [
+        AgentRun(
+            id="migration-pending",
+            conversation_thread_id="thread-1",
+            runtime_scope_id="thread-1",
+            agent_slug="main",
+            uid="user-1",
+            status="pending",
+            request_id="migration-request-pending",
+            run_type="chat",
+            input_payload={},
+        ),
+        AgentRun(
+            id="migration-running",
+            conversation_thread_id="thread-2",
+            runtime_scope_id="thread-2",
+            agent_slug="main",
+            uid="user-1",
+            status="running",
+            request_id="migration-request-running",
+            run_type="chat",
+            input_payload={},
+            worker_id="old-worker",
+            heartbeat_at=utc_now_naive(),
+            lease_expires_at=utc_now_naive() + timedelta(minutes=5),
+        ),
+    ]
+    session.add_all(runs)
+    await session.flush()
+
+    migrated_ids = await repository.fail_nonterminal_for_storage_migration()
+
+    assert migrated_ids == ["migration-pending", "migration-running"]
+    for run in runs:
+        assert run.status == "failed"
+        assert run.error_type == "storage_migration"
+        assert run.worker_id is None
+        assert run.lease_expires_at is None
+        assert run.runtime_cleanup_pending is False
 
 
 async def test_set_output_message_rejects_wrong_causal_owner_and_accepts_exact_message(session):
     repository = AgentRunRepository(session)
-    conversation = Conversation(thread_id="output-thread", uid="user-1", agent_id="main", status="active")
+    conversation = Conversation(
+        thread_id="output-thread",
+        workdir_path="projects/workdir-output-thread",
+        uid="user-1",
+        agent_id="main",
+        status="active",
+    )
     other_conversation = Conversation(
         thread_id="other-output-thread",
+        workdir_path="projects/workdir-other-output-thread",
         uid="user-1",
         agent_id="main",
         status="active",
@@ -292,11 +380,14 @@ async def _seed_thread_run(db, *, thread_id: str, run_id: str, status: str, run_
     run = AgentRun(
         id=run_id,
         conversation_thread_id=thread_id,
+        runtime_scope_id=thread_id,
         agent_slug="main",
         uid="user-1",
         status=status,
         request_id=f"req-{run_id}",
         run_type=run_type,
+        created_by_run_id="root-run" if run_type == "subagent" else None,
+        subagent_thread_relation_id=1 if run_type == "subagent" else None,
         input_payload={},
     )
     db.add(run)
@@ -323,6 +414,7 @@ async def test_get_latest_top_level_runs_for_threads_scopes_by_user(session):
         AgentRun(
             id="t1-other",
             conversation_thread_id="t1",
+            runtime_scope_id="t1",
             agent_slug="main",
             uid="user-2",
             status="running",
@@ -471,16 +563,25 @@ async def test_attempt_owner_blocks_duplicate_until_retry_release(session):
         worker_id="worker-1:attempt-1",
         now=now + timedelta(seconds=1),
     )
-    _, retry_acquired = await repo.mark_running(
+    _, blocked_before_cleanup = await repo.mark_running(
         run.id,
         worker_id="worker-1:attempt-2",
         lease_seconds=60,
         now=now + timedelta(seconds=2),
     )
+    run.runtime_cleanup_pending = False
+    await session.flush()
+    _, retry_acquired = await repo.mark_running(
+        run.id,
+        worker_id="worker-1:attempt-2",
+        lease_seconds=60,
+        now=now + timedelta(seconds=3),
+    )
 
     assert first_acquired is True
     assert duplicate_acquired is False
     assert released is True
+    assert blocked_before_cleanup is False
     assert retry_acquired is True
     assert run.status == "running"
     assert run.worker_id == "worker-1:attempt-2"
@@ -516,19 +617,26 @@ async def test_expired_owner_cannot_finish_or_release_before_reconciliation(sess
         worker_id="worker-expired:attempt-1",
         now=now + timedelta(seconds=11),
     )
-    reconciled = await repo.reconcile_expired_leases(now=now + timedelta(seconds=11))
+    reconciled, cancelled_descendants = await repo.reconcile_expired_leases(now=now + timedelta(seconds=11))
 
     assert acquired is True
     assert released is False
     assert completed is False
     assert [item.id for item in reconciled] == [run.id]
+    assert cancelled_descendants == []
     assert run.status == "failed"
     assert run.error_type == "worker_lease_expired"
 
 
 async def test_pending_cancel_is_terminal_without_fake_worker_expiry(session):
     """从未执行的 pending Run 由用户取消后直接形成 cancelled 事实。"""
-    conversation = Conversation(thread_id="cancel-pending-thread", uid="user-1", agent_id="main", status="active")
+    conversation = Conversation(
+        thread_id="cancel-pending-thread",
+        workdir_path="projects/workdir-cancel-pending-thread",
+        uid="user-1",
+        agent_id="main",
+        status="active",
+    )
     session.add(conversation)
     await session.flush()
     message = Message(
@@ -551,17 +659,23 @@ async def test_pending_cancel_is_terminal_without_fake_worker_expiry(session):
         input_message_id=message.id,
     )
 
-    cancelled = await repo.request_cancel(run.id)
-    reconciled = await repo.reconcile_expired_leases(now=utc_now_naive() + timedelta(minutes=5))
+    cancelled, cancelled_ids = await repo.request_cancel_execution_tree(
+        run_id=run.id,
+        uid="user-1",
+        cascade_descendants=False,
+    )
+    reconciled, cancelled_descendants = await repo.reconcile_expired_leases(now=utc_now_naive() + timedelta(minutes=5))
     await session.refresh(message)
 
     assert cancelled is run
+    assert cancelled_ids == [run.id]
     assert run.status == "cancelled"
     assert run.error_type == "cancelled"
     assert run.worker_id is None
     assert run.lease_expires_at is None
     assert message.delivery_status == "cancelled"
     assert reconciled == []
+    assert cancelled_descendants == []
 
 
 async def test_durable_cancel_wins_terminal_race_for_live_owner(session):
@@ -582,7 +696,11 @@ async def test_durable_cancel_wins_terminal_race_for_live_owner(session):
         lease_seconds=60,
         now=now,
     )
-    requested = await repo.request_cancel(run.id)
+    requested, cancelled_ids = await repo.request_cancel_execution_tree(
+        run_id=run.id,
+        uid="user-1",
+        cascade_descendants=False,
+    )
 
     _, completed = await repo.set_terminal_status(
         run.id,
@@ -599,10 +717,50 @@ async def test_durable_cancel_wins_terminal_race_for_live_owner(session):
     )
 
     assert acquired is True
+    assert cancelled_ids == [run.id]
     assert requested is run
     assert completed is False
     assert cancelled is True
     assert persisted.status == "cancelled"
+
+
+async def test_terminal_root_atomically_cancels_active_execution_tree_descendants(session):
+    repo = AgentRunRepository(session)
+    now = utc_now_naive()
+    parent = await repo.create_run(
+        run_id="tree-parent-run",
+        conversation_thread_id="tree-runtime",
+        runtime_scope_id="tree-runtime",
+        agent_slug="main",
+        uid="user-1",
+        request_id="tree-parent-request",
+        input_payload={},
+    )
+    child = await repo.create_run(
+        run_id="tree-child-run",
+        conversation_thread_id="tree-child-thread",
+        runtime_scope_id="tree-runtime",
+        agent_slug="worker",
+        uid="user-1",
+        request_id="tree-child-request",
+        input_payload={},
+        created_by_run_id=parent.id,
+        subagent_thread_relation_id=1,
+        run_type="subagent",
+    )
+    await repo.mark_running(parent.id, worker_id="parent-worker", lease_seconds=60, now=now)
+    await repo.mark_running(child.id, worker_id="child-worker", lease_seconds=60, now=now)
+
+    parent.status = "failed"
+    parent.finished_at = now
+    cancelled = await repo.cancel_active_execution_tree_descendants(parent)
+
+    assert cancelled == [(child.id, child.conversation_thread_id)]
+    assert child.status == "cancel_requested"
+    assert child.error_type == "execution_tree_closed"
+    assert child.worker_id == "child-worker"
+    assert child.heartbeat_at is not None
+    assert child.lease_expires_at is not None
 
 
 async def _seed_running_run(db, *, run_id: str = "attempt-run", request_id: str = "attempt-request") -> AgentRun:
@@ -645,12 +803,18 @@ async def test_retry_release_then_reclaim_uses_new_attempt_no_and_keeps_old_fact
     released = await repository.release_lease_for_retry(
         run.id, worker_id="worker-a:token-1", now=now + timedelta(seconds=1)
     )
-    await repository.mark_running(
+    _, blocked_before_cleanup = await repository.mark_running(
         run.id, worker_id="worker-b:token-2", lease_seconds=60, now=now + timedelta(seconds=2)
+    )
+    run.runtime_cleanup_pending = False
+    await session.flush()
+    await repository.mark_running(
+        run.id, worker_id="worker-b:token-2", lease_seconds=60, now=now + timedelta(seconds=3)
     )
     attempts = await repository.list_run_attempts(run.id)
 
     assert released is True
+    assert blocked_before_cleanup is False
     assert [attempt.attempt_no for attempt in attempts] == [1, 2]
     assert attempts[0].outcome == "retry_released"
     assert attempts[0].finished_at is not None
@@ -688,10 +852,11 @@ async def test_reconcile_closes_open_attempt_as_lease_expired(session):
     now = utc_now_naive()
 
     await repository.mark_running(run.id, worker_id="worker-dead:token-1", lease_seconds=10, now=now)
-    reconciled = await repository.reconcile_expired_leases(now=now + timedelta(seconds=11))
+    reconciled, cancelled_descendants = await repository.reconcile_expired_leases(now=now + timedelta(seconds=11))
     attempts = await repository.list_run_attempts(run.id)
 
     assert [item.id for item in reconciled] == [run.id]
+    assert cancelled_descendants == []
     assert len(attempts) == 1
     assert attempts[0].outcome == "lease_expired"
     assert attempts[0].error_type == "worker_lease_expired"

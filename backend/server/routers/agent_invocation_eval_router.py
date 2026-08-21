@@ -38,6 +38,11 @@ class AgentEvalRunCreate(BaseModel):
 
     query: str = Field(..., description="评估样例输入")
     agent_slug: str = Field(..., description="要运行的智能体 slug")
+    thread_id: str | None = Field(
+        None,
+        max_length=64,
+        description="可选会话线程 ID，不传则自动创建临时线程",
+    )
     evaluation: AgentEvaluationContext = Field(default_factory=AgentEvaluationContext, description="评估上下文")
     meta: dict = Field(default_factory=dict, description="可选请求追踪信息")
     image_content: str | None = Field(None, description="可选，base64 图片内容")
@@ -66,7 +71,8 @@ async def create_agent_eval_run(
     run_response = await submit_run_command(
         command=RunSubmissionCommand(
             agent_slug=agent_slug,
-            thread_id=hash_id("invocation_", f"{current_user.uid}:{agent_slug}:{request_id}", length=64),
+            thread_id=(payload.thread_id or "").strip()
+            or hash_id("invocation_", f"{current_user.uid}:{agent_slug}:{request_id}", length=64),
             request_id=request_id,
             input_message=build_chat_input_message(payload.query, payload.image_content),
             origin=RunOrigin(

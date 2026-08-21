@@ -4,15 +4,42 @@ Integration tests for chat router endpoints.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import uuid
+from pathlib import PurePosixPath
 
 import pytest
 from PIL import Image
-from yuxi.agents.backends.sandbox import ensure_thread_dirs, sandbox_user_data_dir, sandbox_workspace_dir
+from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+
+
+async def _upload_project_file(
+    test_client,
+    headers,
+    thread_id: str,
+    name: str,
+    content: bytes,
+    *,
+    parent_path: str = "/",
+    artifact_path: bool = False,
+) -> str:
+    response = await test_client.post(
+        "/api/viewer/filesystem/upload",
+        data={"thread_id": thread_id, "parent_path": parent_path},
+        files={"files": (name, content, "text/plain")},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    entry = response.json()["entries"][0]
+    if not artifact_path:
+        return entry["path"]
+    marker = f"/api/chat/thread/{thread_id}/artifacts/"
+    assert entry["artifact_url"].startswith(marker)
+    return f"/{entry['artifact_url'][len(marker) :]}"
 
 
 async def test_chat_endpoints_require_authentication(test_client):
@@ -48,6 +75,35 @@ async def test_image_upload_composites_transparent_png_pixels_on_white(test_clie
     assert rgb_image.getpixel((1, 0)) == (50, 87, 244)
 
 
+async def test_legacy_direct_thread_attachment_upload_is_removed(test_client, admin_headers):
+    response = await test_client.post(
+        f"/api/chat/thread/{uuid.uuid4()}/attachments",
+        headers=admin_headers,
+        files={"file": ("legacy.txt", b"legacy", "text/plain")},
+    )
+
+    assert response.status_code == 405
+
+
+async def test_development_thread_file_browse_routes_are_removed(test_client, admin_headers):
+    thread_id = await _create_thread_for_user(test_client, admin_headers)
+    path = await _upload_project_file(test_client, admin_headers, thread_id, "removed-route.txt", b"content")
+
+    list_response = await test_client.get(
+        f"/api/chat/thread/{thread_id}/files",
+        params={"path": "/"},
+        headers=admin_headers,
+    )
+    content_response = await test_client.get(
+        f"/api/chat/thread/{thread_id}/files/content",
+        params={"path": path},
+        headers=admin_headers,
+    )
+
+    assert list_response.status_code == 404
+    assert content_response.status_code == 404
+
+
 async def test_thread_artifact_uses_image_signature_for_content_type(test_client, admin_headers):
     thread_id = await _create_thread_for_user(test_client, admin_headers)
     image = Image.new("RGBA", (2, 2), (255, 255, 255, 0))
@@ -57,13 +113,27 @@ async def test_thread_artifact_uses_image_signature_for_content_type(test_client
         image_bytes = buffer.getvalue()
 
     upload_response = await test_client.post(
-        f"/api/chat/thread/{thread_id}/attachments",
+        "/api/chat/attachments/tmp",
         headers=admin_headers,
         files={"file": ("mislabeled.jpg", image_bytes, "image/jpeg")},
     )
 
     assert upload_response.status_code == 200, upload_response.text
-    attachment = upload_response.json()
+    uploaded = upload_response.json()
+    confirm_response = await test_client.post(
+        f"/api/chat/thread/{thread_id}/attachments/confirm",
+        headers=admin_headers,
+        json={
+            "attachments": [
+                {
+                    "file_type": uploaded.get("file_type"),
+                    "object_name": uploaded["object_name"],
+                }
+            ]
+        },
+    )
+    assert confirm_response.status_code == 200, confirm_response.text
+    attachment = confirm_response.json()["attachments"][0]
 
     artifact_response = await test_client.get(attachment["original_artifact_url"], headers=admin_headers)
 
@@ -87,8 +157,8 @@ async def _create_thread_for_user(test_client, headers: dict[str, str]) -> str:
         "/api/chat/thread",
         json={
             "agent_id": agent_id,
-            "title": f"chat-router-test-{uuid.uuid4().hex[:8]}",
-            "metadata": {},
+            "title": make_test_conversation_title("chat-router"),
+            "metadata": make_test_conversation_metadata("chat-router"),
         },
         headers=headers,
     )
@@ -227,29 +297,28 @@ async def test_setting_default_agent_requires_admin(test_client, admin_headers, 
 
 async def test_save_thread_artifact_to_workspace_copies_output_file(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
     thread_id = await _create_thread_for_user(test_client, headers)
     filename = f"artifact-{uuid.uuid4().hex[:8]}.md"
-
-    ensure_thread_dirs(thread_id, uid)
-    source_path = sandbox_user_data_dir(thread_id) / "outputs" / filename
-    source_path.write_text("# artifact\n", encoding="utf-8")
+    source_path = await _upload_project_file(
+        test_client,
+        headers,
+        thread_id,
+        filename,
+        b"# artifact\n",
+        artifact_path=True,
+    )
 
     response = await test_client.post(
         f"/api/chat/thread/{thread_id}/artifacts/save",
-        json={"path": f"/home/gem/user-data/outputs/{filename}"},
+        json={"path": source_path},
         headers=headers,
     )
     assert response.status_code == 200, response.text
 
     payload = response.json()
     assert payload["name"] == filename
-    assert payload["source_path"] == f"/home/gem/user-data/outputs/{filename}"
-    assert payload["saved_path"] == f"/home/gem/user-data/workspace/saved_artifacts/{filename}"
-
-    saved_path = sandbox_workspace_dir(thread_id, uid) / "saved_artifacts" / filename
-    assert saved_path.exists()
-    assert saved_path.read_text(encoding="utf-8") == "# artifact\n"
+    assert payload["source_path"] == source_path
+    assert payload["saved_path"] == f"/home/gem/user-data/saved_artifacts/{filename}"
 
     download_response = await test_client.get(payload["saved_artifact_url"], headers=headers)
     assert download_response.status_code == 200, download_response.text
@@ -258,44 +327,56 @@ async def test_save_thread_artifact_to_workspace_copies_output_file(test_client,
 
 async def test_save_thread_artifact_to_workspace_auto_renames_conflicts(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
     thread_id = await _create_thread_for_user(test_client, headers)
     filename = f"artifact-{uuid.uuid4().hex[:8]}.txt"
     renamed_filename = filename.replace(".txt", " (1).txt")
 
-    ensure_thread_dirs(thread_id, uid)
-    source_path = sandbox_user_data_dir(thread_id) / "outputs" / filename
-    source_path.write_text("first\n", encoding="utf-8")
+    source_path = await _upload_project_file(
+        test_client,
+        headers,
+        thread_id,
+        filename,
+        b"first\n",
+        artifact_path=True,
+    )
 
-    first_response = await test_client.post(
-        f"/api/chat/thread/{thread_id}/artifacts/save",
-        json={"path": f"/home/gem/user-data/outputs/{filename}"},
+    directory = await test_client.post(
+        "/api/viewer/filesystem/directory",
+        json={"thread_id": thread_id, "parent_path": "/", "name": "second-source"},
         headers=headers,
+    )
+    assert directory.status_code == 200, directory.text
+    second_source_path = await _upload_project_file(
+        test_client,
+        headers,
+        thread_id,
+        filename,
+        b"second\n",
+        parent_path=directory.json()["entry"]["path"],
+        artifact_path=True,
+    )
+    save_url = f"/api/chat/thread/{thread_id}/artifacts/save"
+    first_response, second_response = await asyncio.gather(
+        test_client.post(save_url, json={"path": source_path}, headers=headers),
+        test_client.post(save_url, json={"path": second_source_path}, headers=headers),
     )
     assert first_response.status_code == 200, first_response.text
-
-    source_path.write_text("second\n", encoding="utf-8")
-    second_response = await test_client.post(
-        f"/api/chat/thread/{thread_id}/artifacts/save",
-        json={"path": f"/home/gem/user-data/outputs/{filename}"},
-        headers=headers,
-    )
     assert second_response.status_code == 200, second_response.text
 
     first_payload = first_response.json()
     second_payload = second_response.json()
-    assert first_payload["saved_path"] == f"/home/gem/user-data/workspace/saved_artifacts/{filename}"
-    assert second_payload["saved_path"] == f"/home/gem/user-data/workspace/saved_artifacts/{renamed_filename}"
+    assert {first_payload["saved_path"], second_payload["saved_path"]} == {
+        f"/home/gem/user-data/saved_artifacts/{filename}",
+        f"/home/gem/user-data/saved_artifacts/{renamed_filename}",
+    }
 
-    first_saved = sandbox_workspace_dir(thread_id, uid) / "saved_artifacts" / filename
-    second_saved = sandbox_workspace_dir(thread_id, uid) / "saved_artifacts" / renamed_filename
-    assert first_saved.read_text(encoding="utf-8") == "first\n"
-    assert second_saved.read_text(encoding="utf-8") == "second\n"
+    first_download = await test_client.get(first_payload["saved_artifact_url"], headers=headers)
+    second_download = await test_client.get(second_payload["saved_artifact_url"], headers=headers)
+    assert {first_download.content, second_download.content} == {b"first\n", b"second\n"}
 
 
 async def test_save_thread_artifact_to_workspace_rejects_invalid_paths(test_client, standard_user):
     headers = standard_user["headers"]
-    uid = str(standard_user["user"]["uid"])
     thread_id = await _create_thread_for_user(test_client, headers)
 
     invalid_response = await test_client.post(
@@ -305,12 +386,25 @@ async def test_save_thread_artifact_to_workspace_rejects_invalid_paths(test_clie
     )
     assert invalid_response.status_code == 404, invalid_response.text
 
-    ensure_thread_dirs(thread_id, uid)
-    directory_path = sandbox_workspace_dir(thread_id, uid) / "nested-dir"
-    directory_path.mkdir(parents=True, exist_ok=True)
+    directory = await test_client.post(
+        "/api/viewer/filesystem/directory",
+        json={"thread_id": thread_id, "parent_path": "/", "name": "nested-dir"},
+        headers=headers,
+    )
+    assert directory.status_code == 200, directory.text
+    child_path = await _upload_project_file(
+        test_client,
+        headers,
+        thread_id,
+        "child.txt",
+        b"child",
+        parent_path=directory.json()["entry"]["path"],
+        artifact_path=True,
+    )
+    directory_path = str(PurePosixPath(child_path).parent)
     directory_response = await test_client.post(
         f"/api/chat/thread/{thread_id}/artifacts/save",
-        json={"path": "/home/gem/user-data/workspace/nested-dir"},
+        json={"path": directory_path},
         headers=headers,
     )
     assert directory_response.status_code == 400, directory_response.text

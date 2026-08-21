@@ -69,11 +69,13 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
                 uid=uid,
                 agent_id="pytest-output-causality",
                 status="active",
+                workdir_path=f"projects/{thread_id}",
             )
             runs = [
                 AgentRun(
                     id=run_id,
                     conversation_thread_id=thread_id,
+                    runtime_scope_id=thread_id,
                     agent_slug="pytest-output-causality",
                     uid=uid,
                     status="completed",

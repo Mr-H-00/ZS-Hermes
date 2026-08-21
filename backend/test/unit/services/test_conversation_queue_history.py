@@ -24,11 +24,21 @@ async def session():
 
 async def test_queue_history_keeps_each_request_with_its_reply(session):
     started_at = datetime(2026, 7, 12, 9, 0, 0)
-    session.add(Conversation(id=1, thread_id="thread-1", uid="user-1", agent_id="main", status="active"))
+    session.add(
+        Conversation(
+            id=1,
+            thread_id="thread-1",
+            workdir_path="projects/workdir-thread-1",
+            uid="user-1",
+            agent_id="main",
+            status="active",
+        )
+    )
     session.add(
         AgentRun(
             id="run-a",
             conversation_thread_id="thread-1",
+            runtime_scope_id="thread-1",
             agent_slug="main",
             uid="user-1",
             request_id="request-a",
@@ -86,6 +96,7 @@ async def test_queue_history_keeps_each_request_with_its_reply(session):
         AgentRun(
             id="run-b",
             conversation_thread_id="thread-1",
+            runtime_scope_id="thread-1",
             agent_slug="main",
             uid="user-1",
             request_id="request-b",
@@ -125,11 +136,21 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
     started_at = datetime(2026, 7, 12, 9, 0, 0)
     run_started_at = started_at + timedelta(seconds=10)
     run_finished_at = started_at + timedelta(seconds=22)
-    session.add(Conversation(id=1, thread_id="thread-1", uid="user-1", agent_id="main", status="active"))
+    session.add(
+        Conversation(
+            id=1,
+            thread_id="thread-1",
+            workdir_path="projects/workdir-thread-1",
+            uid="user-1",
+            agent_id="main",
+            status="active",
+        )
+    )
     session.add(
         AgentRun(
             id="run-a",
             conversation_thread_id="thread-1",
+            runtime_scope_id="thread-1",
             agent_slug="main",
             uid="user-1",
             request_id="request-a",
@@ -172,9 +193,7 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
         db=session,
     )
 
-    assistant_message = next(
-        message for message in history["history"] if message["type"] == "ai"
-    )
+    assistant_message = next(message for message in history["history"] if message["type"] == "ai")
     assert assistant_message["run_started_at"] == "2026-07-12T09:00:10Z"
     assert assistant_message["run_finished_at"] == "2026-07-12T09:00:22Z"
 
@@ -185,11 +204,21 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
 
 async def test_thread_history_handles_run_without_timing_fields(session):
     started_at = datetime(2026, 7, 12, 9, 0, 0)
-    session.add(Conversation(id=1, thread_id="thread-1", uid="user-1", agent_id="main", status="active"))
+    session.add(
+        Conversation(
+            id=1,
+            thread_id="thread-1",
+            workdir_path="projects/workdir-thread-1",
+            uid="user-1",
+            agent_id="main",
+            status="active",
+        )
+    )
     session.add(
         AgentRun(
             id="run-a",
             conversation_thread_id="thread-1",
+            runtime_scope_id="thread-1",
             agent_slug="main",
             uid="user-1",
             request_id="request-a",

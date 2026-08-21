@@ -18,6 +18,7 @@ def _context(summary_threshold: int = 123) -> SimpleNamespace:
         summary_l2_trigger_ratio=0.75,
         tool_token_limit=3,
         model_retry_times=1,
+        workdir_path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111",
     )
 
 

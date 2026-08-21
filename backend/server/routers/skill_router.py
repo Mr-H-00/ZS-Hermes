@@ -22,7 +22,6 @@ from yuxi.agents.skills.service import (
     export_skill_zip,
     get_allowed_skill_access_levels,
     get_manageable_skill_or_raise,
-    get_management_readable_skill_or_raise,
     get_skill_dependency_options,
     get_skill_tree,
     init_builtin_skills,
@@ -134,23 +133,14 @@ def _serialize_skill_for_user(item, user: User) -> dict:
 
 @user_skills.get("")
 async def list_skill_cards_route(
-    refresh_personal: bool = Query(False, description="是否强制重新扫描个人 Skill"),
     current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        items, snapshot = await list_skill_cards_for_user(
-            db,
-            current_user,
-            refresh_personal=refresh_personal,
-        )
+        items = await list_skill_cards_for_user(db, current_user)
         return {
             "success": True,
             "data": [_serialize_skill_for_user(item, current_user) for item in items],
-            "personal_cache": {
-                "scanned_at": snapshot.scanned_at,
-                "from_cache": snapshot.from_cache,
-            },
             "allowed_access_levels": get_allowed_skill_access_levels(current_user),
         }
     except Exception as e:
@@ -307,14 +297,8 @@ async def delete_personal_skill_route(
     current_user: User = Depends(get_required_user),
 ):
     try:
-        snapshot = await delete_personal_skill(str(current_user.uid), slug)
-        return {
-            "success": True,
-            "personal_cache": {
-                "scanned_at": snapshot.scanned_at,
-                "from_cache": snapshot.from_cache,
-            },
-        }
+        await delete_personal_skill(str(current_user.uid), slug)
+        return {"success": True}
     except ValueError as e:
         _raise_from_value_error(e)
     except Exception as e:
@@ -439,8 +423,7 @@ async def get_skill_tree_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await get_management_readable_skill_or_raise(db, current_user, slug)
-        return {"success": True, "data": await get_skill_tree(db, slug)}
+        return {"success": True, "data": await get_skill_tree(db, slug=slug, operator=current_user)}
     except ValueError as e:
         _raise_from_value_error(e)
     except Exception as e:
@@ -456,8 +439,10 @@ async def get_skill_file_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await get_management_readable_skill_or_raise(db, current_user, slug)
-        return {"success": True, "data": await read_skill_file(db, slug, path)}
+        return {
+            "success": True,
+            "data": await read_skill_file(db, slug=slug, relative_path=path, operator=current_user),
+        }
     except ValueError as e:
         _raise_from_value_error(e)
     except Exception as e:
@@ -473,7 +458,6 @@ async def create_skill_file_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
         await create_skill_node(
             db,
             slug=slug,
@@ -481,6 +465,7 @@ async def create_skill_file_route(
             is_dir=payload.is_dir,
             content=payload.content,
             updated_by=current_user.uid,
+            operator=current_user,
         )
         return {"success": True}
     except ValueError as e:
@@ -498,13 +483,13 @@ async def update_skill_file_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
         await update_skill_file(
             db,
             slug=slug,
             relative_path=payload.path,
             content=payload.content,
             updated_by=current_user.uid,
+            operator=current_user,
         )
         return {"success": True}
     except ValueError as e:
@@ -546,8 +531,7 @@ async def delete_skill_file_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
-        await delete_skill_node(db, slug=slug, relative_path=path)
+        await delete_skill_node(db, slug=slug, relative_path=path, operator=current_user)
         return {"success": True}
     except ValueError as e:
         _raise_from_value_error(e)
@@ -564,8 +548,7 @@ async def export_skill_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
-        export_path, download_name = await export_skill_zip(db, slug)
+        export_path, download_name = await export_skill_zip(db, slug=slug, operator=current_user)
         background_tasks.add_task(_cleanup_export_file, export_path)
         return FileResponse(path=export_path, media_type="application/zip", filename=download_name)
     except ValueError as e:
@@ -582,8 +565,7 @@ async def delete_skill_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await get_manageable_skill_or_raise(db, current_user, slug)
-        await delete_skill(db, slug=slug)
+        await delete_skill(db, slug=slug, operator=current_user)
         return {"success": True}
     except ValueError as e:
         _raise_from_value_error(e)
@@ -599,9 +581,7 @@ async def delete_skills_batch_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        for slug in payload.slugs:
-            await get_manageable_skill_or_raise(db, current_user, slug)
-        results = await delete_skills_batch(db, slugs=payload.slugs)
+        results = await delete_skills_batch(db, slugs=payload.slugs, operator=current_user)
         return {"success": True, "data": results, "summary": _summarize_results(results)}
     except ValueError as e:
         _raise_from_value_error(e)

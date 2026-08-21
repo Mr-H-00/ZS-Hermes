@@ -1,18 +1,36 @@
-from yuxi.agents.backends.sandbox import (
-    VIRTUAL_PATH_PREFIX,
-    ensure_thread_dirs,
-    sandbox_outputs_dir,
-    sandbox_uploads_dir,
-)
+import pytest
+
+from yuxi.agents.backends.sandbox import backend as sandbox_backend
 from yuxi.agents.buildin.chatbot.state import merge_subagent_runs
 from yuxi.agents.state import merge_artifacts
 from yuxi.agents.toolkits.buildin.tools import _normalize_presented_artifact_path
-from yuxi.utils.paths import CONVERSATION_HISTORY_DIR_NAME, LARGE_TOOL_RESULTS_DIR_NAME
+from yuxi.agents.backends.paths import CONVERSATION_HISTORY_DIR_NAME, LARGE_TOOL_RESULTS_DIR_NAME
 
 
 def _runtime_with_thread(thread_id: str, uid: str = "user-1"):
-    context = type("RuntimeContext", (), {"thread_id": thread_id, "uid": uid})()
+    context = type(
+        "RuntimeContext",
+        (),
+        {
+            "thread_id": thread_id,
+            "runtime_scope_id": thread_id,
+            "workdir_relative_path": "projects/11111111-1111-4111-8111-111111111111",
+            "workdir_path": "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111",
+            "uid": uid,
+        },
+    )()
     return type("RuntimeStub", (), {"context": context})()
+
+
+def _stub_output_exists(monkeypatch: pytest.MonkeyPatch, exists: bool = True) -> None:
+    class FakeBackend:
+        def __init__(self, **_kwargs):
+            pass
+
+        def regular_file_exists(self, _path: str) -> bool:
+            return exists
+
+    monkeypatch.setattr(sandbox_backend, "ProvisionerSandboxBackend", FakeBackend)
 
 
 def test_merge_artifacts_deduplicates_and_preserves_order():
@@ -137,57 +155,43 @@ def test_merge_subagent_runs_does_not_merge_different_run_ids_by_state_id():
     ]
 
 
-def test_normalize_presented_artifact_path_accepts_host_path():
-    thread_id = "artifacts-host-path"
-    ensure_thread_dirs(thread_id, "user-1")
-    output_file = sandbox_outputs_dir(thread_id) / "report.md"
-    output_file.write_text("# demo", encoding="utf-8")
-
-    normalized = _normalize_presented_artifact_path(str(output_file), _runtime_with_thread(thread_id))
-
-    assert normalized == f"{VIRTUAL_PATH_PREFIX}/outputs/report.md"
+def test_normalize_presented_artifact_path_rejects_host_path():
+    with pytest.raises(ValueError, match="可见范围"):
+        _normalize_presented_artifact_path(
+            "saves/threads/thread-1/user-data/outputs/report.md",
+            _runtime_with_thread("thread-1"),
+        )
 
 
-def test_normalize_presented_artifact_path_accepts_virtual_path():
+def test_normalize_presented_artifact_path_accepts_virtual_path(monkeypatch: pytest.MonkeyPatch):
     thread_id = "artifacts-virtual-path"
-    ensure_thread_dirs(thread_id, "user-1")
-    output_file = sandbox_outputs_dir(thread_id) / "summary.txt"
-    output_file.write_text("demo", encoding="utf-8")
+    _stub_output_exists(monkeypatch)
 
     normalized = _normalize_presented_artifact_path(
-        f"{VIRTUAL_PATH_PREFIX}/outputs/summary.txt",
+        "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/outputs/summary.txt",
         _runtime_with_thread(thread_id),
     )
 
-    assert normalized == f"{VIRTUAL_PATH_PREFIX}/outputs/summary.txt"
+    assert normalized == "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/outputs/summary.txt"
 
 
-def test_normalize_presented_artifact_path_rejects_non_outputs_path():
+def test_normalize_presented_artifact_path_accepts_any_visible_regular_file(monkeypatch: pytest.MonkeyPatch):
     thread_id = "artifacts-reject-path"
-    ensure_thread_dirs(thread_id, "user-1")
-    upload_file = sandbox_uploads_dir(thread_id) / "note.txt"
-    upload_file.write_text("demo", encoding="utf-8")
+    _stub_output_exists(monkeypatch)
 
-    try:
-        _normalize_presented_artifact_path(str(upload_file), _runtime_with_thread(thread_id))
-    except ValueError as exc:
-        assert f"{VIRTUAL_PATH_PREFIX}/outputs/" in str(exc)
-    else:
-        raise AssertionError("expected ValueError for non-outputs file")
+    assert (
+        _normalize_presented_artifact_path(
+            "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/uploads/note.txt",
+            _runtime_with_thread(thread_id),
+        )
+        == "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/uploads/note.txt"
+    )
 
 
-def test_normalize_presented_artifact_path_rejects_internal_output_files():
+def test_normalize_presented_artifact_path_does_not_special_case_internal_names(monkeypatch: pytest.MonkeyPatch):
     thread_id = "artifacts-reject-internal"
-    ensure_thread_dirs(thread_id, "user-1")
+    _stub_output_exists(monkeypatch)
 
     for dir_name in [LARGE_TOOL_RESULTS_DIR_NAME, CONVERSATION_HISTORY_DIR_NAME, "large_tool_history"]:
-        output_file = sandbox_outputs_dir(thread_id) / dir_name / "stage.txt"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text("internal", encoding="utf-8")
-
-        try:
-            _normalize_presented_artifact_path(str(output_file), _runtime_with_thread(thread_id))
-        except ValueError as exc:
-            assert "工具调用阶段文件" in str(exc)
-        else:
-            raise AssertionError(f"expected ValueError for internal output file under {dir_name}")
+        path = f"/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/outputs/{dir_name}/stage.txt"
+        assert _normalize_presented_artifact_path(path, _runtime_with_thread(thread_id)) == path

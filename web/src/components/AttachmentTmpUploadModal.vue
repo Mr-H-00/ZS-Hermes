@@ -154,17 +154,13 @@ const getDefaultParseMethod = (parseMethods) => {
 }
 
 const normalizeTmpUpload = (response) => ({
-  tmpFileId: response.tmp_file_id,
   fileName: response.file_name,
   fileType: response.file_type,
   fileSize: response.file_size,
-  bucketName: response.bucket_name,
   objectName: response.object_name,
-  minioUrl: response.minio_url,
   parseSupported: response.parse_supported,
   parseMethods: response.parse_methods || [],
-  selectedParseMethod: getDefaultParseMethod(response.parse_methods || []),
-  parseMethodTouched: false
+  selectedParseMethod: getDefaultParseMethod(response.parse_methods || [])
 })
 
 const updateItem = (localId, patch) => {
@@ -228,10 +224,7 @@ const isParseDisabled = (item) =>
   item.status === 'parsing' || !item.selectedParseMethod || confirming.value
 
 const clearParsedState = {
-  parsedObjectName: null,
-  parsedMinioUrl: null,
-  truncated: false,
-  parseMethod: null
+  parsedObjectName: null
 }
 
 const handleParseMethodChange = (localId, selectedParseMethod) => {
@@ -239,7 +232,6 @@ const handleParseMethodChange = (localId, selectedParseMethod) => {
   updateItem(localId, {
     ...clearParsedState,
     selectedParseMethod,
-    parseMethodTouched: true,
     parseError: null,
     status: item?.status === 'parsed' ? 'uploaded' : item?.status
   })
@@ -262,16 +254,11 @@ const handleParse = async (item) => {
   try {
     const response = await threadApi.parseTmpAttachment({
       object_name: item.objectName,
-      file_name: item.fileName,
-      bucket_name: item.bucketName,
       parse_method: item.selectedParseMethod
     })
     updateItem(item.localId, {
       status: 'parsed',
-      parsedObjectName: response.parsed_object_name,
-      parsedMinioUrl: response.parsed_minio_url,
-      truncated: response.truncated,
-      parseMethod: response.parse_method
+      parsedObjectName: response.parsed_object_name
     })
     message.success('附件解析完成')
   } catch (error) {
@@ -291,12 +278,9 @@ const handleConfirm = async () => {
   if (confirmDisabled.value) return
 
   const attachments = confirmableItems.value.map((item) => ({
-    file_name: item.fileName,
     file_type: item.fileType,
-    bucket_name: item.bucketName,
     object_name: item.objectName,
-    parsed_object_name: item.parsedObjectName || null,
-    truncated: Boolean(item.truncated)
+    parsed_object_name: item.parsedObjectName || null
   }))
 
   confirming.value = true

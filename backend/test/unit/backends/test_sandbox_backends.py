@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import gc
+import hashlib
 import threading
 import weakref
 from types import MethodType, SimpleNamespace
 
 import pytest
+import yuxi.agents.backends.sandbox.backend as sandbox_backend_module
 from deepagents.backends.protocol import GlobResult, ReadResult
 from deepagents.backends.sandbox import MAX_BINARY_BYTES
 from langchain_core.messages import ToolMessage
@@ -19,30 +21,41 @@ from yuxi.agents.backends.composite import (
     create_agent_filesystem_middleware,
     sync_agent_context_skills,
 )
-from yuxi.agents.backends.sandbox import ProvisionerSandboxProvider, resolve_virtual_path, sandbox_id_for_thread
+from yuxi.agents.backends.sandbox import ProvisionerSandboxProvider, sandbox_id_for_thread
 from yuxi.agents.backends.sandbox.backend import ProvisionerSandboxBackend
+from yuxi.agents.backends.sandbox.provider import SandboxIdentityMismatchError
 from yuxi.agents.middlewares.skills import SkillsMiddleware
-from yuxi.utils.paths import VIRTUAL_PATH_CONVERSATION_HISTORY, VIRTUAL_PATH_LARGE_TOOL_RESULTS
+from yuxi.agents.backends.paths import workdir_runtime_paths
+
+WORKDIR_RELATIVE_PATH = "projects/11111111-1111-4111-8111-111111111111"
+WORKDIR_PATH = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
+VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_CONVERSATION_HISTORY = workdir_runtime_paths(WORKDIR_PATH)
 
 
 def _runtime(
     *,
     thread_id: str | None = "thread-1",
     uid: str | None = "user-1",
-    skills: list[str] | None = None,
-    readable_skills: list[str] | None = None,
-    skill_sources: dict[str, str] | None = None,
-    visible_kbs: list[dict] | None = None,
 ):
-    configurable = {"thread_id": thread_id, "uid": uid} if thread_id and uid else {}
+    configurable = (
+        {
+            "thread_id": thread_id,
+            "runtime_scope_id": thread_id,
+            "workdir_relative_path": WORKDIR_RELATIVE_PATH,
+            "workdir_path": WORKDIR_PATH,
+            "uid": uid,
+        }
+        if thread_id and uid
+        else {}
+    )
     return SimpleNamespace(
         config={"configurable": configurable},
         context=SimpleNamespace(
-            skills=skills or [],
-            _readable_skills=readable_skills,
-            _runtime_skill_sources=skill_sources or {},
-            _visible_knowledge_bases=visible_kbs or [],
             uid=uid,
+            thread_id=thread_id,
+            runtime_scope_id=thread_id,
+            workdir_relative_path=WORKDIR_RELATIVE_PATH if thread_id and uid else None,
+            workdir_path=WORKDIR_PATH if thread_id and uid else None,
         ),
     )
 
@@ -58,40 +71,48 @@ def _make_provider(client) -> ProvisionerSandboxProvider:
     return provider
 
 
-def test_create_agent_composite_backend_uses_prepared_readable_skills(monkeypatch):
+def test_create_agent_composite_backend_uses_sandbox_filesystem(monkeypatch):
     monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
 
-    backend = create_agent_composite_backend(
-        _runtime(
-            readable_skills=["reporter"],
-            skill_sources={"reporter": "/tmp/reporter"},
-            visible_kbs=[{"slug": "db-1", "name": "Docs"}],
-        )
-    )
+    backend = create_agent_composite_backend(_runtime())
 
     assert isinstance(backend.default, ProvisionerSandboxBackend)
-    assert backend.default._readable_skills == ["reporter"]
-    assert backend.artifacts_root == "/home/gem/user-data/outputs"
-    assert "/skills/" in backend.routes
-    assert "/home/gem/kbs/" not in backend.routes
+    assert backend.routes == {}
+    assert backend.artifacts_root == "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
+
+
+def test_create_agent_composite_backend_derives_virtual_workdir_from_relative_path(monkeypatch):
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    runtime = _runtime()
+    runtime.config["configurable"]["workdir_path"] = "/home/gem/user-data/projects/stale"
+
+    backend = create_agent_composite_backend(runtime)
+
+    assert backend.artifacts_root == WORKDIR_PATH
 
 
 def test_sandbox_provider_release_deletes_sandbox_and_clears_cache():
-    deleted: list[str] = []
+    deleted: list[tuple[str, str | None]] = []
     provider = object.__new__(ProvisionerSandboxProvider)
     provider._lock = threading.Lock()
     provider._thread_locks = {}
     provider._connections = {}
     provider._last_touch_at = {}
-    provider._client = SimpleNamespace(delete=deleted.append)
-    connection = SimpleNamespace(sandbox_id="sandbox-1")
-    cache_key = "user-1::thread-1::thread-1"
+    provider._client = SimpleNamespace(
+        delete=lambda sandbox_id, *, expected_generation=None: deleted.append((sandbox_id, expected_generation))
+    )
+    connection = SimpleNamespace(
+        sandbox_id="sandbox-1",
+        workdir_path=None,
+        generation="generation-1",
+    )
+    cache_key = "user-1::thread-1"
     provider._connections[cache_key] = connection
     provider._last_touch_at[cache_key] = 1.0
 
     provider.release("thread-1", uid="user-1")
 
-    assert deleted == ["sandbox-1"]
+    assert deleted == [("sandbox-1", "generation-1")]
     assert cache_key not in provider._connections
     assert cache_key not in provider._last_touch_at
 
@@ -101,9 +122,9 @@ def test_sandbox_provider_discards_unused_thread_locks():
     provider._lock = threading.Lock()
     provider._thread_locks = weakref.WeakValueDictionary()
 
-    lock = provider._thread_lock("user-1::thread-1::thread-1")
+    lock = provider._thread_lock("user-1::thread-1")
     lock_ref = weakref.ref(lock)
-    assert provider._thread_lock("user-1::thread-1::thread-1") is lock
+    assert provider._thread_lock("user-1::thread-1") is lock
 
     del lock
     gc.collect()
@@ -116,7 +137,7 @@ def test_sandbox_provider_waiter_keeps_shared_thread_lock_alive():
     provider = object.__new__(ProvisionerSandboxProvider)
     provider._lock = threading.Lock()
     provider._thread_locks = weakref.WeakValueDictionary()
-    cache_key = "user-1::thread-1::thread-1"
+    cache_key = "user-1::thread-1"
     first_lock = provider._thread_lock(cache_key)
     waiter_ready = threading.Event()
     waiter_acquired = threading.Event()
@@ -149,12 +170,17 @@ def test_sandbox_provider_release_on_delete_failure(clear_cache_on_delete_failur
     provider._connections = {}
     provider._last_touch_at = {}
 
-    def fail_delete(_sandbox_id):
+    def fail_delete(_sandbox_id, *, expected_generation=None):
+        _ = expected_generation
         raise RuntimeError("delete failed")
 
     provider._client = SimpleNamespace(delete=fail_delete)
-    connection = SimpleNamespace(sandbox_id="sandbox-1")
-    cache_key = "user-1::thread-1::thread-1"
+    connection = SimpleNamespace(
+        sandbox_id="sandbox-1",
+        workdir_path=None,
+        generation="generation-1",
+    )
+    cache_key = "user-1::thread-1"
     provider._connections[cache_key] = connection
     provider._last_touch_at[cache_key] = 1.0
 
@@ -174,34 +200,32 @@ def test_sandbox_provider_release_on_delete_failure(clear_cache_on_delete_failur
 
 
 @pytest.mark.asyncio
-async def test_sync_agent_context_skills_uses_split_scope_without_blocking(monkeypatch):
-    """Run 初始化应在线程池同步共享 Skill，并使用独立的 Skill 线程作用域。"""
+async def test_sync_agent_context_skills_projects_all_user_authorized_skills(monkeypatch):
+    """Run 初始化应同步用户授权的全部 Skill，不将选中集合作为文件权限。"""
     calls = []
 
-    async def sync_thread_readable_skills_async(thread_id, skills, sources):
-        calls.append((thread_id, skills, sources))
+    async def refresh_user_skill_projection_async(uid):
+        calls.append(uid)
+        return {
+            "worker-skill": "/tmp/worker-skill",
+            "authorized-unselected": "/tmp/authorized-unselected",
+        }
 
     monkeypatch.setattr(
-        "yuxi.agents.backends.composite.sync_thread_readable_skills_async",
-        sync_thread_readable_skills_async,
+        "yuxi.agents.backends.composite.refresh_user_skill_projection_async",
+        refresh_user_skill_projection_async,
     )
     context = SimpleNamespace(
         thread_id="child-thread",
+        runtime_scope_id="parent-thread",
+        workdir_relative_path=WORKDIR_RELATIVE_PATH,
+        workdir_path=WORKDIR_PATH,
         uid="user-1",
-        skills_thread_id="child-skills-thread",
-        _readable_skills=["worker-skill", "personal-skill"],
-        _runtime_skill_sources={"worker-skill": "/tmp/worker-skill"},
     )
 
     await sync_agent_context_skills(context)
 
-    assert calls == [
-        (
-            "child-skills-thread",
-            ["worker-skill"],
-            {"worker-skill": "/tmp/worker-skill"},
-        )
-    ]
+    assert calls == ["user-1"]
 
 
 def test_create_agent_composite_backend_requires_thread_id():
@@ -209,55 +233,20 @@ def test_create_agent_composite_backend_requires_thread_id():
         create_agent_composite_backend(_runtime(thread_id=None))
 
 
-def test_create_agent_composite_backend_ignores_unprepared_context_skills(monkeypatch):
-    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
-
-    backend = create_agent_composite_backend(_runtime(skills=["configured"], readable_skills=None))
-
-    assert backend.default._readable_skills == []
-
-
-@pytest.mark.parametrize("scope_source", ["config", "state"])
-def test_create_agent_composite_backend_uses_split_thread_scopes(monkeypatch, scope_source):
-    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
-    runtime = _runtime(
-        thread_id="child-thread",
-        uid="user-1",
-        readable_skills=["worker-skill"],
-        skill_sources={"worker-skill": "/tmp/worker-skill"},
-    )
-    split_scopes = {"file_thread_id": "parent-thread", "skills_thread_id": "child-skills-thread"}
-    if scope_source == "config":
-        runtime.config["configurable"].update(split_scopes)
-    else:
-        runtime.state = split_scopes
-
-    backend = create_agent_composite_backend(runtime)
-
-    assert backend.default._thread_id == "child-thread"
-    assert backend.default._file_thread_id == "parent-thread"
-    assert backend.default._skills_thread_id == "child-skills-thread"
-    assert backend.default._readable_skills == ["worker-skill"]
-
-
 def test_create_agent_filesystem_middleware_uses_context_scope(monkeypatch):
     monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
     context = SimpleNamespace(
         thread_id="child-thread",
+        runtime_scope_id="parent-thread",
+        workdir_relative_path=WORKDIR_RELATIVE_PATH,
+        workdir_path=WORKDIR_PATH,
         uid="user-1",
-        file_thread_id="parent-thread",
-        skills_thread_id="child-skills-thread",
-        _readable_skills=["worker-skill"],
-        _runtime_skill_sources={"worker-skill": "/tmp/worker-skill"},
     )
 
     middleware = create_agent_filesystem_middleware(context=context)
     backend = middleware.backend(None)
 
-    assert backend.default._thread_id == "child-thread"
-    assert backend.default._file_thread_id == "parent-thread"
-    assert backend.default._skills_thread_id == "child-skills-thread"
-    assert backend.default._readable_skills == ["worker-skill"]
+    assert backend.default._thread_id == "parent-thread"
 
 
 def test_context_backend_construction_does_not_sync_skill_projection(monkeypatch, tmp_path) -> None:
@@ -265,62 +254,31 @@ def test_context_backend_construction_does_not_sync_skill_projection(monkeypatch
     from yuxi.agents.skills import service as skill_service
 
     monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     source_dir = tmp_path / "source" / "shared-skill"
     source_dir.mkdir(parents=True)
     (source_dir / "SKILL.md").write_text("# Shared", encoding="utf-8")
     context = SimpleNamespace(
         thread_id="thread-1",
+        runtime_scope_id="thread-1",
+        workdir_relative_path=WORKDIR_RELATIVE_PATH,
+        workdir_path=WORKDIR_PATH,
         uid="user-1",
-        _readable_skills=["shared-skill"],
-        _runtime_skill_sources={"shared-skill": str(source_dir)},
     )
 
     middleware = create_agent_filesystem_middleware(context=context)
     middleware.backend(None)
     middleware.backend(None)
 
-    thread_skill = skill_service.get_thread_skills_root_dir("thread-1") / "shared-skill"
-    assert not thread_skill.exists()
-
-
-def test_context_backend_rebuild_drops_shared_projection_after_personal_override(monkeypatch):
-    """运行中同名个人 Skill 生效后，后续文件工具不得恢复旧共享投影。"""
-    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
-    context = SimpleNamespace(
-        thread_id="thread-1",
-        uid="user-1",
-        _readable_skills=["demo"],
-        _runtime_skill_sources={"demo": "/tmp/shared-demo"},
-    )
-    middleware = create_agent_filesystem_middleware(context=context)
-
-    before_install = middleware.backend(None)
-    context._runtime_skill_sources.pop("demo")
-    after_install = middleware.backend(None)
-
-    assert before_install.default._readable_skills == ["demo"]
-    assert after_install.default._readable_skills == []
-    assert after_install.routes["/skills/"]._selected_slugs == set()
-
-
-def test_create_agent_composite_backend_does_not_project_personal_skills(monkeypatch):
-    """没有线程投影来源的个人 Skill 不应进入 /skills 路由。"""
-    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
-
-    backend = create_agent_composite_backend(
-        _runtime(
-            readable_skills=["shared-skill", "personal-skill"],
-            skill_sources={"shared-skill": "/tmp/shared-skill"},
-        )
-    )
-
-    assert backend.default._readable_skills == ["shared-skill"]
-    assert backend.routes["/skills/"]._selected_slugs == {"shared-skill"}
+    user_skill = skill_service.get_user_skills_root_dir("user-1") / "shared-skill"
+    assert not user_skill.exists()
 
 
 def test_create_agent_filesystem_middleware_uses_outputs_for_internal_artifacts() -> None:
-    middleware = create_agent_filesystem_middleware(tool_token_limit_before_evict=500)
+    middleware = create_agent_filesystem_middleware(
+        tool_token_limit_before_evict=500,
+        context=_runtime().context,
+    )
 
     assert middleware._tool_token_limit_before_evict == 500
     assert middleware._large_tool_results_prefix == VIRTUAL_PATH_LARGE_TOOL_RESULTS
@@ -339,7 +297,10 @@ def test_filesystem_middleware_evicts_large_non_read_file_tool_result() -> None:
             return SimpleNamespace(error=None)
 
     backend = _Backend()
-    middleware = create_agent_filesystem_middleware(tool_token_limit_before_evict=1)
+    middleware = create_agent_filesystem_middleware(
+        tool_token_limit_before_evict=1,
+        context=_runtime().context,
+    )
     middleware.backend = backend
     request = SimpleNamespace(tool_call={"name": "grep"}, runtime=SimpleNamespace())
     content = "BEGIN\n" + ("middle\n" * 5000) + "END"
@@ -367,7 +328,10 @@ def test_filesystem_middleware_keeps_read_file_result_inline_to_avoid_evict_loop
             return SimpleNamespace(error=None)
 
     backend = _Backend()
-    middleware = create_agent_filesystem_middleware(tool_token_limit_before_evict=1)
+    middleware = create_agent_filesystem_middleware(
+        tool_token_limit_before_evict=1,
+        context=_runtime().context,
+    )
     middleware.backend = backend
     request = SimpleNamespace(tool_call={"name": "read_file"}, runtime=SimpleNamespace())
     content = "x" * 100
@@ -406,19 +370,13 @@ def test_skills_middleware_extracts_slug_for_new_paths() -> None:
     middleware = SkillsMiddleware()
     assert middleware.skills_sources_for_prompt == [
         "/home/gem/skills/",
-        "/home/gem/user-data/workspace/agents/skills/",
+        "/home/gem/user-data/agents/skills/",
     ]
     assert middleware._extract_skill_slug_from_skill_md_path("/home/gem/skills/demo-skill/SKILL.md") == "demo-skill"
-
-
-def test_resolve_virtual_path_rejects_outside_prefix():
-    with pytest.raises(ValueError, match="path must start with"):
-        resolve_virtual_path("thread-1", "/etc/passwd", uid="user-1")
-
-
-def test_resolve_virtual_path_rejects_path_traversal():
-    with pytest.raises(ValueError, match="path traversal"):
-        resolve_virtual_path("thread-1", "/home/gem/user-data/../secrets", uid="user-1")
+    assert (
+        middleware._extract_skill_slug_from_skill_md_path("/home/gem/user-data/agents/skills/personal-skill/SKILL.md")
+        == "personal-skill"
+    )
 
 
 def test_sandbox_id_for_thread_is_stable():
@@ -430,13 +388,149 @@ def test_sandbox_id_for_thread_is_stable():
     assert len(sid1) == 12
 
 
-def test_sandbox_id_for_thread_includes_skills_scope():
-    parent_only = sandbox_id_for_thread("parent-thread")
-    split_scope = sandbox_id_for_thread("parent-thread", "child-skills-thread")
+def test_provider_revalidates_runtime_generation_after_keepalive(monkeypatch) -> None:
+    class FakeClient:
+        def create(self, sandbox_id, *_args, **kwargs):
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox/generation-1",
+                generation="generation-1",
+                workdir_path=kwargs["workdir_path"],
+            )
 
-    assert split_scope == sandbox_id_for_thread("parent-thread", "child-skills-thread")
-    assert split_scope != parent_only
-    assert sandbox_id_for_thread("parent-thread", "parent-thread") == parent_only
+        def touch(self, _sandbox_id):
+            return True
+
+        def discover(self, sandbox_id):
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox/generation-2",
+                generation="generation-2",
+                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+            )
+
+    provider = _make_provider(FakeClient())
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.provider.load_user_agent_env", lambda _uid: {})
+    provider.acquire("root-thread", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111")
+    connection = next(iter(provider._connections.values()))
+    provider._last_touch_at[connection.cache_key] = 0
+
+    refreshed = provider.get("root-thread", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111")
+
+    assert refreshed is connection
+    assert refreshed.generation == "generation-2"
+    assert refreshed.sandbox_url == "http://sandbox/generation-2"
+
+
+def test_provider_recreates_cross_process_deleted_generation_before_touch_interval(monkeypatch) -> None:
+    created = 0
+
+    class FakeClient:
+        def create(self, sandbox_id, *_args, **kwargs):
+            nonlocal created
+            created += 1
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url=f"http://sandbox/generation-{created}",
+                generation=f"generation-{created}",
+                workdir_path=kwargs["workdir_path"],
+            )
+
+        def discover(self, _sandbox_id):
+            return None
+
+        def touch(self, _sandbox_id):
+            raise AssertionError("fresh cache must revalidate generation without keepalive touch")
+
+    provider = _make_provider(FakeClient())
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.provider.load_user_agent_env", lambda _uid: {})
+    provider.acquire("root-thread", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111")
+
+    refreshed = provider.get(
+        "root-thread",
+        uid="user-1",
+        workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        create_if_missing=True,
+    )
+
+    assert created == 2
+    assert refreshed.generation == "generation-2"
+    assert refreshed.sandbox_url == "http://sandbox/generation-2"
+
+
+def test_provider_rejects_project_workdir_drift_after_keepalive(monkeypatch) -> None:
+    class FakeClient:
+        def create(self, sandbox_id, *_args, **kwargs):
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox/generation-1",
+                generation="generation-1",
+                workdir_path=kwargs["workdir_path"],
+            )
+
+        def touch(self, _sandbox_id):
+            return True
+
+        def discover(self, sandbox_id):
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox/generation-2",
+                generation="generation-2",
+                workdir_path="projects/22222222-2222-4222-8222-222222222222",
+            )
+
+    provider = _make_provider(FakeClient())
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.provider.load_user_agent_env", lambda _uid: {})
+    provider.acquire("root-thread", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111")
+    connection = next(iter(provider._connections.values()))
+    provider._last_touch_at[connection.cache_key] = 0
+
+    with pytest.raises(SandboxIdentityMismatchError, match="changed"):
+        provider.get("root-thread", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111")
+
+
+def test_provider_rejects_rebinding_cached_runtime_to_another_workdir(monkeypatch) -> None:
+    created: list[str | None] = []
+
+    class FakeClient:
+        def create(self, sandbox_id, *_args, **kwargs):
+            created.append(kwargs["workdir_path"])
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox",
+                generation="generation-1",
+                workdir_path=kwargs["workdir_path"],
+            )
+
+    provider = _make_provider(FakeClient())
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.provider.load_user_agent_env", lambda _uid: {})
+    provider.acquire("root-thread", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111")
+
+    with pytest.raises(SandboxIdentityMismatchError, match="existing runtime scope"):
+        provider.acquire("root-thread", uid="user-1", workdir_path="projects/22222222-2222-4222-8222-222222222222")
+
+    assert created == ["projects/11111111-1111-4111-8111-111111111111"]
+
+
+def test_provider_release_uses_cached_generation() -> None:
+    deleted: list[tuple[str, str | None]] = []
+
+    class FakeClient:
+        def delete(self, sandbox_id, *, expected_generation=None):
+            deleted.append((sandbox_id, expected_generation))
+
+    provider = _make_provider(FakeClient())
+    cache_key = "user-1::root-thread"
+    provider._connections[cache_key] = SimpleNamespace(
+        sandbox_id="sandbox-1",
+        uid="user-1",
+        workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        generation="generation-1",
+    )
+
+    provider.release("root-thread", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111")
+
+    assert deleted == [("sandbox-1", "generation-1")]
 
 
 def test_provider_uses_distinct_sandbox_scope_for_different_uid(monkeypatch) -> None:
@@ -444,8 +538,13 @@ def test_provider_uses_distinct_sandbox_scope_for_different_uid(monkeypatch) -> 
 
     class FakeClient:
         def create(self, sandbox_id, thread_id, uid, env, **kwargs):
-            created.append((sandbox_id, thread_id, uid, env, kwargs["file_thread_id"], kwargs["skills_thread_id"]))
-            return SimpleNamespace(sandbox_id=sandbox_id, sandbox_url=f"http://sandbox/{uid}")
+            created.append((sandbox_id, thread_id, uid, env))
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url=f"http://sandbox/{uid}",
+                generation="generation-1",
+                workdir_path=kwargs["workdir_path"],
+            )
 
         def touch(self, _sandbox_id):
             return True
@@ -456,14 +555,10 @@ def test_provider_uses_distinct_sandbox_scope_for_different_uid(monkeypatch) -> 
     sandbox_1 = provider.acquire(
         "child-thread",
         uid="user-1",
-        file_thread_id="parent-thread",
-        skills_thread_id="child-skills-thread",
     )
     sandbox_2 = provider.acquire(
         "child-thread",
         uid="user-2",
-        file_thread_id="parent-thread",
-        skills_thread_id="child-skills-thread",
     )
 
     assert sandbox_1 != sandbox_2
@@ -472,14 +567,19 @@ def test_provider_uses_distinct_sandbox_scope_for_different_uid(monkeypatch) -> 
 
 
 def test_provider_maps_external_uid_only_at_provisioner_filesystem_boundary(monkeypatch) -> None:
-    from yuxi.agents.backends.sandbox.paths import workspace_uid_dirname
+    from yuxi.workspace.paths import workspace_uid_dirname
 
     calls = []
 
     class FakeClient:
-        def create(self, sandbox_id, thread_id, uid, env, **_kwargs):
+        def create(self, sandbox_id, thread_id, uid, env, **kwargs):
             calls.append((uid, env))
-            return SimpleNamespace(sandbox_id=sandbox_id, sandbox_url="http://sandbox")
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox",
+                generation="generation-1",
+                workdir_path=kwargs["workdir_path"],
+            )
 
         def touch(self, _sandbox_id):
             return True
@@ -495,13 +595,18 @@ def test_provider_maps_external_uid_only_at_provisioner_filesystem_boundary(monk
     assert ":" not in calls[0][0]
 
 
-def test_provider_get_create_if_missing_ensures_expected_split_scope(monkeypatch) -> None:
+def test_provider_get_create_if_missing_ensures_expected_runtime_scope(monkeypatch) -> None:
     calls = []
 
     class FakeClient:
         def create(self, sandbox_id, thread_id, uid, env, **kwargs):
-            calls.append((sandbox_id, thread_id, uid, env, kwargs["file_thread_id"], kwargs["skills_thread_id"]))
-            return SimpleNamespace(sandbox_id=sandbox_id, sandbox_url="http://sandbox")
+            calls.append((sandbox_id, thread_id, uid, env))
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox",
+                generation="generation-1",
+                workdir_path=kwargs["workdir_path"],
+            )
 
         def discover(self, _sandbox_id):
             raise AssertionError("create_if_missing should ensure sandbox through provisioner create")
@@ -513,22 +618,16 @@ def test_provider_get_create_if_missing_ensures_expected_split_scope(monkeypatch
         "child-thread",
         uid="user-1",
         create_if_missing=True,
-        file_thread_id="parent-thread",
-        skills_thread_id="child-skills-thread",
     )
 
-    sandbox_id = sandbox_id_for_thread("parent-thread", "child-skills-thread", uid="user-1")
+    sandbox_id = sandbox_id_for_thread("child-thread", uid="user-1")
     assert connection.sandbox_id == sandbox_id
-    assert connection.file_thread_id == "parent-thread"
-    assert connection.skills_thread_id == "child-skills-thread"
     assert calls == [
         (
             sandbox_id,
             "child-thread",
             "user-1",
             {"A": "user-1"},
-            "parent-thread",
-            "child-skills-thread",
         )
     ]
 
@@ -539,7 +638,12 @@ def test_provider_can_create_sandbox_without_environment(monkeypatch) -> None:
     class FakeClient:
         def create(self, sandbox_id, thread_id, uid, env, **kwargs):
             calls.append((env, kwargs["inherit_env"]))
-            return SimpleNamespace(sandbox_id=sandbox_id, sandbox_url="http://sandbox")
+            return SimpleNamespace(
+                sandbox_id=sandbox_id,
+                sandbox_url="http://sandbox",
+                generation="generation-1",
+                workdir_path=kwargs["workdir_path"],
+            )
 
     provider = _make_provider(FakeClient())
     monkeypatch.setattr(
@@ -552,7 +656,7 @@ def test_provider_can_create_sandbox_without_environment(monkeypatch) -> None:
     assert calls == [({}, False)]
 
 
-def test_provisioner_uses_file_and_skills_thread_ids(monkeypatch) -> None:
+def test_provisioner_uses_runtime_scope_directly(monkeypatch) -> None:
     provider_calls = []
 
     class FakeProvider:
@@ -565,9 +669,6 @@ def test_provisioner_uses_file_and_skills_thread_ids(monkeypatch) -> None:
     backend = ProvisionerSandboxBackend(
         thread_id="child-thread",
         uid="user-1",
-        readable_skills=["worker-skill"],
-        file_thread_id="parent-thread",
-        skills_thread_id="child-skills-thread",
     )
     backend._build_client = MethodType(lambda self, sandbox_url: SimpleNamespace(url=sandbox_url), backend)
 
@@ -580,9 +681,8 @@ def test_provisioner_uses_file_and_skills_thread_ids(monkeypatch) -> None:
             {
                 "uid": "user-1",
                 "create_if_missing": True,
-                "file_thread_id": "parent-thread",
-                "skills_thread_id": "child-skills-thread",
                 "inherit_env": True,
+                "workdir_path": None,
             },
         )
     ]
@@ -590,22 +690,83 @@ def test_provisioner_uses_file_and_skills_thread_ids(monkeypatch) -> None:
 
 def test_provisioner_denies_reads_outside_allowed_roots(monkeypatch) -> None:
     monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
-    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
 
     result = backend.read("/etc/passwd")
 
     assert result.error == "permission denied for read on '/etc/passwd'"
 
 
-def test_provisioner_denies_upload_writes(monkeypatch) -> None:
+def test_provisioner_rejects_skill_projection_writes(monkeypatch) -> None:
     monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
     backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+    skill_path = "/home/gem/skills/demo/SKILL.md"
 
-    write_result = backend.write("/home/gem/user-data/uploads/blocked.txt", "blocked")
-    upload_result = backend.upload_files([("/home/gem/user-data/uploads/blocked.bin", b"blocked")])
+    assert "permission denied" in backend.write(skill_path, "content").error
+    assert "permission denied" in backend.edit(skill_path, "old", "new").error
+    assert backend.upload_files([(skill_path, b"content")])[0].error == "permission_denied"
 
-    assert write_result.error and "permission denied" in write_result.error
-    assert upload_result[0].error == "permission_denied"
+
+def test_provisioner_allows_project_upload_writes(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
+    written: list[str] = []
+
+    def read_file(**kwargs):
+        del kwargs
+        raise FileNotFoundError
+
+    def write_file(**kwargs):
+        written.append(kwargs["file"])
+        return SimpleNamespace(success=True, message=None)
+
+    client = SimpleNamespace(file=SimpleNamespace(read_file=read_file, write_file=write_file))
+    monkeypatch.setattr(backend, "_get_client", lambda: client)
+    monkeypatch.setattr(backend, "_ensure_parent_directory", lambda _path: None)
+
+    root = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/uploads"
+    write_result = backend.write(f"{root}/note.txt", "content")
+    upload_result = backend.upload_files([(f"{root}/data.bin", b"content")])
+
+    assert write_result.error is None
+    assert upload_result[0].error is None
+    assert written == [f"{root}/note.txt", f"{root}/data.bin"]
+
+
+def test_provisioner_creates_write_parent_without_following_symlinks(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+    commands: list[str] = []
+
+    def execute(command: str, **_kwargs):
+        commands.append(command)
+        return SimpleNamespace(exit_code=0, output="")
+
+    monkeypatch.setattr(backend, "execute", execute)
+
+    backend._ensure_parent_directory(f"{WORKDIR_PATH}/outputs/reports/result.md")
+
+    encoded = commands[0].split("b64decode('", 1)[1].split("')", 1)[0]
+    script = base64.b64decode(encoded).decode()
+    assert "('projects', '11111111-1111-4111-8111-111111111111', 'outputs', 'reports')" in script
+    assert "os.O_NOFOLLOW" in script
+
+
+def test_provisioner_rejects_parent_directory_symlink_failure(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+    monkeypatch.setattr(
+        backend,
+        "execute",
+        lambda *_args, **_kwargs: SimpleNamespace(exit_code=1, output="Too many levels of symbolic links"),
+    )
+
+    with pytest.raises(PermissionError, match="symbolic links"):
+        backend._ensure_parent_directory(f"{WORKDIR_PATH}/outputs/result.md")
 
 
 def test_provisioner_allows_outputs_writes(monkeypatch) -> None:
@@ -625,6 +786,7 @@ def test_provisioner_allows_outputs_writes(monkeypatch) -> None:
 
     fake_client = SimpleNamespace(file=SimpleNamespace(write_file=_write_file))
     backend._get_client = MethodType(lambda self: fake_client, backend)
+    backend._ensure_parent_directory = MethodType(lambda self, _path: None, backend)
 
     result = backend.write("/home/gem/user-data/outputs/report.md", "ok")
 
@@ -700,7 +862,7 @@ def test_provisioner_read_file_base64_reads_temp_file_not_shell_output(monkeypat
     )
     backend._get_client = MethodType(lambda self: fake_client, backend)
 
-    result = backend._read_file_base64("/home/gem/user-data/workspace/image.png")
+    result = backend._read_file_base64("/home/gem/user-data/image.png")
 
     assert result == expected
     assert len(shell_calls) == 2
@@ -774,7 +936,7 @@ def test_provisioner_read_rejects_unknown_file_on_sandbox_utf8_decode_failure(mo
 
     monkeypatch.setattr(backend, "_read_binary", _read_binary_raises)
 
-    result = backend.read("/home/gem/user-data/workspace/uploaded.bin")
+    result = backend.read("/home/gem/user-data/uploaded.bin")
 
     assert result.file_data is None
     assert result.error == "read_file only supports UTF-8 text and image files. This file type is not supported."
@@ -813,7 +975,10 @@ def test_read_file_tool_returns_multimodal_block_for_small_binary() -> None:
         def read(self, path: str, offset: int = 0, limit: int = 100):
             return ReadResult(file_data={"content": "R0lGODlh", "encoding": "base64"})
 
-    middleware = create_agent_filesystem_middleware(tool_token_limit_before_evict=None)
+    middleware = create_agent_filesystem_middleware(
+        tool_token_limit_before_evict=None,
+        context=_runtime().context,
+    )
     middleware.backend = _Backend()
     read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
     runtime = ToolRuntime(
@@ -953,3 +1118,222 @@ def test_provisioner_download_files_streams_binary_bytes(monkeypatch) -> None:
             "request_options": {"timeout_in_seconds": backend._command_timeout_seconds},
         }
     ]
+
+
+def test_authorized_download_enforces_limit_during_actual_transfer(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
+    content = b"12345678"
+    execute_calls = 0
+
+    def execute(_command):
+        nonlocal execute_calls
+        execute_calls += 1
+        return SimpleNamespace(
+            exit_code=0,
+            output=f"YUXI_FILE_SNAPSHOT {len(content)} {hashlib.sha256(content).hexdigest()}",
+            truncated=False,
+        )
+
+    backend.execute = execute
+    backend._get_client = MethodType(
+        lambda self: SimpleNamespace(
+            file=SimpleNamespace(download_file=lambda **_kwargs: iter([content[:4], content[4:]]))
+        ),
+        backend,
+    )
+    target_path = tmp_path / "snapshot.bin"
+
+    with pytest.raises(ValueError, match="exceeds transfer limit"):
+        backend.download_authorized_file_to_path(
+            "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/growing.bin",
+            str(target_path),
+            max_bytes=5,
+        )
+
+    assert not target_path.exists()
+    assert execute_calls == 2
+
+
+def test_authorized_download_maps_sandbox_overflow_to_stable_limit_error() -> None:
+    with pytest.raises(ValueError, match="exceeds transfer limit"):
+        sandbox_backend_module._raise_authorized_path_operation_error(
+            "Traceback: OverflowError: file exceeds transfer limit",
+            "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/large.bin",
+            "snapshot failed",
+        )
+
+
+def test_authorized_snapshot_attempts_cleanup_after_snapshot_command_failure(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
+    execute_results = iter(
+        [
+            SimpleNamespace(exit_code=1, output="connection lost", truncated=False),
+            SimpleNamespace(exit_code=0, output="", truncated=False),
+        ]
+    )
+    backend.execute = lambda _command: next(execute_results)
+
+    with pytest.raises(RuntimeError, match="connection lost"):
+        backend.download_authorized_file_to_path(
+            "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.txt",
+            str(tmp_path / "report.txt"),
+            max_bytes=1024,
+        )
+
+    with pytest.raises(StopIteration):
+        next(execute_results)
+
+
+def test_authorized_download_preserves_missing_and_symlink_boundary_errors(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
+
+    for output, expected_error in (
+        ("FileNotFoundError: [Errno 2] No such file or directory", FileNotFoundError),
+        ("OSError: [Errno 40] Too many levels of symbolic links", PermissionError),
+        ("IsADirectoryError: source is a directory", IsADirectoryError),
+    ):
+        execute_results = iter(
+            [
+                SimpleNamespace(exit_code=1, output=output, truncated=False),
+                SimpleNamespace(exit_code=0, output="", truncated=False),
+            ]
+        )
+        backend.execute = lambda _command: next(execute_results)
+        with pytest.raises(expected_error):
+            backend.download_authorized_file_to_path(
+                "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/file.txt",
+                str(tmp_path / "file.txt"),
+                max_bytes=1024,
+            )
+
+
+def test_authorized_download_recovers_snapshot_metadata_when_first_stdout_is_missing(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
+    content = b"live bytes"
+    marker = f"YUXI_FILE_SNAPSHOT {len(content)} {hashlib.sha256(content).hexdigest()}"
+    execute_results = iter(
+        [
+            SimpleNamespace(exit_code=0, output="", truncated=False),
+            SimpleNamespace(exit_code=0, output=marker, truncated=False),
+            SimpleNamespace(exit_code=0, output="", truncated=False),
+        ]
+    )
+    backend.execute = lambda _command: next(execute_results)
+    backend._get_client = MethodType(
+        lambda self: SimpleNamespace(file=SimpleNamespace(download_file=lambda **_kwargs: iter([content]))),
+        backend,
+    )
+    target = tmp_path / "file.txt"
+
+    size = backend.download_authorized_file_to_path(
+        "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/file.txt",
+        str(target),
+        max_bytes=1024,
+    )
+
+    assert size == len(content)
+    assert target.read_bytes() == content
+
+
+def test_authorized_upload_rejects_symlink_parent_as_permission_error(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
+    backend._get_client = MethodType(
+        lambda self: SimpleNamespace(
+            file=SimpleNamespace(upload_file=lambda **_kwargs: SimpleNamespace(success=True, message=""))
+        ),
+        backend,
+    )
+    backend.execute = lambda _command: SimpleNamespace(
+        exit_code=1,
+        output="NotADirectoryError: [Errno 20] Not a directory: 'escape-dir'",
+        truncated=False,
+    )
+    source = tmp_path / "source.txt"
+    source.write_text("safe", encoding="utf-8")
+
+    with pytest.raises(PermissionError):
+        backend.upload_authorized_file_from_path(
+            "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/escape-dir/file.txt",
+            str(source),
+        )
+
+
+def test_authorized_snapshot_cleanup_failure_blocks_download(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(
+        thread_id="thread-1", uid="user-1", workdir_path="projects/11111111-1111-4111-8111-111111111111"
+    )
+    content = b"report"
+    execute_results = iter(
+        [
+            SimpleNamespace(
+                exit_code=0,
+                output=f"YUXI_FILE_SNAPSHOT {len(content)} {hashlib.sha256(content).hexdigest()}",
+                truncated=False,
+            ),
+            SimpleNamespace(exit_code=1, output="cleanup failed", truncated=False),
+        ]
+    )
+    backend.execute = lambda _command: next(execute_results)
+    backend._get_client = MethodType(
+        lambda self: SimpleNamespace(file=SimpleNamespace(download_file=lambda **_kwargs: iter([content]))),
+        backend,
+    )
+    target = tmp_path / "report.txt"
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        backend.download_authorized_file_to_path(
+            "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.txt",
+            str(target),
+            max_bytes=1024,
+        )
+
+    assert not target.exists()
+
+
+def test_workdir_paths_are_workspace_relative_and_reject_symlinks(monkeypatch, tmp_path) -> None:
+    from yuxi.agents.backends import paths as backend_paths
+    from yuxi.workspace import paths
+
+    monkeypatch.setattr(paths, "get_user_data_dir", lambda: tmp_path / "user-data")
+    paths.ensure_user_workspace("user-1")
+    projects = paths.user_workspace_dir("user-1") / "projects"
+    projects.mkdir()
+    (projects / "11111111-1111-4111-8111-111111111111").mkdir()
+
+    assert backend_paths.runtime_workdir_path("projects/11111111-1111-4111-8111-111111111111") == WORKDIR_PATH
+    assert (
+        paths.user_workdir_host_dir("user-1", "projects/11111111-1111-4111-8111-111111111111")
+        == projects / "11111111-1111-4111-8111-111111111111"
+    )
+
+    for unsafe in ("../escape", "/absolute", "agents/skills", "https://example.com/repo"):
+        with pytest.raises(ValueError):
+            backend_paths.runtime_workdir_path(unsafe)
+
+    outside = paths.user_workspace_dir("user-1") / "outside"
+    outside.mkdir()
+    linked_id = "22222222-2222-4222-8222-222222222222"
+    (projects / linked_id).symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="符号链接或非目录组件"):
+        paths.user_workdir_host_dir("user-1", f"projects/{linked_id}")
+
+    file_id = "33333333-3333-4333-8333-333333333333"
+    (projects / file_id).write_text("file", encoding="utf-8")
+    with pytest.raises(ValueError, match="符号链接或非目录组件"):
+        paths.user_workdir_host_dir("user-1", f"projects/{file_id}")

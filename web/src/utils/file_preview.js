@@ -158,7 +158,7 @@ export const getPreviewTypeByContentType = (contentType) => {
 export const normalizePreviewResponse = async (response, baseFile = {}) => {
   const contentType = response?.headers?.get?.('content-type') || ''
 
-  if (contentType.includes('application/json')) {
+  if (contentType.includes('application/json') && !baseFile.artifact) {
     const payload = await response.json()
     const previewType = payload.preview_type || payload.previewType || payload.kind || 'text'
     return {
@@ -168,6 +168,23 @@ export const normalizePreviewResponse = async (response, baseFile = {}) => {
       previewType,
       supported: payload.supported !== false,
       message: payload.message || '',
+      previewUrl: ''
+    }
+  }
+
+  const pathPreviewType = getPreviewTypeByPath(baseFile.path)
+  const responsePreviewType = getPreviewTypeByContentType(contentType)
+  const textPreviewType = pathPreviewType !== 'unsupported' ? pathPreviewType : responsePreviewType
+  if (
+    ['text', 'markdown', 'html'].includes(textPreviewType) ||
+    contentType.includes('application/json')
+  ) {
+    return {
+      ...baseFile,
+      content: await response.text(),
+      previewType: textPreviewType,
+      supported: true,
+      message: '',
       previewUrl: ''
     }
   }

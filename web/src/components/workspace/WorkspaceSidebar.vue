@@ -34,15 +34,6 @@
         <FileTypeIcon is-dir :size="18" />
         <span>智能体文件</span>
       </button>
-      <button
-        type="button"
-        class="workspace-nav-item secondary"
-        :class="{ active: activeKey === 'personal' && isSamePath(currentPath, chatsPath) }"
-        @click="$emit('select-path', chatsPath)"
-      >
-        <FileTypeIcon is-dir :size="18" />
-        <span>历史对话</span>
-      </button>
     </section>
 
     <section v-if="knowledgeEnabled && myDatabases.length" class="sidebar-section">
@@ -90,8 +81,7 @@ import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 
 const savedArtifactsPath = '/saved_artifacts'
 const agentsPath = '/agents/'
-const chatsPath = '/agents/chats'
-const quickAccessPaths = [savedArtifactsPath, agentsPath, chatsPath]
+const quickAccessPaths = [savedArtifactsPath, agentsPath]
 
 const normalizePath = (path) => String(path || '/').replace(/\/$/, '') || '/'
 const isSameOrChildPath = (path, targetPath) => {

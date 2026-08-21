@@ -204,10 +204,10 @@ class MinIOClient:
 
     def download_file(self, bucket_name: str, object_name: str) -> bytes:
         """下载文件"""
+        response = None
         try:
             response = self.client.get_object(bucket_name=bucket_name, object_name=object_name)
             data = response.read()
-            response.close()
             logger.info(f"成功下载 '{object_name}' 从存储桶 '{bucket_name}'")
             return data
 
@@ -215,6 +215,10 @@ class MinIOClient:
             if e.code == "NoSuchKey":
                 raise StorageError(f"对象 '{object_name}' 在存储桶 '{bucket_name}' 中不存在")
             raise StorageError(f"下载文件失败: {e}")
+        finally:
+            if response is not None:
+                response.close()
+                response.release_conn()
 
     async def adownload_response(self, bucket_name: str, object_name: str) -> BaseHTTPResponse:
         """异步下载文件"""
@@ -233,10 +237,10 @@ class MinIOClient:
 
     async def adownload_file(self, bucket_name: str, object_name: str) -> bytes:
         """异步下载文件"""
+        response = None
         try:
             response = await asyncio.to_thread(self.client.get_object, bucket_name=bucket_name, object_name=object_name)
             data = await asyncio.to_thread(response.read)
-            response.close()
             logger.info(f"成功下载 '{object_name}' 从存储桶 '{bucket_name}'")
             return data
 
@@ -244,6 +248,10 @@ class MinIOClient:
             if e.code == "NoSuchKey":
                 raise StorageError(f"对象 '{object_name}' 在存储桶 '{bucket_name}' 中不存在")
             raise StorageError(f"下载文件失败: {e}")
+        finally:
+            if response is not None:
+                response.close()
+                response.release_conn()
 
     def get_presigned_url(self, bucket_name: str, object_name: str, days=7) -> str:
         """将minio放在内网访问，外部通过返回代理链接访问"""
@@ -299,6 +307,23 @@ class MinIOClient:
 
         await asyncio.to_thread(_delete_objects)
         return deleted_count
+
+    async def alist_object_metadata(self, bucket_name: str, prefix: str) -> list[dict]:
+        """在线程池中列出过期清理所需的对象元数据。"""
+
+        def list_metadata() -> list[dict]:
+            try:
+                return [
+                    {
+                        "object_name": str(item.object_name),
+                        "last_modified": item.last_modified,
+                    }
+                    for item in self.client.list_objects(bucket_name, prefix=prefix, recursive=True)
+                ]
+            except S3Error as exc:
+                raise StorageError(f"列出对象前缀失败: {bucket_name}/{prefix}: {exc}") from exc
+
+        return await asyncio.to_thread(list_metadata)
 
     async def adelete_bucket(self, bucket_name: str) -> bool:
         """

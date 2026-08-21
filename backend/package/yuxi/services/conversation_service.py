@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import INVOCATION_CONVERSATION_SOURCES, ConversationRepository
-from yuxi.services.attachment_service import delete_thread_attachment_objects, serialize_attachment
+from yuxi.services.attachment_service import serialize_attachment
 from yuxi.storage.postgres.models_business import AGENT_RUN_TERMINAL_STATUSES, AgentRun, User
 from yuxi.utils.datetime_utils import format_utc_datetime
 from yuxi.utils.logging_config import logger
@@ -34,6 +34,7 @@ def _serialize_thread(conversation: Any, *, thread_status: str) -> dict:
         "agent_id": conversation.agent_id,
         "title": conversation.title,
         "is_pinned": bool(conversation.is_pinned),
+        "workdir_path": conversation.workdir_path,
         "created_at": conversation.created_at.isoformat(),
         "updated_at": conversation.updated_at.isoformat(),
         "metadata": conversation.extra_metadata or {},
@@ -60,9 +61,13 @@ async def create_thread_view(
     agent_slug: str,
     title: str | None,
     metadata: dict | None,
+    workdir_path: str | None = None,
     db: AsyncSession,
     current_uid: str,
 ) -> dict:
+    if metadata and "attachments" in metadata:
+        raise HTTPException(status_code=400, detail="metadata.attachments 是服务端保留字段")
+
     user_result = await db.execute(select(User).where(User.uid == str(current_uid)))
     current_user = user_result.scalar_one_or_none()
     if not current_user:
@@ -77,13 +82,17 @@ async def create_thread_view(
     conv_repo = ConversationRepository(db)
     thread_metadata = dict(metadata or {})
     thread_metadata["backend_id"] = agent_item.backend_id
-    conversation = await conv_repo.create_conversation(
-        uid=str(current_uid),
-        agent_id=agent_item.slug,
-        title=title or "新的对话",
-        thread_id=thread_id,
-        metadata=thread_metadata,
-    )
+    try:
+        conversation = await conv_repo.create_conversation(
+            uid=str(current_uid),
+            agent_id=agent_item.slug,
+            title=title or "新的对话",
+            thread_id=thread_id,
+            metadata=thread_metadata,
+            workdir_path=workdir_path,
+        )
+    except (FileNotFoundError, NotADirectoryError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return _serialize_thread(conversation, thread_status="done")
 
@@ -189,7 +198,6 @@ async def delete_thread_view(
     if not deleted:
         raise HTTPException(status_code=404, detail="对话线程不存在")
 
-    await delete_thread_attachment_objects(thread_id)
     return {"message": "删除成功"}
 
 
@@ -297,7 +305,9 @@ async def get_thread_history_view(
             request_id = attachment.get("request_id")
             if not request_id or str(request_id) not in message_request_ids:
                 continue
-            attachments_by_request_id.setdefault(str(request_id), []).append(serialize_attachment(attachment))
+            attachments_by_request_id.setdefault(str(request_id), []).append(
+                serialize_attachment(attachment, thread_id=thread_id)
+            )
 
     history: list[dict] = []
     role_type_map = {"user": "human", "assistant": "ai", "tool": "tool", "system": "system"}

@@ -81,6 +81,9 @@ cp .env.template .env
 docker compose up --build -d
 ```
 
+从旧文件布局升级到 v0.7.2 时不能直接 `up`；请严格执行
+[生产部署与升级](../advanced/deployment.md#2-启动服务) 中唯一维护的停机迁移流程。
+
 服务首次启动需要等待镜像拉取和编译，请耐心等待 2-3 分钟。
 
 ::: tip 轻量模式（Lite Mode）

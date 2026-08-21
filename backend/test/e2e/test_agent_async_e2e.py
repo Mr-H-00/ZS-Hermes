@@ -16,6 +16,7 @@ from e2e_helpers import (
     skip_if_external_quota,
     wait_for_run,
 )
+from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
@@ -65,8 +66,8 @@ async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], age
         "/api/chat/thread",
         json={
             "agent_id": agent_slug,
-            "title": f"agent-async-e2e-{uuid.uuid4().hex[:8]}",
-            "metadata": {"_yuxi_e2e": True, "test": "agent-async-e2e"},
+            "title": make_test_conversation_title("agent-async-e2e"),
+            "metadata": make_test_conversation_metadata("agent-async-e2e", e2e=True),
         },
         headers=headers,
     )

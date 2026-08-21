@@ -27,6 +27,7 @@ from yuxi.services.input_message_service import AgentRunInputMessage
 from yuxi.storage.postgres.models_business import Agent, AgentRun, SubagentThread
 from yuxi.utils.datetime_utils import format_utc_datetime
 from yuxi.utils.hash_utils import hash_id, subagent_child_thread_id
+from yuxi.workspace.paths import ensure_bound_user_workdir
 
 
 @dataclass(frozen=True)
@@ -109,14 +110,15 @@ class SubagentRunService:
         input_message: AgentRunInputMessage,
         tool_call_id: str,
         requested_thread_id: str | None = None,
-        file_thread_id: str | None = None,
         model_spec: str | None = None,
     ) -> SubagentStartResult:
         """启动或继续一个后台子智能体 run，并在新建时入队 worker。"""
 
-        creator_run = await self.run_repo.get_run_for_user(created_by_run_id, uid)
+        creator_run = await self.run_repo.lock_run_for_user(created_by_run_id, uid)
         if not creator_run:
             raise ValueError("父运行任务不存在")
+        if getattr(creator_run, "status", "running") != "running":
+            raise ValueError("父运行已结束，不能再创建子智能体")
         if getattr(creator_run, "run_type", None) == "subagent":
             raise ValueError("子智能体不能创建子智能体")
 
@@ -150,7 +152,6 @@ class SubagentRunService:
                 creator_run=creator_run,
                 relation=relation,
                 tool_call_id=tool_call_id,
-                file_thread_id=file_thread_id,
             )
         except HTTPException as exc:
             detail = exc.detail
@@ -177,13 +178,14 @@ class SubagentRunService:
 
     async def get_run_for_creator(self, *, uid: str, created_by_run_id: str, run_id: str) -> AgentRun:
         """在父 run 作用域内读取子智能体 run，防止工具访问其它对话的子任务。"""
-        run = await self.run_repo.get_subagent_run_for_creator(
+        execution_pair = await self.run_repo.get_subagent_run_with_creator(
             uid=uid,
             created_by_run_id=created_by_run_id,
             run_id=run_id,
         )
-        if not run:
+        if not execution_pair:
             raise ValueError("子智能体运行不存在或不属于当前父运行")
+        _creator_run, run = execution_pair
         return run
 
     async def _create_run_record(
@@ -196,7 +198,6 @@ class SubagentRunService:
         creator_run: AgentRun,
         relation: SubagentThread,
         tool_call_id: str,
-        file_thread_id: str | None,
     ) -> tuple[Any, bool]:
         """创建后台子智能体 run，并把规范化输入消息保存为该 run 的输入。"""
         if not input_message.content:
@@ -231,8 +232,6 @@ class SubagentRunService:
             "tool_call_id": tool_call_id,
             "subagent_name": scope.agent_item.name,
             "parent_thread_id": creator_run.conversation_thread_id,
-            "file_thread_id": file_thread_id or creator_run.conversation_thread_id,
-            "skills_thread_id": relation.child_thread_id,
         }
         input_payload = {
             "model_spec": resolved_model_spec,
@@ -255,6 +254,7 @@ class SubagentRunService:
         return await agent_run_service.persist_agent_run_record(
             agent_slug=relation.subagent_slug,
             conversation_thread_id=relation.child_thread_id,
+            runtime_scope_id=getattr(creator_run, "runtime_scope_id", None) or creator_run.conversation_thread_id,
             current_uid=current_uid,
             db=self.db,
             request_id=request_id,
@@ -275,6 +275,7 @@ class SubagentRunService:
         uid: str,
         agent_item: Agent,
         creator_run: AgentRun,
+        parent_workdir_path: str,
     ):
         """确保子线程有对应 conversation；新线程会创建标记为 subagent 的对话。"""
         conversation = await self.conv_repo.get_conversation_by_thread_id(child_thread_id)
@@ -285,6 +286,8 @@ class SubagentRunService:
                 raise ValueError(f"子智能体线程 {child_thread_id} 已被普通对话占用")
             if conversation.agent_id != agent_item.slug:
                 raise ValueError(f"子智能体线程 {child_thread_id} 属于智能体 {conversation.agent_id}")
+            if conversation.workdir_path != parent_workdir_path:
+                raise ValueError("子智能体线程与父对话的 Workdir 不一致")
             return conversation
 
         conversation = await self.conv_repo.add_conversation(
@@ -299,6 +302,7 @@ class SubagentRunService:
                 "parent_conversation_id": creator_run.conversation_id,
                 "subagent_slug": agent_item.slug,
             },
+            workdir_path=parent_workdir_path,
         )
         conversation.status = "subagent"
         await self.db.flush()
@@ -328,6 +332,14 @@ class SubagentRunService:
         continuing: bool,
     ) -> SubagentThread:
         """读取或创建父子线程关系；relation 是后台子 run 的线程归属来源。"""
+        if creator_run.conversation_id is None:
+            raise ValueError("父运行任务缺少 conversation_id，无法创建子智能体线程关系")
+        parent_conversation = await self.conv_repo.get_conversation_by_id(creator_run.conversation_id)
+        if parent_conversation is None or parent_conversation.uid != str(uid):
+            raise ValueError("父运行任务的 Conversation 不存在")
+        parent_workdir_path = parent_conversation.workdir_path
+        ensure_bound_user_workdir(str(uid), parent_workdir_path)
+
         existing = await self.thread_repo.get_by_child_thread_for_user(child_thread_id, uid)
         if existing:
             self._validate_thread_relation(
@@ -336,17 +348,20 @@ class SubagentRunService:
                 agent_item=agent_item,
                 creator_run=creator_run,
             )
+            child_conversation = await self.conv_repo.get_conversation_by_id(existing.child_conversation_id)
+            if child_conversation is None or child_conversation.uid != str(uid):
+                raise ValueError("子智能体线程不存在")
+            if child_conversation.workdir_path != parent_workdir_path:
+                raise ValueError("子智能体线程与父对话的 Workdir 不一致")
             return existing
         if continuing:
             raise ValueError(f"无法继续子智能体线程 {child_thread_id}：当前对话中没有找到对应的运行记录")
-        if creator_run.conversation_id is None:
-            raise ValueError("父运行任务缺少 conversation_id，无法创建子智能体线程关系")
-
         child_conversation = await self._ensure_child_conversation(
             child_thread_id=child_thread_id,
             uid=uid,
             agent_item=agent_item,
             creator_run=creator_run,
+            parent_workdir_path=parent_workdir_path,
         )
         return await self.thread_repo.create(
             uid=uid,

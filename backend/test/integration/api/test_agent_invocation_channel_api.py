@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -14,7 +15,11 @@ async def test_channel_state_command_reads_thread_without_creating_run(test_clie
 
     thread_response = await test_client.post(
         "/api/chat/thread",
-        json={"agent_id": agent_slug, "title": f"pytest-channel-{uuid.uuid4().hex[:8]}", "metadata": {}},
+        json={
+            "agent_id": agent_slug,
+            "title": make_test_conversation_title("agent-invocation-channel"),
+            "metadata": make_test_conversation_metadata("agent-invocation-channel"),
+        },
         headers=admin_headers,
     )
     assert thread_response.status_code == 200, thread_response.text

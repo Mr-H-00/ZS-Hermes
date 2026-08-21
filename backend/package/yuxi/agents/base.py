@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from abc import abstractmethod
 from contextlib import suppress
 from typing import Any
 
 from langchain_core.messages import ToolMessage
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver, aiosqlite
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.stream.transformers import CustomTransformer
 from langgraph.types import Command
 
-from yuxi.agents.checkpointer_config import resolve_checkpointer_backend
 from yuxi.agents.context import DEFAULT_MAX_EXECUTION_STEPS, BaseContext, resolve_agent_resource_options
-from yuxi.config import get_save_dir
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.utils import logger
 from yuxi.utils.hash_utils import subagent_child_thread_id
@@ -115,9 +111,6 @@ class BaseAgent:
     def __init__(self, **kwargs):
         self.graph = None  # will be covered by get_graph
         self.checkpointer = None
-        self._async_conn = None
-        self.workdir = get_save_dir() / "agents" / self.module_name
-        self.workdir.mkdir(parents=True, exist_ok=True)
 
     @property
     def module_name(self) -> str:
@@ -270,10 +263,8 @@ class BaseAgent:
             with suppress(asyncio.CancelledError):
                 await route_task
 
-    async def stream_messages_with_state(self, messages: list[str], input_context=None, uploads=None, **kwargs):
+    async def stream_messages_with_state(self, messages: list[str], input_context=None, **kwargs):
         graph_input = {"messages": messages}
-        if uploads is not None:
-            graph_input["uploads"] = uploads
         async for event in self._stream_input_with_state(graph_input, input_context, **kwargs):
             yield event
 
@@ -351,7 +342,7 @@ class BaseAgent:
         """
         获取并编译对话图实例。
         必须确保在编译时设置 checkpointer，否则将无法获取历史记录。
-        例如: graph = workflow.compile(checkpointer=sqlite_checkpointer)
+        例如: graph = workflow.compile(checkpointer=checkpointer)
         """
         pass
 
@@ -359,49 +350,9 @@ class BaseAgent:
         if self.checkpointer is not None:
             return self.checkpointer
 
-        backend = resolve_checkpointer_backend()
-
-        if backend == "postgres":
-            checkpointer = await self._create_postgres_checkpointer()
-        elif backend == "sqlite":
-            checkpointer = AsyncSqliteSaver(await self.get_async_conn())
-        else:
-            raise ValueError(f"不支持的 LangGraph checkpointer backend: {backend}")
-
-        self.checkpointer = checkpointer
-        return self.checkpointer
-
-    async def _create_postgres_checkpointer(self):
-        saver = pg_manager.get_langgraph_checkpointer()
+        self.checkpointer = pg_manager.get_langgraph_checkpointer()
         logger.info(f"{self.name} 使用 postgres checkpointer")
-        return saver
-
-    async def get_async_conn(self) -> aiosqlite.Connection:
-        """获取异步数据库连接"""
-        if self._async_conn is not None:
-            return self._async_conn
-
-        conn = await aiosqlite.connect(os.path.join(self.workdir, "aio_history.db"))
-        try:
-            # WAL + busy_timeout：api 与 worker 多进程会并发写同一 checkpoint 库，
-            # 默认回滚日志模式下写写/读写互斥，超时后抛 SQLITE_BUSY。WAL 让写不阻塞读、崩溃可恢复。
-            for pragma in ("PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000", "PRAGMA synchronous=NORMAL"):
-                cursor = await conn.execute(pragma)
-                await cursor.fetchall()
-            # Patch: langgraph's AsyncSqliteSaver expects is_alive() method which aiosqlite may not have
-            if not hasattr(conn, "is_alive"):
-                conn.is_alive = lambda: True
-        except BaseException:
-            with suppress(Exception):
-                await conn.close()
-            raise
-
-        self._async_conn = conn
-        return self._async_conn
-
-    async def get_aio_memory(self) -> AsyncSqliteSaver:
-        """获取异步存储实例"""
-        return AsyncSqliteSaver(await self.get_async_conn())
+        return self.checkpointer
 
     def load_metadata(self) -> dict:
         """Load metadata from agent class attribute."""

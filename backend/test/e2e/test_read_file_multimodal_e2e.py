@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 from PIL import Image, ImageDraw, ImageFont
+from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
@@ -63,8 +64,8 @@ async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], age
         "/api/chat/thread",
         json={
             "agent_id": agent_slug,
-            "title": f"read-file-e2e-{uuid.uuid4().hex[:8]}",
-            "metadata": {"_yuxi_e2e": True, "test": "read-file-e2e"},
+            "title": make_test_conversation_title("read-file-e2e"),
+            "metadata": make_test_conversation_metadata("read-file-e2e", e2e=True),
         },
         headers=headers,
     )
@@ -94,9 +95,7 @@ async def _upload(
         json={
             "attachments": [
                 {
-                    "file_name": uploaded["file_name"],
                     "file_type": uploaded.get("file_type"),
-                    "bucket_name": uploaded["bucket_name"],
                     "object_name": uploaded["object_name"],
                 }
             ]

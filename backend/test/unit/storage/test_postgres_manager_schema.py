@@ -171,6 +171,19 @@ async def test_ensure_business_schema_adds_idempotent_agent_run_lease_columns_an
 
 
 @pytest.mark.asyncio
+async def test_ensure_business_schema_adds_nonterminal_run_shape_constraint_without_scanning_history():
+    async with _recording_manager() as (manager, connection):
+        await manager.ensure_business_schema()
+
+    statements = "\n".join(connection.statements)
+    assert "ck_agent_runs_nonterminal_shape" in statements
+    assert "run_type = 'resume'" in statements
+    assert "run_type = 'subagent'" in statements
+    assert "NOT VALID" in statements
+    assert "EXCEPTION WHEN duplicate_object" in statements
+
+
+@pytest.mark.asyncio
 async def test_ensure_business_schema_removes_unbound_api_keys_before_requiring_user_id():
     async with _recording_manager() as (manager, connection):
         await manager.ensure_business_schema()

@@ -8,12 +8,14 @@ on:
       - '.env.template'
       - 'backend/**'
       - 'backend/pyproject.toml'
+      - 'docker/**'
       - 'docker-compose.yml'
       - 'docker-compose.prod.yml'
       - 'Makefile'
       - 'scripts/init.sh'
       - 'scripts/init.ps1'
       - 'scripts/test_init_security.ps1'
+      - 'scripts/migrate-storage.sh'
       - '.github/workflows/test.yml'
   push:
     branches:
@@ -22,11 +24,13 @@ on:
       - '.env.template'
       - 'backend/**'
       - 'backend/pyproject.toml'
+      - 'docker/**'
       - 'docker-compose.yml'
       - 'docker-compose.prod.yml'
       - 'scripts/init.sh'
       - 'scripts/init.ps1'
       - 'scripts/test_init_security.ps1'
+      - 'scripts/migrate-storage.sh'
       - '.github/workflows/test.yml'
 
 permissions:

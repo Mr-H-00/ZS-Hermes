@@ -195,16 +195,12 @@ export function useAgentStreamHandler({
           supportsFiles: unref(supportsFiles),
           currentAgentId: unref(currentAgentId),
           hasAgentState: !!chunk.agent_state,
-          todoCount: Array.isArray(chunk.agent_state?.todos) ? chunk.agent_state.todos.length : 0,
-          uploadCount: Array.isArray(chunk.agent_state?.uploads)
-            ? chunk.agent_state.uploads.length
-            : 0
+          todoCount: Array.isArray(chunk.agent_state?.todos) ? chunk.agent_state.todos.length : 0
         })
         if (chunk.agent_state) {
           console.log(`${debugPrefix}[agent_state_apply]`, {
             threadId,
-            todos: chunk.agent_state?.todos || [],
-            uploads: chunk.agent_state?.uploads || []
+            todos: chunk.agent_state?.todos || []
           })
           threadState.agentStateRequestVersion = (threadState.agentStateRequestVersion || 0) + 1
           threadState.agentState = chunk.agent_state
@@ -245,8 +241,7 @@ export function useAgentStreamHandler({
               `[AgentState|Final] ${new Date().toLocaleTimeString()}.${new Date().getMilliseconds()}`,
               {
                 threadId,
-                todos: threadState.agentState?.todos || [],
-                uploads: threadState.agentState?.uploads || []
+                todos: threadState.agentState?.todos || []
               }
             )
           }

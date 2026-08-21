@@ -37,7 +37,6 @@ import { message } from 'ant-design-vue'
 import { Download, LoaderCircle, Save } from 'lucide-vue-next'
 import { threadApi } from '@/apis/agent_api'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
-import { downloadViewerFile } from '@/apis/viewer_filesystem'
 
 const props = defineProps({
   artifacts: {
@@ -92,14 +91,14 @@ const getFileMetaLabel = (path) => {
 }
 
 const openPreview = (file) => {
-  emit('open-preview', file)
+  emit('open-preview', { ...file, artifact: true })
 }
 
 const downloadFile = async (file) => {
   if (!props.threadId || !file?.path) return
 
   try {
-    const response = await downloadViewerFile(props.threadId, file.path)
+    const response = await threadApi.downloadThreadArtifact(props.threadId, file.path)
     const blob = await response.blob()
     const contentDisposition =
       response.headers.get('Content-Disposition') || response.headers.get('content-disposition')

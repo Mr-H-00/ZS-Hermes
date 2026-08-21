@@ -235,7 +235,13 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
             SimpleNamespace(slug="main-agent", backend_id="ChatbotAgent"),
             FakeAgent(),
             {},
-            SimpleNamespace(uid="user-1", status="active", extra_metadata={"attachments": []}),
+            SimpleNamespace(
+                id=1,
+                uid="user-1",
+                status="active",
+                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                extra_metadata={"attachments": []},
+            ),
         )
 
     async def fake_save_messages_from_langgraph_state(**_kwargs):
@@ -263,13 +269,27 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
             pass
 
         async def get_conversation_by_thread_id(self, _thread_id):
-            return SimpleNamespace(uid="user-1", status="active", extra_metadata={"attachments": []})
+            return SimpleNamespace(
+                id=1,
+                uid="user-1",
+                status="active",
+                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                extra_metadata={"attachments": []},
+            )
 
-    async def fake_materialize(_thread_id, _uid, _attachments):
-        assert db.commit_count == 1
+        async def get_attachments(self, _conversation_id):
+            return []
 
     monkeypatch.setattr(svc, "ConversationRepository", FakeConversationRepository)
-    monkeypatch.setattr(svc, "materialize_attachment_records", fake_materialize)
+
+    class FakeSandboxBackend:
+        def __init__(self, **_kwargs):
+            pass
+
+        def ensure_available(self):
+            return "sandbox-1"
+
+    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", FakeSandboxBackend)
     monkeypatch.setattr(svc, "flush_langfuse", lambda: None)
 
     stream = stream_agent_resume(

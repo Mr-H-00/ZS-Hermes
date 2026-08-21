@@ -26,8 +26,8 @@ from langgraph.config import get_stream_writer
 from langgraph.constants import TAG_NOSTREAM
 
 from yuxi.agents.backends.composite import create_agent_composite_backend
+from yuxi.agents.backends.paths import workdir_runtime_paths
 from yuxi.utils.logging_config import logger
-from yuxi.utils.paths import VIRTUAL_PATH_CONVERSATION_HISTORY, VIRTUAL_PATH_LARGE_TOOL_RESULTS
 
 _APPROX_CHARS_PER_TOKEN = 4
 _DEFAULT_SUMMARY_TOOL_RESULT_LIMIT_TOKENS = 300
@@ -269,9 +269,9 @@ def _truncate_ai_tool_call_args(message: AIMessage, *, max_length: int) -> AIMes
 def sanitize_messages_for_summary(
     messages: list[AnyMessage],
     *,
+    large_tool_results_prefix: str,
     backend=None,
     tool_result_offload_token_limit: int | None = _DEFAULT_SUMMARY_TOOL_RESULT_LIMIT_TOKENS,
-    large_tool_results_prefix: str = VIRTUAL_PATH_LARGE_TOOL_RESULTS,
 ) -> list[AnyMessage]:
     """Build a compact summary/offload view by replacing only ToolMessage content."""
     sanitized: list[AnyMessage] = []
@@ -751,6 +751,7 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
 def create_summary_middleware(
     model: str | BaseChatModel,
     *,
+    workdir_path: str,
     trigger: ContextSize | list[ContextSize] | None,
     keep: ContextSize | list[ContextSize] | None,
     summary_prompt: str | None = None,
@@ -772,6 +773,7 @@ def create_summary_middleware(
     if summary_prompt and summary_prompt.strip():
         middleware_kwargs["summary_prompt"] = summary_prompt
     middleware = YuxiSummarizationMiddleware(**middleware_kwargs)
-    middleware._history_path_prefix = VIRTUAL_PATH_CONVERSATION_HISTORY
-    middleware._large_tool_results_prefix = VIRTUAL_PATH_LARGE_TOOL_RESULTS
+    large_tool_results_path, conversation_history_path = workdir_runtime_paths(workdir_path)
+    middleware._history_path_prefix = conversation_history_path
+    middleware._large_tool_results_prefix = large_tool_results_path
     return middleware

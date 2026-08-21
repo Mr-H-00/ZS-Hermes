@@ -41,7 +41,13 @@ async def _create_run(session_factory, *, status: str = "pending") -> tuple[str,
     thread_id = f"pytest-fact-{uuid.uuid4()}"
     uid = f"pytest-user-{uuid.uuid4()}"
     async with session_factory() as db:
-        conversation = Conversation(thread_id=thread_id, uid=uid, agent_id="main", status="active")
+        conversation = Conversation(
+            thread_id=thread_id,
+            uid=uid,
+            agent_id="main",
+            status="active",
+            workdir_path=f"projects/{thread_id}",
+        )
         db.add(conversation)
         await db.flush()
         message = Message(
@@ -57,6 +63,7 @@ async def _create_run(session_factory, *, status: str = "pending") -> tuple[str,
             AgentRun(
                 id=run_id,
                 conversation_thread_id=thread_id,
+                runtime_scope_id=thread_id,
                 agent_slug="main",
                 uid=uid,
                 request_id=request_id,
@@ -150,6 +157,13 @@ async def test_attempt_history_survives_retry_takeover_and_reconciliation(fact_d
         assert released is True
 
         async with session_factory() as db:
+            run = await db.get(AgentRun, run_id)
+            assert run is not None
+            assert run.runtime_cleanup_pending is True
+            run.runtime_cleanup_pending = False
+            await db.commit()
+
+        async with session_factory() as db:
             repository = AgentRunRepository(db)
             _, second_claim = await repository.mark_running(
                 run_id, worker_id=owner_b, lease_seconds=5, now=now + timedelta(seconds=12)
@@ -160,12 +174,13 @@ async def test_attempt_history_survives_retry_takeover_and_reconciliation(fact_d
         reconciled_at = now + timedelta(seconds=30)
         async with session_factory() as db:
             repository = AgentRunRepository(db)
-            reconciled = await repository.reconcile_expired_leases(now=reconciled_at)
+            reconciled, cancelled_descendants = await repository.reconcile_expired_leases(now=reconciled_at)
             await db.commit()
 
         attempts = await _persisted_attempts(session_factory, run_id)
 
         assert [run.id for run in reconciled] == [run_id]
+        assert cancelled_descendants == []
         assert [attempt.attempt_no for attempt in attempts] == [1, 2]
         first, second = attempts
         assert first.worker_id == owner_a

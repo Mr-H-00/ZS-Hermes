@@ -9,8 +9,10 @@ on:
       - 'backend/test/integration/**'
       - 'backend/test/e2e/**'
       - 'backend/test/support/**'
+      - 'docker/**'
       - 'docker-compose.yml'
       - 'docker-compose.prod.yml'
+      - 'scripts/migrate-storage.sh'
       - '.github/workflows/system-tests.yml'
   push:
     branches: [main]
@@ -21,8 +23,10 @@ on:
       - 'backend/test/integration/**'
       - 'backend/test/e2e/**'
       - 'backend/test/support/**'
+      - 'docker/**'
       - 'docker-compose.yml'
       - 'docker-compose.prod.yml'
+      - 'scripts/migrate-storage.sh'
       - '.github/workflows/system-tests.yml'
   workflow_dispatch:
 
@@ -40,7 +44,6 @@ jobs:
     timeout-minutes: 35
     env:
       LITE_MODE: 'true'
-      LANGGRAPH_CHECKPOINTER_BACKEND: postgres
       JWT_SECRET_KEY: ci-jwt-secret-at-least-thirty-two-characters
       API_KEY_DERIVATION_SECRET: ci-api-key-derivation-secret-at-least-32-chars
       SANDBOX_PROVISIONER_TOKEN: ci-sandbox-token-at-least-thirty-two-characters
@@ -66,7 +69,7 @@ jobs:
             sleep 2
           done
           docker compose ps
-          docker compose logs api worker --tail 200
+          docker compose logs api worker sandbox-provisioner --tail 200
           exit 1
       - name: Initialize isolated E2E administrator
         run: |
@@ -85,6 +88,21 @@ jobs:
           exit 1
       - name: Verify worker shipping health
         run: docker compose exec -T worker uv run --no-sync --no-dev arq --check server.worker_main.WorkerSettings
+      - name: Verify worker can write personal Skill UserWorkspace
+        run: |
+          docker compose exec -T -e E2E_USERNAME worker uv run --no-sync --no-dev python - <<'PY'
+          import os
+          from pathlib import Path
+
+          skill_root = Path("/app/user-data/shared") / os.environ["E2E_USERNAME"] / "workspace/agents/skills"
+          skill_root.mkdir(parents=True, exist_ok=True)
+          probe = skill_root / ".worker-write-probe"
+          try:
+              probe.write_text("worker-write-ok", encoding="utf-8")
+              assert probe.read_text(encoding="utf-8") == "worker-write-ok"
+          finally:
+              probe.unlink(missing_ok=True)
+          PY
       - name: Verify worker health leases are expiring runtime facts
         run: |
           worker_ttl=$(docker compose exec -T redis redis-cli PTTL yuxi:worker:health:agent-run-v1)
@@ -116,20 +134,28 @@ jobs:
           done
           exit 1
       - name: Verify readiness API
-        run: docker compose exec -T api uv run pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_declares_cli_knowledge_capabilities test/integration/api/test_system_router_api.py::test_lite_startup_does_not_create_knowledge_schema -q
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_declares_cli_knowledge_capabilities test/integration/api/test_system_router_api.py::test_lite_startup_does_not_create_knowledge_schema -q
       - name: Verify queue transaction and recovery
-        run: docker compose exec -T api uv run pytest test/integration/services/test_agent_request_queue_concurrency.py -q
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_request_queue_concurrency.py -q
       - name: Verify AgentRun lease ownership
-        run: docker compose exec -T api uv run pytest test/integration/services/test_agent_run_lease.py -q
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_run_lease.py -q
       - name: Verify Run result causality
-        run: docker compose exec -T api uv run pytest test/integration/api/test_agent_run_result_causality.py -q
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_agent_run_result_causality.py -q
       - name: Verify deterministic Agent assembled path
         run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest test/e2e/test_deterministic_agent_path_e2e.py -q
       - name: Verify identity transaction and replayable secret publication
-        run: docker compose exec -T api uv run pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q
+      - name: Verify destructive storage migration and Skill authorization
+        run: |
+          docker compose exec -T api uv run --no-sync --no-dev pytest \
+            test/integration/services/test_workdir_user_workspace.py \
+            test/integration/services/test_user_skill_projection.py \
+            test/integration/api/test_skill_artifact_authorization.py -q
+      - name: Verify real Sandbox storage isolation and shared projections
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_project_workdir_provisioner.py -q
       - name: Runtime logs on failure
         if: failure()
-        run: docker compose logs api worker --tail 300
+        run: docker compose logs api worker sandbox-provisioner --tail 300
       - name: Stop runtime topology
         if: always()
         run: docker compose down -v

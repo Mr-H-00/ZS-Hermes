@@ -39,7 +39,7 @@ async def test_personal_skill_install_list_preview_and_delete_without_database_r
         assert "share_config" not in confirm_response.json()["data"][0]["skill"]
 
         cards_response = await test_client.get(
-            "/api/skills?refresh_personal=true",
+            "/api/skills",
             headers=headers,
         )
         assert cards_response.status_code == 200, cards_response.text

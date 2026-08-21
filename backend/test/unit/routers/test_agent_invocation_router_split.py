@@ -93,10 +93,25 @@ def test_agent_eval_router_adapts_payload(monkeypatch):
         json={
             "query": "2+2=?",
             "agent_slug": "default-chatbot",
+            "thread_id": "YUXI_TEST_eval-thread",
             "evaluation": {"dataset_name": "dataset-1", "ignored": "drop"},
             "meta": {"request_id": "eval-1"},
         },
     )
     assert response.status_code == 200, response.text
     assert response.json()["output"] == "ok"
+    assert calls["command"].thread_id == "YUXI_TEST_eval-thread"
     assert calls["command"].origin.metadata == {"agent_invocation_meta": {"evaluation": {"dataset_name": "dataset-1"}}}
+
+
+def test_agent_eval_router_rejects_thread_id_longer_than_database_limit():
+    response = _build_app().post(
+        "/api/agent-invocation/eval/runs",
+        json={
+            "query": "2+2=?",
+            "agent_slug": "default-chatbot",
+            "thread_id": "t" * 65,
+        },
+    )
+
+    assert response.status_code == 422

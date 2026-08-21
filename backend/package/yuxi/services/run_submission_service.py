@@ -164,7 +164,12 @@ async def submit_run_command(
         tool_approval_mode=command.tool_approval_mode,
         meta=request_metadata,
     )
-    await finalize_intake(db=db, intake=intake)
+    await finalize_intake(
+        db=db,
+        intake=intake,
+        uid=str(current_user.uid),
+        workdir_path=conversation.workdir_path,
+    )
 
     return {
         "request_id": intake.request_id,

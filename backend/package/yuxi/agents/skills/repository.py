@@ -10,13 +10,6 @@ from yuxi.utils.datetime_utils import utc_now_naive
 class SkillRepository:
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
-        self.autocommit = True
-
-    async def _persist(self) -> None:
-        if self.autocommit:
-            await self.db.commit()
-        else:
-            await self.db.flush()
 
     async def list_all(self) -> list[Skill]:
         result = await self.db.execute(select(Skill).order_by(Skill.updated_at.desc(), Skill.id.desc()))
@@ -27,15 +20,6 @@ class SkillRepository:
             select(Skill).where(Skill.enabled.is_(True)).order_by(Skill.updated_at.desc(), Skill.id.desc())
         )
         return list(result.scalars().all())
-
-    async def list_by_slugs(self, slugs: list[str]) -> list[Skill]:
-        normalized = [slug for slug in dict.fromkeys(slugs) if isinstance(slug, str) and slug]
-        if not normalized:
-            return []
-        result = await self.db.execute(select(Skill).where(Skill.slug.in_(normalized)))
-        items = list(result.scalars().all())
-        item_map = {item.slug: item for item in items}
-        return [item_map[slug] for slug in normalized if slug in item_map]
 
     async def get_by_slug(self, slug: str, *, for_update: bool = False) -> Skill | None:
         stmt = select(Skill).where(Skill.slug == slug)
@@ -84,7 +68,7 @@ class SkillRepository:
             updated_at=now,
         )
         self.db.add(item)
-        await self._persist()
+        await self.db.flush()
         await self.db.refresh(item)
         return item
 
@@ -106,7 +90,7 @@ class SkillRepository:
         }
         item.updated_by = updated_by
         item.updated_at = utc_now_naive()
-        await self._persist()
+        await self.db.flush()
         await self.db.refresh(item)
         return item
 
@@ -124,7 +108,7 @@ class SkillRepository:
         item.skill_dependencies = skill_dependencies
         item.updated_by = updated_by
         item.updated_at = utc_now_naive()
-        await self._persist()
+        await self.db.flush()
         await self.db.refresh(item)
         return item
 
@@ -140,7 +124,7 @@ class SkillRepository:
         item.description = description
         item.updated_by = updated_by
         item.updated_at = utc_now_naive()
-        await self._persist()
+        await self.db.flush()
         await self.db.refresh(item)
         return item
 
@@ -148,7 +132,7 @@ class SkillRepository:
         item.share_config = share_config
         item.updated_by = updated_by
         item.updated_at = utc_now_naive()
-        await self._persist()
+        await self.db.flush()
         await self.db.refresh(item)
         return item
 
@@ -156,10 +140,10 @@ class SkillRepository:
         item.enabled = enabled
         item.updated_by = updated_by
         item.updated_at = utc_now_naive()
-        await self._persist()
+        await self.db.flush()
         await self.db.refresh(item)
         return item
 
     async def delete(self, item: Skill) -> None:
         await self.db.delete(item)
-        await self._persist()
+        await self.db.flush()

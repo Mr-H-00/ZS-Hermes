@@ -274,7 +274,6 @@ const openFileByPath = async (path) => {
 }
 const knowledgeBreadcrumbItems = ref([])
 const workspaceBreadcrumbItems = ref(null)
-const threadTitleMap = ref({})
 const entries = ref([])
 const selectedEntry = ref(null)
 const selectedPaths = ref([])
@@ -303,8 +302,6 @@ const previewRequestId = ref(0)
 const INLINE_PREVIEW_MIN_WIDTH = 960
 const MAX_WORKSPACE_UPLOAD_FILES = 50
 const AGENTS_WORKSPACE_PATH = '/agents'
-const CHATS_WORKSPACE_PATH = '/agents/chats'
-const CHATS_BREADCRUMB_LABEL = '历史对话'
 const knowledgeFileBrowser = reactive({
   parentId: null,
   pathPrefix: '',
@@ -329,9 +326,7 @@ const isAgentsWorkspacePath = computed(
     activeSourceKey.value === 'personal' &&
     comparablePath(currentPath.value) === AGENTS_WORKSPACE_PATH
 )
-const isReadonlyWorkspacePath = computed(
-  () => isKnowledgeSource.value || isSameOrChildPath(currentPath.value, CHATS_WORKSPACE_PATH)
-)
+const isReadonlyWorkspacePath = computed(() => isKnowledgeSource.value)
 const selectedPreviewPath = computed(() =>
   selectedEntry.value?.source === 'knowledge'
     ? selectedEntry.value.name || ''
@@ -495,11 +490,6 @@ const loadWorkspaceEntries = async (path = '/') => {
     entries.value = response.entries || []
     currentPath.value = path
     knowledgeBreadcrumbItems.value = []
-    if (comparablePath(path) === CHATS_WORKSPACE_PATH) {
-      threadTitleMap.value = Object.fromEntries(
-        entries.value.filter((entry) => entry.title).map((entry) => [entry.name, entry.title])
-      )
-    }
     workspaceBreadcrumbItems.value = buildWorkspaceBreadcrumbItems()
     syncSelectedPaths()
     if (!selectedPaths.value.length) {
@@ -520,11 +510,7 @@ const buildWorkspaceBreadcrumbItems = () => {
     (items, segment) => {
       const parentPath = items[items.length - 1].path
       const path = parentPath === '/' ? `/${segment}` : `${parentPath}/${segment}`
-      const name =
-        path === CHATS_WORKSPACE_PATH
-          ? CHATS_BREADCRUMB_LABEL
-          : threadTitleMap.value[segment] || segment
-      items.push({ name, path })
+      items.push({ name: segment, path })
       return items
     },
     [{ name: '工作区', path: '/' }]

@@ -4,13 +4,28 @@ import json
 import os
 import re
 import shutil
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from pathlib import PurePosixPath
 
 import asyncpg
 import httpx
-from yuxi.config import get_save_dir
+from yuxi.workspace.paths import normalize_workdir_path, user_workdir_host_dir
+from yuxi.config import get_user_data_dir
+from yuxi.storage.postgres.models_business import AGENT_RUN_TERMINAL_STATUSES
 
+TEST_RESOURCE_PREFIX = "YUXI_TEST_"
+TEST_CONVERSATION_TITLE_PREFIX = f"{TEST_RESOURCE_PREFIX}CONVERSATION_"
 PYTEST_RESOURCE_PREFIXES = ("pytest", "py_test")
+LEGACY_TEST_CONVERSATION_TITLE_PATTERNS = (
+    re.compile(
+        r"^(?:agent-async-e2e|agent-steer-e2e|attachment-state-e2e|attachment-workdir-e2e|"
+        r"chat-router-test|deterministic-e2e|ocr-config-e2e|personal-skill-e2e|"
+        r"pytest-channel|pytest-queue|read-file-e2e|skill-artifact-admin|skill-artifact-user|"
+        r"viewer|viewer-security-test)-[0-9a-f]{8}$"
+    ),
+)
 E2E_THREAD_TEST_MARKERS = frozenset(
     {
         "agent-async-e2e",
@@ -38,6 +53,86 @@ E2E_AGENT_SLUG_PREFIXES = (
 SAFE_THREAD_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
+@dataclass(frozen=True, slots=True)
+class CleanupConversationResource:
+    """描述一个待清理的测试 Conversation 及其 Project Workdir。"""
+
+    conversation_id: int
+    thread_id: str
+    uid: str
+    status: str
+    workdir_path: str | None
+
+
+def make_test_conversation_title(label: str) -> str:
+    """生成带统一前缀且适合展示的测试 Conversation 标题。"""
+
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", str(label)).strip("-_") or "case"
+    return f"{TEST_CONVERSATION_TITLE_PREFIX}{normalized[:120]}_{uuid.uuid4().hex[:12]}"
+
+
+def make_test_resource_id(label: str) -> str:
+    """生成用于测试请求等资源的统一可检索标识。"""
+
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", str(label)).strip("-_") or "resource"
+    return f"{TEST_RESOURCE_PREFIX}{normalized[:40]}_{uuid.uuid4().hex}"
+
+
+def make_test_conversation_metadata(test_name: str, *, e2e: bool = False, **extra: object) -> dict[str, object]:
+    """生成带测试资源标记的 Conversation metadata。"""
+
+    metadata: dict[str, object] = {"_yuxi_test": True, "test": test_name}
+    if e2e:
+        metadata["_yuxi_e2e"] = True
+    metadata.update(extra)
+    return metadata
+
+
+async def _list_provisioned_sandbox_ids(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+) -> set[str]:
+    """从 provisioner 管理 API 回读当前沙盒标识。"""
+
+    response = await client.get("/api/sandboxes", headers=headers)
+    if response.status_code != 200:
+        raise RuntimeError(f"Failed to list provisioned sandboxes for cleanup: {response.text}")
+
+    payload = response.json()
+    sandboxes = payload.get("sandboxes") if isinstance(payload, dict) else None
+    if not isinstance(sandboxes, list):
+        raise RuntimeError("Provisioner cleanup response is missing a sandboxes list")
+
+    sandbox_ids: set[str] = set()
+    for sandbox in sandboxes:
+        sandbox_id = sandbox.get("sandbox_id") if isinstance(sandbox, dict) else None
+        if not isinstance(sandbox_id, str) or not sandbox_id:
+            raise RuntimeError("Provisioner cleanup entry is missing sandbox_id")
+        sandbox_ids.add(sandbox_id)
+    return sandbox_ids
+
+
+async def cleanup_provisioned_sandboxes(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+) -> None:
+    """通过 provisioner 管理 API 删除测试环境中的全部沙盒。"""
+
+    initial_ids = await _list_provisioned_sandbox_ids(client, headers)
+    failures: list[str] = []
+    for sandbox_id in sorted(initial_ids):
+        delete_response = await client.delete(f"/api/sandboxes/{sandbox_id}", headers=headers)
+        if delete_response.status_code not in {200, 404}:
+            failures.append(f"Failed to delete provisioned sandbox {sandbox_id}: {delete_response.text}")
+
+    remaining_ids = initial_ids & await _list_provisioned_sandbox_ids(client, headers)
+    if remaining_ids:
+        failures.append(f"Provisioner cleanup left sandboxes behind: {', '.join(sorted(remaining_ids))}")
+
+    if failures:
+        raise RuntimeError("; ".join(failures))
+
+
 def _postgres_dsn() -> str:
     """返回测试环境 PostgreSQL DSN（去掉 SQLAlchemy 驱动前缀）。"""
     return os.getenv("POSTGRES_URL", "postgresql+asyncpg://postgres:postgres@postgres:5432/yuxi").replace(
@@ -57,23 +152,58 @@ def _has_prefix(value: object, prefixes: tuple[str, ...]) -> bool:
     return isinstance(value, str) and value.startswith(prefixes)
 
 
-def _is_e2e_thread(thread: object) -> bool:
-    """识别 E2E 测试线程：显式 _yuxi_e2e 标记，或使用 E2E 测试智能体前缀。
+def _parse_metadata(value: object) -> dict[str, object]:
+    """把数据库或 HTTP 返回的 metadata 统一解析为字典。"""
 
-    后一种覆盖 agent-invocation（agent-call/eval 等由后端创建会话、测试无法
-    写入线程标记）的流程，与 agent 清理共享同一 E2E_AGENT_SLUG_PREFIXES
-    信任边界，不按用户可控标题猜测。
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def is_test_conversation_title(title: object) -> bool:
+    """识别统一前缀及当前仓库历史测试标题。"""
+
+    if not isinstance(title, str):
+        return False
+    if title.startswith(TEST_CONVERSATION_TITLE_PREFIX):
+        return True
+    return any(pattern.fullmatch(title) for pattern in LEGACY_TEST_CONVERSATION_TITLE_PATTERNS)
+
+
+def _is_test_thread(thread: object) -> bool:
+    """识别测试线程的显式标记、统一标题或测试智能体前缀。
+
+    智能体前缀用于兼容旧 agent-invocation 自动创建的会话，并与 agent 清理
+    共享同一 E2E_AGENT_SLUG_PREFIXES 信任边界；统一标题只在专用测试账号的
+    清理范围内使用。
     """
 
     if not isinstance(thread, dict):
         return False
 
-    metadata = thread.get("metadata")
-    if isinstance(metadata, dict) and metadata.get("_yuxi_e2e") is True:
-        return metadata.get("test") in E2E_THREAD_TEST_MARKERS or _has_prefix(
-            metadata.get("marker"), ("YUXI_SUBAGENT_STREAM_E2E_",)
-        )
+    metadata = _parse_metadata(thread.get("metadata") or thread.get("extra_metadata"))
+    if metadata.get("_yuxi_test") is True:
+        return True
+    if metadata.get("_yuxi_e2e") is True and (
+        metadata.get("test") in E2E_THREAD_TEST_MARKERS
+        or _has_prefix(metadata.get("marker"), ("YUXI_SUBAGENT_STREAM_E2E_",))
+    ):
+        return True
+    if is_test_conversation_title(thread.get("title")):
+        return True
     return _has_prefix(thread.get("agent_id") or thread.get("agent_slug") or "", E2E_AGENT_SLUG_PREFIXES)
+
+
+def _is_e2e_thread(thread: object) -> bool:
+    """兼容旧测试调用方的 E2E 线程识别入口。"""
+
+    return _is_test_thread(thread)
 
 
 def _is_e2e_agent(agent: object, owner_uid: str) -> bool:
@@ -93,7 +223,7 @@ def _resolve_e2e_thread_storage(thread_id: str) -> Path:
     if thread_id == "shared":
         raise RuntimeError("E2E conversation cleanup refuses to target the shared workspace")
 
-    threads_root = (get_save_dir() / "threads").resolve()
+    threads_root = get_user_data_dir().resolve()
     raw_thread_root = threads_root / thread_id
     if raw_thread_root.is_symlink():
         raise RuntimeError(f"E2E conversation cleanup refuses to remove symlink: {raw_thread_root}")
@@ -112,7 +242,44 @@ def remove_e2e_thread_storage(thread_id: str) -> None:
         shutil.rmtree(thread_root)
 
 
-async def _delete_e2e_run_rows(thread_ids: set[str]) -> None:
+def _resolve_test_workdir(uid: str, workdir_path: str) -> Path | None:
+    """校验并返回 UserWorkspace 内的 Project Workdir。"""
+    try:
+        normalized = normalize_workdir_path(workdir_path)
+    except ValueError as exc:
+        raise RuntimeError(f"Test conversation cleanup refuses invalid Workdir: {workdir_path!r}") from exc
+    parts = PurePosixPath(normalized).parts
+    if len(parts) < 2 or parts[0] != "projects":
+        raise RuntimeError(f"Test conversation cleanup refuses non-project Workdir: {workdir_path!r}")
+
+    try:
+        workdir = user_workdir_host_dir(uid, normalized)
+    except FileNotFoundError:
+        return None
+    except ValueError as exc:
+        if str(exc) == "workdir_path does not reference an existing directory":
+            return None
+        raise RuntimeError(f"Test conversation cleanup refuses invalid Workdir: {workdir_path!r}") from exc
+    if not workdir.exists() and not workdir.is_symlink():
+        return None
+    if workdir.is_symlink():
+        raise RuntimeError(f"Test conversation cleanup refuses symlink Workdir: {workdir}")
+    return workdir
+
+
+def remove_test_workdir(uid: str, workdir_path: str) -> None:
+    """在 UserWorkspace 边界内删除测试 Conversation 的 Project Workdir。"""
+
+    workdir = _resolve_test_workdir(uid, workdir_path)
+    if workdir is None:
+        return
+
+    shutil.rmtree(workdir)
+    if workdir.exists() or workdir.is_symlink():
+        raise RuntimeError(f"Test conversation cleanup left Workdir behind: {workdir}")
+
+
+async def delete_e2e_run_rows(thread_ids: set[str]) -> None:
     """删除 E2E 测试线程对应的 agent_runs 审计行。
 
     线程删除 API 只软删对话，run 行作为审计事实不会级联；测试 run 若不
@@ -154,39 +321,56 @@ async def _delete_e2e_run_rows(thread_ids: set[str]) -> None:
         await conn.close()
 
 
-async def _list_e2e_thread_statuses(owner_uid: str) -> dict[str, str]:
-    """读取当前 E2E 用户已标记或使用 E2E 测试智能体的线程及其子线程状态。"""
+async def list_test_conversation_resources(owner_uid: str) -> dict[str, CleanupConversationResource]:
+    """读取当前测试用户的测试 Conversation、状态和真实 Workdir。"""
 
     conn = await asyncpg.connect(_postgres_dsn())
     try:
+        request_rows = await conn.fetch(
+            "SELECT DISTINCT conversation_thread_id "
+            "FROM agent_run_requests "
+            "WHERE uid = $1 AND ("
+            "left(request_id, char_length($2)) = $2 "
+            "OR left(request_id, char_length($3)) = $3"
+            ")",
+            owner_uid,
+            TEST_RESOURCE_PREFIX,
+            "agent-call-queue-",
+        )
+        request_thread_ids = {str(row["conversation_thread_id"] or "") for row in request_rows}
         rows = await conn.fetch(
-            "SELECT id, thread_id, status, extra_metadata, agent_id FROM conversations WHERE uid = $1",
+            "SELECT id, thread_id, uid, status, title, workdir_path, extra_metadata, agent_id "
+            "FROM conversations WHERE uid = $1",
             owner_uid,
         )
         marked_parent_ids: list[int] = []
-        statuses: dict[str, str] = {}
+        resources: dict[str, CleanupConversationResource] = {}
         for row in rows:
-            metadata = row["extra_metadata"]
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except json.JSONDecodeError:
-                    metadata = None
-            is_e2e_metadata = isinstance(metadata, dict) and metadata.get("_yuxi_e2e") is True
-            is_e2e_agent = _has_prefix(str(row["agent_id"] or ""), E2E_AGENT_SLUG_PREFIXES)
-            if not is_e2e_metadata and not is_e2e_agent:
-                continue
             thread_id = str(row["thread_id"] or "")
-            # 命名空间式线程 id（如 subagent:...）不是真实会话、无独立沙盒目录。
-            if not SAFE_THREAD_ID.fullmatch(thread_id):
+            if (
+                not _is_test_thread(
+                    {
+                        "title": row["title"],
+                        "metadata": row["extra_metadata"],
+                        "agent_id": row["agent_id"],
+                    }
+                )
+                and thread_id not in request_thread_ids
+            ):
                 continue
             marked_parent_ids.append(int(row["id"]))
-            statuses[thread_id] = str(row["status"] or "")
+            resources[thread_id] = CleanupConversationResource(
+                conversation_id=int(row["id"]),
+                thread_id=thread_id,
+                uid=str(row["uid"] or owner_uid),
+                status=str(row["status"] or ""),
+                workdir_path=str(row["workdir_path"]) if row["workdir_path"] else None,
+            )
 
         if marked_parent_ids:
             child_rows = await conn.fetch(
                 """
-                SELECT st.child_thread_id, child.status
+                SELECT child.id, child.thread_id, child.uid, child.status, child.workdir_path
                 FROM subagent_threads st
                 JOIN conversations child ON child.id = st.child_conversation_id
                 WHERE st.parent_conversation_id = ANY($1::int[])
@@ -194,23 +378,245 @@ async def _list_e2e_thread_statuses(owner_uid: str) -> dict[str, str]:
                 marked_parent_ids,
             )
             for row in child_rows:
-                child_id = str(row["child_thread_id"] or "")
-                # 命名空间式子线程 id（如 subagent:...）无独立沙盒目录，跳过存储清理。
-                if SAFE_THREAD_ID.fullmatch(child_id):
-                    statuses[child_id] = str(row["status"] or "")
-        return statuses
+                child_id = str(row["thread_id"] or "")
+                resources[child_id] = CleanupConversationResource(
+                    conversation_id=int(row["id"]),
+                    thread_id=child_id,
+                    uid=str(row["uid"] or owner_uid),
+                    status=str(row["status"] or ""),
+                    workdir_path=str(row["workdir_path"]) if row["workdir_path"] else None,
+                )
+        return resources
     finally:
         await conn.close()
 
 
-async def cleanup_e2e_chat_resources(
+async def _list_e2e_thread_statuses(owner_uid: str) -> dict[str, str]:
+    """兼容旧调用方，返回测试线程状态。"""
+
+    resources = await list_test_conversation_resources(owner_uid)
+    return {
+        thread_id: resource.status for thread_id, resource in resources.items() if SAFE_THREAD_ID.fullmatch(thread_id)
+    }
+
+
+async def validate_test_workdirs_exclusive(
+    workdirs: dict[tuple[str, str], set[str]],
+    target_thread_ids: set[str],
+) -> None:
+    """确认待删 Project Workdir 未被目标外的 Conversation 共享。"""
+
+    if not workdirs:
+        return
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        await _validate_test_workdirs_exclusive(conn, workdirs, target_thread_ids)
+    finally:
+        await conn.close()
+
+
+async def _validate_test_workdirs_exclusive(
+    conn: asyncpg.Connection,
+    workdirs: dict[tuple[str, str], set[str]],
+    target_thread_ids: set[str],
+) -> None:
+    """使用调用方事务确认 Project Workdir 没有目标外 Owner。"""
+
+    rows_by_uid: dict[str, list[asyncpg.Record]] = {}
+    for uid, _workdir_path in workdirs:
+        if uid not in rows_by_uid:
+            rows_by_uid[uid] = await conn.fetch(
+                "SELECT thread_id, workdir_path FROM conversations WHERE uid = $1 AND workdir_path IS NOT NULL",
+                uid,
+            )
+
+    for (uid, workdir_path), thread_ids in workdirs.items():
+        try:
+            target_path = PurePosixPath(normalize_workdir_path(workdir_path))
+        except ValueError as exc:
+            raise RuntimeError(f"Test conversation cleanup refuses invalid Workdir: {workdir_path!r}") from exc
+        owners: set[str] = set()
+        for row in rows_by_uid[uid]:
+            candidate_value = str(row["workdir_path"] or "")
+            try:
+                candidate_path = PurePosixPath(normalize_workdir_path(candidate_value))
+            except ValueError as exc:
+                raise RuntimeError(
+                    "Test conversation cleanup cannot verify an existing Workdir owner: "
+                    f"{row['thread_id']}={candidate_value!r}"
+                ) from exc
+            overlaps = (
+                candidate_path == target_path
+                or candidate_path in target_path.parents
+                or target_path in candidate_path.parents
+            )
+            if overlaps:
+                owners.add(str(row["thread_id"] or ""))
+        unexpected = owners - target_thread_ids
+        if unexpected:
+            raise RuntimeError(
+                f"Test conversation cleanup refuses shared or overlapping Workdir {workdir_path!r}; "
+                f"other threads: {', '.join(sorted(unexpected))}"
+            )
+        if not thread_ids <= target_thread_ids:
+            raise RuntimeError(f"Test conversation cleanup has an untracked Workdir owner: {workdir_path!r}")
+
+
+async def validate_test_runs_terminal(thread_ids: set[str]) -> None:
+    """阻止清理流程删除仍由 worker 执行的测试 Run。"""
+
+    if not thread_ids:
+        return
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        rows = await conn.fetch(
+            "SELECT id, status FROM agent_runs "
+            "WHERE conversation_thread_id = ANY($1::text[]) AND status <> ALL($2::text[])",
+            sorted(thread_ids),
+            list(AGENT_RUN_TERMINAL_STATUSES),
+        )
+        if rows:
+            details = ", ".join(f"{row['id']}={row['status']}" for row in rows)
+            raise RuntimeError(f"test Run is not terminal: {details}")
+    finally:
+        await conn.close()
+
+
+async def list_test_queued_request_ids(thread_ids: set[str]) -> list[str]:
+    """读取待清理 Conversation 尚未派发的请求。"""
+
+    if not thread_ids:
+        return []
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        rows = await conn.fetch(
+            "SELECT request_id FROM agent_run_requests "
+            "WHERE conversation_thread_id = ANY($1::text[]) AND status = 'queued' "
+            "ORDER BY created_at, id",
+            sorted(thread_ids),
+        )
+        return [str(row["request_id"]) for row in rows]
+    finally:
+        await conn.close()
+
+
+async def delete_test_conversation_rows(thread_ids: set[str]) -> None:
+    """物理删除已完成测试清理的 Conversation 及其历史关联行。"""
+
+    if not thread_ids:
+        return
+    thread_ids_list = sorted(thread_ids)
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        async with conn.transaction():
+            await _delete_test_conversation_rows(conn, thread_ids_list)
+
+        await _assert_test_conversations_deleted(conn, thread_ids_list)
+    finally:
+        await conn.close()
+
+
+async def delete_test_conversation_resources(
+    workdirs: dict[tuple[str, str], set[str]],
+    thread_ids: set[str],
+) -> None:
+    """先提交测试 Conversation 删除，再在 Owner 锁内清理对应文件。"""
+
+    if not thread_ids:
+        return
+    thread_ids_list = sorted(thread_ids)
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        async with conn.transaction():
+            await conn.execute("LOCK TABLE conversations IN SHARE MODE")
+            await _validate_test_workdirs_exclusive(conn, workdirs, thread_ids)
+            await _delete_test_conversation_rows(conn, thread_ids_list)
+
+        await _assert_test_conversations_deleted(conn, thread_ids_list)
+        try:
+            async with conn.transaction():
+                # 数据库删除已提交；第二个 SHARE 锁阻止文件清理期间出现新的
+                # Workdir Owner，同时提交失败不会留下仍引用已删目录的 Conversation。
+                await conn.execute("LOCK TABLE conversations IN SHARE MODE")
+                await _validate_test_workdirs_exclusive(conn, workdirs, thread_ids)
+                for uid, workdir_path in workdirs:
+                    remove_test_workdir(uid, workdir_path)
+                for thread_id in thread_ids:
+                    remove_e2e_thread_storage(thread_id)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"Test conversation rows were deleted, but filesystem cleanup failed: {exc}") from exc
+    finally:
+        await conn.close()
+
+
+async def _delete_test_conversation_rows(conn: asyncpg.Connection, thread_ids_list: list[str]) -> None:
+    """使用调用方事务删除测试 Conversation 的完整历史。"""
+
+    conversation_rows = await conn.fetch(
+        "SELECT id FROM conversations WHERE thread_id = ANY($1::text[])",
+        thread_ids_list,
+    )
+    conversation_ids = [int(row["id"]) for row in conversation_rows]
+    run_rows = await conn.fetch(
+        "SELECT id FROM agent_runs WHERE conversation_thread_id = ANY($1::text[]) OR conversation_id = ANY($2::int[])",
+        thread_ids_list,
+        conversation_ids,
+    )
+    run_ids = [str(row["id"]) for row in run_rows]
+    message_rows = await conn.fetch(
+        "SELECT id FROM messages WHERE conversation_id = ANY($1::int[]) OR run_id = ANY($2::text[])",
+        conversation_ids,
+        run_ids,
+    )
+    message_ids = [int(row["id"]) for row in message_rows]
+
+    await conn.execute(
+        "DELETE FROM agent_run_requests "
+        "WHERE conversation_thread_id = ANY($1::text[]) "
+        "OR input_message_id = ANY($2::int[]) "
+        "OR dispatched_run_id = ANY($3::text[])",
+        thread_ids_list,
+        message_ids,
+        run_ids,
+    )
+    await conn.execute("DELETE FROM tool_calls WHERE message_id = ANY($1::int[])", message_ids)
+    await conn.execute("DELETE FROM message_feedbacks WHERE message_id = ANY($1::int[])", message_ids)
+    await conn.execute("DELETE FROM messages WHERE id = ANY($1::int[])", message_ids)
+    await conn.execute("DELETE FROM agent_runs WHERE id = ANY($1::text[])", run_ids)
+    await conn.execute(
+        "DELETE FROM subagent_threads "
+        "WHERE parent_conversation_id = ANY($1::int[]) "
+        "OR child_conversation_id = ANY($1::int[])",
+        conversation_ids,
+    )
+    await conn.execute(
+        "DELETE FROM conversation_stats WHERE conversation_id = ANY($1::int[])",
+        conversation_ids,
+    )
+    await conn.execute("DELETE FROM conversations WHERE id = ANY($1::int[])", conversation_ids)
+
+
+async def _assert_test_conversations_deleted(conn: asyncpg.Connection, thread_ids_list: list[str]) -> None:
+    """回读确认目标 Conversation 已物理删除。"""
+
+    remaining = await conn.fetch(
+        "SELECT thread_id FROM conversations WHERE thread_id = ANY($1::text[])",
+        thread_ids_list,
+    )
+    if remaining:
+        raise RuntimeError(
+            "Test conversation cleanup left conversations behind: "
+            + ", ".join(sorted(str(row["thread_id"]) for row in remaining))
+        )
+
+
+async def cleanup_test_chat_resources(
     client: httpx.AsyncClient,
     headers: dict[str, str],
     *,
     owner_uid: str,
-    thread_storage_statuses: dict[str, str] | None = None,
 ) -> None:
-    """删除 E2E 产生的对话和临时智能体，避免测试数据污染最近对话。"""
+    """删除测试对话、消息/run 历史、Project Workdir 和临时智能体。"""
 
     page_size = 500
     offset = 0
@@ -245,67 +651,61 @@ async def cleanup_e2e_chat_resources(
             break
         offset += non_pinned_count
 
-    failures: list[str] = []
-    deleted_thread_ids: set[str] = set()
-    for thread in threads:
-        if not _is_e2e_thread(thread):
-            continue
-        thread_id = None
-        if isinstance(thread, dict):
-            thread_id = thread.get("id") or thread.get("thread_id")
-        if not thread_id:
-            failures.append("E2E conversation cleanup entry is missing thread id")
-            continue
+    active_test_thread_ids = {
+        str(thread.get("id") or thread.get("thread_id") or "") for thread in threads if _is_test_thread(thread)
+    }
+    if "" in active_test_thread_ids:
+        raise RuntimeError("Test conversation cleanup entry is missing thread id")
 
-        try:
-            _resolve_e2e_thread_storage(str(thread_id))
-        except (OSError, RuntimeError) as exc:
-            failures.append(f"Invalid E2E conversation storage {thread_id}: {exc}")
-            continue
+    try:
+        resources = await list_test_conversation_resources(owner_uid)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Failed to list persisted test conversation resources: {exc}") from exc
 
-        delete_response = await client.delete(f"/api/chat/thread/{thread_id}", headers=headers)
+    missing_resources = active_test_thread_ids - resources.keys()
+    if missing_resources:
+        raise RuntimeError(
+            "Test conversation cleanup could not verify persisted ownership for: "
+            + ", ".join(sorted(missing_resources))
+        )
+
+    target_thread_ids = set(resources)
+    workdir_targets: dict[tuple[str, str], set[str]] = {}
+    for resource in resources.values():
+        if not SAFE_THREAD_ID.fullmatch(resource.thread_id):
+            raise RuntimeError(f"Test conversation cleanup received an unsafe thread id: {resource.thread_id!r}")
+        _resolve_e2e_thread_storage(resource.thread_id)
+        if resource.workdir_path:
+            _resolve_test_workdir(resource.uid, resource.workdir_path)
+            workdir_targets.setdefault((resource.uid, resource.workdir_path), set()).add(resource.thread_id)
+
+    await validate_test_workdirs_exclusive(workdir_targets, target_thread_ids)
+    await validate_test_runs_terminal(target_thread_ids)
+
+    for request_id in await list_test_queued_request_ids(target_thread_ids):
+        cancel_response = await client.post(f"/api/agent/requests/{request_id}/cancel", headers=headers)
+        if cancel_response.status_code not in {200, 404}:
+            raise RuntimeError(f"Failed to cancel queued test request {request_id}: {cancel_response.text}")
+
+    remaining_queued_request_ids = await list_test_queued_request_ids(target_thread_ids)
+    if remaining_queued_request_ids:
+        raise RuntimeError(
+            "Test conversation cleanup left queued requests behind: " + ", ".join(remaining_queued_request_ids)
+        )
+    await validate_test_runs_terminal(target_thread_ids)
+
+    for resource in resources.values():
+        if resource.status in {"deleted", ""}:
+            continue
+        delete_response = await client.delete(f"/api/chat/thread/{resource.thread_id}", headers=headers)
         if delete_response.status_code not in {200, 404}:
-            failures.append(f"Failed to delete E2E conversation {thread_id}: {delete_response.text}")
-            continue
-        try:
-            remove_e2e_thread_storage(str(thread_id))
-        except (OSError, RuntimeError) as exc:
-            failures.append(f"Failed to delete E2E conversation storage {thread_id}: {exc}")
-        deleted_thread_ids.add(str(thread_id))
+            raise RuntimeError(
+                f"Failed to delete persisted test conversation {resource.thread_id}: {delete_response.text}"
+            )
 
-    if thread_storage_statuses is None:
-        try:
-            thread_storage_statuses = await _list_e2e_thread_statuses(owner_uid)
-        except Exception as exc:  # noqa: BLE001
-            failures.append(f"Failed to list persisted E2E conversation resources: {exc}")
-            thread_storage_statuses = {}
+    await delete_test_conversation_resources(workdir_targets, target_thread_ids)
 
-    for thread_id, status in thread_storage_statuses.items():
-        if thread_id in deleted_thread_ids:
-            continue
-        try:
-            _resolve_e2e_thread_storage(thread_id)
-        except (OSError, RuntimeError) as exc:
-            failures.append(f"Invalid persisted E2E conversation storage {thread_id}: {exc}")
-            continue
-
-        if status not in {"deleted", ""}:
-            delete_response = await client.delete(f"/api/chat/thread/{thread_id}", headers=headers)
-            if delete_response.status_code not in {200, 404}:
-                failures.append(f"Failed to delete persisted E2E conversation {thread_id}: {delete_response.text}")
-                continue
-        try:
-            remove_e2e_thread_storage(thread_id)
-        except (OSError, RuntimeError) as exc:
-            failures.append(f"Failed to delete persisted E2E conversation storage {thread_id}: {exc}")
-
-    e2e_thread_ids = set(deleted_thread_ids) | set(thread_storage_statuses)
-    if e2e_thread_ids:
-        try:
-            await _delete_e2e_run_rows(e2e_thread_ids)
-        except Exception as exc:  # noqa: BLE001
-            failures.append(f"Failed to delete E2E agent_runs: {exc}")
-
+    failures: list[str] = []
     agents_response = await client.get(
         "/api/agent",
         params={"include_subagents": "true"},
@@ -317,21 +717,36 @@ async def cleanup_e2e_chat_resources(
         payload = agents_response.json()
         agents = payload.get("agents") if isinstance(payload, dict) else None
         if not isinstance(agents, list):
-            failures.append("E2E agent cleanup response is missing an agents list")
+            failures.append("Test agent cleanup response is missing an agents list")
         else:
             for agent in agents:
                 if not _is_e2e_agent(agent, owner_uid):
                     continue
                 agent_slug = agent.get("slug") or agent.get("agent_id") or agent.get("id")
                 if not agent_slug:
-                    failures.append("E2E agent cleanup entry is missing agent slug")
+                    failures.append("Test agent cleanup entry is missing agent slug")
                     continue
                 delete_response = await client.delete(f"/api/agent/{agent_slug}", headers=headers)
                 if delete_response.status_code not in {200, 404}:
-                    failures.append(f"Failed to delete E2E agent {agent_slug}: {delete_response.text}")
+                    failures.append(f"Failed to delete test agent {agent_slug}: {delete_response.text}")
 
     if failures:
         raise RuntimeError("; ".join(failures))
+
+
+async def cleanup_e2e_chat_resources(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    *,
+    owner_uid: str,
+) -> None:
+    """兼容旧 E2E fixture 的测试聊天清理入口。"""
+
+    await cleanup_test_chat_resources(
+        client,
+        headers,
+        owner_uid=owner_uid,
+    )
 
 
 async def cleanup_pytest_knowledge_resources(

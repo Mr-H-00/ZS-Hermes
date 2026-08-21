@@ -18,7 +18,6 @@ from yuxi.agents.middlewares import (
     SteerMiddleware,
     TokenUsageMiddleware,
     create_summary_middleware,
-    save_attachments_to_fs,
 )
 from yuxi.agents.middlewares.skills import SkillsMiddleware
 from yuxi.agents.middlewares.subagent_task import create_subagent_task_middleware
@@ -46,6 +45,7 @@ async def _build_middlewares(context):
     model_spec = resolve_chat_model_spec(context.model)
     summary_middleware = create_summary_middleware(
         model=load_chat_model(fully_specified_name=model_spec),
+        workdir_path=context.workdir_path,
         trigger=("tokens", summary_trigger_tokens),
         keep=("messages", summary_keep_messages),
         summary_prompt=summary_prompt,
@@ -60,7 +60,6 @@ async def _build_middlewares(context):
             getattr(context, "tool_token_limit", DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS) * 1024,
             context=context,
         ),
-        save_attachments_to_fs,
         SkillsMiddleware(),
     ]
     subagent_middleware = await create_subagent_task_middleware(context)

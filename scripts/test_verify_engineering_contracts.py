@@ -83,6 +83,7 @@ jobs:
     paths:
       - '.env.template'
       - 'backend/**'
+      - 'docker/**'
       - 'scripts/init.sh'
       - 'scripts/init.ps1'
       - 'scripts/test_init_security.ps1'
@@ -119,16 +120,23 @@ jobs:
       - 'backend/test/integration/**'
       - 'backend/test/e2e/**'
       - 'backend/test/support/**'
+      - 'docker/**'
       - '.github/workflows/system-tests.yml'
 jobs:
   system:
     steps:
-      - run: docker compose exec -T api uv run pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_declares_cli_knowledge_capabilities test/integration/api/test_system_router_api.py::test_lite_startup_does_not_create_knowledge_schema -q
-      - run: docker compose exec -T api uv run pytest test/integration/services/test_agent_request_queue_concurrency.py -q
-      - run: docker compose exec -T api uv run pytest test/integration/services/test_agent_run_lease.py -q
-      - run: docker compose exec -T api uv run pytest test/integration/api/test_agent_run_result_causality.py -q
+      - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_declares_cli_knowledge_capabilities test/integration/api/test_system_router_api.py::test_lite_startup_does_not_create_knowledge_schema -q
+      - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_request_queue_concurrency.py -q
+      - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_run_lease.py -q
+      - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_agent_run_result_causality.py -q
       - run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest test/e2e/test_deterministic_agent_path_e2e.py -q
-      - run: docker compose exec -T api uv run pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q
+      - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q
+      - run: |
+          docker compose exec -T api uv run --no-sync --no-dev pytest \\
+          test/integration/services/test_workdir_user_workspace.py \\
+          test/integration/services/test_user_skill_projection.py \\
+          test/integration/api/test_skill_artifact_authorization.py -q
+      - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_project_workdir_provisioner.py -q
 """,
         )
         self._write(
@@ -153,10 +161,10 @@ jobs:
             "# 根约定\n\n见 [架构](ARCHITECTURE.md) 与 [决策](docs/develop-guides/decisions/README.md)。\n",
         )
         self._write("ARCHITECTURE.md", "# 架构\n")
+        self._write("docs/develop-guides/decisions/README.md", "# 决策记录\n")
         self._write(
-            "docs/develop-guides/decisions/README.md", "# 决策记录\n"
+            "backend/AGENTS.md", "# Backend 约定\n见 [根约定](../AGENTS.md)。\n"
         )
-        self._write("backend/AGENTS.md", "# Backend 约定\n见 [根约定](../AGENTS.md)。\n")
         self._write("web/AGENTS.md", "# Web 约定\n见 [根约定](../AGENTS.md)。\n")
         self._write("docs/AGENTS.md", "# 文档约定\n见 [根约定](../AGENTS.md)。\n")
 
@@ -237,9 +245,7 @@ jobs:
             / "docs/develop-guides/decisions/implemented/2026-08-15-valid-decision.md"
         )
         path.write_text(
-            path.read_text(encoding="utf-8").replace(
-                "类型：process", "类型：refactor"
-            ),
+            path.read_text(encoding="utf-8").replace("类型：process", "类型：refactor"),
             encoding="utf-8",
         )
 
@@ -415,77 +421,56 @@ jobs:
 
     def test_system_workflow_cannot_narrow_owning_paths(self) -> None:
         path = self.root / ".github/workflows/system-tests.yml"
-        path.write_text(
-            path.read_text(encoding="utf-8").replace(
-                "      - 'backend/package/yuxi/**'\n", ""
-            ),
-            encoding="utf-8",
-        )
+        original = path.read_text(encoding="utf-8")
+        for owning_path in (
+            "backend/package/yuxi/**",
+            "backend/test/e2e/**",
+            "backend/test/support/**",
+            "docker/**",
+        ):
+            with self.subTest(owning_path=owning_path):
+                path.write_text(
+                    original.replace(f"      - '{owning_path}'\n", ""),
+                    encoding="utf-8",
+                )
+                self.assertTrue(
+                    any(
+                        "workflow PR paths 缺少 owning scope" in error
+                        and owning_path in error
+                        for error in self._errors()
+                    )
+                )
 
-        self.assertTrue(
-            any(
-                "workflow PR paths 缺少 owning scope" in error
-                for error in self._errors()
-            )
-        )
-
-    def test_system_workflow_cannot_ignore_e2e_changes(self) -> None:
+    def test_system_workflow_required_command_cannot_be_removed(self) -> None:
         path = self.root / ".github/workflows/system-tests.yml"
-        path.write_text(
-            path.read_text(encoding="utf-8").replace(
-                "      - 'backend/test/e2e/**'\n", ""
-            ),
-            encoding="utf-8",
-        )
-
-        self.assertTrue(
-            any(
-                "workflow PR paths 缺少 owning scope" in error
-                and "backend/test/e2e/**" in error
-                for error in self._errors()
-            )
-        )
-
-    def test_system_workflow_cannot_ignore_e2e_support_changes(self) -> None:
-        path = self.root / ".github/workflows/system-tests.yml"
-        path.write_text(
-            path.read_text(encoding="utf-8").replace(
-                "      - 'backend/test/support/**'\n", ""
-            ),
-            encoding="utf-8",
-        )
-
-        self.assertTrue(
-            any(
-                "workflow PR paths 缺少 owning scope" in error
-                and "backend/test/support/**" in error
-                for error in self._errors()
-            )
-        )
-
-    def test_deterministic_e2e_command_cannot_be_removed(self) -> None:
-        path = self.root / ".github/workflows/system-tests.yml"
-        path.write_text(
-            path.read_text(encoding="utf-8").replace(
-                "test/e2e/test_deterministic_agent_path_e2e.py",
-                "test/e2e/test_other_path.py",
-            ),
-            encoding="utf-8",
-        )
-
-        self.assertTrue(any("缺少实际 run step" in error for error in self._errors()))
+        original = path.read_text(encoding="utf-8")
+        for test_path in (
+            "test/integration/services/test_project_workdir_provisioner.py",
+            "test/e2e/test_deterministic_agent_path_e2e.py",
+        ):
+            with self.subTest(test_path=test_path):
+                path.write_text(
+                    original.replace(
+                        test_path,
+                        "test/integration/services/test_removed_contract.py",
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertTrue(
+                    any("缺少实际 run step" in error for error in self._errors())
+                )
 
     def test_real_provider_probe_requires_manual_trigger(self) -> None:
         path = self.root / ".github/workflows/real-provider-probe.yml"
         path.write_text(
-            path.read_text(encoding="utf-8").replace(
-                "workflow_dispatch:", "push:"
-            ),
+            path.read_text(encoding="utf-8").replace("workflow_dispatch:", "push:"),
             encoding="utf-8",
         )
 
         self.assertTrue(
-            any("workflow 不监听 workflow_dispatch" in error for error in self._errors())
+            any(
+                "workflow 不监听 workflow_dispatch" in error for error in self._errors()
+            )
         )
 
     def test_real_provider_probe_command_cannot_be_removed(self) -> None:
@@ -550,6 +535,37 @@ jobs:
             )
         )
 
+    def test_service_workspace_host_path_bypasses_are_rejected(self) -> None:
+        cases = (
+            (
+                "from yuxi.workspace.paths import user_workdir_host_dir\n",
+                "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path",
+            ),
+            (
+                "import yuxi.workspace.paths as workspace_paths\n",
+                "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path",
+            ),
+            (
+                "from yuxi.config import get_user_data_dir\n"
+                "def scan():\n"
+                "    return list((get_user_data_dir() / 'shared').iterdir())\n",
+                "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path",
+            ),
+            (
+                "import os\nfrom pathlib import Path\n"
+                "def scan():\n"
+                "    return list(Path(os.environ['YUXI_USER_DATA_DIR']).iterdir())\n",
+                "不得读取 UserWorkspace 宿主根环境变量",
+            ),
+        )
+        path = "backend/package/yuxi/services/invalid_service.py"
+        for source, expected_error in cases:
+            with self.subTest(source=source):
+                self._write(path, source)
+                self.assertTrue(
+                    any(expected_error in error for error in self._errors())
+                )
+
     def test_agents_instruction_file_missing_is_rejected(self) -> None:
         (self.root / "backend/AGENTS.md").unlink()
 
@@ -559,13 +575,9 @@ jobs:
 
     def test_agents_instruction_broken_link_is_rejected(self) -> None:
         path = self.root / "AGENTS.md"
-        path.write_text(
-            "# 根约定\n\n见 [断链](missing-guide.md)。\n", encoding="utf-8"
-        )
+        path.write_text("# 根约定\n\n见 [断链](missing-guide.md)。\n", encoding="utf-8")
 
-        self.assertTrue(
-            any("AGENTS 指令引用失效" in error for error in self._errors())
-        )
+        self.assertTrue(any("AGENTS 指令引用失效" in error for error in self._errors()))
 
     def test_agents_instruction_external_link_is_allowed(self) -> None:
         path = self.root / "AGENTS.md"
@@ -583,17 +595,13 @@ jobs:
             encoding="utf-8",
         )
 
-        self.assertTrue(
-            any("必须有且只有一个 H1" in error for error in self._errors())
-        )
+        self.assertTrue(any("必须有且只有一个 H1" in error for error in self._errors()))
 
     def test_agents_instruction_budget_overflow_is_rejected(self) -> None:
         for relative in AGENTS_FILE_BUDGETS:
             with self.subTest(relative=relative):
                 path = self.root / relative
-                path.write_text(
-                    "# 标题\n\n" + "规则" * 3000 + "\n", encoding="utf-8"
-                )
+                path.write_text("# 标题\n\n" + "规则" * 3000 + "\n", encoding="utf-8")
 
                 self.assertTrue(
                     any(
@@ -676,9 +684,7 @@ jobs:
             "# 缩进示例\n\n    ```text\n\n系统不是缓存层，而是最终事实源。\n",
         )
 
-        self.assertTrue(
-            any("禁止对举式否定" in error for error in self._errors())
-        )
+        self.assertTrue(any("禁止对举式否定" in error for error in self._errors()))
 
     def test_shorter_fence_cannot_close_longer_fence(self) -> None:
         self._write(
@@ -694,9 +700,7 @@ jobs:
             "# 引用示例\n\n> ```text\n> 示例\n系统不是缓存层，而是最终事实源。\n",
         )
 
-        self.assertTrue(
-            any("禁止对举式否定" in error for error in self._errors())
-        )
+        self.assertTrue(any("禁止对举式否定" in error for error in self._errors()))
 
     def test_unclosed_list_fence_cannot_hide_following_prose(self) -> None:
         self._write(
@@ -704,9 +708,7 @@ jobs:
             "# 列表示例\n\n- 示例\n\n    ```text\n    示例\n\n系统不是缓存层，而是最终事实源。\n",
         )
 
-        self.assertTrue(
-            any("禁止对举式否定" in error for error in self._errors())
-        )
+        self.assertTrue(any("禁止对举式否定" in error for error in self._errors()))
 
     def test_nested_list_fence_cannot_hide_outer_item_prose(self) -> None:
         self._write(
@@ -716,9 +718,7 @@ jobs:
             "  系统不是缓存层，而是最终事实源。\n",
         )
 
-        self.assertTrue(
-            any("禁止对举式否定" in error for error in self._errors())
-        )
+        self.assertTrue(any("禁止对举式否定" in error for error in self._errors()))
 
     def test_vibe_drafts_are_excluded_from_prose_check(self) -> None:
         self._write(
@@ -773,7 +773,9 @@ Owner：owner.md
         )
 
         self.assertTrue(
-            any("proposed 验收标准缺少证据矩阵表头" in error for error in self._errors())
+            any(
+                "proposed 验收标准缺少证据矩阵表头" in error for error in self._errors()
+            )
         )
 
     def test_proposed_decision_empty_evidence_matrix_is_rejected(self) -> None:
@@ -804,7 +806,10 @@ Owner：owner.md
         )
 
         self.assertTrue(
-            any("proposed 验收标准缺少证据矩阵数据行" in error for error in self._errors())
+            any(
+                "proposed 验收标准缺少证据矩阵数据行" in error
+                for error in self._errors()
+            )
         )
 
     def test_proposed_evidence_matrix_empty_cell_is_rejected(self) -> None:
@@ -836,7 +841,9 @@ Owner：owner.md
         )
 
         self.assertTrue(
-            any("proposed 证据矩阵必须填写全部六列" in error for error in self._errors())
+            any(
+                "proposed 证据矩阵必须填写全部六列" in error for error in self._errors()
+            )
         )
 
     def test_proposed_evidence_matrix_unknown_result_is_rejected(self) -> None:
@@ -918,8 +925,18 @@ Owner：owner.md
         )
 
         errors = self._errors()
-        self.assertTrue(any("simplification ## 验证 缺少：旧能力不存在：" in error for error in errors))
-        self.assertTrue(any("simplification ## 验证 缺少：重新引入条件：" in error for error in errors))
+        self.assertTrue(
+            any(
+                "simplification ## 验证 缺少：旧能力不存在：" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "simplification ## 验证 缺少：重新引入条件：" in error
+                for error in errors
+            )
+        )
 
     def test_postmortem_readme_missing_is_rejected(self) -> None:
         (self.root / "docs/develop-guides/postmortems/README.md").unlink()
@@ -943,7 +960,10 @@ Owner：owner.md
         )
 
         self.assertTrue(
-            any("postmortem 模板缺少标题：## 防复发措施" in error for error in self._errors())
+            any(
+                "postmortem 模板缺少标题：## 防复发措施" in error
+                for error in self._errors()
+            )
         )
 
     def test_postmortem_template_empty_heading_is_rejected(self) -> None:
@@ -956,7 +976,10 @@ Owner：owner.md
         )
 
         self.assertTrue(
-            any("postmortem 模板标题下没有内容：## 防复发措施" in error for error in self._errors())
+            any(
+                "postmortem 模板标题下没有内容：## 防复发措施" in error
+                for error in self._errors()
+            )
         )
 
     def test_rejected_decision_missing_rejection_reason_is_rejected(self) -> None:

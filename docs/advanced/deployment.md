@@ -45,12 +45,32 @@ SILICONFLOW_API_KEY=
 使用生产环境配置文件启动：
 
 ```bash
+# 从旧文件布局升级时先执行；运行中、已 stop 或已 down 均可
+bash scripts/migrate-storage.sh -f docker-compose.prod.yml --env-file .env.prod
+
 # 仅启动核心服务（CPU 模式）
 docker compose -f docker-compose.prod.yml up -d --build
 
 # 启动所有服务（包含 GPU OCR）
 docker compose -f docker-compose.prod.yml --profile all up -d --build
 ```
+
+迁移脚本会把其后的参数原样用于每一次 Docker Compose 调用，因此迁移和重启必须使用同一份 Compose
+文件、env file 与 profile。脚本只在 API/worker 已停止、provisioner 已禁止新建 Sandbox，且 Docker
+容器或 Kubernetes Pod 的权威清单确认为空后签发一次性 proof；枚举失败或 Pod 仍在 Terminating
+都会 fail-closed。
+
+### Kubernetes 存储边界
+
+当前双 PVC contract 面向后续新部署：operator 预先创建 `USER_DATA_PVC` 与 `SKILLS_PVC`，其中
+User Data 的存储类必须支持部署所需的共享读写语义。仓库没有拥有具体集群的 StorageClass、PVC 大小、Secret 或完整
+API/worker Deployment manifest，因此不会自动创建、复制或删除 PVC；真实目标集群 smoke 完成前，
+不能把 Pod spec unit 当作已上线证明。
+
+历史 `THREAD_PVC` 的目录形状与新 `shared/<uid>/workspace/projects/<workdir-id>` 不同，不能只通过改变量名
+完成升级。当前不提供旧 Kubernetes 部署的自动原地迁移；需要保留旧卷并由
+operator 离线导出、校验后导入新布局。Compose 的 `scripts/migrate-storage.sh` 只拥有 Compose 文件域，
+不能冒充 Kubernetes PVC migrator。
 
 ### 3. 验证部署
 

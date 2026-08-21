@@ -65,6 +65,7 @@
           </a-button>
         </div>
         <div class="filter-group">
+          <a-tag>API 进程日志</a-tag>
           <a-input-search
             v-model:value="state.searchText"
             placeholder="搜索日志..."

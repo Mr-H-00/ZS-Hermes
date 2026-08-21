@@ -5,21 +5,110 @@ from typing import Any
 import httpx
 import pytest
 
-from test.live_api_cleanup import cleanup_e2e_chat_resources, cleanup_pytest_knowledge_resources
-from test.live_api_cleanup import remove_e2e_thread_storage
+from test.live_api_cleanup import (
+    TEST_CONVERSATION_TITLE_PREFIX,
+    CleanupConversationResource,
+    cleanup_e2e_chat_resources,
+    cleanup_provisioned_sandboxes,
+    cleanup_pytest_knowledge_resources,
+    is_test_conversation_title,
+    make_test_conversation_metadata,
+    make_test_conversation_title,
+    make_test_resource_id,
+    remove_e2e_thread_storage,
+    remove_test_workdir,
+)
 
 pytestmark = pytest.mark.asyncio
 
 
-async def _patch_run_row_deletion(monkeypatch: pytest.MonkeyPatch) -> list[set[str]]:
-    """打桩数据库 run 行删除，记录收集到的线程 id，保持单测不接触真实 PostgreSQL。"""
+async def test_cleanup_deletes_every_sandbox_through_provisioner_api():
+    """测试环境沙盒只能通过 provisioner 的受控管理接口清理。"""
+
+    deleted_paths: list[str] = []
+    sandbox_ids = {"sandbox-one", "sandbox-two"}
+    authorization_headers: list[str | None] = []
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        authorization_headers.append(request.headers.get("Authorization"))
+        if request.method == "DELETE":
+            deleted_paths.append(request.url.path)
+            sandbox_ids.discard(request.url.path.rsplit("/", 1)[-1])
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(
+            200,
+            json={
+                "sandboxes": [{"sandbox_id": sandbox_id} for sandbox_id in sorted(sandbox_ids)],
+                "count": len(sandbox_ids),
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle_request), base_url="http://provisioner"
+    ) as client:
+        await cleanup_provisioned_sandboxes(client, {"Authorization": "Bearer test-token"})
+
+    assert deleted_paths == ["/api/sandboxes/sandbox-one", "/api/sandboxes/sandbox-two"]
+    assert authorization_headers == ["Bearer test-token"] * 4
+
+
+async def test_cleanup_rejects_delete_that_does_not_remove_sandbox():
+    """DELETE 即使返回 200，回读仍存在时也不得伪装清理成功。"""
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(200, json={"sandboxes": [{"sandbox_id": "sandbox-stale"}], "count": 1})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle_request), base_url="http://provisioner"
+    ) as client:
+        with pytest.raises(RuntimeError, match="left sandboxes behind: sandbox-stale"):
+            await cleanup_provisioned_sandboxes(client, {"Authorization": "Bearer test-token"})
+
+
+async def test_cleanup_rejects_invalid_provisioner_list_payload():
+    """provisioner 未返回真实沙盒列表时必须拒绝伪装成清理成功。"""
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"count": 0})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle_request), base_url="http://provisioner"
+    ) as client:
+        with pytest.raises(RuntimeError, match="missing a sandboxes list"):
+            await cleanup_provisioned_sandboxes(client, {"Authorization": "Bearer test-token"})
+
+
+async def _patch_chat_cleanup_database(
+    monkeypatch: pytest.MonkeyPatch,
+    resources: dict[str, CleanupConversationResource],
+) -> list[set[str]]:
+    """打桩清理器的持久化发现、校验与物理删除。"""
 
     collected: list[set[str]] = []
 
-    async def fake_delete_e2e_run_rows(thread_ids: set[str]) -> None:
+    async def fake_list_resources(_owner_uid: str) -> dict[str, CleanupConversationResource]:
+        return resources
+
+    async def fake_validate(*_args, **_kwargs) -> None:
+        return None
+
+    async def fake_list_queued(_thread_ids: set[str]) -> list[str]:
+        return []
+
+    async def fake_delete_resources(workdirs, thread_ids: set[str]) -> None:
+        for uid, workdir_path in workdirs:
+            remove_test_workdir(uid, workdir_path)
+        for thread_id in thread_ids:
+            remove_e2e_thread_storage(thread_id)
         collected.append(set(thread_ids))
 
-    monkeypatch.setattr("test.live_api_cleanup._delete_e2e_run_rows", fake_delete_e2e_run_rows)
+    monkeypatch.setattr("test.live_api_cleanup.list_test_conversation_resources", fake_list_resources)
+    monkeypatch.setattr("test.live_api_cleanup.validate_test_workdirs_exclusive", fake_validate)
+    monkeypatch.setattr("test.live_api_cleanup.validate_test_runs_terminal", fake_validate)
+    monkeypatch.setattr("test.live_api_cleanup.list_test_queued_request_ids", fake_list_queued)
+    monkeypatch.setattr("test.live_api_cleanup.delete_test_conversation_resources", fake_delete_resources)
     return collected
 
 
@@ -85,8 +174,20 @@ async def test_cleanup_deletes_e2e_threads_before_temporary_agents(tmp_path, mon
     """只删除 E2E 标记的对话和智能体，并允许资源已经不存在。"""
 
     deleted_paths: list[str] = []
-    run_deletion_threads = await _patch_run_row_deletion(monkeypatch)
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    deleted_row_threads = await _patch_chat_cleanup_database(
+        monkeypatch,
+        {
+            thread_id: CleanupConversationResource(
+                conversation_id=index,
+                thread_id=thread_id,
+                uid="test-user",
+                status="active",
+                workdir_path=None,
+            )
+            for index, thread_id in enumerate(("thread-viewer", "thread-marked"), start=1)
+        },
+    )
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     (tmp_path / "threads" / "thread-viewer").mkdir(parents=True)
     (tmp_path / "threads" / "thread-marked").mkdir(parents=True)
     responses: dict[str, object] = {
@@ -132,7 +233,6 @@ async def test_cleanup_deletes_e2e_threads_before_temporary_agents(tmp_path, mon
             client,
             {"Authorization": "test"},
             owner_uid="test-user",
-            thread_storage_statuses={},
         )
 
     assert deleted_paths == [
@@ -140,7 +240,7 @@ async def test_cleanup_deletes_e2e_threads_before_temporary_agents(tmp_path, mon
         "/api/chat/thread/thread-marked",
         "/api/agent/e2e-main-deadbeef",
     ]
-    assert run_deletion_threads == [{"thread-viewer", "thread-marked"}]
+    assert deleted_row_threads == [{"thread-viewer", "thread-marked"}]
     assert not (tmp_path / "threads" / "thread-viewer").exists()
     assert not (tmp_path / "threads" / "thread-marked").exists()
 
@@ -149,9 +249,20 @@ async def test_cleanup_paginates_active_threads(tmp_path, monkeypatch):
     """活动线程超过单页上限时仍需清理后续页面的 E2E 对话。"""
 
     deleted_paths: list[str] = []
-    run_deletion_threads = await _patch_run_row_deletion(monkeypatch)
+    deleted_row_threads = await _patch_chat_cleanup_database(
+        monkeypatch,
+        {
+            "thread-page-2": CleanupConversationResource(
+                conversation_id=1,
+                thread_id="thread-page-2",
+                uid="test-user",
+                status="active",
+                workdir_path=None,
+            )
+        },
+    )
     offsets: list[str] = []
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
 
     def handle_request(request: httpx.Request) -> httpx.Response:
         """模拟分两页返回线程的清理 API。"""
@@ -186,20 +297,37 @@ async def test_cleanup_paginates_active_threads(tmp_path, monkeypatch):
             client,
             {"Authorization": "test"},
             owner_uid="test-user",
-            thread_storage_statuses={},
         )
 
     assert offsets == ["0", "500"]
     assert deleted_paths == ["/api/chat/thread/thread-page-2"]
-    assert run_deletion_threads == [{"thread-page-2"}]
+    assert deleted_row_threads == [{"thread-page-2"}]
 
 
 async def test_cleanup_removes_deleted_and_subagent_thread_storage(tmp_path, monkeypatch):
     """已软删除和 subagent 状态的线程也必须回收本地沙盒目录。"""
 
     deleted_paths: list[str] = []
-    run_deletion_threads = await _patch_run_row_deletion(monkeypatch)
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    deleted_row_threads = await _patch_chat_cleanup_database(
+        monkeypatch,
+        {
+            "thread-deleted": CleanupConversationResource(
+                conversation_id=1,
+                thread_id="thread-deleted",
+                uid="test-user",
+                status="deleted",
+                workdir_path=None,
+            ),
+            "thread-child": CleanupConversationResource(
+                conversation_id=2,
+                thread_id="thread-child",
+                uid="test-user",
+                status="subagent",
+                workdir_path=None,
+            ),
+        },
+    )
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     for thread_id in ("thread-deleted", "thread-child"):
         (tmp_path / "threads" / thread_id).mkdir(parents=True)
 
@@ -220,11 +348,10 @@ async def test_cleanup_removes_deleted_and_subagent_thread_storage(tmp_path, mon
             client,
             {"Authorization": "test"},
             owner_uid="test-user",
-            thread_storage_statuses={"thread-deleted": "deleted", "thread-child": "subagent"},
         )
 
     assert deleted_paths == ["/api/chat/thread/thread-child"]
-    assert run_deletion_threads == [{"thread-child", "thread-deleted"}]
+    assert deleted_row_threads == [{"thread-child", "thread-deleted"}]
     assert not (tmp_path / "threads" / "thread-deleted").exists()
     assert not (tmp_path / "threads" / "thread-child").exists()
 
@@ -232,7 +359,7 @@ async def test_cleanup_removes_deleted_and_subagent_thread_storage(tmp_path, mon
 async def test_remove_e2e_thread_storage_rejects_symlink(tmp_path, monkeypatch):
     """沙盒目录是符号链接时必须拒绝删除，避免解析后误删用户目录。"""
 
-    monkeypatch.setenv("SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     threads_root = tmp_path / "threads"
     threads_root.mkdir()
     user_dir = threads_root / "user-data"
@@ -245,14 +372,200 @@ async def test_remove_e2e_thread_storage_rejects_symlink(tmp_path, monkeypatch):
     assert user_dir.exists()
 
 
+async def test_test_resource_names_use_one_visible_prefix():
+    title = make_test_conversation_title("viewer 文件系统")
+    metadata = make_test_conversation_metadata("viewer-filesystem")
+
+    assert title.startswith(TEST_CONVERSATION_TITLE_PREFIX)
+    assert metadata["_yuxi_test"] is True
+    assert make_test_resource_id("agent-call").startswith("YUXI_TEST_")
+
+
+async def test_legacy_title_matching_is_exact_and_does_not_capture_user_titles():
+    """历史兼容只接受仓库曾生成的固定格式，不按宽泛前缀误删。"""
+
+    assert is_test_conversation_title("viewer-deadbeef")
+    assert is_test_conversation_title("pytest-channel-0123abcd")
+    assert is_test_conversation_title("pytest-queue-0123abcd")
+    assert not is_test_conversation_title("viewer-notes")
+    assert not is_test_conversation_title("viewer-deadbeef-personal")
+
+
+async def test_cleanup_discovery_failure_has_no_destructive_side_effect(tmp_path, monkeypatch):
+    """数据库无法确认归属时，不得先软删会话或删除临时智能体。"""
+
+    destructive_paths: list[str] = []
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+
+    async def fail_discovery(_owner_uid: str):
+        raise OSError("postgres unavailable")
+
+    monkeypatch.setattr("test.live_api_cleanup.list_test_conversation_resources", fail_discovery)
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            destructive_paths.append(request.url.path)
+            return httpx.Response(200, json={})
+        if request.url.path == "/api/chat/threads":
+            return httpx.Response(
+                200,
+                json=[{"id": "thread-marked", "metadata": {"_yuxi_test": True}}],
+            )
+        if request.url.path == "/api/agent":
+            raise AssertionError("agent cleanup must not run after discovery failure")
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="Failed to list persisted"):
+            await cleanup_e2e_chat_resources(client, {"Authorization": "test"}, owner_uid="test-user")
+
+    assert destructive_paths == []
+
+
+async def test_cleanup_guard_failure_has_no_destructive_side_effect(tmp_path, monkeypatch):
+    """Run/Workdir guard 拒绝时，对话、文件、历史和智能体均保持不变。"""
+
+    destructive_paths: list[str] = []
+    legacy_dir = tmp_path / "threads" / "thread-marked"
+    legacy_dir.mkdir(parents=True)
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    resources = {"thread-marked": CleanupConversationResource(1, "thread-marked", "test-user", "active", None)}
+
+    async def fake_list_resources(_owner_uid: str):
+        return resources
+
+    async def fake_workdir_guard(*_args):
+        return None
+
+    async def fail_run_guard(_thread_ids: set[str]):
+        raise RuntimeError("test Run is not terminal")
+
+    monkeypatch.setattr("test.live_api_cleanup.list_test_conversation_resources", fake_list_resources)
+    monkeypatch.setattr("test.live_api_cleanup.validate_test_workdirs_exclusive", fake_workdir_guard)
+    monkeypatch.setattr("test.live_api_cleanup.validate_test_runs_terminal", fail_run_guard)
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            destructive_paths.append(request.url.path)
+            return httpx.Response(200, json={})
+        if request.url.path == "/api/chat/threads":
+            return httpx.Response(200, json=[{"id": "thread-marked", "metadata": {"_yuxi_test": True}}])
+        if request.url.path == "/api/agent":
+            raise AssertionError("agent cleanup must not run after guard failure")
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="not terminal"):
+            await cleanup_e2e_chat_resources(client, {"Authorization": "test"}, owner_uid="test-user")
+
+    assert destructive_paths == []
+    assert legacy_dir.exists()
+
+
+async def test_cleanup_stops_when_cancelled_request_remains_queued(tmp_path, monkeypatch):
+    """取消 API 未真正收敛 queued 请求时，不得继续删除会话、文件或历史。"""
+
+    destructive_paths: list[str] = []
+    legacy_dir = tmp_path / "threads" / "thread-marked"
+    legacy_dir.mkdir(parents=True)
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+
+    async def fake_list_resources(_owner_uid: str):
+        return {"thread-marked": CleanupConversationResource(1, "thread-marked", "test-user", "active", None)}
+
+    async def fake_validate(*_args):
+        return None
+
+    async def still_queued(_thread_ids: set[str]) -> list[str]:
+        return ["YUXI_TEST_queued_request"]
+
+    monkeypatch.setattr("test.live_api_cleanup.list_test_conversation_resources", fake_list_resources)
+    monkeypatch.setattr("test.live_api_cleanup.validate_test_workdirs_exclusive", fake_validate)
+    monkeypatch.setattr("test.live_api_cleanup.validate_test_runs_terminal", fake_validate)
+    monkeypatch.setattr("test.live_api_cleanup.list_test_queued_request_ids", still_queued)
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/chat/threads":
+            return httpx.Response(200, json=[{"id": "thread-marked", "metadata": {"_yuxi_test": True}}])
+        if request.method == "POST" and request.url.path.endswith("/cancel"):
+            return httpx.Response(200, json={"status": "cancelled"})
+        if request.method == "DELETE":
+            destructive_paths.append(request.url.path)
+            return httpx.Response(200, json={})
+        if request.url.path == "/api/agent":
+            raise AssertionError("agent cleanup must not run while a request remains queued")
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="left queued requests behind"):
+            await cleanup_e2e_chat_resources(client, {"Authorization": "test"}, owner_uid="test-user")
+
+    assert destructive_paths == []
+    assert legacy_dir.exists()
+
+
+async def test_remove_test_workdir_stays_inside_project_boundary(tmp_path, monkeypatch):
+    workdir_path = "projects/11111111-1111-4111-8111-111111111111"
+    project = tmp_path / workdir_path
+    project.mkdir(parents=True)
+    (project / "artifact.txt").write_text("test", encoding="utf-8")
+    monkeypatch.setattr("test.live_api_cleanup.user_workdir_host_dir", lambda _uid, _path: project)
+
+    remove_test_workdir("test-user", workdir_path)
+
+    assert not project.exists()
+
+
+async def test_remove_test_workdir_rejects_non_project_path(tmp_path, monkeypatch):
+    outside = tmp_path / "agents"
+    outside.mkdir()
+    monkeypatch.setattr("test.live_api_cleanup.user_workdir_host_dir", lambda _uid, _path: outside)
+
+    with pytest.raises(RuntimeError, match="invalid Workdir"):
+        remove_test_workdir("test-user", "agents/skills")
+
+    assert outside.exists()
+
+
+async def test_remove_test_workdir_rejects_symlink(tmp_path, monkeypatch):
+    """Project Workdir 是符号链接时必须拒绝，不能跟随到用户目录。"""
+
+    target = tmp_path / "user-files"
+    target.mkdir()
+    workdir_path = "projects/22222222-2222-4222-8222-222222222222"
+    symlink = tmp_path / workdir_path
+    symlink.parent.mkdir()
+    symlink.symlink_to(target, target_is_directory=True)
+    monkeypatch.setattr("test.live_api_cleanup.user_workdir_host_dir", lambda _uid, _path: symlink)
+
+    with pytest.raises(RuntimeError, match="symlink Workdir"):
+        remove_test_workdir("test-user", workdir_path)
+
+    assert target.exists()
+
+
+async def test_remove_test_workdir_is_idempotent_when_directory_is_gone(tmp_path, monkeypatch):
+    workdir_path = "projects/33333333-3333-4333-8333-333333333333"
+    missing = tmp_path / workdir_path
+    monkeypatch.setattr("test.live_api_cleanup.user_workdir_host_dir", lambda _uid, _path: missing)
+
+    remove_test_workdir("test-user", workdir_path)
+
+    assert not missing.exists()
+
+
 async def test_is_e2e_thread_recognizes_marker_or_e2e_agent_prefix():
     from test.live_api_cleanup import _is_e2e_thread
 
     marked = {"id": "t1", "agent_id": "default-chatbot", "metadata": {"_yuxi_e2e": True, "test": "viewer-fs-e2e"}}
     agent_prefix = {"id": "invocation_x", "agent_id": "e2e-agent-call-deadbeef"}
+    unified = {"id": "t3", "title": f"{TEST_CONVERSATION_TITLE_PREFIX}viewer_deadbeef", "metadata": {}}
+    explicit = {"id": "t4", "metadata": {"_yuxi_test": True}}
     plain = {"id": "t2", "agent_id": "default-chatbot"}
 
     assert _is_e2e_thread(marked)
     assert _is_e2e_thread(agent_prefix)
+    assert _is_e2e_thread(unified)
+    assert _is_e2e_thread(explicit)
     assert not _is_e2e_thread(plain)
     assert not _is_e2e_thread("not-a-dict")

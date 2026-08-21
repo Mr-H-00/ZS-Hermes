@@ -6,10 +6,13 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from yuxi.config import get_legacy_storage_dir, get_runtime_dir
 from yuxi.config.options import get_option
 from yuxi.config.runtime import knowledge_capability_enabled, lite_mode_enabled
 from yuxi.storage.postgres.models_business import ConfigOption
@@ -21,6 +24,52 @@ async def test_health_endpoint_is_public(test_client):
     response = await test_client.get("/api/system/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+async def test_logs_endpoint_returns_only_api_process_log(test_client, admin_headers):
+    """管理员日志接口应明确读取当前 API 进程拥有的日志文件。"""
+    from yuxi.utils.logging_config import LOG_FILE
+
+    api_marker = f"api-log-contract-{uuid4()}"
+    worker_marker = f"worker-log-contract-{uuid4()}"
+    legacy_marker = f"legacy-shared-log-contract-{uuid4()}"
+    log_path = Path(LOG_FILE)
+    worker_log_path = get_runtime_dir().parent / "worker" / "logs" / log_path.name
+    legacy_log_path = get_legacy_storage_dir() / "logs" / log_path.name
+    worker_log_original = worker_log_path.read_bytes() if worker_log_path.exists() else None
+    legacy_log_original = legacy_log_path.read_bytes() if legacy_log_path.exists() else None
+
+    assert log_path.parent == get_runtime_dir() / "logs"
+    assert get_legacy_storage_dir().resolve() not in log_path.resolve().parents
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as log_file:
+        log_file.write(f"2026-08-17 20:00:00 - INFO - test:1 - {api_marker}\n")
+    worker_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with worker_log_path.open("a", encoding="utf-8") as worker_log:
+        worker_log.write(f"2026-08-17 20:00:00 - INFO - worker:1 - {worker_marker}\n")
+    legacy_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with legacy_log_path.open("a", encoding="utf-8") as legacy_log:
+        legacy_log.write(f"2026-08-17 20:00:00 - INFO - legacy:1 - {legacy_marker}\n")
+
+    try:
+        response = await test_client.get("/api/system/logs?levels=INFO", headers=admin_headers)
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["scope"] == "api"
+        assert payload["log_file"] == LOG_FILE
+        assert api_marker in payload["log"]
+        assert worker_marker not in payload["log"]
+        assert legacy_marker not in payload["log"]
+    finally:
+        if worker_log_original is None:
+            worker_log_path.unlink(missing_ok=True)
+        else:
+            worker_log_path.write_bytes(worker_log_original)
+        if legacy_log_original is None:
+            legacy_log_path.unlink(missing_ok=True)
+        else:
+            legacy_log_path.write_bytes(legacy_log_original)
 
 
 async def test_readiness_endpoint_proves_core_runtime_dependencies(test_client):
