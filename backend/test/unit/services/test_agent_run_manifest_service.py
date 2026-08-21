@@ -72,6 +72,25 @@ def test_different_assets_produce_different_fingerprint():
     assert compute_manifest_fingerprint(_manifest()) != compute_manifest_fingerprint(changed)
 
 
+def test_preload_skill_config_changes_config_digest():
+    base_context = _manifest()["config_digest"]
+    changed_context = {
+        **{
+            "model": "siliconflow-cn:Pro/MiniMaxAI/MiniMax-M2.5",
+            "tools": ["fs", "web"],
+            "mcps": [],
+            "skills": ["code-review"],
+            "max_execution_steps": 150,
+            "model_retry_times": 2,
+            "system_prompt": "You are a reviewer.",
+            "summary_prompt": "Summarize: {messages}",
+        },
+        "preload_skills": ["code-review"],
+    }
+
+    assert base_context != compute_config_digest(changed_context)
+
+
 def test_manifest_excludes_prompts_and_secret_shaped_values():
     context = {
         "system_prompt": "SECRET-PROMPT-BODY",

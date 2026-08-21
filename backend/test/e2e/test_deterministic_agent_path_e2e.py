@@ -22,6 +22,9 @@ from yuxi.config import get_skill_projection_dir
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
 EXPECTED_OUTPUT = "DETERMINISTIC_AGENT_E2E_OK"
+EXPECTED_PRELOADED_SKILL_MARKER = "# 图片生成技能"
+EXPECTED_PRELOADED_TOOL = "present_artifacts"
+EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
 PROVIDER_ID = "ci-replay"
 MODEL_SPEC = f"{PROVIDER_ID}:deterministic-chat"
 
@@ -30,7 +33,11 @@ async def test_replay_rejects_requests_outside_deterministic_contract() -> None:
     valid_body = {
         "model": "deterministic-chat",
         "stream": True,
-        "messages": [{"role": "user", "content": EXPECTED_OUTPUT}],
+        "messages": [
+            {"role": "system", "content": EXPECTED_PRELOADED_SKILL_MARKER},
+            {"role": "user", "content": EXPECTED_OUTPUT},
+        ],
+        "tools": [{"type": "function", "function": {"name": EXPECTED_PRELOADED_TOOL}}],
     }
     cases = [
         ({}, valid_body, "invalid_authorization"),
@@ -48,6 +55,34 @@ async def test_replay_rejects_requests_outside_deterministic_contract() -> None:
             {"Authorization": "Bearer ci-replay-key"},
             {**valid_body, "messages": [{"role": "user", "content": "wrong"}]},
             "expected_input_missing",
+        ),
+        (
+            {"Authorization": "Bearer ci-replay-key"},
+            {
+                **valid_body,
+                "messages": [{"role": "user", "content": EXPECTED_OUTPUT}],
+            },
+            "preloaded_skill_missing",
+        ),
+        (
+            {"Authorization": "Bearer ci-replay-key"},
+            {**valid_body, "tools": []},
+            "preloaded_tool_missing",
+        ),
+        (
+            {"Authorization": "Bearer ci-replay-key"},
+            {
+                **valid_body,
+                "messages": [
+                    *valid_body["messages"],
+                    {
+                        "role": "tool",
+                        "tool_call_id": EXPECTED_TOOL_CALL_ID,
+                        "content": "unexpected result",
+                    },
+                ],
+            },
+            "tool_execution_result_missing",
         ),
     ]
 
@@ -134,7 +169,8 @@ async def _create_agent(client: httpx.AsyncClient, headers: dict[str, str], uid:
                     "tools": [],
                     "knowledges": [],
                     "mcps": [],
-                    "skills": [],
+                    "skills": ["image-gen"],
+                    "preload_skills": ["image-gen"],
                     "subagents": [],
                 }
             },
@@ -177,6 +213,21 @@ async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
         assert row["output_run_id"] == run_id
         assert row["output_request_id"] == request_id
         assert row["output_content"] == EXPECTED_OUTPUT
+
+        tool_call = await conn.fetchrow(
+            """
+            SELECT tc.langgraph_tool_call_id, tc.tool_name, tc.status, tc.tool_output
+            FROM tool_calls tc
+            JOIN messages message ON message.id = tc.message_id
+            WHERE message.run_id = $1
+            """,
+            run_id,
+        )
+        assert tool_call, "预加载工具必须经过真实 ToolNode 执行并持久化"
+        assert tool_call["langgraph_tool_call_id"] == EXPECTED_TOOL_CALL_ID
+        assert tool_call["tool_name"] == EXPECTED_PRELOADED_TOOL
+        assert tool_call["status"] == "success"
+        assert tool_call["tool_output"]
     finally:
         await conn.close()
 
@@ -222,7 +273,9 @@ async def _assert_persisted_execution_facts(run_id: str, agent_slug: str) -> Non
         assert manifest["manifest_version"] == 1
         assert manifest["agent"] == {"slug": agent_slug, "backend_id": "ChatbotAgent"}
         assert manifest["model"] == {"spec": MODEL_SPEC}
-        assert manifest["resources"]["skills"] == []
+        assert len(manifest["resources"]["skills"]) == 1
+        assert manifest["resources"]["skills"][0]["slug"] == "image-gen"
+        assert manifest["resources"]["skills"][0]["content_hash"]
         assert row["manifest_recorded_at"] is not None
         assert row["manifest_recorded_at"] >= row["started_at"]
 
@@ -231,6 +284,7 @@ async def _assert_persisted_execution_facts(run_id: str, agent_slug: str) -> Non
         assert EXPECTED_OUTPUT not in serialized
         assert "不要调用工具" not in serialized
         assert "ci-replay-key" not in serialized
+        assert EXPECTED_PRELOADED_SKILL_MARKER not in serialized
         assert len(manifest["config_digest"]) == 64
 
         expected_fingerprint = hashlib.sha256(

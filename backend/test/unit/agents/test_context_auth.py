@@ -49,6 +49,8 @@ def test_get_configurable_items_filters_admin_fields_for_user():
     items = BaseContext.get_configurable_items(user_role="user")
 
     assert "system_prompt" in items
+    assert items["preload_skills"]["default"] == []
+    assert items["preload_skills"]["kind"] == "skills"
     assert "summary_threshold" not in items
     assert "summary_keep_messages" not in items
     assert "summary_prompt" not in items
@@ -157,6 +159,22 @@ async def test_lite_resource_options_exclude_persisted_knowledge_skill(monkeypat
         "skills": [{"key": "skill-a", "name": "Skill A", "description": ""}],
     }
 
+    normalized = await normalize_agent_context_config(
+        {
+            "tools": [],
+            "knowledges": [],
+            "mcps": [],
+            "skills": None,
+            "preload_skills": ["knowledge-base"],
+        },
+        db=object(),
+        user=types.SimpleNamespace(role="user", uid="u1", department_id=None),
+        context_schema=BaseContext,
+    )
+
+    assert normalized["skills"] == ["skill-a"]
+    assert normalized["preload_skills"] == []
+
 
 @pytest.mark.asyncio
 async def test_normalize_agent_context_config_expands_null_and_filters_explicit_lists(monkeypatch):
@@ -230,6 +248,7 @@ async def test_normalize_agent_context_config_expands_null_and_filters_explicit_
             "knowledges": ["kb-b", "missing", "kb-b"],
             "mcps": None,
             "skills": [],
+            "preload_skills": ["skill-a"],
             "subagents": ["research-agent", "missing"],
             "summary_threshold": 10,
             "summary_keep_messages": 8,
@@ -246,6 +265,7 @@ async def test_normalize_agent_context_config_expands_null_and_filters_explicit_
     assert normalized["knowledges"] == ["kb-b"]
     assert normalized["mcps"] == ["mcp-a"]
     assert normalized["skills"] == []
+    assert normalized["preload_skills"] == []
     assert normalized["subagents"] == ["research-agent"]
     assert "summary_threshold" not in normalized
     assert "summary_keep_messages" not in normalized
@@ -261,6 +281,23 @@ async def test_normalize_agent_context_config_expands_null_and_filters_explicit_
     )
 
     assert empty_subagents_normalized["subagents"] == ["research-agent", "critique-agent"]
+
+    preloaded_normalized = await normalize_agent_context_config(
+        {
+            "tools": [],
+            "knowledges": [],
+            "mcps": [],
+            "skills": ["skill-a"],
+            "preload_skills": ["skill-b", "skill-a", "skill-a", "missing"],
+            "subagents": ["research-agent"],
+        },
+        db=object(),
+        user=types.SimpleNamespace(role="user", uid="u1", department_id=None),
+        context_schema=ChatBotContext,
+    )
+
+    assert preloaded_normalized["skills"] == ["skill-a"]
+    assert preloaded_normalized["preload_skills"] == ["skill-a"]
 
 
 @pytest.mark.asyncio
@@ -286,12 +323,19 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
         context._visible_knowledge_bases = [{"slug": "kb-a", "name": "Docs A"}]
         return context._visible_knowledge_bases
 
-    async def fake_resolve_runtime_skills_for_context(context, *, db=None, user=None):
+    async def fake_resolve_runtime_skills_for_context(
+        context,
+        *,
+        db=None,
+        user=None,
+    ):
         del db
         assert user.uid == "u1"
         assert context.skills == ["skill-a"]
+        assert context.preload_skills == ["skill-a"]
         return {
             "context_skills": ["skill-a"],
+            "context_preload_skills": ["skill-a"],
             "effective_skills": ["skill-a", "skill-b"],
             "runtime_skills": {
                 "skill-a": {
@@ -303,6 +347,8 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
                     "skills": ["skill-b"],
                 }
             },
+            "preloaded_skills": ["skill-a", "skill-b"],
+            "preloaded_skill_contents": {"skill-a": "# Skill A", "skill-b": "# Skill B"},
         }
 
     class FakeSessionContext:
@@ -340,7 +386,10 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
     monkeypatch.setitem(
         sys.modules,
         "yuxi.agents.skills.runtime",
-        types.SimpleNamespace(resolve_runtime_skills_for_context=fake_resolve_runtime_skills_for_context),
+        types.SimpleNamespace(
+            is_skill_allowed_in_runtime_mode=lambda _slug: True,
+            resolve_runtime_skills_for_context=fake_resolve_runtime_skills_for_context,
+        ),
     )
     monkeypatch.setitem(
         sys.modules,
@@ -390,6 +439,7 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
         knowledges=["kb-a", "missing"],
         mcps=None,
         skills=["skill-a", "missing"],
+        preload_skills=["skill-a", "missing"],
         subagents=[],
     )
 
@@ -399,11 +449,13 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
     assert prepared.knowledges == ["kb-a"]
     assert prepared.mcps == ["mcp-a"]
     assert prepared.skills == ["skill-a"]
+    assert prepared.preload_skills == ["skill-a"]
     assert prepared.subagents == ["research-agent"]
     assert prepared._visible_knowledge_bases == [{"slug": "kb-a", "name": "Docs A"}]
     assert prepared._effective_skill_slugs == ["skill-a", "skill-b"]
     assert prepared._runtime_skills["skill-a"]["name"] == "Skill A"
     assert prepared._runtime_skills["skill-a"]["skills"] == ["skill-b"]
+    assert prepared._preloaded_skills == ["skill-a", "skill-b"]
 
 
 @pytest.mark.asyncio
@@ -453,6 +505,7 @@ async def test_prepare_agent_runtime_context_clears_resources_for_missing_user(m
         knowledges=["kb"],
         mcps=["mcp"],
         skills=["skill"],
+        preload_skills=["skill"],
         subagents=["agent"],
     )
 
@@ -462,6 +515,7 @@ async def test_prepare_agent_runtime_context_clears_resources_for_missing_user(m
     assert prepared.knowledges == []
     assert prepared.mcps == []
     assert prepared.skills == []
+    assert prepared.preload_skills == []
     assert prepared.subagents == []
     assert prepared._visible_knowledge_bases == []
     assert prepared._effective_skill_slugs == []

@@ -11,7 +11,7 @@
 - `prepare_agent_runtime_context`：按当前用户权限过滤工具、知识库、MCP、Skills 和子智能体，并派生 `_visible_knowledge_bases`、`_effective_skill_slugs` 与 `_runtime_skills`
 - `build_prompt_with_context`：基于 Context 生成系统提示词
 - `load_chat_model(context.model)`：加载主模型
-- `resolve_configured_runtime_tools(context)`：加载已配置的内置工具和 MCP 工具
+- `resolve_configured_runtime_tools(context)`：加载已配置的内置/MCP 工具，并把可读 Skill 的本地依赖注册进静态 ToolNode；Skill MCP 依赖由 Middleware 在激活轮次动态绑定
 
 中间件直接消费归一化后的 runtime context。资源授权和可见性过滤由前置准备阶段完成，产生副作用的工具仍需在执行边界校验具体目标。
 
@@ -43,14 +43,14 @@
 
 ## Skills 注入与激活
 
-`SkillsMiddleware` 分两步工作：
+`SkillsMiddleware` 支持渐进加载和显式预加载：
 
-1. 模型调用前读取 `_effective_skill_slugs`，把有效 Skill 的名称、描述和 `SKILL.md` 路径追加到系统提示。
+1. 模型调用前读取 `_effective_skill_slugs`。普通 Skill 注入名称、描述和 `SKILL.md` 路径；`preload_skills` 及其依赖闭包直接注入根级完整说明。
 2. 工具调用后检查模型是否读取了共享投影 `/home/gem/skills/<slug>/SKILL.md` 或个人 UserWorkspace
    `/home/gem/user-data/agents/skills/<slug>/SKILL.md`。如果该 Skill 在
    `_effective_skill_slugs` 范围内，就把它写入 `activated_skills`，并在后续模型调用中追加它声明的工具和 MCP 依赖。
 
-模型首先看到 Skill 说明；读取并激活 Skill 后，依赖工具才加入后续模型请求。该顺序控制初始工具 schema 的规模。
+普通 Skill 在读取并激活后开放依赖；预加载 Skill 从首轮模型请求开始开放依赖。默认空配置保持初始工具 schema 不变。
 
 ## 附件与文件系统
 

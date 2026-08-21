@@ -10,6 +10,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 EXPECTED_OUTPUT = "DETERMINISTIC_AGENT_E2E_OK"
 EXPECTED_AUTHORIZATION = "Bearer ci-replay-key"
 EXPECTED_MODEL = "deterministic-chat"
+EXPECTED_PRELOADED_SKILL_MARKER = "# 图片生成技能"
+EXPECTED_PRELOADED_TOOL = "present_artifacts"
+EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
+EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
 
 
 def _validate_request(authorization: str | None, request: dict) -> str | None:
@@ -24,33 +28,83 @@ def _validate_request(authorization: str | None, request: dict) -> str | None:
     messages = request.get("messages")
     if not isinstance(messages, list) or not messages:
         return "messages_required"
-    if EXPECTED_OUTPUT not in json.dumps(messages, ensure_ascii=False):
+    serialized_messages = json.dumps(messages, ensure_ascii=False)
+    if EXPECTED_OUTPUT not in serialized_messages:
         return "expected_input_missing"
+    if EXPECTED_PRELOADED_SKILL_MARKER not in serialized_messages:
+        return "preloaded_skill_missing"
+    tools = request.get("tools")
+    tool_names = {
+        item.get("function", {}).get("name")
+        for item in tools or []
+        if isinstance(item, dict) and isinstance(item.get("function"), dict)
+    }
+    if EXPECTED_PRELOADED_TOOL not in tool_names:
+        return "preloaded_tool_missing"
+    tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
+    if tool_messages and not any(
+        message.get("tool_call_id") == EXPECTED_TOOL_CALL_ID
+        and EXPECTED_TOOL_RESULT_MARKER in str(message.get("content", ""))
+        for message in tool_messages
+    ):
+        return "tool_execution_result_missing"
     return None
 
 
-def _stream_payloads(model: str) -> list[dict]:
+def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
     common = {
         "id": "chatcmpl-yuxi-deterministic",
         "object": "chat.completion.chunk",
         "created": int(time.time()),
         "model": model,
     }
+    if any(message.get("role") == "tool" for message in messages if isinstance(message, dict)):
+        return [
+            {
+                **common,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": EXPECTED_OUTPUT},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            {
+                **common,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+            },
+        ]
+
     return [
         {
             **common,
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"role": "assistant", "content": EXPECTED_OUTPUT},
+                    "delta": {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": EXPECTED_TOOL_CALL_ID,
+                                "type": "function",
+                                "function": {
+                                    "name": EXPECTED_PRELOADED_TOOL,
+                                    "arguments": '{"filepaths": []}',
+                                },
+                            }
+                        ],
+                    },
                     "finish_reason": None,
                 }
             ],
         },
         {
             **common,
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 2, "total_tokens": 10},
         },
     ]
 
@@ -89,7 +143,7 @@ class ReplayHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
-        for payload in _stream_payloads(model):
+        for payload in _stream_payloads(model, request["messages"]):
             self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
             self.wfile.flush()
         self.wfile.write(b"data: [DONE]\n\n")
