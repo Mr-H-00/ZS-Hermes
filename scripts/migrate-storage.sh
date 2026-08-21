@@ -6,7 +6,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 compose=(docker compose "$@")
-proof_file="$repo_root/docker/volumes/yuxi/.storage-migration-quiesced"
+proof_file="$(mktemp "${TMPDIR:-/tmp}/yuxi-quiescence.XXXXXX")"
 cleanup() {
   rm -f "$proof_file"
   "${compose[@]}" stop sandbox-provisioner >/dev/null 2>&1 || true
@@ -45,11 +45,11 @@ if "${compose[@]}" ps --status running --services | grep -Eq '^(api|worker|sandb
 fi
 
 token="$(openssl rand -hex 32)"
-umask 077
-mkdir -p "$(dirname "$proof_file")"
+chmod 600 "$proof_file"
 printf '%s\n' "$token" > "$proof_file"
 
 "${compose[@]}" run --rm \
+  -v "$proof_file:/app/legacy-saves/.storage-migration-quiesced:ro" \
   -e YUXI_STORAGE_MIGRATION_QUIESCENCE_TOKEN="$token" \
   storage-migrator
 
