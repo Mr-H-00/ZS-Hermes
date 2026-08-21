@@ -117,6 +117,7 @@ export class ScrollController {
    * @returns {Promise<void>}
    */
   async waitForLayoutStable() {
+    if (typeof requestAnimationFrame !== 'function') return
     // 使用 requestAnimationFrame 确保 DOM 渲染完成
     await new Promise((resolve) => requestAnimationFrame(resolve))
     await new Promise((resolve) => requestAnimationFrame(resolve))

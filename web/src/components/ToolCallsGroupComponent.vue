@@ -22,17 +22,28 @@
         <span class="summary-status-tag" v-if="statusSummary">{{ statusSummary }}</span>
       </span>
       <span class="summary-trailing">
-        <component :is="areToolCallsExpanded ? ChevronDown : ChevronRight" size="14" />
+        <ChevronDown
+          :size="14"
+          class="summary-chevron"
+          :class="{ 'is-collapsed': !areToolCallsExpanded }"
+        />
       </span>
     </button>
 
-    <div v-if="!shouldCollapseToolCalls || areToolCallsExpanded" class="tool-calls-panel">
-      <div
-        v-for="(toolCall, index) in normalizedToolCalls"
-        :key="toolCall.id || `${getToolCallId(toolCall)}-${index}`"
-        class="tool-call-container"
-      >
-        <ToolCallRenderer :tool-call="toolCall" appearance="timeline" :default-expanded="false" />
+    <div
+      class="tool-calls-collapse-panel"
+      :class="{ 'is-expanded': !shouldCollapseToolCalls || areToolCallsExpanded }"
+    >
+      <div class="tool-calls-collapse-inner">
+        <div class="tool-calls-panel">
+          <div
+            v-for="(toolCall, index) in normalizedToolCalls"
+            :key="toolCall.id || `${getToolCallId(toolCall)}-${index}`"
+            class="tool-call-container"
+          >
+            <ToolCallRenderer :tool-call="toolCall" appearance="timeline" :default-expanded="false" />
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -40,7 +51,7 @@
 
 <script setup>
 import { computed, ref, watch, inject } from 'vue'
-import { ChevronDown, ChevronRight, Atom } from 'lucide-vue-next'
+import { ChevronDown, Atom } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { useAgentStore } from '@/stores/agent'
 import { ToolCallRenderer } from '@/components/ToolCallingResult'
@@ -141,14 +152,10 @@ const toolCallsNamesMeta = computed(() => {
 
 const statusSummary = computed(() => {
   const states = normalizedToolCalls.value.map(toolRunState)
-  const successCount = states.filter((state) => state === 'completed').length
   const runningCount = states.filter((state) => state === 'running').length
   const errorCount = states.filter((state) => state === 'error').length
 
   const parts = []
-  if (successCount > 0 && successCount === normalizedToolCalls.value.length) {
-    return '已完成'
-  }
   if (errorCount > 0) parts.push(`${errorCount} 失败`)
   if (runningCount > 0) parts.push(`${runningCount} 进行中`)
 
@@ -165,6 +172,8 @@ const toggleToolCallsExpanded = () => {
 .tool-calls-container {
   width: 100%;
   padding: 0;
+  display: flex;
+  flex-direction: column;
 
   .tool-calls-summary {
     appearance: none;
@@ -179,17 +188,20 @@ const toggleToolCallsExpanded = () => {
     outline: none;
     border: none;
     padding: 0;
-    transition: all 0.2s ease;
+    transition: color 0.15s ease;
     user-select: none;
     background: transparent;
 
     &:hover {
       color: var(--gray-800);
+
+      .summary-chevron {
+        color: var(--gray-700);
+      }
     }
 
     &.is-expanded {
       color: var(--gray-800);
-      margin-bottom: 4px;
     }
 
     .summary-leading {
@@ -228,8 +240,7 @@ const toggleToolCallsExpanded = () => {
     .summary-status-tag {
       margin-left: 4px;
       font-size: 11px;
-      padding: 0px 4px;
-      // background: var(--gray-25);
+      padding: 0 4px;
       color: var(--gray-600);
       border-radius: 4px;
       white-space: nowrap;
@@ -242,12 +253,54 @@ const toggleToolCallsExpanded = () => {
       color: var(--gray-500);
       flex-shrink: 0;
     }
+
+    .summary-chevron {
+      flex-shrink: 0;
+      color: var(--gray-400);
+      transition:
+        transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+        color 0.18s ease;
+
+      &.is-collapsed {
+        transform: rotate(-90deg);
+      }
+    }
+  }
+
+  .tool-calls-collapse-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition:
+      grid-template-rows 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0.24s ease;
+    visibility: hidden;
+    min-width: 0;
+
+    &.is-expanded {
+      grid-template-rows: 1fr;
+      visibility: visible;
+    }
+  }
+
+  .tool-calls-collapse-inner {
+    overflow: hidden;
+    min-height: 0;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .tool-calls-collapse-panel.is-expanded .tool-calls-collapse-inner {
+    opacity: 1;
+    transform: translateY(0);
   }
 
   .tool-calls-panel {
     border-top: 1px solid var(--gray-100);
-    padding-top: 4px;
-    margin-top: 4px;
+    padding-top: 6px;
+    margin-top: 6px;
     margin-bottom: 8px;
   }
 
@@ -255,6 +308,16 @@ const toggleToolCallsExpanded = () => {
     margin-bottom: 4px;
     &:last-child {
       margin-bottom: 0;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-calls-container {
+    .tool-calls-summary .summary-chevron,
+    .tool-calls-collapse-panel,
+    .tool-calls-collapse-inner {
+      transition: none;
     }
   }
 }

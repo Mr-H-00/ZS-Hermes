@@ -32,53 +32,56 @@
         </div>
 
         <template v-if="departmentManagement.departments.length > 0">
-          <a-table
-            :dataSource="departmentManagement.departments"
-            :columns="columns"
-            :rowKey="(record) => record.id"
-            :pagination="false"
-            class="department-table"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'name'">
-                <div class="department-name">
-                  <span class="name-text">{{ record.name }}</span>
-                </div>
+          <div class="settings-table-wrapper">
+            <a-table
+              :dataSource="departmentManagement.departments"
+              :columns="columns"
+              :rowKey="(record) => record.id"
+              :pagination="false"
+              class="settings-table"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'name'">
+                  <div class="table-cell-title">
+                    <Building2 :size="15" class="cell-icon" />
+                    <span class="cell-main-text" :title="record.name">{{ record.name }}</span>
+                  </div>
+                </template>
+                <template v-if="column.key === 'description'">
+                  <span class="desc-text">{{ record.description || '-' }}</span>
+                </template>
+                <template v-if="column.key === 'userCount'">
+                  <span class="count-badge">{{ record.user_count ?? 0 }} 人</span>
+                </template>
+                <template v-if="column.key === 'action'">
+                  <a-space :size="4">
+                    <a-tooltip title="编辑部门">
+                      <a-button
+                        type="text"
+                        size="small"
+                        class="action-btn lucide-icon-btn"
+                        @click="showEditDepartmentModal(record)"
+                      >
+                        <SquarePen :size="14" />
+                      </a-button>
+                    </a-tooltip>
+                    <a-tooltip title="删除部门">
+                      <a-button
+                        type="text"
+                        size="small"
+                        danger
+                        :disabled="record.id === 1"
+                        class="action-btn lucide-icon-btn"
+                        @click="confirmDeleteDepartment(record)"
+                      >
+                        <Trash2 :size="14" />
+                      </a-button>
+                    </a-tooltip>
+                  </a-space>
+                </template>
               </template>
-              <template v-if="column.key === 'description'">
-                <span class="description-text">{{ record.description || '-' }}</span>
-              </template>
-              <template v-if="column.key === 'userCount'">
-                <span>{{ record.user_count ?? 0 }} 人</span>
-              </template>
-              <template v-if="column.key === 'action'">
-                <a-space>
-                  <a-tooltip title="编辑部门">
-                    <a-button
-                      type="text"
-                      size="small"
-                      @click="showEditDepartmentModal(record)"
-                      class="action-btn lucide-icon-btn"
-                    >
-                      <SquarePen :size="14" />
-                    </a-button>
-                  </a-tooltip>
-                  <a-tooltip title="删除部门">
-                    <a-button
-                      type="text"
-                      size="small"
-                      danger
-                      @click="confirmDeleteDepartment(record)"
-                      :disabled="record.id === 1"
-                      class="action-btn lucide-icon-btn"
-                    >
-                      <Trash2 :size="14" />
-                    </a-button>
-                  </a-tooltip>
-                </a-space>
-              </template>
-            </template>
-          </a-table>
+            </a-table>
+          </div>
         </template>
 
         <div v-else class="empty-state">
@@ -187,7 +190,7 @@
 import { reactive, onMounted, watch } from 'vue'
 import { notification, message, Modal } from 'ant-design-vue'
 import { authApi, departmentApi } from '@/apis'
-import { Plus, RefreshCw, SquarePen, Trash2 } from 'lucide-vue-next'
+import { Building2, Plus, RefreshCw, SquarePen, Trash2 } from 'lucide-vue-next'
 import { isPasswordLongEnough, MIN_PASSWORD_LENGTH } from '@/utils/passwordValidation'
 
 // 表格列定义
@@ -196,25 +199,24 @@ const columns = [
     title: '部门名称',
     dataIndex: 'name',
     key: 'name',
-    width: 200
+    width: '28%'
   },
   {
     title: '描述',
     dataIndex: 'description',
     key: 'description',
-    ellipsis: true
+    width: '42%'
   },
   {
     title: '用户数量',
     dataIndex: 'user_count',
     key: 'userCount',
-    width: 100,
-    align: 'center'
+    width: '16%'
   },
   {
     title: '操作',
     key: 'action',
-    width: 120,
+    width: '14%',
     align: 'center'
   }
 ]
@@ -557,35 +559,106 @@ onMounted(() => {
       text-align: center;
     }
 
-    .department-table {
+    .settings-table-wrapper {
+      border: 1px solid var(--gray-150);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--gray-0);
+
+      :deep(.ant-table) {
+        background: transparent;
+        font-size: 13px;
+      }
+
       :deep(.ant-table-thead > tr > th) {
         background: var(--gray-50);
+        color: var(--gray-500);
         font-weight: 500;
-        padding: 8px 12px;
-      }
+        font-size: 12px;
+        padding: 9px 14px;
+        border-bottom: 1px solid var(--gray-150);
+        white-space: nowrap;
 
-      :deep(.ant-table-tbody > tr > td) {
-        padding: 8px 12px;
-      }
-
-      .department-name {
-        .name-text {
-          font-weight: 500;
-          color: var(--gray-900);
+        &::before {
+          display: none !important;
         }
       }
 
-      .description-text {
+      :deep(.ant-table-tbody > tr > td) {
+        padding: 10px 14px;
+        color: var(--gray-800);
+        border-bottom: 1px solid var(--gray-100);
+        transition: background 0.15s ease;
+      }
+
+      :deep(.ant-table-tbody > tr:last-child > td) {
+        border-bottom: none;
+      }
+
+      :deep(.ant-table-tbody > tr:hover > td) {
+        background: var(--gray-25) !important;
+      }
+
+      .table-cell-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        max-width: 100%;
+
+        .cell-icon {
+          color: var(--gray-400);
+          flex-shrink: 0;
+        }
+
+        .cell-main-text {
+          font-weight: 500;
+          color: var(--gray-900);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+
+      .desc-text {
+        color: var(--gray-500);
+        font-size: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        line-height: 1.4;
+      }
+
+      .count-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 8px;
+        border-radius: 999px;
+        background: var(--gray-100);
         color: var(--gray-600);
+        font-size: 12px;
+        font-weight: 500;
       }
 
       .action-btn {
-        padding: 4px 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
         border-radius: 6px;
-        transition: all 0.2s ease;
+        color: var(--gray-400);
+        transition: all 0.15s ease;
 
-        &:hover {
-          background: var(--gray-25);
+        &:hover:not(:disabled) {
+          background: var(--gray-100);
+          color: var(--gray-800);
+        }
+
+        &.ant-btn-dangerous:hover:not(:disabled) {
+          background: var(--color-error-50, #fff2f0);
+          color: var(--color-error-500, #ff4d4f);
         }
       }
     }

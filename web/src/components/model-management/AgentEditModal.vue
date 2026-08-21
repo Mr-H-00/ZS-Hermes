@@ -3,7 +3,6 @@ import { computed, nextTick, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   Bot,
-  Info,
   Microscope,
   RefreshCw,
   Settings2,
@@ -148,7 +147,7 @@ const normalizeAgent = (agent) => {
 }
 
 const agentModalMenuItems = computed(() => {
-  const items = [{ key: 'basic', label: '基本信息', icon: Info }]
+  const items = [{ key: 'basic', label: '基本信息', icon: Bot }]
   if (editingAgentId.value) {
     items.push(
       { key: 'model', label: '模型配置', icon: SlidersHorizontal },
