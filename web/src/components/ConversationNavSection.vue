@@ -332,7 +332,7 @@ const renameChat = async (chatId) => {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 36px;
+  height: 32px;
   padding: 0 8px;
   overflow: hidden;
   border: 1px solid transparent;
@@ -372,8 +372,8 @@ const renameChat = async (chatId) => {
   }
 
   &.active {
-    background-color: color-mix(in srgb, var(--main-color) 8%, var(--gray-0));
-    color: var(--main-color);
+    background-color: color-mix(in srgb, var(--gray-100) 6%, var(--gray-100));
+    color: var(--gray-1000);
 
     .conversation-title {
       font-weight: 600;
@@ -384,7 +384,7 @@ const renameChat = async (chatId) => {
       background: linear-gradient(
         to right,
         transparent,
-        color-mix(in srgb, var(--main-color) 8%, var(--gray-0)) 28px
+        color-mix(in srgb, var(--gray-100) 6%, var(--gray-100)) 28px
       );
     }
   }

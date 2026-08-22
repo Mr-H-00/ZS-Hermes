@@ -286,7 +286,7 @@ onUnmounted(() => {
 
 .subagent-thread-scroll {
   overflow-y: auto;
-  padding: 16px 20px 28px;
+  padding: 16px 28px 28px;
 }
 
 .subagent-thread-content {

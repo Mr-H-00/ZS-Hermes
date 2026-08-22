@@ -118,7 +118,6 @@ const summary = computed(() => {
 .process-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   padding-top: 10px;
 }
 

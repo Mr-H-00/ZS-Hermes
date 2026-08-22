@@ -91,7 +91,7 @@ const getFileMetaLabel = (path) => {
 }
 
 const openPreview = (file) => {
-  emit('open-preview', { ...file, artifact: true })
+  emit('open-preview', { ...file })
 }
 
 const downloadFile = async (file) => {
@@ -126,7 +126,9 @@ const setSaving = (path, saving) => {
 }
 
 const saveToWorkspace = async (file) => {
-  if (!props.threadId || !file?.path || isSaving(file.path)) return
+  if (!props.threadId || !file?.path || isSaving(file.path)) {
+    return
+  }
 
   setSaving(file.path, true)
   try {

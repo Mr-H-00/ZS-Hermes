@@ -135,6 +135,19 @@ async def test_artifact_rejects_other_project(live_files):
 
 
 @pytest.mark.asyncio
+async def test_artifact_rejects_workdir_viewer_scope(live_files):
+    with pytest.raises(HTTPException) as exc:
+        await svc.resolve_thread_artifact_view(
+            thread_id="thread-1",
+            current_uid="user-1",
+            db=object(),
+            path="/outputs/report.md",
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_artifact_rechecks_current_skill_authorization(live_files, monkeypatch):
     monkeypatch.setattr(svc, "list_accessible_skills", lambda _db, _user: _async_value([]))
 

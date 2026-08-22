@@ -92,7 +92,6 @@ const isToolGroupActive = (conv, itemIndex, displayItems) =>
 .thread-message-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
 .thread-message-list-empty {

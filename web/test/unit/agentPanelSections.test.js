@@ -4,8 +4,10 @@ import test from 'node:test'
 import {
   FILE_TREE_SECTION,
   closeAgentPanelSection,
+  shouldPollAgentPanelFilesystem,
   upsertAgentPanelSection
 } from '../../src/utils/agentPanelSections.js'
+import { normalizePreviewResponse } from '../../src/utils/file_preview.js'
 
 test('同一子线程重复打开时更新已有 Section 而不新增', () => {
   const section = { key: 'subagent:thread-1', type: 'subagent', threadId: 'thread-1', title: '研究员' }
@@ -25,4 +27,77 @@ test('关闭活动 Tab 后激活相邻项', () => {
     sections: [sections[0], sections[2]],
     activeKey: 'subagent:b'
   })
+})
+
+test('normalizePreviewResponse 正确解析 JSON 预览结构而不把 raw payload 当纯文本', async () => {
+  const jsonResponse = new Response(
+    JSON.stringify({
+      content: 'def bubble_sort():\n    pass\n',
+      preview_type: 'text',
+      supported: true,
+      message: null
+    }),
+    {
+      headers: { 'content-type': 'application/json' }
+    }
+  )
+
+  const parsed = await normalizePreviewResponse(jsonResponse, {
+    path: '/outputs/bubble_sort.py',
+    loading: true
+  })
+
+  assert.equal(parsed.content, 'def bubble_sort():\n    pass\n')
+  assert.equal(parsed.previewType, 'text')
+  assert.equal(parsed.supported, true)
+  assert.equal(parsed.loading, false)
+})
+
+test('normalizePreviewResponse 保留 JSON artifact 的原始正文', async () => {
+  const jsonResponse = new Response(JSON.stringify({ result: 42 }), {
+    headers: { 'content-type': 'application/json' }
+  })
+
+  const parsed = await normalizePreviewResponse(jsonResponse, {
+    path: '/home/gem/user-data/projects/demo/outputs/result.json',
+    artifact: true
+  })
+
+  assert.equal(parsed.content, '{"result":42}')
+  assert.equal(parsed.previewType, 'text')
+  assert.equal(parsed.supported, true)
+})
+
+test('文件树仅在页面可见的运行期文件视图中轮询', () => {
+  const base = {
+    panelOpen: true,
+    pageVisible: true,
+    streaming: true,
+    activeSection: FILE_TREE_SECTION,
+    activePreview: null
+  }
+
+  assert.equal(shouldPollAgentPanelFilesystem(base), true)
+  assert.equal(shouldPollAgentPanelFilesystem({ ...base, panelOpen: false }), false)
+  assert.equal(shouldPollAgentPanelFilesystem({ ...base, pageVisible: false }), false)
+  assert.equal(shouldPollAgentPanelFilesystem({ ...base, streaming: false }), false)
+  assert.equal(
+    shouldPollAgentPanelFilesystem({
+      ...base,
+      activeSection: { type: 'file' },
+      activePreview: {
+        path: '/home/gem/user-data/projects/abc/outputs/report.md',
+        workdir: true
+      }
+    }),
+    true
+  )
+  assert.equal(
+    shouldPollAgentPanelFilesystem({
+      ...base,
+      activeSection: { type: 'file' },
+      activePreview: { path: '/home/gem/user-data/saved_artifacts/report.md', workdir: false }
+    }),
+    false
+  )
 })

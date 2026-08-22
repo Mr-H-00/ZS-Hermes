@@ -84,7 +84,6 @@
         ref="workspaceMainRef"
         class="workspace-main"
         :class="{ 'is-inline-preview': showInlinePreview }"
-        :style="workspaceMainStyle"
       >
         <template v-if="activeSourceKey === 'personal' || selectedDatabase">
           <WorkspaceFileList
@@ -110,24 +109,31 @@
             @download-entry="downloadEntry"
             @page-change="handleKnowledgePageChange"
           />
-          <div
-            v-if="showInlinePreview"
-            class="workspace-preview-resizer"
-            role="separator"
-            aria-label="调整预览宽度"
-            tabindex="0"
-            @pointerdown="startPreviewResize"
-          ></div>
-          <WorkspacePreviewPane
-            v-if="showInlinePreview"
-            :file="previewFile"
-            :file-path="selectedPreviewPath"
-            :loading="loadingPreview"
-            :editable="!isReadonlyWorkspacePath"
-            :saving="savingPreviewFile"
-            @close="closePreview"
-            @save="handleSavePreviewFile"
-          />
+          <Transition name="workspace-preview-slide" @after-leave="handlePreviewAfterLeave">
+            <aside
+              v-if="showInlinePreview"
+              class="workspace-preview-panel"
+              :class="{ 'is-resizing': isPreviewResizing }"
+              :style="workspacePreviewStyle"
+            >
+              <div
+                class="workspace-preview-resizer"
+                role="separator"
+                aria-label="调整预览宽度"
+                tabindex="0"
+                @pointerdown="startPreviewResize"
+              ></div>
+              <WorkspacePreviewPane
+                :file="previewFile"
+                :file-path="selectedPreviewPath"
+                :loading="loadingPreview"
+                :editable="!isReadonlyWorkspacePath"
+                :saving="savingPreviewFile"
+                @close="closePreview"
+                @save="handleSavePreviewFile"
+              />
+            </aside>
+          </Transition>
         </template>
 
         <div v-else class="workspace-placeholder">
@@ -215,7 +221,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { message, Modal } from 'ant-design-vue'
@@ -281,6 +287,7 @@ const selectionMode = ref(false)
 const previewFile = ref(null)
 const previewObjectUrl = ref('')
 const previewModalVisible = ref(false)
+const inlinePreviewVisible = ref(false)
 const loadingTree = ref(false)
 const loadingPreview = ref(false)
 const savingPreviewFile = ref(false)
@@ -298,6 +305,7 @@ const uploadInputRef = ref(null)
 const deletingPaths = ref([])
 const sidebarCollapsed = ref(false)
 const previewWidthPercent = ref(50)
+const isPreviewResizing = ref(false)
 const previewRequestId = ref(0)
 const INLINE_PREVIEW_MIN_WIDTH = 960
 const MAX_WORKSPACE_UPLOAD_FILES = 50
@@ -332,14 +340,12 @@ const selectedPreviewPath = computed(() =>
     ? selectedEntry.value.name || ''
     : selectedEntry.value?.path || ''
 )
-const showInlinePreview = computed(() => useInlinePreview.value && Boolean(previewFile.value))
-const workspaceMainStyle = computed(() => {
-  if (!showInlinePreview.value) return {}
-  const listWidthPercent = 100 - previewWidthPercent.value
-  return {
-    gridTemplateColumns: `minmax(0, ${listWidthPercent}%) 3px minmax(280px, ${previewWidthPercent.value}%)`
-  }
-})
+const showInlinePreview = computed(
+  () => useInlinePreview.value && inlinePreviewVisible.value && Boolean(previewFile.value)
+)
+const workspacePreviewStyle = computed(() => ({
+  width: `${previewWidthPercent.value}%`
+}))
 
 const knowledgePagination = computed(() => ({
   current: knowledgeFileBrowser.page,
@@ -394,6 +400,7 @@ const startPreviewRequest = (entry, baseFile = entry) => {
   selectedEntry.value = entry
   revokePreviewObjectUrl()
   previewFile.value = buildPreviewLoadingFile(entry, baseFile)
+  inlinePreviewVisible.value = true
   previewModalVisible.value = !useInlinePreview.value
   loadingPreview.value = true
   return requestId
@@ -702,9 +709,19 @@ const handleSelectEntry = async (entry) => {
 const closePreview = () => {
   previewRequestId.value += 1
   previewModalVisible.value = false
+  inlinePreviewVisible.value = false
+  loadingPreview.value = false
+  if (!useInlinePreview.value) {
+    selectedEntry.value = null
+    previewFile.value = null
+    revokePreviewObjectUrl()
+  }
+}
+
+const handlePreviewAfterLeave = () => {
+  if (inlinePreviewVisible.value || previewModalVisible.value) return
   selectedEntry.value = null
   previewFile.value = null
-  loadingPreview.value = false
   revokePreviewObjectUrl()
 }
 
@@ -900,6 +917,7 @@ let resizePointerId = null
 
 const stopPreviewResize = () => {
   resizePointerId = null
+  isPreviewResizing.value = false
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
   window.removeEventListener('pointermove', resizePreview)
@@ -919,6 +937,7 @@ const resizePreview = (event) => {
 const startPreviewResize = (event) => {
   if (!showInlinePreview.value) return
   resizePointerId = event.pointerId
+  isPreviewResizing.value = true
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
   window.addEventListener('pointermove', resizePreview)
@@ -927,6 +946,7 @@ const startPreviewResize = (event) => {
 }
 
 let workspaceResizeObserver = null
+let workspaceMounted = false
 
 onMounted(async () => {
   await runtimeCapabilitiesStore.ensureLoaded()
@@ -946,6 +966,19 @@ onMounted(async () => {
 
   // 侧边栏全局搜索跳转后打开指定文件
   await openFileByPath(route.query.open)
+  workspaceMounted = true
+})
+
+onActivated(async () => {
+  if (!workspaceMounted || activeSourceKey.value !== 'personal') return
+  await loadWorkspaceEntries(currentPath.value)
+  if (!selectedEntry.value?.path) return
+  const refreshedEntry = entries.value.find((entry) => entry.path === selectedEntry.value.path)
+  if (refreshedEntry) {
+    await loadWorkspacePreview(refreshedEntry)
+  } else {
+    closePreview()
+  }
 })
 
 watch(
@@ -965,16 +998,19 @@ onUnmounted(() => {
 watch(useInlinePreview, (isInline, wasInline) => {
   if (!previewFile.value) {
     previewModalVisible.value = false
+    inlinePreviewVisible.value = false
     return
   }
 
   if (isInline) {
     previewModalVisible.value = false
+    inlinePreviewVisible.value = true
     return
   }
 
   if (wasInline) {
-    closePreview()
+    previewModalVisible.value = true
+    inlinePreviewVisible.value = false
   }
 })
 </script>
@@ -1053,20 +1089,85 @@ watch(useInlinePreview, (isInline, wasInline) => {
 }
 
 .workspace-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  flex-direction: row;
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+:deep(.workspace-file-list) {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.workspace-preview-panel {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  min-height: 0;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  will-change: width, opacity, transform;
+  transition:
+    width 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+
+  &.is-resizing {
+    transition: none !important;
+  }
+
+  :deep(.workspace-preview-pane) {
+    flex: 1 1 auto;
+    min-width: 280px;
+    height: 100%;
+  }
+}
+
+.workspace-preview-slide-enter-active {
+  transition:
+    width 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  min-width: 0 !important;
+}
+
+.workspace-preview-slide-leave-active {
+  transition:
+    width 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.18s ease,
+    transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  min-width: 0 !important;
+}
+
+.workspace-preview-slide-enter-from,
+.workspace-preview-slide-leave-to {
+  width: 0 !important;
+  min-width: 0 !important;
+  opacity: 0;
+  transform: translateX(16px);
 }
 
 .workspace-preview-resizer {
-  width: 2px;
-  min-width: 2px;
+  width: 3px;
+  min-width: 3px;
   background: var(--gray-100);
   cursor: col-resize;
+  flex-shrink: 0;
+  height: 100%;
+  transition: background 0.15s ease;
 
-  &:hover {
-    background: var(--gray-200);
+  &:hover,
+  &:active {
+    background: var(--main-400);
   }
 }
 

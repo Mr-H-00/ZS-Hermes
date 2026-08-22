@@ -14,4 +14,17 @@ export const closeAgentPanelSection = (sections, activeKey, closingKey) => {
   const nextActive = nextSections[Math.min(closingIndex, nextSections.length - 1)]
   return { sections: nextSections, activeKey: nextActive?.key || '' }
 }
+
+export const shouldPollAgentPanelFilesystem = ({
+  panelOpen,
+  pageVisible,
+  streaming,
+  activeSection,
+  activePreview
+}) => {
+  if (!panelOpen || !pageVisible || !streaming) return false
+  if (activeSection?.type === 'file-tree') return true
+  return activeSection?.type === 'file' && activePreview?.workdir === true
+}
+
 export const FILE_TREE_SECTION = { key: 'file-tree', type: 'file-tree', title: '文件' }

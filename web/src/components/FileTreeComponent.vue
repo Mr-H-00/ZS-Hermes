@@ -170,8 +170,11 @@ const handleNodeClick = (data) => {
     display: flex;
     align-items: center;
     width: 100%;
-    padding: 0;
+    padding: 0 4px;
     height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
 
     /* 隐藏切换器 */
     .ant-tree-switcher {
@@ -196,9 +199,10 @@ const handleNodeClick = (data) => {
       min-width: 0;
       height: 32px;
       line-height: 32px;
-      padding: 0 4px;
-      border-radius: 4px;
-      transition: background-color 0.2s;
+      padding: 0 2px;
+      border-radius: 0;
+      background-color: transparent !important;
+      transition: none;
 
       /* 图标容器 */
       .ant-tree-iconEle {
@@ -225,12 +229,21 @@ const handleNodeClick = (data) => {
         height: 100%;
       }
 
-      &:hover {
-        background-color: var(--gray-50);
-      }
-
+      &:hover,
       &.ant-tree-node-selected {
-        background-color: var(--gray-100);
+        background-color: transparent !important;
+      }
+    }
+
+    &:hover {
+      background-color: var(--gray-50);
+    }
+
+    &.ant-tree-treenode-selected {
+      background-color: var(--gray-100);
+
+      &:hover {
+        background-color: var(--gray-150);
       }
     }
   }
@@ -287,7 +300,7 @@ const handleNodeClick = (data) => {
   flex-shrink: 0;
 }
 
-.ant-tree-node-content-wrapper:hover .node-actions {
+:deep(.ant-tree-treenode:hover) .node-actions {
   display: flex;
 }
 </style>
