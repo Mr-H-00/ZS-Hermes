@@ -28,7 +28,7 @@ async def test_queue_history_keeps_each_request_with_its_reply(session):
         Conversation(
             id=1,
             thread_id="thread-1",
-            workdir_path="projects/workdir-thread-1",
+            project_id="project-thread-1",
             uid="user-1",
             agent_id="main",
             status="active",
@@ -140,7 +140,7 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
         Conversation(
             id=1,
             thread_id="thread-1",
-            workdir_path="projects/workdir-thread-1",
+            project_id="project-thread-1",
             uid="user-1",
             agent_id="main",
             status="active",
@@ -208,7 +208,7 @@ async def test_thread_history_handles_run_without_timing_fields(session):
         Conversation(
             id=1,
             thread_id="thread-1",
-            workdir_path="projects/workdir-thread-1",
+            project_id="project-thread-1",
             uid="user-1",
             agent_id="main",
             status="active",

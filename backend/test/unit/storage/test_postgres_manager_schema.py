@@ -19,6 +19,15 @@ def test_business_and_knowledge_metadata_are_disjoint():
     assert "users" not in KnowledgeBase.metadata.tables
 
 
+def test_project_uid_foreign_key_has_schema_convergence_name():
+    """ORM fresh schema 必须与后续收敛 SQL 使用同一 FK 名称。"""
+    projects = BusinessBase.metadata.tables["projects"]
+
+    assert [constraint.name for constraint in projects.foreign_key_constraints] == [
+        "fk_projects_uid_users"
+    ]
+
+
 class _RecordingConnection:
     def __init__(self):
         self.statements: list[str] = []

@@ -27,6 +27,12 @@ class _FakeSession:
         self.commit_count += 1
 
 
+async def _resolve_test_workdir(**_kwargs):
+    """返回测试 Conversation 的 Project Workdir。"""
+
+    return "projects/11111111-1111-4111-8111-111111111111"
+
+
 def test_build_tool_approval_payload_rejects_mismatched_lists():
     assert _build_tool_approval_payload({"action_requests": [{}], "review_configs": []}, "thread-1") is None
 
@@ -37,6 +43,10 @@ class TestNormalizeInterruptOptions:
     def test_empty_input(self):
         assert normalize_options(None) == []
         assert normalize_options([]) == []
+
+    def test_deeply_nested_json_is_rejected(self):
+        raw = "[" * 10_000 + "0" + "]" * 10_000
+        assert normalize_options(raw) == []
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -73,6 +83,42 @@ class TestNormalizeInterruptOptions:
         result = normalize_options(raw)
         assert len(result) == 1
         assert result[0] == {"label": "only_value", "value": "only_value"}
+
+    def test_wrapper_item_dict(self):
+        raw = {
+            "item": [
+                {"label": "选项1 (Recommended)", "value": "v1", "description": "描述1"},
+                {"label": "选项2", "value": "v2", "description": "描述2"},
+            ]
+        }
+        result = normalize_options(raw)
+        assert len(result) == 2
+        assert result[0] == {"label": "选项1 (Recommended)", "value": "v1", "description": "描述1"}
+        assert result[1] == {"label": "选项2", "value": "v2", "description": "描述2"}
+
+    def test_string_bool_questions_normalization(self):
+        info = {
+            "questions": [
+                {
+                    "question": "本次调研分析的最终落点是什么？",
+                    "options": {
+                        "item": [
+                            {"label": "建议", "value": "strategy", "description": "战略描述"},
+                        ]
+                    },
+                    "multi_select": "false",
+                    "allow_other": "false",
+                    "question_id": "final_deliverable",
+                }
+            ]
+        }
+        result = _build_ask_user_question_payload(info, "thread-123")
+        assert len(result["questions"]) == 1
+        q = result["questions"][0]
+        assert q["question_id"] == "final_deliverable"
+        assert q["multi_select"] is False
+        assert q["allow_other"] is False
+        assert q["options"] == [{"label": "建议", "value": "strategy", "description": "战略描述"}]
 
 
 class TestBuildAskUserQuestionPayload:
@@ -239,7 +285,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
                 id=1,
                 uid="user-1",
                 status="active",
-                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                project_id="11111111-1111-4111-8111-111111111111",
                 extra_metadata={"attachments": []},
             ),
         )
@@ -255,6 +301,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
         return {"thread_id": "parent-thread", "uid": "user-1"}
 
     monkeypatch.setattr(svc, "_resolve_agent_runtime", fake_resolve_agent_runtime)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", _resolve_test_workdir)
     monkeypatch.setattr(svc, "build_agent_input_context", fake_build_agent_input_context)
     monkeypatch.setattr(
         svc,
@@ -273,7 +320,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
                 id=1,
                 uid="user-1",
                 status="active",
-                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                project_id="11111111-1111-4111-8111-111111111111",
                 extra_metadata={"attachments": []},
             )
 

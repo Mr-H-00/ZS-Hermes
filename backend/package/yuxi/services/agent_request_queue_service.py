@@ -26,6 +26,7 @@ from yuxi.services.agent_run_service import (
     resolve_agent_run_config,
 )
 from yuxi.services.input_message_service import AgentRunInputMessage
+from yuxi.services.workdir_service import resolve_conversation_workdir_binding, resolve_conversation_workdir_path
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import AgentRun, AgentRunRequest, Message
 from yuxi.utils.datetime_utils import utc_now_naive
@@ -78,6 +79,7 @@ class DispatchResult:
     run_id: str
     uid: str
     workdir_path: str
+    materialize_managed: bool = False
 
 
 def validate_queue_policy(queue_policy: str) -> str:
@@ -248,7 +250,7 @@ async def intake_request(
             agent_slug=agent_slug,
             thread_id=thread_id,
             conversation_id=conversation.id,
-            workdir_path=conversation.workdir_path,
+            workdir_path=await resolve_conversation_workdir_path(conversation=conversation, uid=uid_str, db=db),
             expected_request_id=request_id if policy == "reject" else None,
         )
         if dispatched and dispatched.request_id == request_id:
@@ -380,6 +382,7 @@ async def finalize_intake(
     intake: IntakeResult,
     uid: str,
     workdir_path: str,
+    materialize_managed: bool = False,
 ) -> None:
     """调用方在 intake_request 后提交事务，并条件性将派发的 run 投入 ARQ。"""
     dispatch = (
@@ -388,6 +391,7 @@ async def finalize_intake(
             run_id=intake.run_id,
             uid=str(uid),
             workdir_path=workdir_path,
+            materialize_managed=materialize_managed,
         )
         if intake.status == REQUEST_STATUS_DISPATCHED and intake.run_id
         else None
@@ -396,7 +400,8 @@ async def finalize_intake(
         await finalize_dispatch(db=db, dispatch=dispatch)
         return
     await db.commit()
-    ensure_bound_user_workdir(str(uid), workdir_path)
+    if materialize_managed:
+        ensure_bound_user_workdir(str(uid), workdir_path)
 
 
 async def finalize_dispatch(
@@ -406,7 +411,8 @@ async def finalize_dispatch(
 ) -> None:
     """提交事务并物化 Workdir，随后才把已创建的 run 投递给 ARQ。"""
     await db.commit()
-    ensure_bound_user_workdir(dispatch.uid, dispatch.workdir_path)
+    if dispatch.materialize_managed:
+        ensure_bound_user_workdir(dispatch.uid, dispatch.workdir_path)
     await enqueue_agent_run(dispatch.run_id)
 
 
@@ -422,11 +428,17 @@ async def dispatch_next_request(
     """
     run_id = None
     workdir_path = None
+    materialize_managed = False
     async with pg_manager.get_async_session_context() as db:
         conversation = await ConversationRepository(db).lock_conversation_by_thread_id(thread_id)
         if not _conversation_matches(conversation, uid=uid, agent_slug=agent_slug):
             return None
-        workdir_path = conversation.workdir_path
+        workdir_path, project = await resolve_conversation_workdir_binding(
+            conversation=conversation,
+            uid=str(uid),
+            db=db,
+        )
+        materialize_managed = project.directory_mode == "managed"
         active_run = await AgentRunRepository(db).get_active_run_by_thread_for_user(
             uid=str(uid),
             agent_slug=agent_slug,
@@ -442,7 +454,8 @@ async def dispatch_next_request(
                 agent_slug=agent_slug,
                 thread_id=thread_id,
                 conversation_id=conversation.id,
-                workdir_path=conversation.workdir_path,
+                workdir_path=workdir_path,
+                materialize_managed=materialize_managed,
             )
             if dispatch:
                 run_id = dispatch.run_id
@@ -450,7 +463,8 @@ async def dispatch_next_request(
     if run_id:
         if not workdir_path:
             raise RuntimeError(f"Conversation {thread_id} 缺少 Workdir 绑定，无法派发 Run")
-        ensure_bound_user_workdir(str(uid), workdir_path)
+        if materialize_managed:
+            ensure_bound_user_workdir(str(uid), workdir_path)
         await enqueue_agent_run(run_id)
         return run_id
     return None
@@ -480,9 +494,14 @@ async def recover_pending_dispatches() -> None:
         *(
             dispatch_next_request(uid=uid, agent_slug=agent_slug, thread_id=thread_id)
             for uid, agent_slug, thread_id in scopes
-        )
+        ),
+        return_exceptions=True,
     )
-    for run_id in recovered:
+    for result in recovered:
+        if isinstance(result, BaseException):
+            logger.error(f"Failed to recover pending run scope: {result}")
+            continue
+        run_id = result
         if run_id:
             logger.info(f"Recovered pending run or queue: {run_id}")
 
@@ -616,6 +635,11 @@ async def continue_thread_queue(
     if status != "paused":
         raise _queue_conflict("queue_not_paused", "当前队列不需要人工继续")
 
+    workdir_path, project = await resolve_conversation_workdir_binding(
+        conversation=conversation,
+        uid=str(uid),
+        db=db,
+    )
     dispatched = await _dispatch_locked_head(
         db=db,
         head=head,
@@ -623,7 +647,8 @@ async def continue_thread_queue(
         agent_slug=agent_slug,
         thread_id=thread_id,
         conversation_id=conversation.id,
-        workdir_path=conversation.workdir_path,
+        workdir_path=workdir_path,
+        materialize_managed=project.directory_mode == "managed",
     )
     if dispatched:
         return dispatched
@@ -859,6 +884,7 @@ async def _dispatch_ready_head(
     thread_id: str,
     conversation_id: int,
     workdir_path: str,
+    materialize_managed: bool = False,
     expected_request_id: str | None = None,
 ) -> DispatchResult | None:
     """只在 ready 状态派发 FIFO 队头。"""
@@ -889,6 +915,7 @@ async def _dispatch_ready_head(
         thread_id=thread_id,
         conversation_id=conversation_id,
         workdir_path=workdir_path,
+        materialize_managed=materialize_managed,
     )
 
 
@@ -901,6 +928,7 @@ async def _dispatch_locked_head(
     thread_id: str,
     conversation_id: int,
     workdir_path: str,
+    materialize_managed: bool = False,
 ) -> DispatchResult | None:
     """将已锁定的 queued 队头转换为 AgentRun，不提交事务。"""
     repo = AgentRunRequestRepository(db)
@@ -943,4 +971,5 @@ async def _dispatch_locked_head(
         run_id=run_id,
         uid=uid,
         workdir_path=workdir_path,
+        materialize_managed=materialize_managed,
     )

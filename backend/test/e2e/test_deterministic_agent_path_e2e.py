@@ -238,9 +238,10 @@ async def _assert_persistent_workdir_binding(run_id: str, thread_id: str) -> Non
     try:
         row = await conn.fetchrow(
             """
-            SELECT conversation.workdir_path,
+            SELECT project.workdir_path,
                    run.runtime_scope_id
             FROM conversations conversation
+            JOIN projects project ON project.id = conversation.project_id AND project.uid = conversation.uid
             JOIN agent_runs run ON run.id = $1
             WHERE conversation.thread_id = $2
             """,

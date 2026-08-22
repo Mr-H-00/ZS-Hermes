@@ -1317,12 +1317,13 @@ def test_workdir_paths_are_workspace_relative_and_reject_symlinks(monkeypatch, t
     (projects / "11111111-1111-4111-8111-111111111111").mkdir()
 
     assert backend_paths.runtime_workdir_path("projects/11111111-1111-4111-8111-111111111111") == WORKDIR_PATH
+    assert backend_paths.runtime_workdir_path("agents/skills") == "/home/gem/user-data/agents/skills"
     assert (
         paths.user_workdir_host_dir("user-1", "projects/11111111-1111-4111-8111-111111111111")
         == projects / "11111111-1111-4111-8111-111111111111"
     )
 
-    for unsafe in ("../escape", "/absolute", "agents/skills", "https://example.com/repo"):
+    for unsafe in ("../escape", "/absolute", "agents//skills", "https://example.com/repo"):
         with pytest.raises(ValueError):
             backend_paths.runtime_workdir_path(unsafe)
 

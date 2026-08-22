@@ -13,6 +13,7 @@ from server.routers.filesystem_router import filesystem_router
 from server.routers.mcp_router import mcp
 from server.routers.mention_router import mention_router
 from server.routers.model_provider_router import model_providers
+from server.routers.project_router import projects
 from server.routers.skill_router import skills, user_skills
 from server.routers.system_router import system
 from server.routers.system_task_router import tasks
@@ -32,6 +33,7 @@ router.include_router(agent_invocation_call_router)  # /api/agent-invocation/age
 router.include_router(agent_invocation_channel_router)  # /api/agent-invocation/channel/*
 router.include_router(agent_invocation_eval_router)  # /api/agent-invocation/eval/*
 router.include_router(chat)  # /api/chat/* 对话线程、消息历史与附件
+router.include_router(projects)  # /api/projects* 项目创建与选择
 
 # 管理与工作台接口：后台任务、权限域以及工具体系配置。
 router.include_router(dashboard)  # /api/dashboard/* 仪表盘聚合数据

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.storage.postgres.models_business import APIKey, AgentRun, Conversation, Department, Message, User
+from yuxi.storage.postgres.models_business import APIKey, AgentRun, Conversation, Department, Message, Project, User
 from yuxi.utils.auth_utils import AuthUtils
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -32,6 +32,7 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
     department_id: int | None = None
     user_id: int | None = None
     api_key_id: int | None = None
+    project_id: str | None = None
 
     try:
         async with session_factory() as db:
@@ -64,12 +65,23 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
             await db.flush()
             api_key_id = api_key.id
 
+            project_id = str(uuid.uuid4())
+            db.add(
+                Project(
+                    id=project_id,
+                    uid=uid,
+                    selection_status="implicit",
+                    workdir_path=f"projects/{project_id}",
+                    directory_mode="managed",
+                )
+            )
+            await db.flush()
             conversation = Conversation(
                 thread_id=thread_id,
                 uid=uid,
+                project_id=project_id,
                 agent_id="pytest-output-causality",
                 status="active",
-                workdir_path=f"projects/{thread_id}",
             )
             runs = [
                 AgentRun(
@@ -170,6 +182,8 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
             await db.execute(delete(AgentRun).where(AgentRun.id.in_(run_ids)))
             if conversation_id is not None:
                 await db.execute(delete(Conversation).where(Conversation.id == conversation_id))
+            if project_id is not None:
+                await db.execute(delete(Project).where(Project.id == project_id))
             if api_key_id is not None:
                 await db.execute(delete(APIKey).where(APIKey.id == api_key_id))
             if user_id is not None:

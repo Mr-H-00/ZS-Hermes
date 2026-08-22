@@ -91,11 +91,11 @@ def _patch_stream_scaffolding(
         uid="user-1",
         agent_id="test-agent",
         status="active",
-        workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        project_id="11111111-1111-4111-8111-111111111111",
         extra_metadata={},
     )
-    if not hasattr(resolved_conversation, "workdir_path"):
-        resolved_conversation.workdir_path = "projects/11111111-1111-4111-8111-111111111111"
+    if not hasattr(resolved_conversation, "project_id"):
+        resolved_conversation.project_id = "11111111-1111-4111-8111-111111111111"
 
     async def fake_resolve_agent_runtime(**_kwargs):
         return (
@@ -105,7 +105,11 @@ def _patch_stream_scaffolding(
             resolved_conversation,
         )
 
+    async def fake_resolve_workdir(**_kwargs):
+        return "projects/11111111-1111-4111-8111-111111111111"
+
     monkeypatch.setattr(svc, "_resolve_agent_runtime", fake_resolve_agent_runtime)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", fake_resolve_workdir)
     monkeypatch.setattr(svc, "normalize_agent_context_config", _fake_normalize_agent_context_config)
     monkeypatch.setattr(
         _FakeConvRepo,
@@ -173,7 +177,7 @@ class _FakeConvRepo:
                 agent_id="test-agent",
                 thread_id=thread_id,
                 status="active",
-                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                project_id="11111111-1111-4111-8111-111111111111",
                 extra_metadata={},
             ),
         )
@@ -207,19 +211,6 @@ class _FakeConvRepo:
     async def get_conversation_by_thread_id(self, thread_id: str):
         return self._conversation(thread_id)
 
-    async def create_conversation(self, *, uid: str, agent_id: str, thread_id: str, metadata: dict | None = None):
-        conversation = SimpleNamespace(
-            id=1,
-            uid=uid,
-            agent_id=agent_id,
-            thread_id=thread_id,
-            status="active",
-            workdir_path="projects/11111111-1111-4111-8111-111111111111",
-            extra_metadata=metadata or {},
-        )
-        self.conversations[thread_id] = conversation
-        return conversation
-
     async def get_attachments_by_request_id(self, conversation_id: int, request_id: str):
         return []
 
@@ -238,6 +229,20 @@ def test_main_run_discards_configured_subagent_runtime_markers() -> None:
     svc._apply_subagent_runtime_context(input_context, {"run_type": "chat"})
 
     assert input_context == {"temperature": 0.1}
+
+
+def test_subagent_attachment_root_rejects_same_path_from_different_project() -> None:
+    """共享目录路径不能替代 Project 执行树身份。"""
+
+    child = SimpleNamespace(uid="user-1", project_id="project-child", workdir_path="projects/shared")
+    root = SimpleNamespace(uid="user-1", project_id="project-root", workdir_path="projects/shared")
+
+    with pytest.raises(ValueError, match="Project Workdir"):
+        svc._validate_subagent_attachment_root(
+            root_conversation=root,
+            conversation=child,
+            uid="user-1",
+        )
 
 
 def test_build_langfuse_run_context_reads_evaluation_from_invocation_meta(monkeypatch: pytest.MonkeyPatch):
@@ -473,8 +478,29 @@ async def test_stream_agent_chat_creates_conversation_before_reading_workdir(
             None,
         )
 
+    async def create_project(**_kwargs):
+        return SimpleNamespace(
+            id="11111111-1111-4111-8111-111111111111",
+            workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        )
+
+    async def add_conversation(self, **kwargs):
+        conversation = self._conversation(kwargs["thread_id"])
+        conversation.project_id = kwargs["project_id"]
+        return conversation
+
+    NewThreadConversationRepository.add_conversation = add_conversation
+
     monkeypatch.setattr(svc, "ConversationRepository", NewThreadConversationRepository)
     monkeypatch.setattr(svc, "_resolve_agent_runtime", resolve_new_thread)
+    monkeypatch.setattr(svc, "create_implicit_project", create_project)
+    monkeypatch.setattr(svc, "ensure_bound_user_workdir", lambda _uid, _path: None)
+
+    async def resolve_path(*, conversation, **_kwargs):
+        assert conversation.project_id == "11111111-1111-4111-8111-111111111111"
+        return "projects/11111111-1111-4111-8111-111111111111"
+
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", resolve_path)
 
     chunks = []
     async for chunk in svc.stream_agent_chat(
@@ -488,10 +514,8 @@ async def test_stream_agent_chat_creates_conversation_before_reading_workdir(
         chunks.append(json.loads(chunk.decode("utf-8")))
 
     assert chunks[-1]["status"] == "finished"
-    assert (
-        repository_holder["repo"].conversations["new-thread"].workdir_path
-        == "projects/11111111-1111-4111-8111-111111111111"
-    )
+    conversation = repository_holder["repo"].conversations["new-thread"]
+    assert conversation.project_id == "11111111-1111-4111-8111-111111111111"
 
 
 @pytest.mark.asyncio

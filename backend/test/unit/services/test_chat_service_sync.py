@@ -20,6 +20,12 @@ async def _fake_normalize_agent_context_config(context, **_kwargs):
     return dict(context or {})
 
 
+async def _resolve_test_workdir(**_kwargs):
+    """返回测试 Conversation 的 Project Workdir。"""
+
+    return "projects/11111111-1111-4111-8111-111111111111"
+
+
 def test_build_agent_context_applies_runtime_input_to_declared_fields() -> None:
     agent = SimpleNamespace(context_schema=agent_context.BaseContext)
 
@@ -67,11 +73,12 @@ async def test_resolve_agent_runtime_includes_subagents_only_when_requested(monk
                 agent_id="worker",
                 thread_id=thread_id,
                 status="subagent",
-                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                project_id="11111111-1111-4111-8111-111111111111",
             )
 
     monkeypatch.setattr(svc, "AgentRepository", FakeAgentRepository)
     monkeypatch.setattr(svc, "ConversationRepository", FakeConversationRepository)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", _resolve_test_workdir)
     monkeypatch.setattr(svc, "ensure_bound_user_workdir", lambda _uid, _path: None)
     monkeypatch.setattr(svc, "normalize_agent_context_config", _fake_normalize_agent_context_config)
     monkeypatch.setattr(
@@ -500,6 +507,7 @@ async def test_get_agent_state_view_rejects_async_subagent_without_child_convers
             raise AssertionError("async subagent state must be loaded through child conversation relation")
 
     monkeypatch.setattr(svc, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", _resolve_test_workdir)
     monkeypatch.setattr(svc, "AgentRunRepository", RunRepo)
 
     with pytest.raises(HTTPException) as exc:
@@ -528,7 +536,7 @@ async def test_get_agent_state_view_returns_interrupted_checkpoint_payload(monke
                 uid="user-1",
                 agent_id="main",
                 status="active",
-                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                project_id="11111111-1111-4111-8111-111111111111",
             )
 
     class AgentRepo:
@@ -598,6 +606,7 @@ async def test_get_agent_state_view_returns_interrupted_checkpoint_payload(monke
         return checkpoint_state
 
     monkeypatch.setattr(svc, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", _resolve_test_workdir)
     monkeypatch.setattr(svc, "AgentRepository", AgentRepo)
     monkeypatch.setattr(svc, "SubagentThreadRepository", ThreadRepo)
     monkeypatch.setattr(svc, "AgentRunRepository", RunRepo)
@@ -629,7 +638,7 @@ async def test_get_agent_state_view_rejects_conversation_without_workdir(monkeyp
                 uid="user-1",
                 agent_id="main",
                 status="active",
-                workdir_path=None,
+                project_id="missing-project",
             )
 
     class AgentRepo:
@@ -664,14 +673,18 @@ async def test_get_agent_state_view_rejects_conversation_without_workdir(monkeyp
     async def unexpected_checkpoint_read(*_args, **_kwargs):
         raise AssertionError("缺少 Workdir 时不得读取 checkpoint")
 
+    async def missing_workdir(**_kwargs):
+        raise RuntimeError("Conversation 绑定的 Project 不存在")
+
     monkeypatch.setattr(svc, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", missing_workdir)
     monkeypatch.setattr(svc, "AgentRepository", AgentRepo)
     monkeypatch.setattr(svc, "AgentRunRepository", RunRepo)
     monkeypatch.setattr(svc, "normalize_agent_context_config", _fake_normalize_agent_context_config)
     monkeypatch.setattr(svc, "_read_checkpoint_state", unexpected_checkpoint_read)
     monkeypatch.setattr(svc.agent_manager, "get_agent", lambda backend_id: Agent())
 
-    with pytest.raises(ValueError, match="Conversation 缺少 Project Workdir"):
+    with pytest.raises(RuntimeError, match="Project 不存在"):
         await svc.get_agent_state_view(
             thread_id="thread-1",
             current_user=SimpleNamespace(uid="user-1"),
@@ -694,7 +707,7 @@ async def test_get_agent_state_view_includes_subagent_thread_relation(monkeypatc
                     uid="user-1",
                     agent_id="worker",
                     status="subagent",
-                    workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                    project_id="11111111-1111-4111-8111-111111111111",
                 )
             return None
 
@@ -805,6 +818,7 @@ async def test_get_agent_state_view_includes_subagent_thread_relation(monkeypatc
             return Graph()
 
     monkeypatch.setattr(svc, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", _resolve_test_workdir)
     monkeypatch.setattr(svc, "AgentRepository", AgentRepo)
     monkeypatch.setattr(svc, "SubagentThreadRepository", ThreadRepo)
     monkeypatch.setattr(svc, "AgentRunRepository", RunRepo)
@@ -842,7 +856,7 @@ async def test_get_agent_state_view_reports_malformed_subagent_run_as_server_err
                 uid="user-1",
                 agent_id="worker",
                 status="subagent",
-                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                project_id="11111111-1111-4111-8111-111111111111",
             )
 
         async def get_conversation_by_id(self, conversation_id: int):
@@ -912,6 +926,7 @@ async def test_get_agent_state_view_reports_malformed_subagent_run_as_server_err
             return Graph()
 
     monkeypatch.setattr(svc, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_path", _resolve_test_workdir)
     monkeypatch.setattr(svc, "AgentRepository", AgentRepo)
     monkeypatch.setattr(svc, "SubagentThreadRepository", ThreadRepo)
     monkeypatch.setattr(svc, "AgentRunRepository", RunRepo)

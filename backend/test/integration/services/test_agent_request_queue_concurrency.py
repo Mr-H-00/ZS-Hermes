@@ -19,31 +19,72 @@ from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.services import agent_request_queue_service
 from yuxi.services import run_worker
 from yuxi.services.input_message_service import build_chat_input_message
-from yuxi.storage.postgres.models_business import AgentRun, AgentRunRequest, Conversation, Message, SubagentThread
+from yuxi.storage.postgres.models_business import (
+    AgentRun,
+    AgentRunRequest,
+    Conversation,
+    Message,
+    Project,
+    SubagentThread,
+    User,
+)
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
-def _queue_test_conversation(*, thread_id: str, uid: str, agent_id: str = "main") -> Conversation:
-    """构造满足当前工作目录约束的队列测试会话。"""
+async def _queue_test_conversation(
+    db,
+    *,
+    thread_id: str,
+    uid: str,
+    agent_id: str = "main",
+    project_id: str | None = None,
+) -> Conversation:
+    """构造带真实 User 与 Project Owner 的队列测试会话。"""
+
+    if await db.scalar(select(User.uid).where(User.uid == uid)) is None:
+        db.add(User(username=uid, uid=uid, password_hash="test"))
+        await db.flush()
+    if project_id is None:
+        project_id = str(uuid.uuid4())
+        db.add(
+            Project(
+                id=project_id,
+                uid=uid,
+                selection_status="implicit",
+                workdir_path=f"projects/{project_id}",
+                directory_mode="managed",
+            )
+        )
+        await db.flush()
     return Conversation(
         thread_id=thread_id,
         uid=uid,
+        project_id=project_id,
         agent_id=agent_id,
         status="active",
-        workdir_path=f"projects/{thread_id}",
     )
 
 
 async def _cleanup_queue_test_thread(session_factory, engine, thread_id: str) -> None:
     async with session_factory() as db:
-        conversation_id = await db.scalar(select(Conversation.id).where(Conversation.thread_id == thread_id))
+        row = (
+            await db.execute(
+                select(Conversation.id, Conversation.project_id, Conversation.uid).where(
+                    Conversation.thread_id == thread_id
+                )
+            )
+        ).one_or_none()
+        conversation_id = row.id if row else None
         await db.execute(delete(AgentRunRequest).where(AgentRunRequest.conversation_thread_id == thread_id))
         if conversation_id is not None:
             await db.execute(delete(Message).where(Message.conversation_id == conversation_id))
         await db.execute(delete(AgentRun).where(AgentRun.conversation_thread_id == thread_id))
         await db.execute(delete(Conversation).where(Conversation.thread_id == thread_id))
+        if row:
+            await db.execute(delete(Project).where(Project.id == row.project_id))
+            await db.execute(delete(User).where(User.uid == row.uid))
         await db.commit()
     await engine.dispose()
 
@@ -62,7 +103,7 @@ async def test_concurrent_reject_requests_never_enter_queue(monkeypatch: pytest.
     )
 
     async with session_factory() as db:
-        conversation = _queue_test_conversation(thread_id=thread_id, uid=uid)
+        conversation = await _queue_test_conversation(db, thread_id=thread_id, uid=uid)
         db.add(conversation)
         await db.commit()
 
@@ -102,22 +143,14 @@ async def test_concurrent_reject_requests_never_enter_queue(monkeypatch: pytest.
         assert sorted(message.delivery_status for message in messages) == ["dispatched", "rejected"]
     finally:
         async with session_factory() as db:
-            conversation_id = await db.scalar(select(Conversation.id).where(Conversation.thread_id == thread_id))
             now = utc_now_naive()
             await db.execute(
                 update(AgentRun)
                 .where(AgentRun.conversation_thread_id == thread_id)
                 .values(status="cancelled", finished_at=now, updated_at=now)
             )
-            await db.execute(delete(AgentRunRequest).where(AgentRunRequest.conversation_thread_id == thread_id))
-            if conversation_id is not None:
-                await db.execute(delete(Message).where(Message.conversation_id == conversation_id))
             await db.commit()
-        async with session_factory() as db:
-            await db.execute(delete(AgentRun).where(AgentRun.conversation_thread_id == thread_id))
-            await db.execute(delete(Conversation).where(Conversation.thread_id == thread_id))
-            await db.commit()
-        await engine.dispose()
+        await _cleanup_queue_test_thread(session_factory, engine, thread_id)
 
 
 async def test_concurrent_steer_requests_keep_one_pending(monkeypatch: pytest.MonkeyPatch):
@@ -137,7 +170,7 @@ async def test_concurrent_steer_requests_keep_one_pending(monkeypatch: pytest.Mo
     )
 
     async with session_factory() as db:
-        conversation = _queue_test_conversation(thread_id=thread_id, uid=uid)
+        conversation = await _queue_test_conversation(db, thread_id=thread_id, uid=uid)
         db.add(conversation)
         await db.flush()
         active_message = Message(
@@ -252,7 +285,7 @@ async def test_concurrent_enqueue_dispatches_fifo_head(monkeypatch: pytest.Monke
     monkeypatch.setattr(AgentRunRequestRepository, "create", controlled_create)
 
     async with session_factory() as db:
-        db.add(_queue_test_conversation(thread_id=thread_id, uid=uid))
+        db.add(await _queue_test_conversation(db, thread_id=thread_id, uid=uid))
         await db.commit()
 
     async def submit(request_id: str):
@@ -336,7 +369,7 @@ async def test_dispatch_retry_reenqueues_existing_pending_run(monkeypatch: pytes
     monkeypatch.setattr(agent_request_queue_service.pg_manager, "get_async_session_context", session_context)
 
     async with session_factory() as db:
-        conversation = _queue_test_conversation(thread_id=thread_id, uid=uid)
+        conversation = await _queue_test_conversation(db, thread_id=thread_id, uid=uid)
         db.add(conversation)
         await db.flush()
         message = Message(
@@ -380,7 +413,8 @@ async def test_dispatch_retry_reenqueues_existing_pending_run(monkeypatch: pytes
         assert run.status == "pending"
         assert recovered_run_id == run.id
         assert enqueue_calls == [run.id, run.id]
-        assert materialized_workdirs == [(uid, conversation.workdir_path), (uid, conversation.workdir_path)]
+        expected_workdir = f"projects/{conversation.project_id}"
+        assert materialized_workdirs == [(uid, expected_workdir), (uid, expected_workdir)]
     finally:
         await _cleanup_queue_test_thread(session_factory, engine, thread_id)
 
@@ -422,12 +456,16 @@ async def test_startup_recovery_reenqueues_pending_runs_without_queue_requests(m
     monkeypatch.setattr(agent_request_queue_service.pg_manager, "get_async_session_context", session_context)
 
     async with session_factory() as db:
-        parent_workdir_path = f"projects/{parent_thread_id}"
-        resume_conversation = _queue_test_conversation(thread_id=resume_thread_id, uid=uid)
-        parent_conversation = _queue_test_conversation(thread_id=parent_thread_id, uid=uid)
-        child_conversation = _queue_test_conversation(thread_id=child_thread_id, uid=uid, agent_id="worker")
+        resume_conversation = await _queue_test_conversation(db, thread_id=resume_thread_id, uid=uid)
+        parent_conversation = await _queue_test_conversation(db, thread_id=parent_thread_id, uid=uid)
+        child_conversation = await _queue_test_conversation(
+            db,
+            thread_id=child_thread_id,
+            uid=uid,
+            agent_id="worker",
+            project_id=parent_conversation.project_id,
+        )
         child_conversation.status = "subagent"
-        child_conversation.workdir_path = parent_workdir_path
         db.add_all([resume_conversation, parent_conversation, child_conversation])
         await db.flush()
         resume_creator = AgentRun(
@@ -518,7 +556,10 @@ async def test_startup_recovery_reenqueues_pending_runs_without_queue_requests(m
 
         assert sorted(enqueue_calls) == sorted(pending_run_ids)
         assert sorted(materialized_workdirs) == sorted(
-            [(uid, resume_conversation.workdir_path), (uid, child_conversation.workdir_path)]
+            [
+                (uid, f"projects/{resume_conversation.project_id}"),
+                (uid, f"projects/{parent_conversation.project_id}"),
+            ]
         )
         assert request_count == 0
     finally:
@@ -530,6 +571,10 @@ async def test_startup_recovery_reenqueues_pending_runs_without_queue_requests(m
             )
             await db.execute(delete(SubagentThread).where(SubagentThread.child_thread_id == child_thread_id))
             await db.execute(delete(Conversation).where(Conversation.thread_id.in_(thread_ids)))
+            await db.execute(
+                delete(Project).where(Project.id.in_([resume_conversation.project_id, parent_conversation.project_id]))
+            )
+            await db.execute(delete(User).where(User.uid == uid))
             await db.commit()
         await engine.dispose()
 
@@ -557,7 +602,7 @@ async def test_terminal_status_loser_does_not_change_message_delivery_status(mon
     monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", session_context)
 
     async with session_factory() as db:
-        conversation = _queue_test_conversation(thread_id=thread_id, uid=uid)
+        conversation = await _queue_test_conversation(db, thread_id=thread_id, uid=uid)
         db.add(conversation)
         await db.flush()
         message = Message(
@@ -629,14 +674,7 @@ async def test_terminal_status_loser_does_not_change_message_delivery_status(mon
         assert run.status == "completed"
         assert message.delivery_status == "complete"
     finally:
-        async with session_factory() as db:
-            conversation_id = await db.scalar(select(Conversation.id).where(Conversation.thread_id == thread_id))
-            if conversation_id is not None:
-                await db.execute(delete(Message).where(Message.conversation_id == conversation_id))
-            await db.execute(delete(AgentRun).where(AgentRun.id == run_id))
-            await db.execute(delete(Conversation).where(Conversation.thread_id == thread_id))
-            await db.commit()
-        await engine.dispose()
+        await _cleanup_queue_test_thread(session_factory, engine, thread_id)
 
 
 async def test_concurrent_request_id_reuse_across_threads_returns_scope_conflict(monkeypatch: pytest.MonkeyPatch):
@@ -653,7 +691,10 @@ async def test_concurrent_request_id_reuse_across_threads_returns_scope_conflict
     )
 
     async with session_factory() as db:
-        db.add_all([_queue_test_conversation(thread_id=thread_id, uid=uid) for thread_id in thread_ids])
+        conversations = [
+            await _queue_test_conversation(db, thread_id=thread_id, uid=uid) for thread_id in thread_ids
+        ]
+        db.add_all(conversations)
         await db.commit()
 
     async def submit(thread_id: str):
@@ -699,6 +740,13 @@ async def test_concurrent_request_id_reuse_across_threads_returns_scope_conflict
         assert len(runs) == 1
     finally:
         async with session_factory() as db:
+            project_ids = list(
+                (
+                    await db.scalars(
+                        select(Conversation.project_id).where(Conversation.thread_id.in_(thread_ids))
+                    )
+                ).all()
+            )
             now = utc_now_naive()
             await db.execute(
                 update(AgentRun)
@@ -715,5 +763,7 @@ async def test_concurrent_request_id_reuse_across_threads_returns_scope_conflict
         async with session_factory() as db:
             await db.execute(delete(AgentRun).where(AgentRun.conversation_thread_id.in_(thread_ids)))
             await db.execute(delete(Conversation).where(Conversation.thread_id.in_(thread_ids)))
+            await db.execute(delete(Project).where(Project.id.in_(project_ids)))
+            await db.execute(delete(User).where(User.uid == uid))
             await db.commit()
         await engine.dispose()

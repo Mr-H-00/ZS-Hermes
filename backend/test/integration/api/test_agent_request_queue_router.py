@@ -12,7 +12,7 @@ from test.live_api_cleanup import make_test_conversation_metadata, make_test_con
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.workspace.paths import user_workdir_host_dir
-from yuxi.storage.postgres.models_business import AgentRun, AgentRunRequest, Conversation, Message
+from yuxi.storage.postgres.models_business import AgentRun, AgentRunRequest, Conversation, Message, Project
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -106,7 +106,9 @@ async def test_async_agent_call_uses_request_intake(test_client, admin_headers):
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             conversation = await db.scalar(select(Conversation).where(Conversation.thread_id == thread_id))
             assert conversation is not None
-            assert user_workdir_host_dir(str(conversation.uid), conversation.workdir_path).is_dir()
+            project = await db.get(Project, conversation.project_id)
+            assert project is not None
+            assert user_workdir_host_dir(str(conversation.uid), project.workdir_path).is_dir()
     finally:
         await engine.dispose()
 
@@ -376,7 +378,9 @@ async def test_continue_paused_queue_materializes_and_dispatches(test_client, ad
             )
             await db.commit()
             uid = str(conversation.uid)
-            workdir_path = conversation.workdir_path
+            project = await db.get(Project, conversation.project_id)
+            assert project is not None
+            workdir_path = project.workdir_path
 
         workdir_dir = user_workdir_host_dir(uid, workdir_path)
         workdir_dir.rmdir()

@@ -11,6 +11,7 @@ from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from yuxi.agents.backends.paths import runtime_user_data_path
+from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.services.file_preview import render_file_preview
 from yuxi.storage.postgres.models_business import User
 from yuxi.utils.datetime_utils import utc_isoformat_from_timestamp
@@ -63,7 +64,9 @@ async def list_workspace_tree(
     path: str,
     recursive: bool = False,
     files_only: bool = False,
+    include_unbound_project_dirs: bool = False,
     current_user: User,
+    db,
 ) -> dict:
     backend = _workspace_backend(current_user)
     workspace_path = _workspace_path(path)
@@ -90,7 +93,31 @@ async def list_workspace_tree(
         raise HTTPException(status_code=400, detail="当前路径不是目录") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="Access denied") from exc
+    if not include_unbound_project_dirs:
+        entries = await _filter_project_tree_entries(entries, uid=str(current_user.uid), db=db)
     return {"entries": entries}
+
+
+async def _filter_project_tree_entries(entries: list[dict], *, uid: str, db) -> list[dict]:
+    """隐藏未归属 selectable Project 的 projects 子树。"""
+    entries_with_paths = [(entry, PurePosixPath(str(entry.get("path") or "/").strip("/"))) for entry in entries]
+    if not any(path.parts[:1] == ("projects",) and path.as_posix() != "projects" for _, path in entries_with_paths):
+        return entries
+
+    visible_paths = await ProjectRepository(db).list_selectable_workdir_paths_for_user(uid)
+    selected_project_paths = [
+        PurePosixPath(path) for path in visible_paths if PurePosixPath(path).parts[:1] == ("projects",)
+    ]
+
+    def is_visible(candidate: PurePosixPath) -> bool:
+        if candidate.parts[:1] != ("projects",) or candidate.as_posix() == "projects":
+            return True
+        return any(
+            candidate == selected or candidate.is_relative_to(selected) or selected.is_relative_to(candidate)
+            for selected in selected_project_paths
+        )
+
+    return [entry for entry, path in entries_with_paths if is_visible(path)]
 
 
 async def read_workspace_file_bytes(*, path: str, current_user: User) -> tuple[str, bytes]:

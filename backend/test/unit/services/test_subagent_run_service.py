@@ -122,13 +122,13 @@ def _patch_repos(
         uid="user-1",
         agent_id="worker",
         status="active",
-        workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        project_id="project-1",
     )
     parent_conversation = SimpleNamespace(
         id=10,
         uid="user-1",
         thread_id="parent-thread",
-        workdir_path="projects/11111111-1111-4111-8111-111111111111",
+        project_id="project-1",
     )
 
     class RunRepo:
@@ -192,7 +192,7 @@ def _patch_repos(
             title: str,
             thread_id: str,
             metadata: dict,
-            workdir_path: str,
+            project_id: str,
         ):
             captured["conversation"] = {
                 "uid": uid,
@@ -200,10 +200,10 @@ def _patch_repos(
                 "title": title,
                 "thread_id": thread_id,
                 "metadata": metadata,
-                "workdir_path": workdir_path,
+                "project_id": project_id,
             }
             child_conversation.thread_id = thread_id
-            child_conversation.workdir_path = workdir_path
+            child_conversation.project_id = project_id
             return child_conversation
 
     class ThreadRepo:
@@ -231,7 +231,15 @@ def _patch_repos(
     monkeypatch.setattr(service_module, "AgentRunRepository", RunRepo)
     monkeypatch.setattr(service_module, "ConversationRepository", ConvRepo)
     monkeypatch.setattr(service_module, "SubagentThreadRepository", ThreadRepo)
-    monkeypatch.setattr(service_module, "ensure_bound_user_workdir", lambda _uid, _path: None)
+
+    async def resolve_binding(*, conversation, uid, db):
+        del uid, db
+        return (
+            "projects/11111111-1111-4111-8111-111111111111",
+            SimpleNamespace(id=conversation.project_id),
+        )
+
+    monkeypatch.setattr(service_module, "resolve_conversation_workdir_binding", resolve_binding)
 
 
 def _patch_run_record_creation(
@@ -358,7 +366,13 @@ async def test_subagent_run_service_creates_child_relation_run_and_enqueue(monke
     db = _FakeDB()
     captured: dict[str, object] = {}
     enqueued: list[str] = []
-    child_conversation = SimpleNamespace(id=20, uid="user-1", agent_id="worker", status="active")
+    child_conversation = SimpleNamespace(
+        id=20,
+        uid="user-1",
+        agent_id="worker",
+        status="active",
+        project_id="project-1",
+    )
     relation = _relation(child_thread_id="")
 
     _patch_repos(
@@ -389,8 +403,8 @@ async def test_subagent_run_service_creates_child_relation_run_and_enqueue(monke
     assert result.relation.child_thread_id == child_thread_id
     assert result.relation is relation
     assert child_conversation.status == "subagent"
-    assert child_conversation.workdir_path == "projects/11111111-1111-4111-8111-111111111111"
-    assert captured["conversation"]["workdir_path"] == "projects/11111111-1111-4111-8111-111111111111"
+    assert child_conversation.project_id == "project-1"
+    assert captured["conversation"]["project_id"] == "project-1"
     assert captured["conversation"]["metadata"]["parent_conversation_id"] == 10
     assert captured["relation"] == {
         "uid": "user-1",

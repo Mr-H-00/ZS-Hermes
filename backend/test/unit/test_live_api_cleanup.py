@@ -97,7 +97,7 @@ async def _patch_chat_cleanup_database(
     async def fake_list_queued(_thread_ids: set[str]) -> list[str]:
         return []
 
-    async def fake_delete_resources(workdirs, thread_ids: set[str]) -> None:
+    async def fake_delete_resources(workdirs, thread_ids: set[str], _project_ids: set[str]) -> None:
         for uid, workdir_path in workdirs:
             remove_test_workdir(uid, workdir_path)
         for thread_id in thread_ids:
@@ -109,6 +109,7 @@ async def _patch_chat_cleanup_database(
     monkeypatch.setattr("test.live_api_cleanup.validate_test_runs_terminal", fake_validate)
     monkeypatch.setattr("test.live_api_cleanup.list_test_queued_request_ids", fake_list_queued)
     monkeypatch.setattr("test.live_api_cleanup.delete_test_conversation_resources", fake_delete_resources)
+    monkeypatch.setattr("test.live_api_cleanup.delete_orphaned_test_projects", fake_validate)
     return collected
 
 
@@ -179,6 +180,7 @@ async def test_cleanup_deletes_e2e_threads_before_temporary_agents(tmp_path, mon
         {
             thread_id: CleanupConversationResource(
                 conversation_id=index,
+                project_id=f"project-{index}",
                 thread_id=thread_id,
                 uid="test-user",
                 status="active",
@@ -245,6 +247,61 @@ async def test_cleanup_deletes_e2e_threads_before_temporary_agents(tmp_path, mon
     assert not (tmp_path / "threads" / "thread-marked").exists()
 
 
+async def test_cleanup_only_exempts_projects_whose_managed_workdir_is_deleted(tmp_path, monkeypatch):
+    """目标 linked Project 共享路径时仍必须被 Workdir 冲突校验视为保留 Owner。"""
+
+    workdir_path = "projects/project-managed"
+    managed_dir = tmp_path / workdir_path
+    managed_dir.mkdir(parents=True)
+    monkeypatch.setattr("test.live_api_cleanup.user_workdir_host_dir", lambda _uid, _path: managed_dir)
+    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    resources = {
+        "thread-managed": CleanupConversationResource(
+            1,
+            "project-managed",
+            "thread-managed",
+            "test-user",
+            "active",
+            workdir_path,
+        ),
+        "thread-linked": CleanupConversationResource(
+            2,
+            "project-linked",
+            "thread-linked",
+            "test-user",
+            "active",
+            None,
+        ),
+    }
+    await _patch_chat_cleanup_database(monkeypatch, resources)
+    validated_project_ids: list[set[str]] = []
+
+    async def capture_validation(_workdirs, project_ids: set[str]):
+        validated_project_ids.append(set(project_ids))
+
+    monkeypatch.setattr("test.live_api_cleanup.validate_test_workdirs_exclusive", capture_validation)
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            return httpx.Response(200, json={})
+        if request.url.path == "/api/chat/threads":
+            return httpx.Response(
+                200,
+                json=[
+                    {"id": thread_id, "metadata": {"_yuxi_test": True}}
+                    for thread_id in resources
+                ],
+            )
+        if request.url.path == "/api/agent":
+            return httpx.Response(200, json={"agents": []})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request), base_url="http://test") as client:
+        await cleanup_e2e_chat_resources(client, {"Authorization": "test"}, owner_uid="test-user")
+
+    assert validated_project_ids == [{"project-managed"}]
+
+
 async def test_cleanup_paginates_active_threads(tmp_path, monkeypatch):
     """活动线程超过单页上限时仍需清理后续页面的 E2E 对话。"""
 
@@ -254,6 +311,7 @@ async def test_cleanup_paginates_active_threads(tmp_path, monkeypatch):
         {
             "thread-page-2": CleanupConversationResource(
                 conversation_id=1,
+                project_id="project-page-2",
                 thread_id="thread-page-2",
                 uid="test-user",
                 status="active",
@@ -313,6 +371,7 @@ async def test_cleanup_removes_deleted_and_subagent_thread_storage(tmp_path, mon
         {
             "thread-deleted": CleanupConversationResource(
                 conversation_id=1,
+                project_id="project-deleted",
                 thread_id="thread-deleted",
                 uid="test-user",
                 status="deleted",
@@ -320,6 +379,7 @@ async def test_cleanup_removes_deleted_and_subagent_thread_storage(tmp_path, mon
             ),
             "thread-child": CleanupConversationResource(
                 conversation_id=2,
+                project_id="project-child",
                 thread_id="thread-child",
                 uid="test-user",
                 status="subagent",
@@ -429,7 +489,16 @@ async def test_cleanup_guard_failure_has_no_destructive_side_effect(tmp_path, mo
     legacy_dir = tmp_path / "threads" / "thread-marked"
     legacy_dir.mkdir(parents=True)
     monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
-    resources = {"thread-marked": CleanupConversationResource(1, "thread-marked", "test-user", "active", None)}
+    resources = {
+        "thread-marked": CleanupConversationResource(
+            1,
+            "project-marked",
+            "thread-marked",
+            "test-user",
+            "active",
+            None,
+        )
+    }
 
     async def fake_list_resources(_owner_uid: str):
         return resources
@@ -471,7 +540,16 @@ async def test_cleanup_stops_when_cancelled_request_remains_queued(tmp_path, mon
     monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
 
     async def fake_list_resources(_owner_uid: str):
-        return {"thread-marked": CleanupConversationResource(1, "thread-marked", "test-user", "active", None)}
+        return {
+            "thread-marked": CleanupConversationResource(
+                1,
+                "project-marked",
+                "thread-marked",
+                "test-user",
+                "active",
+                None,
+            )
+        }
 
     async def fake_validate(*_args):
         return None
@@ -521,7 +599,7 @@ async def test_remove_test_workdir_rejects_non_project_path(tmp_path, monkeypatc
     outside.mkdir()
     monkeypatch.setattr("test.live_api_cleanup.user_workdir_host_dir", lambda _uid, _path: outside)
 
-    with pytest.raises(RuntimeError, match="invalid Workdir"):
+    with pytest.raises(RuntimeError, match="non-project Workdir"):
         remove_test_workdir("test-user", "agents/skills")
 
     assert outside.exists()

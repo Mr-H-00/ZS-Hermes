@@ -38,7 +38,11 @@ from yuxi.services.run_queue_service import (
     publish_cancel_signal,
     wait_for_cancel_signal,
 )
-from yuxi.services.workdir_service import AuthorizedWorkdir, resolve_authorized_workdir
+from yuxi.services.workdir_service import (
+    AuthorizedWorkdir,
+    resolve_authorized_workdir,
+    resolve_conversation_workdir_path,
+)
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, User
 from yuxi.storage.redis import get_arq_redis_settings
@@ -109,7 +113,7 @@ async def _validate_run_workdir_binding(run: AgentRun) -> AuthorizedWorkdir:
             if (
                 persisted_scope != str(creator_run.runtime_scope_id)
                 or int(creator_binding.conversation_id) != int(creator_run.conversation_id)
-                or creator_binding.workdir_path != binding.workdir_path
+                or creator_binding.project_id != binding.project_id
             ):
                 raise NonRetryableRunError("SubAgent Run 的 runtime scope 不属于创建者执行树")
     return binding
@@ -292,17 +296,20 @@ async def _release_runtime_if_idle(run: AgentRun) -> bool:
         )
         if result.scalar_one_or_none() is not None:
             return False
-        workdir_path = await db.scalar(
-            select(Conversation.workdir_path).where(Conversation.id == current.conversation_id)
+        conversation = await db.scalar(select(Conversation).where(Conversation.id == current.conversation_id))
+        if conversation is None or conversation.uid != str(current.uid):
+            raise RuntimeError(f"Run {run.id} 的 Conversation 身份不一致")
+        workdir_path = await resolve_conversation_workdir_path(
+            conversation=conversation,
+            uid=str(current.uid),
+            db=db,
         )
-        if not workdir_path:
-            raise RuntimeError(f"Run {run.id} 缺少 Project Workdir，不能安全释放 runtime")
         await asyncio.to_thread(
             get_sandbox_provider().release,
             runtime_scope_id,
             uid=str(current.uid),
             clear_cache_on_delete_failure=True,
-            workdir_path=str(workdir_path),
+            workdir_path=workdir_path,
         )
         current.runtime_cleanup_pending = False
         await db.flush()

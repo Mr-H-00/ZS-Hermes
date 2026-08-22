@@ -87,7 +87,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
             return SimpleNamespace(
                 id=1,
                 thread_id=kwargs["thread_id"],
-                workdir_path="projects/11111111-1111-4111-8111-111111111111",
+                project_id=kwargs["project_id"],
             )
 
     async def fake_intake_request(**kwargs):
@@ -109,6 +109,24 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
     monkeypatch.setattr(svc, "AgentRunRequestRepository", _EmptyRequestRepo)
     monkeypatch.setattr(svc, "AgentRunRepository", _EmptyRunRepo)
     monkeypatch.setattr(svc, "ConversationRepository", ConvRepo)
+
+    async def fake_create_implicit_project(**kwargs):
+        calls["project"] = kwargs
+        return SimpleNamespace(
+            id="11111111-1111-4111-8111-111111111111",
+            workdir_path="projects/11111111-1111-4111-8111-111111111111",
+            directory_mode="managed",
+        )
+
+    async def fake_resolve_binding(**kwargs):
+        del kwargs
+        return (
+            "projects/11111111-1111-4111-8111-111111111111",
+            SimpleNamespace(directory_mode="managed"),
+        )
+
+    monkeypatch.setattr(svc, "create_implicit_project", fake_create_implicit_project)
+    monkeypatch.setattr(svc, "resolve_conversation_workdir_binding", fake_resolve_binding)
     monkeypatch.setattr(svc.agent_manager, "get_agent", lambda backend_id: object())
     monkeypatch.setattr(svc, "intake_request", fake_intake_request)
     monkeypatch.setattr(svc, "finalize_intake", fake_finalize_intake)
@@ -141,6 +159,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
         "channel": "api",
         "agent_invocation_meta": {"trace_id": "trace-1"},
     }
+    assert calls["conversation"]["project_id"] == "11111111-1111-4111-8111-111111111111"
     assert calls["intake"]["source"] == "agent_call"
     assert calls["intake"]["channel"] == "api"
     assert calls["intake"]["external_id"] == "external-1"
@@ -164,6 +183,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
     assert calls["finalize"]["intake"].run_id == "run-1"
     assert calls["finalize"]["uid"] == "user-1"
     assert calls["finalize"]["workdir_path"] == "projects/11111111-1111-4111-8111-111111111111"
+    assert calls["finalize"]["materialize_managed"] is True
 
 
 @pytest.mark.asyncio

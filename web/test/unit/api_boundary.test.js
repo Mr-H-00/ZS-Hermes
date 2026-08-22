@@ -239,6 +239,58 @@ test('知识库 API 单一构造并编码文件上传端点', async () => {
   })
 })
 
+test('Project 与 Workspace API 按 xhome 契约构造请求', async () => {
+  await withServer(async (server) => {
+    storageValues.set('user_token', 'test-token')
+    const requests = []
+    globalThis.fetch = async (url, options = {}) => {
+      requests.push({ url, options })
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+
+    setActivePinia(createPinia())
+    const { projectApi } = await server.ssrLoadModule('/src/apis/project_api.js')
+    const { createWorkspaceDirectory, getWorkspaceTree } = await server.ssrLoadModule(
+      '/src/apis/workspace_api.js'
+    )
+
+    await projectApi.getProjects()
+    await projectApi.createProject({
+      requestId: 'request-1',
+      name: '客户交付',
+      mode: 'linked',
+      path: '/clients/acme'
+    })
+    await projectApi.getHistoryCandidates({ query: '交付', limit: 10, offset: 20 })
+    await getWorkspaceTree('/projects')
+    await getWorkspaceTree('/projects', false, false, true)
+    await createWorkspaceDirectory('/projects', '客户交付')
+
+    assert.equal(requests[0].url, '/api/projects')
+    assert.deepEqual(JSON.parse(requests[1].options.body), {
+      request_id: 'request-1',
+      name: '客户交付',
+      workdir: { mode: 'linked', path: 'clients/acme' }
+    })
+    assert.equal(
+      requests[2].url,
+      '/api/projects/history-candidates?q=%E4%BA%A4%E4%BB%98&limit=10&offset=20'
+    )
+    assert.equal(requests[3].url, '/api/workspace/tree?path=%2Fprojects&recursive=false&files_only=false')
+    assert.equal(
+      requests[4].url,
+      '/api/workspace/tree?path=%2Fprojects&recursive=false&files_only=false&include_unbound_project_dirs=true'
+    )
+    assert.deepEqual(JSON.parse(requests[5].options.body), {
+      parent_path: '/projects',
+      name: '客户交付'
+    })
+  })
+})
+
 test('工具元数据 API 使用普通用户认证且普通用户可正常请求', async () => {
   await withServer(async (server) => {
     storageValues.clear()

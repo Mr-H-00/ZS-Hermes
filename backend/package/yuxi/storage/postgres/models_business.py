@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -54,6 +55,49 @@ OR (
 # 新建线程的初始已查看标记，用于区分"尚无任何 Run"与"上线前的历史会话"，
 # 避免 startup 回填把后续新产生的未读状态误清为已读。不会与真实 Run id 冲突。
 UNVIEWED_RUN_MARKER = "__unviewed__"
+
+
+class Project(Base):
+    """用户项目及其 Workdir 绑定。"""
+
+    __tablename__ = "projects"
+    __table_args__ = (
+        UniqueConstraint("id", "uid", name="uq_projects_id_uid"),
+        UniqueConstraint("uid", "idempotency_key", name="uq_projects_uid_idempotency_key"),
+        CheckConstraint("selection_status IN ('implicit', 'selectable')", name="ck_projects_selection_status"),
+        CheckConstraint("directory_mode IN ('managed', 'linked')", name="ck_projects_directory_mode"),
+    )
+
+    id = Column(String(64), primary_key=True, comment="Project UUID")
+    uid = Column(
+        String(64),
+        ForeignKey("users.uid", ondelete="CASCADE", name="fk_projects_uid_users"),
+        nullable=False,
+        index=True,
+        comment="UID",
+    )
+    name = Column(String(255), nullable=True, comment="项目名称；implicit Project 可为空")
+    selection_status = Column(String(20), nullable=False, index=True, comment="implicit/selectable")
+    workdir_path = Column(String(512), nullable=False, comment="UserWorkspace-relative Workdir path")
+    directory_mode = Column(String(20), nullable=False, comment="managed/linked")
+    idempotency_key = Column(String(128), nullable=True, comment="幂等创建键")
+    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False)
+
+    conversations = relationship("Conversation", back_populates="project")
+
+    def to_dict(self) -> dict[str, Any]:
+        """序列化项目公开字段。"""
+        return {
+            "id": self.id,
+            "uid": self.uid,
+            "name": self.name,
+            "selection_status": self.selection_status,
+            "workdir_path": self.workdir_path,
+            "directory_mode": self.directory_mode,
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }
 
 
 class Department(Base):
@@ -309,6 +353,7 @@ class Conversation(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="Primary key")
     thread_id = Column(String(64), unique=True, index=True, nullable=False, comment="Thread ID (UUID)")
+    creation_request_id = Column(String(64), nullable=True, comment="新建 Conversation 幂等请求 ID")
     uid = Column(String(64), index=True, nullable=False, comment="UID")
     # 历史字段名，实际保存的是 Agent.slug。
     agent_id = Column(String(64), index=True, nullable=False, comment="Agent slug (legacy column name: agent_id)")
@@ -316,12 +361,7 @@ class Conversation(Base):
     status = Column(String(20), default="active", comment="Status: active/archived/deleted")
     is_pinned = Column(Boolean, default=False, nullable=False, index=True, comment="Is pinned to top")
     last_viewed_run_id = Column(String(64), nullable=True, comment="Latest top-level run id viewed by user")
-    workdir_path = Column(
-        String(512),
-        nullable=False,
-        index=True,
-        comment="UserWorkspace-relative Workdir path",
-    )
+    project_id = Column(String(64), nullable=False, index=True, comment="Conversation 绑定的 Project ID")
     created_at = Column(DateTime, default=utc_now_naive, comment="Creation time")
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, comment="Update time")
     extra_metadata = Column(JSON, nullable=True, comment="Additional metadata")
@@ -331,18 +371,29 @@ class Conversation(Base):
     stats = relationship(
         "ConversationStats", back_populates="conversation", uselist=False, cascade="all, delete-orphan"
     )
+    project = relationship("Project", back_populates="conversations")
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "uid"],
+            ["projects.id", "projects.uid"],
+            name="fk_conversations_project_uid",
+        ),
+        UniqueConstraint("uid", "creation_request_id", name="uq_conversations_uid_creation_request_id"),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         metadata = self.extra_metadata or {}
         return {
             "id": self.id,
             "thread_id": self.thread_id,
+            "creation_request_id": self.creation_request_id,
             "uid": self.uid,
             "agent_id": self.agent_id,
             "title": self.title,
             "status": self.status,
             "is_pinned": bool(self.is_pinned),
-            "workdir_path": self.workdir_path,
+            "project_id": self.project_id,
             "created_at": format_utc_datetime(self.created_at),
             "updated_at": format_utc_datetime(self.updated_at),
             "metadata": metadata,

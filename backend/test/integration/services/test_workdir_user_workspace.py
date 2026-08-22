@@ -26,12 +26,12 @@ from yuxi.storage.postgres.manager import (
     V071_WORKDIR_CUTOVER_STATEMENTS,
     WORKDIR_PATH_SCHEMA_STATEMENTS,
 )
-from yuxi.storage.postgres.models_business import Base, Conversation
+from yuxi.storage.postgres.models_business import Base, Conversation, Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
-async def test_conversation_default_and_explicit_workdirs_use_user_workspace(monkeypatch, tmp_path: Path):
+async def test_conversations_share_workdir_only_through_project(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "user-data"))
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
@@ -39,44 +39,37 @@ async def test_conversation_default_and_explicit_workdirs_use_user_workspace(mon
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as db:
+            first_path = f"projects/{uuid.uuid4()}"
+            ensure_bound_user_workdir("user-1", first_path)
+            project = Project(
+                id=str(uuid.uuid4()),
+                uid="user-1",
+                selection_status="implicit",
+                workdir_path=first_path,
+                directory_mode="managed",
+            )
+            db.add(project)
+            await db.flush()
             first = await ConversationRepository(db).add_conversation(
                 uid="user-1",
                 agent_id="main",
                 thread_id="thread-1",
+                project_id=project.id,
             )
             await db.commit()
-            assert first.workdir_path.startswith("projects/")
-            ensure_bound_user_workdir("user-1", first.workdir_path)
-            first_directory = tmp_path / "user-data" / "shared" / "user-1" / "workspace" / first.workdir_path
+            assert first.project_id == project.id
+            assert not hasattr(first, "workdir_path")
+            first_directory = tmp_path / "user-data" / "shared" / "user-1" / "workspace" / first_path
             assert first_directory.is_dir()
 
             second = await ConversationRepository(db).add_conversation(
                 uid="user-1",
                 agent_id="main",
                 thread_id="thread-2",
-                workdir_path=first.workdir_path,
+                project_id=project.id,
             )
             await db.commit()
-            assert second.workdir_path == first.workdir_path
-
-            missing_path = f"projects/{uuid.uuid4()}"
-            missing_directory = tmp_path / "user-data" / "shared" / "user-1" / "workspace" / missing_path
-            with pytest.raises(FileNotFoundError):
-                await ConversationRepository(db).add_conversation(
-                    uid="user-1",
-                    agent_id="main",
-                    thread_id="thread-missing",
-                    workdir_path=missing_path,
-                )
-            assert not missing_directory.exists()
-
-            with pytest.raises(ValueError):
-                await ConversationRepository(db).add_conversation(
-                    uid="user-1",
-                    agent_id="main",
-                    thread_id="thread-escape",
-                    workdir_path="../outside",
-                )
+            assert second.project_id == first.project_id
     finally:
         await engine.dispose()
 
@@ -133,7 +126,14 @@ async def test_v071_thread_layout_migrates_files_empty_workdir_and_attachment_me
             await connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
-            await connection.execute(text("ALTER TABLE conversations DROP COLUMN workdir_path"))
+            await connection.execute(text("ALTER TABLE conversations DROP CONSTRAINT fk_conversations_project_uid"))
+            await connection.execute(text("ALTER TABLE conversations DROP COLUMN project_id"))
+            await connection.execute(
+                text(
+                    "INSERT INTO users (username, uid, password_hash, role, login_failed_count, is_deleted) "
+                    "VALUES ('user-early', 'user-early', 'unused', 'user', 0, 0)"
+                )
+            )
             await connection.execute(
                 text(
                     "INSERT INTO conversations "
@@ -200,7 +200,16 @@ async def test_v071_thread_layout_migrates_files_empty_workdir_and_attachment_me
         cleanup_v071_thread_sources(retry_plan.conversations)
 
         async with factory() as db:
-            conversations = list((await db.execute(select(Conversation).order_by(Conversation.id))).scalars())
+            rows = list(
+                (
+                    await db.execute(
+                        select(Conversation, Project.workdir_path)
+                        .join(Project, Project.id == Conversation.project_id)
+                        .order_by(Conversation.id)
+                    )
+                ).all()
+            )
+            conversations = [conversation for conversation, _workdir_path in rows]
 
         target = tmp_path / f"user-data/shared/user-early/workspace/projects/{expected_id}/uploads/input.txt"
         assert target.read_text(encoding="utf-8") == "early-layout"
@@ -211,7 +220,7 @@ async def test_v071_thread_layout_migrates_files_empty_workdir_and_attachment_me
             tmp_path / f"user-data/shared/user-early/workspace/projects/{punctuation_id}/outputs/result.txt"
         )
         assert punctuation_target.read_text(encoding="utf-8") == "punctuation"
-        assert [conversation.workdir_path for conversation in conversations] == [
+        assert [workdir_path for _conversation, workdir_path in rows] == [
             f"projects/{expected_id}",
             f"projects/{empty_id}",
             f"projects/{punctuation_id}",

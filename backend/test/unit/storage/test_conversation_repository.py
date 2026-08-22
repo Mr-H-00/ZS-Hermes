@@ -51,7 +51,7 @@ def _seed_invocation_excluding_conversations() -> tuple[Conversation, Conversati
     now = utc_now_naive()
     normal = Conversation(
         thread_id="thread-normal",
-        workdir_path="projects/workdir-thread-normal",
+        project_id="project-thread-normal",
         uid="user-a",
         agent_id="agent-a",
         title="Normal",
@@ -62,7 +62,7 @@ def _seed_invocation_excluding_conversations() -> tuple[Conversation, Conversati
     )
     agent_call = Conversation(
         thread_id="thread-call",
-        workdir_path="projects/workdir-thread-call",
+        project_id="project-thread-call",
         uid="user-a",
         agent_id="agent-a",
         title="Agent Call Run",
@@ -74,7 +74,7 @@ def _seed_invocation_excluding_conversations() -> tuple[Conversation, Conversati
     )
     agent_eval = Conversation(
         thread_id="thread-eval",
-        workdir_path="projects/workdir-thread-eval",
+        project_id="project-thread-eval",
         uid="user-a",
         agent_id="agent-a",
         title="Agent Evaluation Run",
@@ -108,7 +108,7 @@ async def test_search_conversations_by_message_content_filters_user_status_and_t
     now = utc_now_naive()
     active = Conversation(
         thread_id="thread-active",
-        workdir_path="projects/workdir-thread-active",
+        project_id="project-thread-active",
         uid="user-a",
         agent_id="agent-a",
         title="Active Thread",
@@ -118,7 +118,7 @@ async def test_search_conversations_by_message_content_filters_user_status_and_t
     )
     deleted = Conversation(
         thread_id="thread-deleted",
-        workdir_path="projects/workdir-thread-deleted",
+        project_id="project-thread-deleted",
         uid="user-a",
         agent_id="agent-a",
         title="Deleted Thread",
@@ -128,7 +128,7 @@ async def test_search_conversations_by_message_content_filters_user_status_and_t
     )
     other_user = Conversation(
         thread_id="thread-other-user",
-        workdir_path="projects/workdir-thread-other-user",
+        project_id="project-thread-other-user",
         uid="user-b",
         agent_id="agent-a",
         title="Other User Thread",
@@ -138,7 +138,7 @@ async def test_search_conversations_by_message_content_filters_user_status_and_t
     )
     tool_only = Conversation(
         thread_id="thread-tool-only",
-        workdir_path="projects/workdir-thread-tool-only",
+        project_id="project-thread-tool-only",
         uid="user-a",
         agent_id="agent-a",
         title="Tool Only Thread",
@@ -242,7 +242,7 @@ async def test_search_conversations_by_message_content_filters_agent_and_paginat
     old = now - timedelta(days=1)
     first = Conversation(
         thread_id="thread-first",
-        workdir_path="projects/workdir-thread-first",
+        project_id="project-thread-first",
         uid="user-a",
         agent_id="agent-a",
         title="First",
@@ -252,7 +252,7 @@ async def test_search_conversations_by_message_content_filters_agent_and_paginat
     )
     second = Conversation(
         thread_id="thread-second",
-        workdir_path="projects/workdir-thread-second",
+        project_id="project-thread-second",
         uid="user-a",
         agent_id="agent-a",
         title="Second",
@@ -262,7 +262,7 @@ async def test_search_conversations_by_message_content_filters_agent_and_paginat
     )
     other_agent = Conversation(
         thread_id="thread-other-agent",
-        workdir_path="projects/workdir-thread-other-agent",
+        project_id="project-thread-other-agent",
         uid="user-a",
         agent_id="agent-b",
         title="Other Agent",

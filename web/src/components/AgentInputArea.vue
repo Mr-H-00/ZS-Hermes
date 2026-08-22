@@ -1,77 +1,85 @@
 <template>
-  <MessageInputComponent
-    ref="inputRef"
-    :model-value="modelValue"
-    @update:modelValue="updateValue"
-    :is-loading="isLoading"
-    :disabled="disabled"
-    :send-button-disabled="sendButtonDisabled"
-    :placeholder="placeholder"
-    :mention="mention"
-    :thread-id="threadId"
-    :file-upload-enabled="supportsFileUpload"
-    :show-options-left="showInputOptions"
-    @send="handleSend"
-    @keydown="handleKeyDown"
-    @paste-image="handlePastedImage"
-    @drop-files="handleDroppedFiles"
-  >
-    <template #top>
-      <div v-if="currentImage || previewAttachments.length" class="input-top-stack">
-        <ImagePreviewComponent
-          v-if="currentImage"
-          :image-data="currentImage"
-          @remove="handleImageRemoved"
-          class="image-preview-wrapper"
-        />
+  <div class="agent-composer" :class="{ 'has-extra': showExtra && $slots.extra }">
+    <div v-if="showExtra && $slots.extra" class="composer-extra-region" aria-label="对话上下文">
+      <slot name="extra"></slot>
+    </div>
 
-        <div v-if="previewAttachments.length" class="attachment-preview-list">
-          <div
-            v-for="attachment in previewAttachments"
-            :key="attachment.fileId"
-            class="attachment-file-card"
-          >
-            <div class="attachment-file-icon">
-              <FileTypeIcon :name="attachment.name" :size="18" />
-            </div>
-            <div class="attachment-file-body">
-              <div class="attachment-file-name" :title="attachment.name">{{ attachment.name }}</div>
-              <div class="attachment-file-meta">{{ attachment.meta }}</div>
-            </div>
-            <button
-              class="attachment-remove-btn"
-              type="button"
-              :aria-label="`移除附件 ${attachment.name}`"
-              @click.stop="handleAttachmentRemoved(attachment)"
+    <MessageInputComponent
+      ref="inputRef"
+      :model-value="modelValue"
+      @update:modelValue="updateValue"
+      :is-loading="isLoading"
+      :disabled="disabled"
+      :send-button-disabled="sendButtonDisabled"
+      :placeholder="placeholder"
+      :mention="mention"
+      :thread-id="threadId"
+      :file-upload-enabled="supportsFileUpload"
+      :show-options-left="showInputOptions"
+      @send="handleSend"
+      @keydown="handleKeyDown"
+      @paste-image="handlePastedImage"
+      @drop-files="handleDroppedFiles"
+    >
+      <template #top>
+        <div v-if="currentImage || previewAttachments.length" class="input-top-stack">
+          <ImagePreviewComponent
+            v-if="currentImage"
+            :image-data="currentImage"
+            @remove="handleImageRemoved"
+            class="image-preview-wrapper"
+          />
+
+          <div v-if="previewAttachments.length" class="attachment-preview-list">
+            <div
+              v-for="attachment in previewAttachments"
+              :key="attachment.fileId"
+              class="attachment-file-card"
             >
-              <X :size="14" />
-            </button>
+              <div class="attachment-file-icon">
+                <FileTypeIcon :name="attachment.name" :size="18" />
+              </div>
+              <div class="attachment-file-body">
+                <div class="attachment-file-name" :title="attachment.name">
+                  {{ attachment.name }}
+                </div>
+                <div class="attachment-file-meta">{{ attachment.meta }}</div>
+              </div>
+              <button
+                class="attachment-remove-btn"
+                type="button"
+                :aria-label="`移除附件 ${attachment.name}`"
+                @click.stop="handleAttachmentRemoved(attachment)"
+              >
+                <X :size="14" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    </template>
-    <template #options-left>
-      <AttachmentOptionsComponent
-        :disabled="disabled"
-        :file-upload-enabled="supportsFileUpload"
-        :mention="mention"
-        @upload="handleAttachmentUpload"
-        @upload-image="handleImageUpload"
-        @upload-image-success="handleImageUploadSuccess"
-        @select-mention="handleMentionSelect"
-      />
-    </template>
-    <template #actions-left>
-      <div class="input-actions-left">
-        <slot name="actions-left-extra"></slot>
-      </div>
-    </template>
-    <template #actions-right>
-      <div class="input-actions-right">
-        <slot name="actions-right-extra"></slot>
-      </div>
-    </template>
-  </MessageInputComponent>
+      </template>
+      <template #options-left>
+        <AttachmentOptionsComponent
+          :disabled="disabled"
+          :file-upload-enabled="supportsFileUpload"
+          :mention="mention"
+          @upload="handleAttachmentUpload"
+          @upload-image="handleImageUpload"
+          @upload-image-success="handleImageUploadSuccess"
+          @select-mention="handleMentionSelect"
+        />
+      </template>
+      <template #actions-left>
+        <div class="input-actions-left">
+          <slot name="actions-left-extra"></slot>
+        </div>
+      </template>
+      <template #actions-right>
+        <div class="input-actions-right">
+          <slot name="actions-right-extra"></slot>
+        </div>
+      </template>
+    </MessageInputComponent>
+  </div>
 </template>
 
 <script setup>
@@ -91,6 +99,7 @@ const props = defineProps({
   sendButtonDisabled: { type: Boolean, default: false },
   mention: { type: Object, default: () => null },
   threadId: { type: String, default: '' },
+  showExtra: { type: Boolean, default: false },
   supportsFileUpload: { type: Boolean, default: false },
   attachments: {
     type: Array,
@@ -108,7 +117,7 @@ const emit = defineEmits([
 
 const inputRef = ref(null)
 const currentImage = ref(null)
-const placeholder = '问点什么？使用 @ 可以提及哦~'
+const placeholder = '问点什么？使用 @ 可以选择文件、知识库或技能进行引用。'
 
 const previewAttachments = computed(() => normalizeAttachmentPreviews(props.attachments))
 const showInputOptions = computed(
@@ -199,10 +208,30 @@ defineExpose({
 </script>
 
 <style lang="less" scoped>
+@import '@/components/composerStyles.less';
+
+.agent-composer {
+  width: 100%;
+}
+
+.composer-extra-region {
+  .composer-top-attachment();
+  display: flex;
+  min-height: 36px;
+  align-items: flex-start;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 14px 2px;
+}
+
+.agent-composer.has-extra :deep(.input-box) {
+  z-index: 1;
+}
+
 .input-actions-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
   flex-wrap: wrap;
 }
 
@@ -218,7 +247,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .attachment-preview-list {

@@ -25,7 +25,7 @@ def runtime_workdir_path(workdir_path: str) -> str:
 def workdir_runtime_paths(workdir_path: str) -> tuple[str, str]:
     """返回当前 Workdir runtime 的大结果与对话历史目录。"""
     normalized = PurePosixPath(str(workdir_path)).as_posix().rstrip("/")
-    if not normalized.startswith(f"{VIRTUAL_PATH_PREFIX.rstrip('/')}/projects/"):
+    if not normalized.startswith(f"{VIRTUAL_PATH_PREFIX.rstrip('/')}/"):
         raise ValueError("workdir_path must be a Backend runtime path")
     outputs = f"{normalized}/outputs"
     return (

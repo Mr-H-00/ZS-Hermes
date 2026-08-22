@@ -26,7 +26,7 @@ async def session():
 async def _seed_messages(session):
     conversation = Conversation(
         thread_id="thread-1",
-        workdir_path="projects/workdir-thread-1",
+        project_id="project-thread-1",
         uid="user-1",
         agent_id="main",
         status="active",

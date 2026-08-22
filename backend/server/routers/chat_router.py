@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, File
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.storage.postgres.models_business import User
@@ -122,10 +122,15 @@ async def get_thread_state(
 
 
 class ThreadCreate(BaseModel):
+    """新线程创建请求，只允许在创建时选择 Project。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str | None = Field(None, max_length=64)
     title: str | None = None
     agent_id: str
     metadata: dict | None = None
-    workdir_path: str | None = None
+    project_id: str | None = None
 
 
 class ThreadResponse(BaseModel):
@@ -134,6 +139,7 @@ class ThreadResponse(BaseModel):
     agent_id: str
     title: str | None = None
     is_pinned: bool = False
+    project_id: str | None = None
     workdir_path: str
     created_at: str
     updated_at: str
@@ -245,9 +251,10 @@ async def create_thread(
     """创建新对话线程 (使用新存储系统)"""
     return await create_thread_view(
         agent_slug=thread.agent_id,
+        request_id=thread.request_id,
         title=thread.title,
         metadata=thread.metadata,
-        workdir_path=thread.workdir_path,
+        project_id=thread.project_id,
         db=db,
         current_uid=str(current_user.uid),
     )
@@ -296,6 +303,10 @@ async def delete_thread(
 
 
 class ThreadUpdate(BaseModel):
+    """线程可变展示字段，不接受绑定字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = None
     is_pinned: bool | None = None
     tool_approval_mode: ToolApprovalMode | None = None

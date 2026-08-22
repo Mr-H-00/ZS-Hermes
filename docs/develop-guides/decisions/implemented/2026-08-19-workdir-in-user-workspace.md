@@ -28,7 +28,7 @@ Owner：backend/package/yuxi/services/workdir_service.py
 
 ### Workdir 是 UserWorkspace 下的相对路径
 
-Workdir 保留为对话的逻辑工作目录绑定，但不再作为独立持久化实体。Conversation 直接保存一个相对于当前用户 `workspace` 的路径：
+Workdir 保留为对话的逻辑工作目录，但不作为独立存储域。后续引入的轻量业务 Project 保存一个相对于当前用户 `workspace` 的路径，Conversation 只保存 `project_id`：
 
 ```text
 workdir_path = projects/<opaque-workdir-id>
@@ -54,11 +54,11 @@ Workdir 在该设计中是 Conversation 的 cwd 和 Thread 文件 API 的默认�
 
 该约束定义默认模型行为，不构成安全或授权边界。用户明确要求跨 Project 修改、安装个人 Skill、更新用户上下文或执行其他 UserWorkspace 操作时，可以写入相应目录；后端仍只强制 uid 隔离、路径不越界和具体工具拥有的权限。
 
-默认创建时由服务端生成 opaque UUID，避免依赖客户端 thread ID 的格式、可变性或安全性。默认 Workdir 对每个根 Conversation 独立；显式传入的路径按同一用户 workspace 内的目录引用处理，允许同一用户的多个 Thread 共享该目录，跨用户不允许共享。
+默认创建时由服务端生成 implicit Project 和 opaque Workdir UUID，避免依赖客户端 thread ID 的格式、可变性或安全性。用户也可选择绑定现有目录的 Project；允许同一用户的多个 Project 共享目录，跨用户不允许共享。
 
-需要在同一事务中同时创建 Conversation、Message、Request 和 Run 的 Agent Call、Channel 与 Evaluation 入口，事务内只分配并持久化 `workdir_path`。调用方提交 PostgreSQL 后由可写 API 进程实体化该目录，确认成功后才向 ARQ 发布 Run；实体化失败时保留已提交的 pending Run 供恢复扫描重试，不允许先发布给只读或无目录的 worker。
+需要在同一事务中同时创建 Conversation、Message、Request 和 Run 的 Agent Call、Channel 与 Evaluation 入口，事务内创建 Project 并让 Conversation 持久化 `project_id`。调用方提交 PostgreSQL 后由可写 API 进程实体化 Project 的目录，确认成功后才向 ARQ 发布 Run；实体化失败时保留已提交的 pending Run 供恢复扫描重试，不允许先发布给只读或无目录的 worker。
 
-父 Conversation 与子 Conversation 继续继承同一个 `workdir_path`。
+父 Conversation 与子 Conversation 继承同一个 `project_id`。
 
 ### Execution runtime scope 与 Workdir 分离
 
@@ -72,21 +72,15 @@ Workdir 在该设计中是 Conversation 的 cwd 和 Thread 文件 API 的默认�
 
 `runtime_scope_id` 不定义文件路径、文件授权、LangGraph checkpoint identity 或 UserWorkspace 边界。它的语义 Owner 属于 AgentRun 创建、SubAgent 执行树和 worker runtime cleanup，不再由 Workdir binding/service 推导或拥有。
 
-读取 LangGraph checkpoint 状态时仍需重建当前 Agent context：checkpoint thread 使用当前 Conversation 的 thread ID，Sandbox context 使用最新 AgentRun 持久化的 `runtime_scope_id`，并注入该 Conversation 的 `workdir_path`。缺失 Workdir 时读取失败，不构造一个没有当前工作目录的降级上下文。
+读取 LangGraph checkpoint 状态时仍需重建当前 Agent context：checkpoint thread 使用当前 Conversation 的 thread ID，Sandbox context 使用最新 AgentRun 持久化的 `runtime_scope_id`，并注入由 Project 解析的 `workdir_path`。缺失 Project 或 Workdir 时读取失败，不构造一个没有当前工作目录的降级上下文。
 
 取消 `workdir-files-<id>` 文件桥接 Sandbox 后，正常执行路径直接用 `runtime_scope_id` 标识 execution Sandbox，不再保留 `sandbox_instance_id`。只有未来出现同一执行树必须同时拥有多个独立 Sandbox 实例的真实 consumer 时，才重新引入独立 instance identity。
 
-本阶段不创建 `ProjectWorkdir` 表，也不为仅保存路径的 Workdir 建立第二个 UUID 资源表。只有未来出现 Workdir 级别的 ACL、重命名、配额、生命周期或跨用户共享元数据时，才重新评估独立 Workdir resource。
+本阶段不创建独立存储域或 `ProjectWorkdir` 物化资源。后续产品引入命名、独立创建和对话复用后，轻量业务 Project 已由 [Project 持久化与新建对话项目选择](./2026-08-22-project-persistence-and-selection.md) 实现；UserWorkspace 仍拥有 POSIX 字节、uid 隔离和真实路径边界。
 
 ### Thread 创建接口
 
-Thread 创建接口增加可选的 `workdir_path` 字段：
-
-- 不传时，在 UserWorkspace 中创建 `projects/<opaque-workdir-id>` 并绑定该相对路径；
-- 传入时，只接受当前用户 workspace 内的已存在目录；
-- 路径必须是相对 POSIX 路径，不接受宿主机路径、容器绝对路径、对象 URL 或其他用户的路径；
-- `agents/` 及后续声明的系统目录是保留命名空间，不能作为普通 Workdir；
-- 本阶段只提供后端接口，不实现前端选择器、目录浏览器、目录创建 UI 或跨用户共享。
+Thread 创建接口只接受可选 `project_id`：不传时创建 implicit Project，传入时绑定当前用户已有的 selectable Project。接口不接受 `workdir_path`；路径只在 Project 创建边界校验和持久化，不接受宿主机路径、容器绝对路径、对象 URL 或其他用户的路径。
 
 路径解析和授权由后端 repository/service 与宿主 `Workspace` 共同闭合。它接收 `uid + workspace-relative path`，不再通过伪造的 Project root 或 `workdir-files-<id>` scope 绕过真实路径 Owner。所有路径组件都在 owning filesystem boundary 内以 no-follow 方式校验，禁止 `..`、symlink 穿越和跨用户访问。
 
@@ -123,10 +117,10 @@ Conversation 的附件 JSON 只保存文件 ID、文件名、MIME、大小、状
 
 `storage-migrator` 收敛为一次性旧布局迁移 Owner，而不是正常启动链路中的 Workdir materialization Owner：
 
-- 升级基线是 v0.7.1 的发布状态；每个历史 Conversation 获得由 owner uid + owner thread id 确定性派生的 canonical `projects/<uuid>`，子线程与 owner 共用 Workdir，即使没有旧文件也创建目标 Workdir；
+- 升级基线是 v0.7.1 的发布状态；每个历史顶层 Conversation 获得 implicit Project 和确定性派生的 canonical `projects/<uuid>`，子线程继承 owner Project，即使没有旧文件也创建目标 Workdir；
 - v0.7.1 thread `uploads/outputs` 导入对应 Workdir，持久化的 `/home/gem/user-data/workspace/...` 改写为 `/home/gem/user-data/...`，旧顶层 `uploads/outputs` 路径改写到当前 Workdir；
 - v0.7.1 `base.toml` 与共享 Skill 在同一停机迁移中切换到当前 PostgreSQL 和 Skill source Owner；
-- 迁移在 runtime quiescence 和目标校验后提交数据库，再清理旧源；已有 `workdir_path` 且旧 thread 源仍存在时按同一目标重试；
+- 迁移在 runtime quiescence 和目标校验后提交数据库，再清理旧源；当前 Project schema 仍有旧 thread 源时按同一目标重试；
 - 未发布的 `ProjectWorkdir`、`FileStorageMaterialization` 与 `workdir_id` 中间 schema 明确拒绝，不执行兼容导入；
 - 新安装直接使用 UserWorkspace 布局，不创建独立 Project schema、Project root 或 Project PVC；
 - 正常 API/worker 启动不扫描旧宿主目录，也不执行破坏性迁移。
@@ -135,7 +129,7 @@ Conversation 的附件 JSON 只保存文件 ID、文件名、MIME、大小、状
 
 ## 替代方案
 
-- **保留独立 `ProjectWorkdir` 表，只把它的 storage key 改到 UserWorkspace。** 拒绝。仅保留一个没有独立元数据和生命周期的 UUID 资源仍会维护第二事实源、复合外键和额外 repository；当前 Conversation 的相对路径已经足够。
+- **保留独立 `ProjectWorkdir` 表，只把它的 storage key 改到 UserWorkspace。** 拒绝。存储物化资源会维护第二事实源；当前轻量 Project 只表达产品归属并直接拥有 UserWorkspace 相对路径，不拥有独立存储域或挂载生命周期。
 - **继续使用独立 `/home/gem/projects` 挂载，再允许 API 指向 workspace 目录。** 拒绝。一个 Thread 的文件边界会依赖两套根目录，授权、Viewer 和 Sandbox 路径会再次分叉。
 - **把 UserWorkspace 挂载到 `/home/gem/user-data/workspace`。** 拒绝。该路径会在已经由 UserWorkspace Owner 定界的目录外再保留一层兼容命名，使个人 Skill、Workspace API 和 Workdir 都需要重复拼接 `workspace`；直接把同一个宿主目录挂到 `/home/gem/user-data` 即可保持单根语义。
 - **每个 Thread 按用户指定目录动态创建宿主机挂载。** 拒绝。挂载配置不应成为用户输入的副作用；挂载整个当前用户 workspace 后，在容器内选择经过校验的相对路径即可。
@@ -146,7 +140,7 @@ Conversation 的附件 JSON 只保存文件 ID、文件名、MIME、大小、状
 
 | 验收主张 | 失败面 | 语义 Owner | 直接证据 / 命令 | 负向案例 | 当前结果 |
 |---|---|---|---|---|---|
-| Thread 默认创建唯一的 `projects/<id>`，显式路径只绑定当前 UserWorkspace 内的目录 | DB 绑定与实际目录不一致 | Conversation repository、Thread service、UserWorkspace path service | 真实 PostgreSQL + 文件系统 integration；检查 Conversation 行与最终目录 | `../`、绝对路径、宿主机路径、其他用户路径、非目录路径 | 通过：3 个真实 PostgreSQL/文件系统 integration；相关 unit 纳入全量 1370 passed |
+| Thread 默认创建 Project 与唯一 `projects/<id>`，显式 Project 只绑定当前 UserWorkspace 内的合法目录 | DB 绑定与实际目录不一致 | Project service、Conversation repository、UserWorkspace path service | 真实 PostgreSQL + 文件系统 integration；检查 Project、Conversation 与最终目录 | Conversation 直接传路径；`../`、绝对路径、宿主机路径、其他用户路径、非目录路径 | 相关 unit Passed；真实 integration 本轮因共享 API fixture 超时 Not run |
 | 自动创建 Conversation 的 Run 在提交后、ARQ 发布前实体化 Workdir | worker 先收到 Run，但其边界中不存在 UUID 目录并以 `invalid_runtime_scope` 失败 | Run submission、request queue finalize 与 Workdir path service | finalize 顺序 unit + 自动创建 Conversation 的真实 HTTP/PostgreSQL/POSIX integration + queue recovery integration | 删除实体化步骤后事件顺序缺少 `materialize`；自动创建后宿主目录不存在；恢复 pending Run 时跳过实体化；提交前创建或创建前 enqueue | 通过：unit 证明 `commit -> materialize -> enqueue`，真实 Agent Call 自动创建后回读 Conversation 与最终目录，queue integration 覆盖恢复派发 |
 | Workdir 路径不会越过 UserWorkspace 或绑定到保留目录 | 路径穿越、symlink 穿越、把 `agents/` 作为 Workdir | `backend/package/yuxi/agents/backends/sandbox/paths.py` 与 file bridge | path resolver unit + 真实 HTTP/Sandbox 文件访问 | `..`、绝对路径、symlink 组件、`agents/`、跨 uid | 通过：no-follow/path unit、5 个真实 HTTP Viewer integration 与 5 个真实 Docker provisioner integration |
 | Sandbox 把当前 UserWorkspace 直接挂载到 `/home/gem/user-data`，并只额外挂载只读共享 Skill projection | Project mount、嵌套 workspace mount 或广域 host root 泄漏 | `docker-compose.yml`、`docker/sandbox_provisioner/app.py` | Compose/provisioner contract、Docker mount inspection、`python3 scripts/verify_engineering_contracts.py` | `/app/projects`、`DOCKER_PROJECTS_HOST_PATH`、`PROJECT_DATA_PVC`、`/home/gem/user-data/workspace` mount、shared root、可写 Skill mount | 通过：Compose 校验、provisioner unit、真实 Docker mount/integration、工程信任检查 |

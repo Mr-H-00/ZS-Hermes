@@ -25,7 +25,7 @@ async def session():
             Conversation(
                 id=10,
                 thread_id="thread-1",
-                workdir_path="projects/workdir-thread-1",
+                project_id="project-thread-1",
                 uid="user-1",
                 agent_id="main",
                 status="active",

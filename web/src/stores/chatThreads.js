@@ -10,6 +10,7 @@ const threadDraftStore = createThreadDraftStore()
 export const useChatThreadsStore = defineStore('chatThreads', () => {
   const threads = ref([])
   const currentThreadId = ref(null)
+  const threadCreationInFlight = ref(false)
   const hasMoreThreads = ref(true)
   const isLoadingMoreThreads = ref(false)
 
@@ -18,8 +19,14 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     return threads.value.find((thread) => thread.id === currentThreadId.value) || null
   })
 
-  const setCurrentThreadId = (threadId) => {
+  const setCurrentThreadId = (threadId, { force = false } = {}) => {
+    if (threadCreationInFlight.value && !force) return false
     currentThreadId.value = threadId || null
+    return true
+  }
+
+  const setThreadCreationInFlight = (value) => {
+    threadCreationInFlight.value = Boolean(value)
   }
 
   const upsertThread = (thread) => {
@@ -76,7 +83,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
         currentThreadId.value &&
         !threads.value.find((thread) => thread.id === currentThreadId.value)
       ) {
-        currentThreadId.value = null
+        setCurrentThreadId(null)
       }
       return threads.value
     } catch (error) {
@@ -109,11 +116,11 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     }
   }
 
-  const createThread = async (agentId, title = '新的对话', metadata = {}) => {
+  const createThread = async (agentId, title = '新的对话', metadata = {}, options = {}) => {
     if (!agentId) return null
 
     try {
-      const thread = await threadApi.createThread(agentId, title, metadata)
+      const thread = await threadApi.createThread(agentId, title, metadata, options)
       if (thread) {
         threads.value = [thread, ...threads.value.filter((item) => item.id !== thread.id)]
       }
@@ -134,7 +141,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
       // 线程已删除，同步清理其输入草稿
       threadDraftStore.remove(threadId)
       if (currentThreadId.value === threadId) {
-        currentThreadId.value = null
+        setCurrentThreadId(null)
       }
     } catch (error) {
       console.error('Failed to delete thread:', error)
@@ -170,9 +177,11 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     threads,
     currentThreadId,
     currentThread,
+    threadCreationInFlight,
     hasMoreThreads,
     isLoadingMoreThreads,
     setCurrentThreadId,
+    setThreadCreationInFlight,
     upsertThread,
     setThreadStatus,
     markThreadViewed,

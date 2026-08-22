@@ -34,19 +34,35 @@ def validate_thread_id(thread_id: str) -> str:
 
 
 def normalize_workdir_path(workdir_path: str) -> str:
-    """规范化数据库中的 ``projects/<uuid>`` Workdir 路径。"""
+    """规范化数据库中的 UserWorkspace 相对 Workdir 路径。"""
     raw = str(workdir_path or "").strip()
     pure = PurePosixPath(raw)
     if not raw or pure.is_absolute() or "\\" in raw or "://" in raw:
         raise ValueError("workdir_path must be a relative POSIX path")
     if any(part in {"", ".", ".."} for part in raw.split("/")):
         raise ValueError("workdir_path contains invalid path components")
+    return pure.as_posix()
+
+
+def normalize_linked_workdir_path(workdir_path: str) -> str:
+    """规范化用户选择的 linked Workdir；Workspace 根由相对路径约束拒绝。"""
+    return normalize_workdir_path(workdir_path)
+
+
+def normalize_managed_workdir_path(workdir_path: str) -> str:
+    """规范化服务端管理的 ``projects/<uuid>`` Workdir 路径。"""
+    raw = str(workdir_path or "").strip()
+    pure = PurePosixPath(raw)
+    if not raw or pure.is_absolute() or "\\" in raw or "://" in raw:
+        raise ValueError("managed workdir_path must use projects/<uuid>")
+    if any(part in {"", ".", ".."} for part in raw.split("/")):
+        raise ValueError("managed workdir_path must use projects/<uuid>")
     if len(pure.parts) != 2 or pure.parts[0] != WORKDIR_PROJECTS_DIR_NAME:
-        raise ValueError("workdir_path must use projects/<uuid>")
+        raise ValueError("managed workdir_path must use projects/<uuid>")
     try:
         workdir_id = uuid.UUID(pure.parts[1])
     except ValueError as exc:
-        raise ValueError("workdir_path must use projects/<uuid>") from exc
+        raise ValueError("managed workdir_path must use projects/<uuid>") from exc
     return f"{WORKDIR_PROJECTS_DIR_NAME}/{workdir_id}"
 
 
@@ -95,7 +111,7 @@ def allocate_default_user_workdir_path() -> str:
 
 def ensure_bound_user_workdir(uid: str, workdir_path: str) -> None:
     """物化已提交数据库绑定的 canonical Workdir。"""
-    normalized = normalize_workdir_path(workdir_path)
+    normalized = normalize_managed_workdir_path(workdir_path)
     parts = PurePosixPath(normalized).parts
     try:
         _open_workspace_directory(uid, parts)

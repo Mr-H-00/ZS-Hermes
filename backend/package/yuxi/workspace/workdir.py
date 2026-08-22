@@ -11,7 +11,7 @@ from .paths import normalize_workdir_path
 
 @dataclass(frozen=True, slots=True)
 class Workdir:
-    """把浏览 scope `/...` 固定到一个 `projects/<uuid>` 持久化根。"""
+    """把浏览 scope `/...` 固定到一个持久化 Workspace 目录。"""
 
     relative_path: str
     workspace: Workspace

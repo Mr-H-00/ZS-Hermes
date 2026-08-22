@@ -54,34 +54,121 @@ AGENT_RUN_FACT_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_agent_run_attempts_open ON agent_run_attempts(run_id, finished_at)",
 )
 WORKDIR_PATH_SCHEMA_STATEMENTS = (
-    "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS workdir_path VARCHAR(512)",
+    """
+    CREATE TABLE IF NOT EXISTS projects (
+        id VARCHAR(64) PRIMARY KEY,
+        uid VARCHAR(64) NOT NULL CONSTRAINT fk_projects_uid_users REFERENCES users(uid) ON DELETE CASCADE,
+        name VARCHAR(255),
+        selection_status VARCHAR(20) NOT NULL,
+        workdir_path VARCHAR(512) NOT NULL,
+        directory_mode VARCHAR(20) NOT NULL,
+        idempotency_key VARCHAR(128),
+        created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_projects_id_uid UNIQUE (id, uid),
+        CONSTRAINT uq_projects_uid_idempotency_key UNIQUE (uid, idempotency_key),
+        CONSTRAINT ck_projects_selection_status CHECK (selection_status IN ('implicit', 'selectable')),
+        CONSTRAINT ck_projects_directory_mode CHECK (directory_mode IN ('managed', 'linked'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_projects_uid ON projects(uid)",
+    "CREATE INDEX IF NOT EXISTS ix_projects_selection_status ON projects(selection_status)",
+    "ALTER TABLE IF EXISTS projects DROP CONSTRAINT IF EXISTS uq_projects_uid_workdir_path",
+    "ALTER TABLE IF EXISTS projects ALTER COLUMN name DROP NOT NULL",
     """
     DO $$
     BEGIN
-        IF EXISTS (SELECT 1 FROM conversations WHERE workdir_path IS NULL) THEN
-            RAISE EXCEPTION 'Conversation workdir_path requires storage-migrator cutover';
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_projects_uid_users'
+              AND conrelid = 'projects'::regclass
+        ) THEN
+            ALTER TABLE projects
+            ADD CONSTRAINT fk_projects_uid_users
+            FOREIGN KEY (uid) REFERENCES users(uid) ON DELETE CASCADE;
         END IF;
     END $$
     """,
-    "CREATE INDEX IF NOT EXISTS ix_conversations_workdir_path ON conversations(workdir_path)",
+    "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS project_id VARCHAR(64)",
+    "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS creation_request_id VARCHAR(64)",
+    (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_uid_creation_request_id "
+        "ON conversations(uid, creation_request_id) WHERE creation_request_id IS NOT NULL"
+    ),
+    """
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM conversations
+            WHERE project_id IS NULL
+        ) THEN
+            RAISE EXCEPTION 'Conversation project_id requires storage-migrator cutover';
+        END IF;
+    END $$
+    """,
+    "ALTER TABLE IF EXISTS conversations ALTER COLUMN project_id SET NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_conversations_project_id ON conversations(project_id)",
+    "ALTER TABLE IF EXISTS conversations DROP CONSTRAINT IF EXISTS ck_conversations_workdir_binding",
+    "ALTER TABLE IF EXISTS conversations DROP COLUMN IF EXISTS workdir_path",
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_conversations_project_uid'
+              AND conrelid = 'conversations'::regclass
+        ) THEN
+            ALTER TABLE conversations
+            ADD CONSTRAINT fk_conversations_project_uid
+            FOREIGN KEY (project_id, uid) REFERENCES projects(id, uid);
+        END IF;
+    END $$
+    """,
 )
 V071_WORKDIR_CUTOVER_STATEMENTS = (
-    "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS workdir_path VARCHAR(512)",
+    "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS project_id VARCHAR(64)",
     """
-    UPDATE conversations
-    SET workdir_path = 'projects/' || (md5(uid || ':' || thread_id)::uuid)::text
-    WHERE workdir_path IS NULL
+    WITH bindings AS (
+        SELECT
+            child.uid,
+            COALESCE(parent.thread_id, child.thread_id) AS owner_thread_id
+        FROM conversations AS child
+        LEFT JOIN subagent_threads AS relation ON relation.child_conversation_id = child.id
+        LEFT JOIN conversations AS parent ON parent.id = relation.parent_conversation_id
+    )
+    INSERT INTO projects (
+        id, uid, name, selection_status, workdir_path, directory_mode, idempotency_key
+    )
+    SELECT DISTINCT
+        (md5('project:' || uid || ':' || owner_thread_id)::uuid)::text,
+        uid,
+        NULL,
+        'implicit',
+        'projects/' || (md5(uid || ':' || owner_thread_id)::uuid)::text,
+        'managed',
+        NULL
+    FROM bindings
+    ON CONFLICT (id) DO NOTHING
     """,
     """
     UPDATE conversations AS child
-    SET workdir_path = parent.workdir_path
-    FROM subagent_threads AS relation
-    JOIN conversations AS parent ON parent.id = relation.parent_conversation_id
-    WHERE child.id = relation.child_conversation_id
-      AND child.workdir_path IS DISTINCT FROM parent.workdir_path
+    SET project_id = (md5(
+        'project:' || owner.uid || ':' || owner.owner_thread_id
+    )::uuid)::text
+    FROM (
+        SELECT
+            current.id,
+            current.uid,
+            COALESCE(parent.thread_id, current.thread_id) AS owner_thread_id
+        FROM conversations AS current
+        LEFT JOIN subagent_threads AS relation ON relation.child_conversation_id = current.id
+        LEFT JOIN conversations AS parent ON parent.id = relation.parent_conversation_id
+    ) AS owner
+    WHERE child.id = owner.id
+      AND child.project_id IS NULL
     """,
-    "ALTER TABLE IF EXISTS conversations ALTER COLUMN workdir_path SET NOT NULL",
-    "CREATE INDEX IF NOT EXISTS ix_conversations_workdir_path ON conversations(workdir_path)",
+    "ALTER TABLE IF EXISTS conversations ALTER COLUMN project_id SET NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_conversations_project_id ON conversations(project_id)",
 )
 RUNTIME_SCOPE_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS runtime_scope_id VARCHAR(64)",

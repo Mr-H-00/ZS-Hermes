@@ -43,7 +43,7 @@ const taskerStore = useTaskerStore()
 const userStore = useUserStore()
 const { activeCount: activeCountRef, isDrawerOpen } = storeToRefs(taskerStore)
 const { knowledgeEnabled } = storeToRefs(runtimeCapabilitiesStore)
-const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads } =
+const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, threadCreationInFlight } =
   storeToRefs(chatThreadsStore)
 
 // Add state for GitHub stars
@@ -173,7 +173,7 @@ const mainList = computed(() => {
   })
 
   items.push({
-    name: '工作区',
+    name: '个人空间',
     path: '/workspace',
     icon: HardDrive,
     activeIcon: HardDrive
@@ -235,7 +235,7 @@ const initAgentNavigation = async () => {
 
 const handleSelectChat = (threadId) => {
   if (!threadId) return
-  chatThreadsStore.setCurrentThreadId(threadId)
+  if (!chatThreadsStore.setCurrentThreadId(threadId)) return
   router.push({ name: 'AgentCompWithThreadId', params: { thread_id: threadId } })
 }
 
@@ -250,7 +250,7 @@ const handleSearchSelectThread = (thread) => {
 }
 
 const handleCreateConversationFromSearch = () => {
-  chatThreadsStore.setCurrentThreadId(null)
+  if (!chatThreadsStore.setCurrentThreadId(null)) return
   router.push({ name: 'AgentComp' })
 }
 
@@ -300,6 +300,7 @@ watch(
   () => [route.path, route.params.thread_id],
   () => {
     if (!route.path.startsWith('/agent')) return
+    if (threadCreationInFlight.value) return
     const threadId = typeof route.params.thread_id === 'string' ? route.params.thread_id : null
     chatThreadsStore.setCurrentThreadId(threadId)
   },
@@ -474,7 +475,7 @@ provide('settingsModal', {
       default-mode="conversation"
       :recent-threads="threads"
       :file-search="searchWorkspace"
-      file-placeholder="搜索工作区文件..."
+      file-placeholder="搜索个人空间文件..."
       @select-thread="handleSearchSelectThread"
       @create-thread="handleCreateConversationFromSearch"
       @thread-found="handleSearchThreadFound"

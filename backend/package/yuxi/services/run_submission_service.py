@@ -20,6 +20,8 @@ from yuxi.repositories.agent_run_request_repository import AgentRunRequestReposi
 from yuxi.repositories.conversation_repository import ConversationRepository
 from yuxi.services.agent_request_queue_service import finalize_intake, intake_request
 from yuxi.services.input_message_service import AgentRunInputMessage
+from yuxi.services.project_service import create_implicit_project
+from yuxi.services.workdir_service import resolve_conversation_workdir_binding
 from yuxi.storage.postgres.models_business import User
 
 
@@ -123,6 +125,10 @@ async def submit_run_command(
             raise HTTPException(status_code=404, detail="对话线程不存在")
         try:
             async with db.begin_nested():
+                project = await create_implicit_project(
+                    uid=str(current_user.uid),
+                    db=db,
+                )
                 conversation = await conversation_repo.add_conversation(
                     uid=str(current_user.uid),
                     agent_id=agent_item.slug,
@@ -133,6 +139,7 @@ async def submit_run_command(
                         "source": origin.source,
                         "channel": origin.channel,
                     },
+                    project_id=project.id,
                 )
         except IntegrityError:
             conversation = await conversation_repo.get_conversation_by_thread_id(command.thread_id)
@@ -164,11 +171,17 @@ async def submit_run_command(
         tool_approval_mode=command.tool_approval_mode,
         meta=request_metadata,
     )
+    workdir_path, project = await resolve_conversation_workdir_binding(
+        conversation=conversation,
+        uid=str(current_user.uid),
+        db=db,
+    )
     await finalize_intake(
         db=db,
         intake=intake,
         uid=str(current_user.uid),
-        workdir_path=conversation.workdir_path,
+        workdir_path=workdir_path,
+        materialize_managed=project is not None and project.directory_mode == "managed",
     )
 
     return {

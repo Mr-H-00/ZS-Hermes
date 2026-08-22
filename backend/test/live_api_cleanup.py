@@ -58,6 +58,7 @@ class CleanupConversationResource:
     """描述一个待清理的测试 Conversation 及其 Project Workdir。"""
 
     conversation_id: int
+    project_id: str
     thread_id: str
     uid: str
     status: str
@@ -339,8 +340,10 @@ async def list_test_conversation_resources(owner_uid: str) -> dict[str, CleanupC
         )
         request_thread_ids = {str(row["conversation_thread_id"] or "") for row in request_rows}
         rows = await conn.fetch(
-            "SELECT id, thread_id, uid, status, title, workdir_path, extra_metadata, agent_id "
-            "FROM conversations WHERE uid = $1",
+            "SELECT c.id, c.project_id, c.thread_id, c.uid, c.status, c.title, "
+            "p.workdir_path, p.directory_mode, p.selection_status, c.extra_metadata, c.agent_id "
+            "FROM conversations c JOIN projects p ON p.id = c.project_id AND p.uid = c.uid "
+            "WHERE c.uid = $1",
             owner_uid,
         )
         marked_parent_ids: list[int] = []
@@ -361,18 +364,27 @@ async def list_test_conversation_resources(owner_uid: str) -> dict[str, CleanupC
             marked_parent_ids.append(int(row["id"]))
             resources[thread_id] = CleanupConversationResource(
                 conversation_id=int(row["id"]),
+                project_id=str(row["project_id"]),
                 thread_id=thread_id,
                 uid=str(row["uid"] or owner_uid),
                 status=str(row["status"] or ""),
-                workdir_path=str(row["workdir_path"]) if row["workdir_path"] else None,
+                workdir_path=(
+                    str(row["workdir_path"])
+                    if row["directory_mode"] == "managed"
+                    and row["selection_status"] == "implicit"
+                    and row["workdir_path"]
+                    else None
+                ),
             )
 
         if marked_parent_ids:
             child_rows = await conn.fetch(
                 """
-                SELECT child.id, child.thread_id, child.uid, child.status, child.workdir_path
+                SELECT child.id, child.project_id, child.thread_id, child.uid, child.status,
+                       project.workdir_path, project.directory_mode, project.selection_status
                 FROM subagent_threads st
                 JOIN conversations child ON child.id = st.child_conversation_id
+                JOIN projects project ON project.id = child.project_id AND project.uid = child.uid
                 WHERE st.parent_conversation_id = ANY($1::int[])
                 """,
                 marked_parent_ids,
@@ -381,10 +393,17 @@ async def list_test_conversation_resources(owner_uid: str) -> dict[str, CleanupC
                 child_id = str(row["thread_id"] or "")
                 resources[child_id] = CleanupConversationResource(
                     conversation_id=int(row["id"]),
+                    project_id=str(row["project_id"]),
                     thread_id=child_id,
                     uid=str(row["uid"] or owner_uid),
                     status=str(row["status"] or ""),
-                    workdir_path=str(row["workdir_path"]) if row["workdir_path"] else None,
+                    workdir_path=(
+                        str(row["workdir_path"])
+                        if row["directory_mode"] == "managed"
+                        and row["selection_status"] == "implicit"
+                        and row["workdir_path"]
+                        else None
+                    ),
                 )
         return resources
     finally:
@@ -402,15 +421,15 @@ async def _list_e2e_thread_statuses(owner_uid: str) -> dict[str, str]:
 
 async def validate_test_workdirs_exclusive(
     workdirs: dict[tuple[str, str], set[str]],
-    target_thread_ids: set[str],
+    target_project_ids: set[str],
 ) -> None:
-    """确认待删 Project Workdir 未被目标外的 Conversation 共享。"""
+    """确认待删 Workdir 未被目标外的 Project 共享。"""
 
     if not workdirs:
         return
     conn = await asyncpg.connect(_postgres_dsn())
     try:
-        await _validate_test_workdirs_exclusive(conn, workdirs, target_thread_ids)
+        await _validate_test_workdirs_exclusive(conn, workdirs, target_project_ids)
     finally:
         await conn.close()
 
@@ -418,7 +437,7 @@ async def validate_test_workdirs_exclusive(
 async def _validate_test_workdirs_exclusive(
     conn: asyncpg.Connection,
     workdirs: dict[tuple[str, str], set[str]],
-    target_thread_ids: set[str],
+    target_project_ids: set[str],
 ) -> None:
     """使用调用方事务确认 Project Workdir 没有目标外 Owner。"""
 
@@ -426,11 +445,11 @@ async def _validate_test_workdirs_exclusive(
     for uid, _workdir_path in workdirs:
         if uid not in rows_by_uid:
             rows_by_uid[uid] = await conn.fetch(
-                "SELECT thread_id, workdir_path FROM conversations WHERE uid = $1 AND workdir_path IS NOT NULL",
+                "SELECT id, workdir_path FROM projects WHERE uid = $1",
                 uid,
             )
 
-    for (uid, workdir_path), thread_ids in workdirs.items():
+    for (uid, workdir_path), project_ids in workdirs.items():
         try:
             target_path = PurePosixPath(normalize_workdir_path(workdir_path))
         except ValueError as exc:
@@ -443,7 +462,7 @@ async def _validate_test_workdirs_exclusive(
             except ValueError as exc:
                 raise RuntimeError(
                     "Test conversation cleanup cannot verify an existing Workdir owner: "
-                    f"{row['thread_id']}={candidate_value!r}"
+                    f"{row['id']}={candidate_value!r}"
                 ) from exc
             overlaps = (
                 candidate_path == target_path
@@ -451,14 +470,14 @@ async def _validate_test_workdirs_exclusive(
                 or target_path in candidate_path.parents
             )
             if overlaps:
-                owners.add(str(row["thread_id"] or ""))
-        unexpected = owners - target_thread_ids
+                owners.add(str(row["id"] or ""))
+        unexpected = owners - target_project_ids
         if unexpected:
             raise RuntimeError(
                 f"Test conversation cleanup refuses shared or overlapping Workdir {workdir_path!r}; "
-                f"other threads: {', '.join(sorted(unexpected))}"
+                f"other projects: {', '.join(sorted(unexpected))}"
             )
-        if not thread_ids <= target_thread_ids:
+        if not project_ids <= target_project_ids:
             raise RuntimeError(f"Test conversation cleanup has an untracked Workdir owner: {workdir_path!r}")
 
 
@@ -519,8 +538,9 @@ async def delete_test_conversation_rows(thread_ids: set[str]) -> None:
 async def delete_test_conversation_resources(
     workdirs: dict[tuple[str, str], set[str]],
     thread_ids: set[str],
+    workdir_project_ids: set[str],
 ) -> None:
-    """先提交测试 Conversation 删除，再在 Owner 锁内清理对应文件。"""
+    """先提交测试 Conversation 删除，再在 Project Owner 锁内清理对应文件。"""
 
     if not thread_ids:
         return
@@ -528,17 +548,23 @@ async def delete_test_conversation_resources(
     conn = await asyncpg.connect(_postgres_dsn())
     try:
         async with conn.transaction():
+            await conn.execute("LOCK TABLE projects IN SHARE MODE")
             await conn.execute("LOCK TABLE conversations IN SHARE MODE")
-            await _validate_test_workdirs_exclusive(conn, workdirs, thread_ids)
+            await _validate_test_workdirs_exclusive(conn, workdirs, workdir_project_ids)
             await _delete_test_conversation_rows(conn, thread_ids_list)
 
         await _assert_test_conversations_deleted(conn, thread_ids_list)
         try:
             async with conn.transaction():
-                # 数据库删除已提交；第二个 SHARE 锁阻止文件清理期间出现新的
-                # Workdir Owner，同时提交失败不会留下仍引用已删目录的 Conversation。
+                # 与 linked Project 创建共享同一路径锁；拿锁后再回读 Owner，
+                # 保证创建要么先提交并被看见，要么在删除后重新校验目录。
+                for uid in sorted({uid for uid, _workdir_path in workdirs}):
+                    await conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                        f"project-workdir:{uid}",
+                    )
                 await conn.execute("LOCK TABLE conversations IN SHARE MODE")
-                await _validate_test_workdirs_exclusive(conn, workdirs, thread_ids)
+                await _validate_test_workdirs_exclusive(conn, workdirs, workdir_project_ids)
                 for uid, workdir_path in workdirs:
                     remove_test_workdir(uid, workdir_path)
                 for thread_id in thread_ids:
@@ -553,10 +579,17 @@ async def _delete_test_conversation_rows(conn: asyncpg.Connection, thread_ids_li
     """使用调用方事务删除测试 Conversation 的完整历史。"""
 
     conversation_rows = await conn.fetch(
-        "SELECT id FROM conversations WHERE thread_id = ANY($1::text[])",
+        "SELECT c.id, c.project_id, p.selection_status "
+        "FROM conversations c JOIN projects p ON p.id = c.project_id AND p.uid = c.uid "
+        "WHERE c.thread_id = ANY($1::text[])",
         thread_ids_list,
     )
     conversation_ids = [int(row["id"]) for row in conversation_rows]
+    implicit_project_ids = [
+        str(row["project_id"])
+        for row in conversation_rows
+        if row["project_id"] and row["selection_status"] == "implicit"
+    ]
     run_rows = await conn.fetch(
         "SELECT id FROM agent_runs WHERE conversation_thread_id = ANY($1::text[]) OR conversation_id = ANY($2::int[])",
         thread_ids_list,
@@ -594,6 +627,27 @@ async def _delete_test_conversation_rows(conn: asyncpg.Connection, thread_ids_li
         conversation_ids,
     )
     await conn.execute("DELETE FROM conversations WHERE id = ANY($1::int[])", conversation_ids)
+    await conn.execute(
+        "DELETE FROM projects WHERE id = ANY($1::text[]) "
+        "AND NOT EXISTS (SELECT 1 FROM conversations WHERE conversations.project_id = projects.id)",
+        implicit_project_ids,
+    )
+
+
+async def delete_orphaned_test_projects(owner_uid: str) -> None:
+    """删除当前用户无 Conversation 引用且显式标记的测试 Project。"""
+
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        await conn.execute(
+            "DELETE FROM projects WHERE uid = $1 "
+            "AND left(idempotency_key, char_length($2)) = $2 "
+            "AND NOT EXISTS (SELECT 1 FROM conversations WHERE conversations.project_id = projects.id)",
+            owner_uid,
+            TEST_RESOURCE_PREFIX,
+        )
+    finally:
+        await conn.close()
 
 
 async def _assert_test_conversations_deleted(conn: asyncpg.Connection, thread_ids_list: list[str]) -> None:
@@ -677,9 +731,10 @@ async def cleanup_test_chat_resources(
         _resolve_e2e_thread_storage(resource.thread_id)
         if resource.workdir_path:
             _resolve_test_workdir(resource.uid, resource.workdir_path)
-            workdir_targets.setdefault((resource.uid, resource.workdir_path), set()).add(resource.thread_id)
+            workdir_targets.setdefault((resource.uid, resource.workdir_path), set()).add(resource.project_id)
 
-    await validate_test_workdirs_exclusive(workdir_targets, target_thread_ids)
+    workdir_project_ids = {project_id for project_ids in workdir_targets.values() for project_id in project_ids}
+    await validate_test_workdirs_exclusive(workdir_targets, workdir_project_ids)
     await validate_test_runs_terminal(target_thread_ids)
 
     for request_id in await list_test_queued_request_ids(target_thread_ids):
@@ -703,7 +758,8 @@ async def cleanup_test_chat_resources(
                 f"Failed to delete persisted test conversation {resource.thread_id}: {delete_response.text}"
             )
 
-    await delete_test_conversation_resources(workdir_targets, target_thread_ids)
+    await delete_test_conversation_resources(workdir_targets, target_thread_ids, workdir_project_ids)
+    await delete_orphaned_test_projects(owner_uid)
 
     failures: list[str] = []
     agents_response = await client.get(

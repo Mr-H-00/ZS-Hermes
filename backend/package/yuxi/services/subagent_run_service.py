@@ -24,10 +24,10 @@ from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
 from yuxi.repositories.subagent_thread_repository import SubagentThreadRepository
 from yuxi.services.input_message_service import AgentRunInputMessage
+from yuxi.services.workdir_service import resolve_conversation_workdir_binding
 from yuxi.storage.postgres.models_business import Agent, AgentRun, SubagentThread
 from yuxi.utils.datetime_utils import format_utc_datetime
 from yuxi.utils.hash_utils import hash_id, subagent_child_thread_id
-from yuxi.workspace.paths import ensure_bound_user_workdir
 
 
 @dataclass(frozen=True)
@@ -275,7 +275,7 @@ class SubagentRunService:
         uid: str,
         agent_item: Agent,
         creator_run: AgentRun,
-        parent_workdir_path: str,
+        parent_project_id: str,
     ):
         """确保子线程有对应 conversation；新线程会创建标记为 subagent 的对话。"""
         conversation = await self.conv_repo.get_conversation_by_thread_id(child_thread_id)
@@ -286,7 +286,7 @@ class SubagentRunService:
                 raise ValueError(f"子智能体线程 {child_thread_id} 已被普通对话占用")
             if conversation.agent_id != agent_item.slug:
                 raise ValueError(f"子智能体线程 {child_thread_id} 属于智能体 {conversation.agent_id}")
-            if conversation.workdir_path != parent_workdir_path:
+            if conversation.project_id != parent_project_id:
                 raise ValueError("子智能体线程与父对话的 Workdir 不一致")
             return conversation
 
@@ -302,7 +302,7 @@ class SubagentRunService:
                 "parent_conversation_id": creator_run.conversation_id,
                 "subagent_slug": agent_item.slug,
             },
-            workdir_path=parent_workdir_path,
+            project_id=parent_project_id,
         )
         conversation.status = "subagent"
         await self.db.flush()
@@ -337,8 +337,12 @@ class SubagentRunService:
         parent_conversation = await self.conv_repo.get_conversation_by_id(creator_run.conversation_id)
         if parent_conversation is None or parent_conversation.uid != str(uid):
             raise ValueError("父运行任务的 Conversation 不存在")
-        parent_workdir_path = parent_conversation.workdir_path
-        ensure_bound_user_workdir(str(uid), parent_workdir_path)
+        _parent_workdir_path, parent_project = await resolve_conversation_workdir_binding(
+            conversation=parent_conversation,
+            uid=str(uid),
+            db=self.db,
+        )
+        parent_project_id = parent_project.id
 
         existing = await self.thread_repo.get_by_child_thread_for_user(child_thread_id, uid)
         if existing:
@@ -351,7 +355,7 @@ class SubagentRunService:
             child_conversation = await self.conv_repo.get_conversation_by_id(existing.child_conversation_id)
             if child_conversation is None or child_conversation.uid != str(uid):
                 raise ValueError("子智能体线程不存在")
-            if child_conversation.workdir_path != parent_workdir_path:
+            if child_conversation.project_id != parent_project_id:
                 raise ValueError("子智能体线程与父对话的 Workdir 不一致")
             return existing
         if continuing:
@@ -361,7 +365,7 @@ class SubagentRunService:
             uid=uid,
             agent_item=agent_item,
             creator_run=creator_run,
-            parent_workdir_path=parent_workdir_path,
+            parent_project_id=parent_project_id,
         )
         return await self.thread_repo.create(
             uid=uid,

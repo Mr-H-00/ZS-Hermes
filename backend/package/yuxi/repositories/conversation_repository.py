@@ -6,7 +6,7 @@ import uuid as uuid_lib
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from yuxi.storage.postgres.models_business import (
@@ -94,12 +94,10 @@ class ConversationRepository:
         title: str | None = None,
         thread_id: str | None = None,
         metadata: dict | None = None,
-        workdir_path: str | None = None,
+        project_id: str,
+        creation_request_id: str | None = None,
     ) -> Conversation:
         """创建对话和统计记录但只 flush，供外层事务继续绑定关系。"""
-        from yuxi.workspace.paths import allocate_default_user_workdir_path
-        from yuxi.workspace.workdir import Workdir
-
         if not thread_id:
             thread_id = str(uuid_lib.uuid4())
 
@@ -108,20 +106,16 @@ class ConversationRepository:
 
         normalized_title = self._normalize_title(title)
 
-        if workdir_path is None:
-            normalized_workdir_path = allocate_default_user_workdir_path()
-        else:
-            normalized_workdir_path = Workdir.open_existing(str(uid), workdir_path).relative_path
-
         conversation = Conversation(
             thread_id=thread_id,
+            creation_request_id=creation_request_id,
             uid=str(uid),
             agent_id=agent_id,
             title=normalized_title or "New Conversation",
             status="active",
             extra_metadata=metadata,
             last_viewed_run_id=UNVIEWED_RUN_MARKER,
-            workdir_path=normalized_workdir_path,
+            project_id=project_id,
         )
 
         self.db.add(conversation)
@@ -138,10 +132,11 @@ class ConversationRepository:
         self,
         uid: str,
         agent_id: str,
+        project_id: str,
         title: str | None = None,
         thread_id: str | None = None,
         metadata: dict | None = None,
-        workdir_path: str | None = None,
+        creation_request_id: str | None = None,
     ) -> Conversation:
         """创建并提交一个完整对话，适用于不需要外层事务编排的入口。"""
         conversation = await self.add_conversation(
@@ -150,17 +145,25 @@ class ConversationRepository:
             title=title,
             thread_id=thread_id,
             metadata=metadata,
-            workdir_path=workdir_path,
+            project_id=project_id,
+            creation_request_id=creation_request_id,
         )
         await self.db.commit()
         await self.db.refresh(conversation)
-        from yuxi.workspace.paths import ensure_bound_user_workdir
-
-        ensure_bound_user_workdir(str(uid), conversation.workdir_path)
         return conversation
 
     async def get_conversation_by_thread_id(self, thread_id: str) -> Conversation | None:
         result = await self.db.execute(select(Conversation).where(Conversation.thread_id == thread_id))
+        return result.scalar_one_or_none()
+
+    async def get_conversation_by_creation_request_id(self, uid: str, request_id: str) -> Conversation | None:
+        """按用户和创建幂等键读取 Conversation。"""
+        result = await self.db.execute(
+            select(Conversation).where(
+                Conversation.uid == str(uid),
+                Conversation.creation_request_id == request_id,
+            )
+        )
         return result.scalar_one_or_none()
 
     async def lock_conversation_by_thread_id(self, thread_id: str) -> Conversation | None:
@@ -364,6 +367,7 @@ class ConversationRepository:
         # First, get all pinned conversations (no limit)
         pinned_query = (
             select(Conversation)
+            .options(joinedload(Conversation.project))
             .where(*base_conditions)
             .where(Conversation.is_pinned)
             .order_by(Conversation.updated_at.desc())
@@ -386,6 +390,7 @@ class ConversationRepository:
         if remaining_limit is not None and remaining_limit > 0:
             non_pinned_query = (
                 select(Conversation)
+                .options(joinedload(Conversation.project))
                 .where(*base_conditions)
                 .where(~Conversation.is_pinned)
                 .order_by(Conversation.updated_at.desc())

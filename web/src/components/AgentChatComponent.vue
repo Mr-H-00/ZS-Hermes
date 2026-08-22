@@ -238,18 +238,30 @@
                     :send-button-disabled="isSendButtonDisabled"
                     :mention="mentionConfig"
                     :thread-id="currentChatId"
+                    :show-extra="!currentChatId"
                     :supports-file-upload="supportsFileUpload"
                     :attachments="currentPendingThreadAttachments"
                     @send="handleSendOrStop"
                     @upload-attachment="handleAttachmentUpload"
                     @remove-attachment="handleAttachmentRemove"
                   >
+                    <template #extra>
+                      <ProjectSelectionSection
+                        v-if="!currentChatId"
+                        v-model="selectedProjectId"
+                        :disabled="threadCreationInFlight"
+                      />
+                    </template>
                     <template #actions-left-extra>
                       <ToolApprovalModeSelector
                         :model-value="currentToolApprovalMode"
                         @update:model-value="handleToolApprovalModeSelect"
                       />
-                      <slot name="input-actions-left" :has-active-thread="!!currentChatId"></slot>
+                      <slot
+                        name="input-actions-left"
+                        :has-active-thread="!!currentChatId"
+                        :is-creating-thread="threadCreationInFlight"
+                      ></slot>
                     </template>
                     <template #actions-right-extra>
                       <button
@@ -391,10 +403,7 @@
                   :class="{ 'is-expanded': isStateSectionExpanded('tokenUsageDetails') }"
                 >
                   <div class="state-collapse-inner">
-                    <div
-                      id="token-usage-details"
-                      class="token-usage-details"
-                    >
+                    <div id="token-usage-details" class="token-usage-details">
                       <div v-if="tokenUsageModelItems.length" class="token-usage-model-list">
                         <article
                           v-for="model in tokenUsageModelItems"
@@ -498,10 +507,7 @@
                   :class="{ 'is-expanded': isStateSectionExpanded('todos') }"
                 >
                   <div class="state-collapse-inner">
-                    <div
-                      id="state-section-todos"
-                      class="state-section-content"
-                    >
+                    <div id="state-section-todos" class="state-section-content">
                       <div class="todo-panel-list">
                         <div
                           v-for="(todo, index) in currentTodos"
@@ -555,10 +561,7 @@
                   :class="{ 'is-expanded': isStateSectionExpanded('files') }"
                 >
                   <div class="state-collapse-inner">
-                    <div
-                      id="state-section-files"
-                      class="state-section-content"
-                    >
+                    <div id="state-section-files" class="state-section-content">
                       <div class="state-list">
                         <button
                           v-for="file in currentStateFiles"
@@ -611,10 +614,7 @@
                   :class="{ 'is-expanded': isStateSectionExpanded('artifacts') }"
                 >
                   <div class="state-collapse-inner">
-                    <div
-                      id="state-section-artifacts"
-                      class="state-section-content"
-                    >
+                    <div id="state-section-artifacts" class="state-section-content">
                       <div class="state-list">
                         <button
                           v-for="file in currentArtifactFiles"
@@ -667,10 +667,7 @@
                   :class="{ 'is-expanded': isStateSectionExpanded('subagents') }"
                 >
                   <div class="state-collapse-inner">
-                    <div
-                      id="state-section-subagents"
-                      class="state-section-content"
-                    >
+                    <div id="state-section-subagents" class="state-section-content">
                       <div class="state-list">
                         <div
                           v-for="(run, index) in displaySubagentRuns"
@@ -765,7 +762,6 @@
         />
       </div>
     </div>
-
   </div>
 </template>
 
@@ -836,10 +832,14 @@ import { useAgentMentionConfig } from '@/composables/useAgentMentionConfig'
 import AgentArtifactsCard from '@/components/AgentArtifactsCard.vue'
 import AgentPanel from '@/components/AgentPanel.vue'
 import AttachmentTmpUploadModal from '@/components/AttachmentTmpUploadModal.vue'
+import ProjectSelectionSection from '@/components/ProjectSelectionSection.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import { enrichTaskToolCalls, parseToolCallArgs } from '@/components/ToolCallingResult/toolRegistry'
 import { getConversationDisplayItems } from '@/utils/messageGrouping'
 import { makeChildThreadId } from '@/utils/subagentThread'
+import { AUTO_PROJECT_ID } from '@/utils/projectSelection'
+import { createSingleFlight } from '@/utils/singleFlight'
+import { createThreadForContext } from '@/utils/threadCreation'
 import {
   FILE_TREE_SECTION,
   closeAgentPanelSection as closePanelSectionState,
@@ -870,7 +870,8 @@ const chatUIStore = useChatUIStore()
 const configStore = useConfigStore()
 const { agents, selectedAgentId, agentConfig, configurableItems, availableKnowledgeBases } =
   storeToRefs(agentStore)
-const { threads, currentThreadId, currentThread } = storeToRefs(chatThreadsStore)
+const { threads, currentThreadId, currentThread, threadCreationInFlight } =
+  storeToRefs(chatThreadsStore)
 
 // ==================== LOCAL CHAT & UI STATE ====================
 // 输入草稿按线程保存：初始按当前线程还原，后续输入实时写入对应线程
@@ -885,11 +886,11 @@ const steeringRequestIds = reactive(new Set())
 let sendCooldownTimer = null
 // 预设的打招呼文本
 const greetingMessages = [
-  '👋 您好，有什么可以帮您？',
-  '👋 你好！有什么想聊的吗？',
-  '👋 嘿，有什么我可以帮助你的？',
-  '👋 欢迎！今天想讨论什么话题？',
-  '👋 你好呀，随时为你服务！'
+  '语析，析万物之语',
+  '语析，与知识对话',
+  '答案藏在知识里，我来找',
+  '与知识对话，与答案相遇',
+  '你负责提问，我负责寻找'
 ]
 
 // 随机选择一个打招呼文本
@@ -910,9 +911,10 @@ const recordSubagentThread = (toolCallId, childThreadId) => {
 }
 const getSubagentThreadIdByToolCall = (toolCallId) =>
   (toolCallId && chatState.subagentThreadByToolCall[String(toolCallId)]) || ''
-const setCurrentThreadId = (threadId) => {
+const setCurrentThreadId = (threadId, options) => {
+  if (!chatThreadsStore.setCurrentThreadId(threadId || null, options)) return false
   chatState.currentThreadId = threadId || null
-  chatThreadsStore.setCurrentThreadId(threadId || null)
+  return true
 }
 const streamSmoother = useStreamSmoother({
   getThreadState: (threadId) => chatState.threadStates[threadId] || null
@@ -931,6 +933,8 @@ const threadAttachmentsMap = ref({})
 const attachmentUploadModalOpen = ref(false)
 const attachmentInitialFiles = ref([])
 const attachmentInitialFilesKey = ref(0)
+const selectedProjectId = ref(AUTO_PROJECT_ID)
+const threadCreationRequestId = ref('')
 const isRefreshingState = ref(false)
 const collapsedStateSections = reactive({
   tokenUsageDetails: true,
@@ -979,9 +983,7 @@ const agentPanelViewMode = ref('tree')
 const agentPanelSections = ref([FILE_TREE_SECTION])
 const agentPanelActiveSectionKey = ref(FILE_TREE_SECTION.key)
 const agentPanelFilesystemRefreshVersion = ref(0)
-const pageVisible = ref(
-  typeof document === 'undefined' || document.visibilityState === 'visible'
-)
+const pageVisible = ref(typeof document === 'undefined' || document.visibilityState === 'visible')
 const chatContentContainerRef = ref(null)
 const panelWrapperRef = ref(null) // 直接操作 DOM
 const TODO_NAME_MAX_LENGTH = 20
@@ -1243,7 +1245,9 @@ const closePanelPreviewPath = (targetPath) => {
   const shouldCloseActive = isSameOrChildPanelPath(agentPanelActivePreviewPath.value, targetPath)
   agentPanelPreviewTabs.value = nextTabs
   const removedPaths = agentPanelSections.value
-    .filter((section) => section.type === 'file' && isSameOrChildPanelPath(section.path, targetPath))
+    .filter(
+      (section) => section.type === 'file' && isSameOrChildPanelPath(section.path, targetPath)
+    )
     .map((section) => section.key)
   agentPanelSections.value = agentPanelSections.value.filter(
     (section) => !removedPaths.includes(section.key)
@@ -1567,9 +1571,7 @@ const tokenUsageCacheHitLabel = computed(() => {
 })
 // 旧会话没有累计统计，指标都为 null 时隐藏整个指标行
 const hasTokenUsageMetrics = computed(
-  () =>
-    tokenUsageThreadTotalLabel.value !== null ||
-    tokenUsageCacheHitLabel.value !== null
+  () => tokenUsageThreadTotalLabel.value !== null || tokenUsageCacheHitLabel.value !== null
 )
 const tokenUsageBarSegments = computed(() => {
   const limit = tokenUsageStackLimit.value || Math.max(tokenUsageStackTotal.value, 1)
@@ -2234,15 +2236,14 @@ const agentPanelFilesystemVisible = computed(
       (activeAgentPanelSection.value?.type === 'file' &&
         activeAgentPanelPreview.value?.workdir === true))
 )
-const agentPanelFilesystemPollingActive = computed(
-  () =>
-    shouldPollAgentPanelFilesystem({
-      panelOpen: isFilePanelOpen.value,
-      pageVisible: pageVisible.value,
-      streaming: isStreaming.value,
-      activeSection: activeAgentPanelSection.value,
-      activePreview: activeAgentPanelPreview.value
-    })
+const agentPanelFilesystemPollingActive = computed(() =>
+  shouldPollAgentPanelFilesystem({
+    panelOpen: isFilePanelOpen.value,
+    pageVisible: pageVisible.value,
+    streaming: isStreaming.value,
+    activeSection: activeAgentPanelSection.value,
+    activePreview: activeAgentPanelPreview.value
+  })
 )
 const isProcessing = computed(
   () =>
@@ -2290,13 +2291,17 @@ const stopReplyElapsedTimer = ({ reset = false } = {}) => {
     replyElapsedSeconds.value = 0
   }
 }
-watch(isReplyLoading, (loading) => {
-  if (loading) {
-    startReplyElapsedTimer({ reset: true })
-  } else {
-    stopReplyElapsedTimer({ reset: true })
-  }
-}, { immediate: true })
+watch(
+  isReplyLoading,
+  (loading) => {
+    if (loading) {
+      startReplyElapsedTimer({ reset: true })
+    } else {
+      stopReplyElapsedTimer({ reset: true })
+    }
+  },
+  { immediate: true }
+)
 const isSendButtonDisabled = computed(() => {
   return (
     sendCooldownActive.value ||
@@ -2636,13 +2641,19 @@ const fetchThreads = async (agentId = null) => {
 }
 
 // 创建新线程
-const createThread = async (agentId, title = '新的对话') => {
+const createThread = async (agentId, title = '新的对话', projectId = '', requestId = '') => {
   if (!agentId) return null
 
   try {
-    const thread = await chatThreadsStore.createThread(agentId, title, {
-      tool_approval_mode: currentToolApprovalMode.value
-    })
+    const thread = await chatThreadsStore.createThread(
+      agentId,
+      title,
+      { tool_approval_mode: currentToolApprovalMode.value },
+      {
+        requestId,
+        projectId: projectId || undefined
+      }
+    )
     if (thread) {
       threadMessages.value[thread.id] = []
       threadAttachmentsMap.value[thread.id] = []
@@ -2763,19 +2774,44 @@ const fetchAgentState = async (agentId, threadId, { required = false } = {}) => 
   }
 }
 
-const ensureActiveThread = async (title = '新的对话') => {
+const createActiveThread = async (title = '新的对话') => {
   if (currentChatId.value) return currentChatId.value
-  try {
-    const newThread = await createThread(currentAgentId.value, title || '新的对话')
-    if (newThread) {
-      setCurrentThreadId(newThread.id)
-      return newThread.id
-    }
-  } catch {
-    // createThread 已处理错误提示
+  const selectedAgent = currentAgentId.value
+  const selectedProject = selectedProjectId.value
+  const startingThreadId = currentChatId.value
+  const creationContext = {
+    agentId: selectedAgent,
+    projectId: selectedProject,
+    threadId: startingThreadId
   }
-  return null
+  const requestId =
+    threadCreationRequestId.value || (threadCreationRequestId.value = createClientRequestId())
+  chatThreadsStore.setThreadCreationInFlight(true)
+  try {
+    const projectId = selectedProject === AUTO_PROJECT_ID ? '' : selectedProject
+    const { thread, accepted } = await createThreadForContext({
+      context: creationContext,
+      getCurrentContext: () => ({
+        agentId: currentAgentId.value,
+        projectId: selectedProjectId.value,
+        threadId: currentChatId.value
+      }),
+      requestId,
+      create: (stableRequestId) =>
+        createThread(selectedAgent, title || '新的对话', projectId, stableRequestId)
+    })
+    if (!thread) throw new Error('创建对话失败')
+    if (!accepted) throw new Error('新对话上下文已变化，请重新发送或添加附件')
+
+    threadCreationRequestId.value = ''
+    setCurrentThreadId(thread.id, { force: true })
+    return thread.id
+  } finally {
+    chatThreadsStore.setThreadCreationInFlight(false)
+  }
 }
+
+const ensureActiveThread = createSingleFlight(createActiveThread)
 
 const handleAttachmentUpload = async (files = []) => {
   if (
@@ -2988,6 +3024,10 @@ const getFirstNonPinnedChat = (chatList) => {
 }
 
 const selectChat = async (chatId) => {
+  if (threadCreationInFlight.value) {
+    message.info('正在创建新对话，请稍候')
+    return false
+  }
   const targetChat = threads.value.find((chat) => chat.id === chatId) || null
   const targetAgentId = targetChat?.agent_id || currentAgentId.value
   const previousThreadId = chatState.currentThreadId
@@ -3051,9 +3091,11 @@ const selectChat = async (chatId) => {
   await resumeQueuedRequestsForThread(chatId)
   restorePendingInterruptForThread(chatId)
   await scrollController.scrollToBottomStaticForce()
+  return true
 }
 
 const selectThreadFromRoute = async (threadId) => {
+  if (threadCreationInFlight.value) return null
   if (!agentStore.isInitialized) {
     await initAll()
   }
@@ -3104,8 +3146,9 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
 
   let threadId = currentChatId.value
   if (!threadId) {
-    threadId = await ensureActiveThread(text)
-    if (!threadId) {
+    try {
+      threadId = await ensureActiveThread(text)
+    } catch {
       message.error('创建对话失败，请重试')
       return
     }
@@ -3671,6 +3714,11 @@ watch(currentChatId, (threadId, oldThreadId) => {
   if (!threadId || approvalState.threadId !== threadId) {
     hideApprovalState()
   }
+  if (!threadId) {
+    ensureActiveThread.reset()
+    selectedProjectId.value = AUTO_PROJECT_ID
+    threadCreationRequestId.value = ''
+  }
   if (threadId) {
     restorePendingInterruptForThread(threadId)
   }
@@ -3681,6 +3729,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
 <style lang="less" scoped>
 @import '@/assets/css/main.css';
 @import '@/assets/css/animations.less';
+@import '@/components/composerStyles.less';
 
 .chat-container {
   display: flex;
@@ -3905,8 +3954,9 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .chat-greeting-input {
-  padding: 24px 0 34px;
+  padding: 10px 0;
   text-align: center;
+  margin-bottom: 7vh;
 
   h1 {
     font-size: 1.4rem;
@@ -4059,7 +4109,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
   max-width: 800px;
   margin: 0 auto;
   flex-grow: 1;
-  padding: 1rem var(--page-padding);
+  padding: 1rem 2rem;
   display: flex;
   flex-direction: column;
 }
@@ -4096,11 +4146,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
     .message-input-stage {
       position: relative;
       min-width: 0;
-    }
-
-    .queued-request-panel + .message-input-stage {
       z-index: 1;
-      margin-top: -16px;
     }
 
     .message-input-stage.has-tool-approval {
@@ -4128,12 +4174,10 @@ watch(currentChatId, (threadId, oldThreadId) => {
     }
 
     .queued-request-panel {
+      .composer-top-attachment();
       max-height: 196px;
       overflow-y: auto;
-      padding: 6px 12px 18px;
-      background: var(--gray-25);
-      border: 1px solid var(--gray-150);
-      border-radius: 16px 16px 12px 12px;
+      padding: 6px 14px 4px;
     }
 
     .queued-request-notice {

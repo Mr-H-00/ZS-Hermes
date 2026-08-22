@@ -21,7 +21,7 @@ from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
 from yuxi.services import chat_service, run_worker
 from yuxi.storage.postgres.manager import AGENT_RUN_LEASE_SCHEMA_STATEMENTS, RUNTIME_SCOPE_SCHEMA_STATEMENTS
-from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, SubagentThread
+from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, Project, SubagentThread, User
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -64,13 +64,26 @@ async def _create_run(
     request_id = f"lease-{uuid.uuid4()}"
     thread_id = f"pytest-lease-{uuid.uuid4()}"
     uid = f"pytest-user-{uuid.uuid4()}"
+    project_id = str(uuid.uuid4())
     async with session_factory() as db:
+        db.add(User(username=uid, uid=uid, password_hash="test"))
+        await db.flush()
+        db.add(
+            Project(
+                id=project_id,
+                uid=uid,
+                selection_status="implicit",
+                workdir_path=f"projects/{project_id}",
+                directory_mode="managed",
+            )
+        )
+        await db.flush()
         conversation = Conversation(
             thread_id=thread_id,
             uid=uid,
+            project_id=project_id,
             agent_id="main",
             status="active",
-            workdir_path=f"projects/{thread_id}",
         )
         db.add(conversation)
         await db.flush()
@@ -126,9 +139,9 @@ async def test_root_terminal_atomically_cancels_live_child_and_clears_lease(
             child_conversation = Conversation(
                 thread_id=child_thread_id,
                 uid=parent.uid,
+                project_id=parent_conversation.project_id,
                 agent_id="worker",
                 status="subagent",
-                workdir_path=parent_conversation.workdir_path,
             )
             db.add(child_conversation)
             await db.flush()
@@ -219,6 +232,11 @@ async def test_root_terminal_atomically_cancels_live_child_and_clears_lease(
 
 async def _cleanup_runs(session_factory, thread_ids: list[str]) -> None:
     async with session_factory() as db:
+        rows = (
+            await db.execute(
+                select(Conversation.project_id, Conversation.uid).where(Conversation.thread_id.in_(thread_ids))
+            )
+        ).all()
         conversation_ids = list(
             (await db.scalars(select(Conversation.id).where(Conversation.thread_id.in_(thread_ids)))).all()
         )
@@ -227,6 +245,8 @@ async def _cleanup_runs(session_factory, thread_ids: list[str]) -> None:
         await db.execute(delete(AgentRun).where(AgentRun.conversation_thread_id.in_(thread_ids)))
         await db.execute(delete(SubagentThread).where(SubagentThread.child_thread_id.in_(thread_ids)))
         await db.execute(delete(Conversation).where(Conversation.thread_id.in_(thread_ids)))
+        await db.execute(delete(Project).where(Project.id.in_({row.project_id for row in rows})))
+        await db.execute(delete(User).where(User.uid.in_({row.uid for row in rows})))
         await db.commit()
 
 
@@ -247,9 +267,9 @@ async def _create_live_child(
         child_conversation = Conversation(
             thread_id=child_thread_id,
             uid=parent.uid,
+            project_id=parent_conversation.project_id,
             agent_id="worker",
             status="subagent",
-            workdir_path=parent_conversation.workdir_path,
         )
         db.add(child_conversation)
         await db.flush()

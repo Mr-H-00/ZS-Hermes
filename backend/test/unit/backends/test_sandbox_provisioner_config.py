@@ -138,6 +138,7 @@ def test_local_container_identity_validation_rejects_unsafe_path_segments(monkey
     assert backend_cls._validate_uid("user-1_2") == "user-1_2"
     canonical_workdir = "projects/11111111-1111-4111-8111-111111111111"
     assert module.normalize_workdir_path(canonical_workdir) == canonical_workdir
+    assert module.normalize_workdir_path("agents/skills") == "agents/skills"
 
     for value in ["../escape", "thread/name", "thread name", "thread;rm", "thread.name"]:
         with pytest.raises(ValueError):
@@ -150,8 +151,7 @@ def test_local_container_identity_validation_rejects_unsafe_path_segments(monkey
     for value in [
         "../workdir",
         "/workdir",
-        "agents/skills",
-        "projects/11111111-1111-4111-8111-111111111111_2",
+        "agents//skills",
         "https://example.com/workdir",
     ]:
         with pytest.raises(ValueError):

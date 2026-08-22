@@ -290,11 +290,13 @@ export const threadApi = {
    * @param {Object} metadata - 元数据
    * @returns {Promise} - 创建结果
    */
-  createThread: (agentId, title, metadata) =>
+  createThread: (agentId, title, metadata, { requestId, projectId } = {}) =>
     apiPost('/api/chat/thread', {
+      request_id: requestId,
       agent_id: agentId,
       title: title || '新的对话',
-      metadata: metadata || {}
+      metadata: metadata || {},
+      ...(projectId ? { project_id: projectId } : {})
     }),
 
   /**

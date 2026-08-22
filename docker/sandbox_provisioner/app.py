@@ -7,20 +7,18 @@ import re
 import secrets
 import threading
 import time
-import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Annotated
 from urllib import request
 
 import httpx
+from dotenv import dotenv_values
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from dotenv import dotenv_values
 
 logger = logging.getLogger(__name__)
 
@@ -73,20 +71,14 @@ def normalize_env(env: dict | None) -> dict[str, str]:
 
 
 def normalize_workdir_path(workdir_path: str) -> str:
-    """校验 Sandbox wire 中 canonical ``projects/<uuid>`` Workdir。"""
+    """校验 Sandbox wire 中 UserWorkspace 相对 Workdir。"""
     raw = str(workdir_path or "").strip()
     pure = PurePosixPath(raw)
     if not raw or pure.is_absolute() or "\\" in raw or "://" in raw:
         raise ValueError("workdir_path must be a relative POSIX path")
     if any(part in {"", ".", ".."} for part in raw.split("/")):
         raise ValueError("workdir_path contains invalid path components")
-    if len(pure.parts) != 2 or pure.parts[0] != "projects":
-        raise ValueError("workdir_path must use projects/<uuid>")
-    try:
-        workdir_id = uuid.UUID(pure.parts[1])
-    except ValueError as exc:
-        raise ValueError("workdir_path must use projects/<uuid>") from exc
-    return f"projects/{workdir_id}"
+    return pure.as_posix()
 
 
 def kubernetes_storage_init_script(uid: str, workdir_path: str | None) -> str:

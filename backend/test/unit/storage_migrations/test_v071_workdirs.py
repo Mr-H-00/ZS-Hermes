@@ -6,6 +6,32 @@ from pathlib import Path
 import pytest
 
 import yuxi.storage_migrations.v071_workdirs as svc
+from yuxi.storage.postgres.manager import V071_WORKDIR_CUTOVER_STATEMENTS, WORKDIR_PATH_SCHEMA_STATEMENTS
+
+
+def test_cutover_creates_project_only_conversation_binding():
+    """v0.7.1 直接迁移到 Project，不引入 Conversation 路径中间态。"""
+    sql = "\n".join(V071_WORKDIR_CUTOVER_STATEMENTS)
+
+    assert "ADD COLUMN IF NOT EXISTS project_id" in sql
+    assert "INSERT INTO projects" in sql
+    assert "ALTER COLUMN project_id SET NOT NULL" in sql
+    assert "ADD COLUMN IF NOT EXISTS workdir_path" not in sql
+
+
+def test_project_schema_allows_shared_workdir_paths():
+    """Project 目录归属不是唯一约束，旧约束必须在启动迁移中移除。"""
+    sql = "\n".join(WORKDIR_PATH_SCHEMA_STATEMENTS)
+
+    assert "CONSTRAINT uq_projects_uid_workdir_path UNIQUE" not in sql
+    assert "DROP CONSTRAINT IF EXISTS uq_projects_uid_workdir_path" in sql
+
+
+def test_project_schema_names_uid_foreign_key_once():
+    """fresh schema 与收敛 SQL 共用同一 FK 名称，避免重复约束。"""
+    sql = "\n".join(WORKDIR_PATH_SCHEMA_STATEMENTS)
+
+    assert "uid VARCHAR(64) NOT NULL CONSTRAINT fk_projects_uid_users" in sql
 
 
 def test_import_moves_v071_thread_files_into_user_workspace(monkeypatch, tmp_path: Path):
