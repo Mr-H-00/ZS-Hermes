@@ -1,3 +1,11 @@
+export const formatProcessDuration = (durationMs) => {
+  if (!durationMs) return '处理过程'
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `耗时${minutes}分钟${seconds}秒`
+}
+
 export const collapseConversationProcess = (items, enabled = false) => {
   if (!enabled) return items
 
@@ -14,9 +22,7 @@ export const collapseConversationProcess = (items, enabled = false) => {
   if (processStart < 0) return items
 
   const processItems = items.slice(processStart, finalIndex)
-  if (
-    processItems.some((item) => item.type !== 'tool-group' && item.message?.type !== 'ai')
-  ) {
+  if (processItems.some((item) => item.type !== 'tool-group' && item.message?.type !== 'ai')) {
     return items
   }
 

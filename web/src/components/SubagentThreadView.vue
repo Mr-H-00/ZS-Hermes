@@ -83,7 +83,9 @@ const streamedMessages = computed(() => {
     .map(MessageProcessor.mergeMessageChunk)
     .filter(Boolean)
   return chunks.length
-    ? MessageProcessor.convertToolResultToMessages(chunks).filter((message) => message.type !== 'tool')
+    ? MessageProcessor.convertToolResultToMessages(chunks).filter(
+        (message) => message.type !== 'tool'
+      )
     : []
 })
 const displayMessages = computed(() => messages.value)
@@ -146,9 +148,7 @@ const loadThread = async () => {
   try {
     const response = await agentApi.getAgentState(props.threadId, { includeMessages: true })
     if (disposed || version !== loadVersion) return
-    currentRunId.value = response?.subagent_run?.run_id
-      ? String(response.subagent_run.run_id)
-      : ''
+    currentRunId.value = response?.subagent_run?.run_id ? String(response.subagent_run.run_id) : ''
     currentRunStatus.value = normalizeRunStatus(response?.subagent_run?.status)
 
     if (!currentRunId.value || isTerminalRunStatus(currentRunStatus.value)) {

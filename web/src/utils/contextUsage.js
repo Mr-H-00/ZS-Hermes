@@ -27,7 +27,11 @@ export function formatContextToken(value) {
  * @returns {number}
  */
 export function calculateContextRatio(usedTokens, limitTokens, explicitRatio = null) {
-  if (explicitRatio !== null && explicitRatio !== undefined && Number.isFinite(Number(explicitRatio))) {
+  if (
+    explicitRatio !== null &&
+    explicitRatio !== undefined &&
+    Number.isFinite(Number(explicitRatio))
+  ) {
     return Math.max(0, Math.min(Number(explicitRatio), 1))
   }
   const numericLimit = Number(limitTokens)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { collapseConversationProcess } from '../../src/utils/conversationProcessGrouping.js'
+import { collapseConversationProcess, formatProcessDuration } from '../../src/utils/conversationProcessGrouping.js'
 
 test('已完成对话将中间消息和工具调用聚合到过程组', () => {
     const items = collapseConversationProcess(
@@ -37,4 +37,15 @@ test('运行中或最终消息后仍有工具调用时不聚合过程', () => {
     collapseConversationProcess(items, true).some((item) => item.type === 'process-group'),
     false
   )
+})
+
+test('formatProcessDuration: 保持分钟和秒数格式', () => {
+  assert.equal(formatProcessDuration(0), '处理过程')
+  assert.equal(formatProcessDuration(null), '处理过程')
+  assert.equal(formatProcessDuration(undefined), '处理过程')
+  assert.equal(formatProcessDuration(5000), '耗时0分钟5秒')
+  assert.equal(formatProcessDuration(59000), '耗时0分钟59秒')
+  assert.equal(formatProcessDuration(60000), '耗时1分钟0秒')
+  assert.equal(formatProcessDuration(65000), '耗时1分钟5秒')
+  assert.equal(formatProcessDuration(125000), '耗时2分钟5秒')
 })

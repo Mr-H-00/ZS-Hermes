@@ -66,132 +66,128 @@
 
     <div class="tab-content">
       <div v-show="activeSectionKey === 'file-tree'" class="tree-pane">
-          <div class="tree-toolbar">
-            <div class="tree-scope-tabs" role="tablist" aria-label="文件树目录">
-              <template v-for="(scope, index) in treeScopes" :key="scope.key">
-                <span v-if="index > 0" class="tree-scope-separator" aria-hidden="true"></span>
-                <button
-                  type="button"
-                  class="tree-scope-tab"
-                  :class="{ active: activeTreeScope === scope.key }"
-                  role="tab"
-                  :aria-selected="activeTreeScope === scope.key"
-                  @click="setTreeScope(scope.key)"
-                >
-                  {{ scope.label }}
-                </button>
+        <div class="tree-toolbar">
+          <div class="tree-scope-tabs" role="tablist" aria-label="文件树目录">
+            <template v-for="(scope, index) in treeScopes" :key="scope.key">
+              <span v-if="index > 0" class="tree-scope-separator" aria-hidden="true"></span>
+              <button
+                type="button"
+                class="tree-scope-tab"
+                :class="{ active: activeTreeScope === scope.key }"
+                role="tab"
+                :aria-selected="activeTreeScope === scope.key"
+                @click="setTreeScope(scope.key)"
+              >
+                {{ scope.label }}
+              </button>
+            </template>
+          </div>
+          <div class="tree-toolbar-actions">
+            <button
+              class="header-action-btn"
+              :title="activeTreeScope === 'workspace' ? '搜索个人空间' : '搜索对话目录'"
+              :aria-label="activeTreeScope === 'workspace' ? '搜索个人空间' : '搜索对话目录'"
+              :disabled="activeTreeScope === 'thread' && !threadId"
+              @click="fileSearchOpen = true"
+            >
+              <Search :size="15" />
+            </button>
+            <button
+              class="header-action-btn"
+              :title="activeTreeScope === 'workspace' ? '刷新个人空间' : '刷新文件'"
+              :aria-label="activeTreeScope === 'workspace' ? '刷新个人空间' : '刷新文件'"
+              @click="emitRefresh"
+            >
+              <RefreshCw :size="15" />
+            </button>
+          </div>
+        </div>
+        <div v-show="activeTreeScope === 'thread'" class="tree-scope-pane">
+          <div v-if="!threadId" class="empty">创建对话后可查看对话目录</div>
+          <div v-else-if="loadingFiles" class="empty">正在加载文件系统...</div>
+          <div v-else-if="filesystemError" class="empty error-state">
+            <div>{{ filesystemError }}</div>
+            <a-button type="link" size="small" @click="refreshFileSystem">重试</a-button>
+          </div>
+          <div v-else-if="!fileTreeData.length" class="empty">当前对话目录为空</div>
+          <div v-else class="file-tree-container">
+            <FileTreeComponent
+              v-model:selectedKeys="selectedKeys"
+              v-model:expandedKeys="expandedKeys"
+              :tree-data="fileTreeData"
+              :load-data="loadData"
+              @select="onFileSelect"
+            >
+              <template #title="{ node }">
+                <div class="tree-node-name" :title="node.title">
+                  <span class="name-start">{{ node.nameStart || node.title }}</span>
+                  <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
+                </div>
               </template>
-            </div>
-            <div class="tree-toolbar-actions">
-              <button
-                class="header-action-btn"
-                :title="activeTreeScope === 'workspace' ? '搜索用户目录' : '搜索对话目录'"
-                :aria-label="activeTreeScope === 'workspace' ? '搜索用户目录' : '搜索对话目录'"
-                :disabled="activeTreeScope === 'thread' && !threadId"
-                @click="fileSearchOpen = true"
-              >
-                <Search :size="15" />
-              </button>
-              <button
-                class="header-action-btn"
-                :title="activeTreeScope === 'workspace' ? '刷新用户目录' : '刷新文件'"
-                :aria-label="activeTreeScope === 'workspace' ? '刷新用户目录' : '刷新文件'"
-                @click="emitRefresh"
-              >
-                <RefreshCw :size="15" />
-              </button>
-            </div>
+              <template #actions="{ node }">
+                <div class="node-actions-container">
+                  <button
+                    v-if="node.isLeaf"
+                    class="tree-action-btn tree-download-btn"
+                    @click.stop="downloadFile(node.fileData)"
+                    title="下载文件"
+                    aria-label="下载文件"
+                  >
+                    <Download :size="14" />
+                  </button>
+                  <button
+                    class="tree-action-btn tree-delete-btn"
+                    :disabled="deletingPaths.has(node.key)"
+                    @click.stop="confirmDeleteNode(node)"
+                    :title="node.isLeaf ? '删除文件' : '删除文件夹'"
+                    :aria-label="node.isLeaf ? '删除文件' : '删除文件夹'"
+                  >
+                    <Trash2 :size="14" />
+                  </button>
+                </div>
+              </template>
+            </FileTreeComponent>
           </div>
-          <div v-show="activeTreeScope === 'thread'" class="tree-scope-pane">
-            <div v-if="!threadId" class="empty">创建对话后可查看工作区</div>
-            <div v-else-if="loadingFiles" class="empty">正在加载文件系统...</div>
-            <div v-else-if="filesystemError" class="empty error-state">
-              <div>{{ filesystemError }}</div>
-              <a-button type="link" size="small" @click="refreshFileSystem">重试</a-button>
-            </div>
-            <div v-else-if="!fileTreeData.length" class="empty">当前工作区为空</div>
-            <div v-else class="file-tree-container">
-              <FileTreeComponent
-                v-model:selectedKeys="selectedKeys"
-                v-model:expandedKeys="expandedKeys"
-                :tree-data="fileTreeData"
-                :load-data="loadData"
-                @select="onFileSelect"
-              >
-                <template #title="{ node }">
-                  <div class="tree-node-name" :title="node.title">
-                    <span class="name-start">{{ node.nameStart || node.title }}</span>
-                    <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
-                  </div>
-                </template>
-                <template #actions="{ node }">
-                  <div class="node-actions-container">
-                    <button
-                      v-if="node.isLeaf"
-                      class="tree-action-btn tree-download-btn"
-                      @click.stop="downloadFile(node.fileData)"
-                      title="下载文件"
-                      aria-label="下载文件"
-                    >
-                      <Download :size="14" />
-                    </button>
-                    <button
-                      class="tree-action-btn tree-delete-btn"
-                      :disabled="deletingPaths.has(node.key)"
-                      @click.stop="confirmDeleteNode(node)"
-                      :title="node.isLeaf ? '删除文件' : '删除文件夹'"
-                      :aria-label="node.isLeaf ? '删除文件' : '删除文件夹'"
-                    >
-                      <Trash2 :size="14" />
-                    </button>
-                  </div>
-                </template>
-              </FileTreeComponent>
-            </div>
+        </div>
+        <div v-show="activeTreeScope === 'workspace'" class="tree-scope-pane">
+          <div v-if="workspaceLoading" class="empty">正在加载个人空间...</div>
+          <div v-else-if="workspaceError" class="empty error-state">
+            <div>{{ workspaceError }}</div>
+            <a-button type="link" size="small" @click="refreshWorkspaceTree({ force: true })">
+              重试
+            </a-button>
           </div>
-          <div v-show="activeTreeScope === 'workspace'" class="tree-scope-pane">
-            <div v-if="workspaceLoading" class="empty">正在加载用户目录...</div>
-            <div v-else-if="workspaceError" class="empty error-state">
-              <div>{{ workspaceError }}</div>
-              <a-button
-                type="link"
-                size="small"
-                @click="refreshWorkspaceTree({ force: true })"
-              >
-                重试
-              </a-button>
-            </div>
-            <div v-else-if="!workspaceTreeData.length" class="empty">用户目录为空</div>
-            <div v-else class="file-tree-container">
-              <FileTreeComponent
-                v-model:selectedKeys="workspaceSelectedKeys"
-                v-model:expandedKeys="workspaceExpandedKeys"
-                :tree-data="workspaceTreeData"
-                :load-data="loadWorkspaceData"
-                @select="onWorkspaceFileSelect"
-              >
-                <template #title="{ node }">
-                  <div class="tree-node-name" :title="node.title">
-                    <span class="name-start">{{ node.nameStart || node.title }}</span>
-                    <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
-                  </div>
-                </template>
-                <template #actions="{ node }">
-                  <div class="node-actions-container">
-                    <button
-                      v-if="node.isLeaf"
-                      class="tree-action-btn tree-download-btn"
-                      @click.stop="downloadFile(node.fileData)"
-                      title="下载文件"
-                      aria-label="下载文件"
-                    >
-                      <Download :size="14" />
-                    </button>
-                  </div>
-                </template>
-              </FileTreeComponent>
-            </div>
+          <div v-else-if="!workspaceTreeData.length" class="empty">个人空间为空</div>
+          <div v-else class="file-tree-container">
+            <FileTreeComponent
+              v-model:selectedKeys="workspaceSelectedKeys"
+              v-model:expandedKeys="workspaceExpandedKeys"
+              :tree-data="workspaceTreeData"
+              :load-data="loadWorkspaceData"
+              @select="onWorkspaceFileSelect"
+            >
+              <template #title="{ node }">
+                <div class="tree-node-name" :title="node.title">
+                  <span class="name-start">{{ node.nameStart || node.title }}</span>
+                  <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
+                </div>
+              </template>
+              <template #actions="{ node }">
+                <div class="node-actions-container">
+                  <button
+                    v-if="node.isLeaf"
+                    class="tree-action-btn tree-download-btn"
+                    @click.stop="downloadFile(node.fileData)"
+                    title="下载文件"
+                    aria-label="下载文件"
+                  >
+                    <Download :size="14" />
+                  </button>
+                </div>
+              </template>
+            </FileTreeComponent>
           </div>
+        </div>
       </div>
       <div v-show="activeSection?.type === 'file'" class="preview-pane">
         <AgentFilePreview
@@ -208,7 +204,7 @@
           :showFullscreen="true"
           @download="downloadFile"
         />
-        <div v-else class="preview-empty">正在加载文件预览...</div>
+        <div v-else class="preview-empty">正在加载文件内容...</div>
       </div>
       <div
         v-for="section in subagentSections"
@@ -354,10 +350,10 @@ const selectedKeys = ref([])
 const expandedKeys = ref([])
 const deletingPaths = ref(new Set())
 
-// 用户目录（个人 workspace）树：与对话目录相互独立、切换保活。
+// 个人空间（个人 workspace）树：与对话目录相互独立、切换保活。
 const treeScopes = [
   { key: 'thread', label: '对话目录' },
-  { key: 'workspace', label: '用户目录' }
+  { key: 'workspace', label: '个人空间' }
 ]
 const activeTreeScope = ref('thread')
 const workspaceTreeData = ref([])
@@ -392,7 +388,7 @@ const PREFETCH_DIRECTORY_NAMES = ['outputs', 'uploads']
 const HIDE_WHEN_EMPTY_NAMES = ['outputs', 'uploads']
 
 const fileSearchPlaceholder = computed(() =>
-  activeTreeScope.value === 'workspace' ? '搜索用户目录的文件...' : '搜索当前对话的文件...'
+  activeTreeScope.value === 'workspace' ? '搜索个人空间的文件...' : '搜索当前对话的文件...'
 )
 
 const searchActiveTreeFiles = (query) =>
@@ -404,11 +400,7 @@ const handleSearchSelect = (entry) => {
   if (!entry?.path) return
   if (activeTreeScope.value === 'workspace') {
     workspaceSelectedKeys.value = [entry.path]
-    emit(
-      'open-preview',
-      { ...entry, type: 'file', workdir: false, workspace: true },
-      false
-    )
+    emit('open-preview', { ...entry, type: 'file', workdir: false, workspace: true }, false)
     return
   }
   if (!props.threadId) return
@@ -701,7 +693,11 @@ const refreshWorkspaceTree = async ({ force = false, refreshPreview = false } = 
       try {
         let nodes = await loadWorkspaceChildren('/')
         if (workspaceExpandedKeys.value.length) {
-          nodes = await refreshExpandedTree(nodes, workspaceExpandedKeys.value, loadWorkspaceChildren)
+          nodes = await refreshExpandedTree(
+            nodes,
+            workspaceExpandedKeys.value,
+            loadWorkspaceChildren
+          )
         }
         workspaceTreeData.value = nodes
         workspaceLoaded.value = true
@@ -714,7 +710,7 @@ const refreshWorkspaceTree = async ({ force = false, refreshPreview = false } = 
           await loadActivePreview()
         }
       } catch (error) {
-        workspaceError.value = error?.message || '加载用户目录失败'
+        workspaceError.value = error?.message || '加载个人空间失败'
         console.error('Failed to load workspace tree', error)
       }
     } while (workspaceRefreshPending)
@@ -808,9 +804,7 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
     requestedThreadId === props.threadId &&
     filePath === props.activePreviewPath
 
-  const isWorkspaceFile = Boolean(
-    activePreviewTab.value?.workspace || baseFileOverride?.workspace
-  )
+  const isWorkspaceFile = Boolean(activePreviewTab.value?.workspace || baseFileOverride?.workspace)
 
   // 用户目录文件不依赖当前对话；对话文件必须先有线程。
   if (!filePath || (!requestedThreadId && !isWorkspaceFile)) {
@@ -836,6 +830,7 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
     previewType: 'text',
     message: '',
     previewUrl: '',
+    status: 'loading',
     loading: true
   }
 
@@ -870,11 +865,14 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
         currentFile.value = {
           ...baseFile,
           content: '',
+          status: 'error',
+          errorMessage: '文件预览失败',
           supported: false,
           previewType: 'unsupported',
           message: '文件预览失败',
           previewUrl: '',
-          loading: false
+          loading: false,
+          error: true
         }
       }
     }
@@ -924,12 +922,14 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
       Number(error?.status || error?.statusCode || 0) === 403 ||
       String(error?.message || '').includes('403')
     const errorMessage = is403
-      ? '暂无权限访问该文件（403），请确认文件是否属于当前对话工作区。'
+      ? '暂无权限访问该文件（403），请确认文件是否属于当前对话或个人空间。'
       : error?.message || '文件加载失败，请重试'
 
     currentFile.value = {
       ...baseFile,
       content: '',
+      status: 'error',
+      errorMessage,
       supported: false,
       previewType: 'unsupported',
       message: errorMessage,
@@ -1199,7 +1199,12 @@ watch(
 )
 
 watch(
-  [() => props.threadId, () => props.activePreviewPath, () => activePreviewTab.value?.workdir, () => activePreviewTab.value?.workspace],
+  [
+    () => props.threadId,
+    () => props.activePreviewPath,
+    () => activePreviewTab.value?.workdir,
+    () => activePreviewTab.value?.workspace
+  ],
   loadActivePreview,
   { immediate: true }
 )
@@ -1210,8 +1215,7 @@ watch(
     if (!visible || !componentActive.value) return
     if (activeTreeScope.value === 'workspace') {
       void refreshWorkspaceTree({ force: true, refreshPreview: true })
-    }
-    else void refreshFileSystem({ silent: true })
+    } else void refreshFileSystem({ silent: true })
   }
 )
 
@@ -1356,7 +1360,7 @@ watch(
   flex: 1;
   min-width: 0;
   align-items: center;
-  gap: 4px;
+  gap: 1px;
   overflow-x: auto;
   scrollbar-width: none;
 
@@ -1370,7 +1374,7 @@ watch(
   flex: 0 0 auto;
   align-items: center;
   min-width: 0;
-  max-width: 200px;
+  max-width: 140px;
   border-radius: 7px;
   color: var(--gray-600);
 
@@ -1382,16 +1386,29 @@ watch(
 
 .section-tab-main {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   min-width: 0;
   gap: 6px;
-  padding: 5px 7px;
+  padding: 5px 0 5px 7px;
   border: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
 
+  &:only-child,
+  &:last-child {
+    margin-right: 7px;
+  }
+
+  > svg,
+  > :deep(svg),
+  > :deep(.custom-avatar) {
+    flex-shrink: 0;
+  }
+
   > span {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     font-size: 12px;
@@ -1403,6 +1420,7 @@ watch(
 
 .section-tab-close {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 22px;

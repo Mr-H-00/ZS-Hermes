@@ -33,6 +33,27 @@
               <span class="operation-text">{{ questionItem.operation }}</span>
             </div>
 
+            <div v-if="questionItem.options && questionItem.options.length" class="options-row">
+              <span class="row-label">选项</span>
+              <div class="options-list">
+                <div
+                  v-for="(opt, optIdx) in questionItem.options"
+                  :key="`${opt.value}-${optIdx}`"
+                  class="option-pill"
+                  :class="{
+                    'is-recommended': optIdx === 0 && String(opt.label).includes('(Recommended)')
+                  }"
+                >
+                  <div class="option-pill-main">
+                    <span class="option-pill-label">{{ opt.label }}</span>
+                    <span v-if="opt.description" class="option-pill-desc">{{
+                      opt.description
+                    }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div v-if="getQuestionAnswerText(questionItem)" class="answer-row">
               <span class="row-label">回答</span>
               <span class="answer-text">{{ getQuestionAnswerText(questionItem) }}</span>
@@ -86,15 +107,13 @@ const parsedResult = computed(() => {
 })
 
 const questions = computed(() => {
-  const argsQuestions = parsedArgs.value?.questions
-  if (Array.isArray(argsQuestions) && argsQuestions.length) {
-    return normalizeQuestions(argsQuestions)
-  }
+  const args = parsedArgs.value
+  const fromArgs = normalizeQuestions(args?.questions ?? args)
+  if (fromArgs.length) return fromArgs
 
-  const resultQuestions = parsedResult.value?.questions
-  if (Array.isArray(resultQuestions) && resultQuestions.length) {
-    return normalizeQuestions(resultQuestions)
-  }
+  const result = parsedResult.value
+  const fromResult = normalizeQuestions(result?.questions ?? result)
+  if (fromResult.length) return fromResult
 
   return []
 })
@@ -254,6 +273,7 @@ const displayAnswer = computed(() => {
   }
 
   .operation-row,
+  .options-row,
   .answer-row {
     margin-top: 8px;
     display: flex;
@@ -272,6 +292,44 @@ const displayAnswer = computed(() => {
   .answer-text {
     min-width: 0;
     color: var(--gray-700);
+    word-break: break-word;
+  }
+
+  .options-list {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .option-pill {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-150);
+    border-radius: 6px;
+    padding: 6px 10px;
+
+    &.is-recommended {
+      border-color: var(--main-200);
+      background: var(--main-25);
+    }
+  }
+
+  .option-pill-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .option-pill-label {
+    color: var(--gray-800);
+    font-weight: 500;
+  }
+
+  .option-pill-desc {
+    color: var(--gray-500);
+    font-size: 11px;
+    line-height: 1.4;
     word-break: break-word;
   }
 

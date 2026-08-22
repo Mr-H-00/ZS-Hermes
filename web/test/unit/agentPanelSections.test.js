@@ -51,6 +51,7 @@ test('normalizePreviewResponse 正确解析 JSON 预览结构而不把 raw paylo
   assert.equal(parsed.previewType, 'text')
   assert.equal(parsed.supported, true)
   assert.equal(parsed.loading, false)
+  assert.equal(parsed.status, 'ready')
 })
 
 test('normalizePreviewResponse 保留 JSON artifact 的原始正文', async () => {
@@ -66,6 +67,22 @@ test('normalizePreviewResponse 保留 JSON artifact 的原始正文', async () =
   assert.equal(parsed.content, '{"result":42}')
   assert.equal(parsed.previewType, 'text')
   assert.equal(parsed.supported, true)
+  assert.equal(parsed.status, 'ready')
+})
+
+test('normalizePreviewResponse 不支持格式时标记 status 为 unsupported', async () => {
+  const binaryResponse = new Response(new Uint8Array([0, 1, 2, 3]), {
+    headers: { 'content-type': 'application/octet-stream' }
+  })
+  globalThis.URL = globalThis.URL || {}
+  globalThis.URL.createObjectURL = () => 'blob:mock-url'
+
+  const parsed = await normalizePreviewResponse(binaryResponse, {
+    path: '/outputs/data.bin'
+  })
+
+  assert.equal(parsed.status, 'unsupported')
+  assert.equal(parsed.supported, false)
 })
 
 test('文件树仅在页面可见的运行期文件视图中轮询', () => {

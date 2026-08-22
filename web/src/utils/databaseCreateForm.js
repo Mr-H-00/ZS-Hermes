@@ -42,8 +42,10 @@ export const validateDatabaseConfig = (form, typeInfo) => {
       return `请填写${field.label || field.key}`
     }
     if (field.type === 'number' && typeof value === 'number') {
-      if (field.min !== undefined && value < field.min) return `${field.label || field.key}不能小于${field.min}`
-      if (field.max !== undefined && value > field.max) return `${field.label || field.key}不能大于${field.max}`
+      if (field.min !== undefined && value < field.min)
+        return `${field.label || field.key}不能小于${field.min}`
+      if (field.max !== undefined && value > field.max)
+        return `${field.label || field.key}不能大于${field.max}`
     }
   }
   return ''

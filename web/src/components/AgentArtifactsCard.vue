@@ -19,7 +19,7 @@
         </button>
         <button
           class="item-action-btn"
-          :title="isSaving(file.path) ? '保存中' : '保存到工作区'"
+          :title="isSaving(file.path) ? '保存中' : '保存到个人空间'"
           :disabled="isSaving(file.path)"
           @click.stop="saveToWorkspace(file)"
         >
@@ -133,10 +133,10 @@ const saveToWorkspace = async (file) => {
   setSaving(file.path, true)
   try {
     const result = await threadApi.saveThreadArtifactToWorkspace(props.threadId, file.path)
-    message.success(`已保存到工作区：${result.saved_path}`)
+    message.success(`已保存到个人空间：${result.saved_path}`)
     emit('saved', result)
   } catch (error) {
-    message.error(error?.message || '保存到工作区失败')
+    message.error(error?.message || '保存到个人空间失败')
   } finally {
     setSaving(file.path, false)
   }

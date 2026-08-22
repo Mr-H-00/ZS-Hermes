@@ -340,5 +340,4 @@ defineExpose({
   height: 300px;
   gap: 16px;
 }
-
 </style>

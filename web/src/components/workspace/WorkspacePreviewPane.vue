@@ -17,8 +17,8 @@
       @save="$emit('save', $event)"
     />
     <div v-else-if="loading" class="preview-state">
-      <a-spin />
-      <span>正在加载预览...</span>
+      <LoaderCircle class="preview-spinner" :size="20" />
+      <span>正在加载文件内容...</span>
     </div>
     <div v-else class="preview-empty">
       <FileSearch :size="28" />
@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-import { FileSearch } from 'lucide-vue-next'
+import { FileSearch, LoaderCircle } from 'lucide-vue-next'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
 
 defineProps({
@@ -84,6 +84,20 @@ defineEmits(['close', 'save'])
 
 .preview-state {
   gap: 10px;
+
+  .preview-spinner {
+    animation: spin 1s linear infinite;
+    color: var(--color-primary-500);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .preview-empty {

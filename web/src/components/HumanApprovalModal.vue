@@ -124,14 +124,20 @@
                 :disabled="isProcessing"
                 @change="setSingle(activeQuestion.questionId, optionItem.value)"
               />
-              <span
-                :class="{
-                  recommended:
-                    optionIndex === 0 && String(optionItem.label).includes('(Recommended)')
-                }"
-              >
-                {{ optionItem.label }}
-              </span>
+              <div class="option-content">
+                <span
+                  class="option-label"
+                  :class="{
+                    recommended:
+                      optionIndex === 0 && String(optionItem.label).includes('(Recommended)')
+                  }"
+                >
+                  {{ optionItem.label }}
+                </span>
+                <span v-if="optionItem.description" class="option-description">
+                  {{ optionItem.description }}
+                </span>
+              </div>
             </label>
 
             <div v-if="shouldShowOtherInput(activeQuestion)" class="other-input">
@@ -834,15 +840,41 @@ const formattedToolArgs = computed(() => formatToolApprovalArgs(activeToolReques
 
 .option-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   color: var(--gray-800);
   font-size: 14px;
+  cursor: pointer;
+
+  input {
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
 }
 
-.option-item .recommended {
-  color: var(--main-color);
-  font-weight: 600;
+.option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.option-label {
+  line-height: 1.4;
+  color: var(--gray-800);
+
+  &.recommended {
+    color: var(--main-color);
+    font-weight: 600;
+  }
+}
+
+.option-description {
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .other-input {

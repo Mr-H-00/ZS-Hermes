@@ -429,7 +429,8 @@ const currentSkillStatusLabel = computed(() => {
 const selectedFilePreview = computed(() => ({
   content: fileContent.value,
   previewType: 'text',
-  supported: true
+  supported: true,
+  status: 'ready'
 }))
 
 const toolDependencyOptions = computed(() =>

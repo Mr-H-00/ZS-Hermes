@@ -120,7 +120,11 @@
                         <SquarePen :size="14" />
                       </a-button>
                     </a-tooltip>
-                    <a-tooltip :title="isUserDeleteDisabled(record) ? '不能删除当前用户或超级管理员' : '删除用户'">
+                    <a-tooltip
+                      :title="
+                        isUserDeleteDisabled(record) ? '不能删除当前用户或超级管理员' : '删除用户'
+                      "
+                    >
                       <a-button
                         type="text"
                         size="small"

@@ -8,10 +8,7 @@
     >
       <span>{{ summary }}</span>
     </button>
-    <div
-      class="process-collapse-panel"
-      :class="{ 'is-expanded': expanded }"
-    >
+    <div class="process-collapse-panel" :class="{ 'is-expanded': expanded }">
       <div class="process-collapse-inner">
         <div class="process-content">
           <template v-for="item in items" :key="item.key">
@@ -33,6 +30,7 @@
 import { computed, ref } from 'vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
+import { formatProcessDuration } from '@/utils/conversationProcessGrouping.js'
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -43,13 +41,7 @@ const props = defineProps({
 })
 
 const expanded = ref(false)
-const summary = computed(() => {
-  if (!props.durationMs) return '处理过程'
-  const totalSeconds = Math.max(0, Math.round(props.durationMs / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `耗时${minutes}分钟${seconds}秒`
-})
+const summary = computed(() => formatProcessDuration(props.durationMs))
 </script>
 
 <style scoped lang="less">

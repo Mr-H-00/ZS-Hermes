@@ -8,21 +8,8 @@
       aria-label="上下文使用情况"
       @click="handleClick"
     >
-      <svg
-        class="context-ring-svg"
-        viewBox="0 0 16 16"
-        width="16"
-        height="16"
-        aria-hidden="true"
-      >
-        <circle
-          class="context-ring-bg"
-          cx="8"
-          cy="8"
-          r="6"
-          fill="none"
-          stroke-width="2"
-        />
+      <svg class="context-ring-svg" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <circle class="context-ring-bg" cx="8" cy="8" r="6" fill="none" stroke-width="2" />
         <circle
           v-if="computedRatio > 0"
           class="context-ring-fill"
@@ -80,9 +67,7 @@ const computedRatio = computed(() =>
   calculateContextRatio(props.usedTokens, props.limitTokens, props.ratio)
 )
 
-const dashOffset = computed(() =>
-  circumference * (1 - computedRatio.value)
-)
+const dashOffset = computed(() => circumference * (1 - computedRatio.value))
 
 const toneClass = computed(() => getContextUsageTone(computedRatio.value))
 
@@ -139,7 +124,9 @@ const handleClick = (e) => {
 
   .context-ring-fill {
     stroke: var(--main-color);
-    transition: stroke-dashoffset 0.3s ease, stroke 0.2s ease;
+    transition:
+      stroke-dashoffset 0.3s ease,
+      stroke 0.2s ease;
   }
 }
 

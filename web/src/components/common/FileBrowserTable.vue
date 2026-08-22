@@ -332,6 +332,7 @@ const handleTableChange = (pagination, filters, sorter, extra) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
 }
 
 .file-browser-actions {

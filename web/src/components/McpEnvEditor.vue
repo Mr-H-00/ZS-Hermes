@@ -11,11 +11,7 @@
         <div v-if="rows.length === 0" class="env-empty-row">
           <span>暂无环境变量，点击下方添加</span>
         </div>
-        <div
-          v-for="(row, index) in rows"
-          :key="index"
-          class="env-table-row"
-        >
+        <div v-for="(row, index) in rows" :key="index" class="env-table-row">
           <div class="col-key">
             <a-input
               v-model:value="row.key"

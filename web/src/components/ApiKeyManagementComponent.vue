@@ -52,7 +52,11 @@
                 </template>
                 <template v-if="column.key === 'status'">
                   <div class="status-cell">
-                    <a-switch :checked="record.is_enabled" size="small" @change="toggleEnabled(record)" />
+                    <a-switch
+                      :checked="record.is_enabled"
+                      size="small"
+                      @change="toggleEnabled(record)"
+                    />
                     <span class="status-text" :class="{ enabled: record.is_enabled }">
                       {{ record.is_enabled ? '已启用' : '已禁用' }}
                     </span>
@@ -72,12 +76,7 @@
                     cancel-text="取消"
                   >
                     <a-tooltip title="删除 API Key">
-                      <a-button
-                        type="text"
-                        size="small"
-                        danger
-                        class="action-btn lucide-icon-btn"
-                      >
+                      <a-button type="text" size="small" danger class="action-btn lucide-icon-btn">
                         <Trash2 :size="14" />
                       </a-button>
                     </a-tooltip>

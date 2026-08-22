@@ -95,7 +95,10 @@
           @scroll="handleConversationScroll"
         >
           <template v-if="isSearchMode">
-            <div v-if="isSearching && conversationResults.length === 0" class="global-search-skeleton">
+            <div
+              v-if="isSearching && conversationResults.length === 0"
+              class="global-search-skeleton"
+            >
               <div v-for="index in 5" :key="index" class="skeleton-row">
                 <span class="skeleton-dot"></span>
                 <span class="skeleton-lines">
@@ -919,4 +922,3 @@ onUnmounted(() => {
   opacity: 1;
 }
 </style>
-

@@ -41,7 +41,11 @@
             :key="toolCall.id || `${getToolCallId(toolCall)}-${index}`"
             class="tool-call-container"
           >
-            <ToolCallRenderer :tool-call="toolCall" appearance="timeline" :default-expanded="false" />
+            <ToolCallRenderer
+              :tool-call="toolCall"
+              appearance="timeline"
+              :default-expanded="false"
+            />
           </div>
         </div>
       </div>

@@ -8,7 +8,7 @@
         @click="$emit('select-personal')"
       >
         <FileTypeIcon is-dir folder-variant="personal" :size="18" />
-        <span>个人工作区</span>
+        <span>个人空间</span>
       </button>
     </section>
 

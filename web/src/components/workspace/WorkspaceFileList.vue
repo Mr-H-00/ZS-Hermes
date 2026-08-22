@@ -110,7 +110,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   readonly: { type: Boolean, default: false },
   breadcrumbItems: { type: Array, default: null },
-  rootLabel: { type: String, default: '工作区' },
+  rootLabel: { type: String, default: '全部文件' },
   pagination: { type: Object, default: null }
 })
 

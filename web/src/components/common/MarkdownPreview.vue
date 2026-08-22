@@ -799,12 +799,9 @@ const showCopiedFeedback = (btn) => {
   table {
     width: 100%;
     border-collapse: collapse;
-    margin: 2em 0;
-    font-size: 15px;
+    margin: 1rem 0;
+    font-size: 0.8rem;
     display: table;
-    outline: 1px solid var(--gray-100);
-    outline-offset: 12px;
-    border-radius: 8px;
   }
 
   th,

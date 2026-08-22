@@ -60,13 +60,11 @@
     </div>
     <div v-else-if="file && hasAvailableView" class="file-detail-content">
       <div v-if="viewMode === 'source'" class="content-panel source-panel">
-        <div v-if="sourcePreview.loading" class="loading-container">
-          <a-spin tip="正在加载源文件预览..." />
-        </div>
         <AgentFilePreview
-          v-else
           :file="sourcePreviewFile"
           :file-path="file?.filename || ''"
+          :status="sourcePreview.loading ? 'loading' : ''"
+          loading-message="正在加载文件内容..."
           :show-header="false"
           :show-download="false"
           :show-inline-html-controls="true"
@@ -262,12 +260,27 @@ const sourceContentLength = computed(() =>
 )
 const sourcePreviewFile = computed(() => {
   if (!file.value) return null
+  const isError = Boolean(
+    sourcePreview.value.message &&
+    !sourcePreview.value.supported &&
+    !sourcePreview.value.content &&
+    !sourcePreview.value.url
+  )
   return {
     ...file.value,
     content: sourcePreview.value.content,
     previewType: sourcePreviewDisplayType.value,
     previewUrl: sourcePreview.value.url,
     supported: sourcePreview.value.supported,
+    status: sourcePreview.value.loading
+      ? 'loading'
+      : isError
+        ? 'error'
+        : sourcePreview.value.supported === false
+          ? 'unsupported'
+          : 'ready',
+    errorMessage: sourcePreview.value.message,
+    loadingMessage: '正在加载文件内容...',
     message: sourcePreview.value.message
   }
 })
