@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+import asyncio
+import os
+from pathlib import Path
+from typing import Any, TypedDict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.agents.backends.paths import VIRTUAL_PERSONAL_SKILLS_PATH, VIRTUAL_SKILLS_PATH
 from yuxi.agents.skills.service import list_accessible_skills, normalize_string_list
 from yuxi.agents.toolkits import get_all_tool_instances
+from yuxi.config.runtime import lite_mode_enabled
 from yuxi.storage.postgres.models_business import User
 from yuxi.utils.logging_config import logger
+from yuxi.utils.paths import open_regular_file_fd
 
 
 class RuntimeSkill(TypedDict):
@@ -22,6 +27,15 @@ class RuntimeSkill(TypedDict):
     tools: list[str]
     mcps: list[str]
     skills: list[str]
+
+
+_LITE_DISABLED_SKILL_SLUGS = frozenset({"knowledge-base"})
+
+
+def is_skill_allowed_in_runtime_mode(slug: str) -> bool:
+    """判断 Skill 是否属于当前部署模式允许的运行时能力。"""
+
+    return not (lite_mode_enabled() and slug in _LITE_DISABLED_SKILL_SLUGS)
 
 
 def build_runtime_skills(skills: list) -> dict[str, RuntimeSkill]:
@@ -86,18 +100,55 @@ async def resolve_runtime_skills_for_context(
     db: AsyncSession,
     user: User,
 ) -> dict:
-    """从已授权 Skill 派生当前 Agent Run 的运行时 scope。"""
-    skill_items = await list_accessible_skills(db, user)
+    """从已授权 Skill 派生当前 Agent Run 的运行时 scope 与预加载快照。"""
+    skill_items = [
+        item
+        for item in await list_accessible_skills(db, user)
+        if item.slug and is_skill_allowed_in_runtime_mode(item.slug)
+    ]
     runtime_skills = build_runtime_skills(skill_items)
     available = set(runtime_skills)
     selected = normalize_string_list(getattr(context, "skills", None))
     context_skills = [slug for slug in selected if slug in available]
     effective_skills = expand_skill_closure(context_skills, runtime_skills)
+    configured_preloads = normalize_string_list(getattr(context, "preload_skills", None))
+    context_preload_skills = [slug for slug in configured_preloads if slug in context_skills]
+    preloaded_skills = expand_skill_closure(context_preload_skills, runtime_skills)
+    items_by_slug = {item.slug: item for item in skill_items}
+    preloaded_contents = (
+        await asyncio.to_thread(_read_preloaded_skill_contents, preloaded_skills, items_by_slug)
+        if preloaded_skills
+        else {}
+    )
     return {
         "context_skills": context_skills,
+        "context_preload_skills": context_preload_skills,
         "effective_skills": effective_skills,
         "runtime_skills": runtime_skills,
+        "runtime_skill_source_scopes": {slug: items_by_slug[slug].source_scope for slug in effective_skills},
+        "preloaded_skills": preloaded_skills,
+        "preloaded_skill_contents": preloaded_contents,
     }
+
+
+def _read_preloaded_skill_contents(slugs: list[str], skill_items: dict[str, Any]) -> dict[str, str]:
+    """从授权解析得到的真实来源读取根级 SKILL.md。"""
+
+    contents: dict[str, str] = {}
+    for slug in slugs:
+        try:
+            source_dir = Path(skill_items[slug].source_dir)
+            if not source_dir.is_absolute() or ".." in source_dir.parts:
+                raise OSError("Skill 来源目录必须是规范化绝对路径")
+            with open_regular_file_fd(
+                Path(source_dir.anchor),
+                (*source_dir.parts[1:], "SKILL.md"),
+            ) as (file_fd, _file_stat):
+                with os.fdopen(os.dup(file_fd), encoding="utf-8") as skill_file:
+                    contents[slug] = skill_file.read()
+        except (OSError, UnicodeError) as exc:
+            raise RuntimeError(f"预加载 Skill '{slug}' 失败：根级 SKILL.md 不可读") from exc
+    return contents
 
 
 def resolve_skill_gated_tools(context) -> list:

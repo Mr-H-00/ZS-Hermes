@@ -355,7 +355,11 @@ def _merge_tree(source: Path, target: Path) -> None:
             _merge_tree(entry, destination)
         elif entry.is_file():
             if destination.is_symlink() or destination.exists():
-                if destination.is_symlink() or not destination.is_file() or _file_digest(destination) != _file_digest(entry):
+                if (
+                    destination.is_symlink()
+                    or not destination.is_file()
+                    or _file_digest(destination) != _file_digest(entry)
+                ):
                     raise RuntimeError(f"旧 Workdir 文件冲突: {entry.name}")
             else:
                 shutil.copy2(entry, destination, follow_symlinks=False)

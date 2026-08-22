@@ -201,8 +201,8 @@ Skill 可以声明工具、MCP 服务和其他 Skill 依赖；运行时根据依
 
 | 依赖类型 | 说明 | 加载时机 |
 |----------|------|----------|
-| `tool_dependencies` | 需要的内置工具 | 激活后按需加载 |
-| `mcp_dependencies` | 需要的 MCP 服务 | 激活后按需加载 |
+| `tool_dependencies` | 需要的内置工具 | 预加载或激活后按需加载 |
+| `mcp_dependencies` | 需要的 MCP 服务 | 预加载或激活后按需加载 |
 | `skill_dependencies` | 依赖的其他 Skill | 会话启动即生效 |
 
 ### 渐进式加载机制
@@ -220,6 +220,10 @@ Skill 加载分为三个阶段：
 当前用户授权的共享、内置 Skill 进入 `/home/gem/skills` 只读投影，个人 Skill 保留在
 `/home/gem/user-data/agents/skills`。
 
+Agent 配置还可以用 `preload_skills` 指定需要首轮直接使用的少量 Skill。该字段默认为空，只能选择
+`context.skills` 中当前用户可读的根 Skill；系统会展开其依赖闭包，在 Graph 创建前读取每个 Skill 的根级
+`SKILL.md`，并将完整说明注入首个模型请求。文件缺失或不可读时创建会显式失败，不会退回普通渐进加载。
+
 **阶段二：技能激活**
 
 当 Agent 通过 `read_file` 读取共享路径 `/home/gem/skills/<slug>/SKILL.md` 或个人路径
@@ -231,11 +235,11 @@ Skill 加载分为三个阶段：
 **阶段三：按需加载**
 
 每次模型调用时，系统会：
-1. 检查 `activated_skills` 中的技能
+1. 合并预加载闭包与 `activated_skills` 中的技能
 2. 收集这些技能的 `tool_dependencies` 和 `mcp_dependencies`
-3. 动态将需要的工具和 MCP 服务添加到可用工具集中
+3. 向当前模型请求开放对应本地工具和 MCP schema；未预加载或激活的依赖继续隐藏
 
-会话启动阶段只注入 Skill 说明。工具和 MCP 依赖在 Skill 激活后按需加入模型请求，从而控制初始工具 schema 的规模。
+会话启动阶段只处理预加载 Skill；其工具和 MCP 依赖从首轮开放。未预加载 Skill 的依赖仍在读取根级说明并激活后按需加入模型请求，从而控制初始工具 schema 的规模。
 
 ### 依赖声明示例
 
@@ -249,6 +253,8 @@ Skill 加载分为三个阶段：
 1. 启动阶段：`_effective_skill_slugs` = [`pro-skill`, `advanced-skill`, `base-skill`]（自动展开可激活的依赖链）
 2. 文件系统仍可读当前用户授权的其他 Skill，但它们不会因此进入 Prompt 或变成可激活工具
 3. 当 Agent 读取 `pro-skill/SKILL.md` 时：触发激活，工具和 MCP 依赖被加载
+
+若同时将 `pro-skill` 加入 `preload_skills`，启动阶段会读取三个 Skill 各自的根级 `SKILL.md`，首轮模型调用即可看到完整说明及其工具和 MCP 依赖，不需要先调用 `read_file`。
 
 ## 权限管理
 

@@ -33,12 +33,12 @@ class SkillsState(AgentState):
 
 
 class SkillsMiddleware(AgentMiddleware):
-    """Skills 中间件 - 处理 skills 提示词注入、依赖展开、动态激活
+    """Skills 中间件 - 处理提示词注入、预加载、依赖展开和动态激活
 
     职责：
-    - Skills 提示词注入（直接从数据库加载）
-    - 依赖展开（用户配置 + 动态激活）
-    - 工具/MCP 动态加载
+    - Skills 摘要提示与预加载完整说明注入
+    - 依赖展开（预加载配置 + 动态激活）
+    - 本地/MCP 依赖工具的模型可见性门控
     """
 
     state_schema = SkillsState
@@ -72,14 +72,21 @@ class SkillsMiddleware(AgentMiddleware):
             effective_skills = getattr(runtime_context, "_effective_skill_slugs", None)
             if isinstance(effective_skills, list):
                 effective_skills = normalize_string_list(effective_skills)
-                if effective_skills:
-                    skills_meta = self._collect_prompt_metadata(effective_skills, runtime_context)
+                preloaded_skills = self._get_preloaded_skills(runtime_context)
+                preloaded_set = set(preloaded_skills)
+                prompt_sections: list[str] = []
+                lazy_skills = [slug for slug in effective_skills if slug not in preloaded_set]
+                if lazy_skills:
+                    skills_meta = self._collect_prompt_metadata(lazy_skills, runtime_context)
                     if skills_meta:
-                        skills_section = self._build_skills_section(skills_meta)
-                        system_message = append_to_system_message(
-                            getattr(request, "system_message", None), skills_section
-                        )
-                        request = request.override(system_message=system_message)
+                        prompt_sections.append(self._build_skills_section(skills_meta))
+                if preloaded_skills:
+                    prompt_sections.append(self._build_preloaded_skills_section(preloaded_skills, runtime_context))
+                if prompt_sections:
+                    system_message = append_to_system_message(
+                        getattr(request, "system_message", None), "\n\n".join(prompt_sections)
+                    )
+                    request = request.override(system_message=system_message)
 
         state = request.state if isinstance(request.state, dict) else {}
         activated = state.get("activated_skills", []) or []
@@ -88,6 +95,7 @@ class SkillsMiddleware(AgentMiddleware):
 
         effective_skills = self._get_effective_skills(runtime_context)
         activated = [slug for slug in normalize_string_list(activated) if slug in effective_skills]
+        activated = _activated_skills_reducer(self._get_preloaded_skills(runtime_context), activated)
 
         deps_bundle = build_dependency_bundle(activated, self._get_runtime_skills(runtime_context))
         activated_tool_names = set(deps_bundle["tools"])
@@ -100,22 +108,34 @@ class SkillsMiddleware(AgentMiddleware):
         if gated_tool_names:
             model_tools = [t for t in model_tools if t.name not in gated_tool_names]
 
-        # 追加已激活 Skill 的依赖工具：本地工具确保绑定给模型，MCP 工具按需加载
+        # 追加已激活或预加载 Skill 的依赖工具。
         enabled_tools = []
+        active_mcp_tools = []
         if activated_tool_names:
             enabled_tools = [t for t in get_all_tool_instances() if t.name in activated_tool_names]
         if deps_bundle["mcps"]:
-            enabled_tools.extend(
-                await self._get_mcp_tools_from_context(runtime_context, extra_mcps=deps_bundle["mcps"])
-            )
+            active_mcp_tools = await self._get_mcp_tools_from_context(runtime_context, extra_mcps=deps_bundle["mcps"])
+        active_mcp_tools_by_name = {}
+        for tool in active_mcp_tools:
+            existing = active_mcp_tools_by_name.get(tool.name)
+            if existing is not None and existing is not tool:
+                raise RuntimeError(f"Skill MCP 工具名冲突：{tool.name}")
+            active_mcp_tools_by_name[tool.name] = tool
+        setattr(runtime_context, "_active_skill_mcp_tools", active_mcp_tools_by_name)
 
         existing_tool_names = {t.name for t in model_tools}
         for t in enabled_tools:
-            if t.name not in existing_tool_names:
-                model_tools.append(t)
-                existing_tool_names.add(t.name)
+            if t.name in existing_tool_names:
+                continue
+            model_tools.append(t)
+            existing_tool_names.add(t.name)
+        for t in active_mcp_tools:
+            if t.name in existing_tool_names:
+                raise RuntimeError(f"Skill MCP 工具名冲突：{t.name}")
+            model_tools.append(t)
+            existing_tool_names.add(t.name)
 
-        if gated_tool_names or enabled_tools:
+        if gated_tool_names or enabled_tools or active_mcp_tools:
             request = request.override(tools=model_tools)
 
         return await handler(request)
@@ -130,18 +150,6 @@ class SkillsMiddleware(AgentMiddleware):
             gated.update(runtime_skills.get(slug, {}).get("tools", []))
         return gated - base_tool_names
 
-    def _collect_prompt_metadata(self, slugs: list[str], runtime_context) -> list[RuntimeSkill]:
-        """收集指定 slugs 的提示词元数据"""
-        runtime_skills = self._get_runtime_skills(runtime_context)
-        result: list[RuntimeSkill] = []
-        for slug in slugs:
-            item = runtime_skills.get(slug)
-            if not item:
-                logger.debug(f"Skill slug not found in prompt metadata, skip: {slug}")
-                continue
-            result.append(dict(item))
-        return result
-
     async def _get_mcp_tools_from_context(
         self,
         context,
@@ -151,14 +159,11 @@ class SkillsMiddleware(AgentMiddleware):
         """从上下文配置中获取 MCP 工具列表"""
         import asyncio
 
-        # MCP 工具（并行加载）
-        mcps = getattr(context, "mcps", None) or []
+        # 显式 MCP 已在 Graph 基础工具中注册，这里只加载 Skill 新增依赖。
+        configured_mcps = set(normalize_string_list(getattr(context, "mcps", None)))
         all_mcp_names: list[str] = []
-        for server_name in mcps:
-            if isinstance(server_name, str):
-                all_mcp_names.append(server_name)
         for server_name in extra_mcps or []:
-            if isinstance(server_name, str):
+            if isinstance(server_name, str) and server_name not in configured_mcps:
                 all_mcp_names.append(server_name)
 
         # 去重
@@ -182,6 +187,18 @@ class SkillsMiddleware(AgentMiddleware):
             selected_tools.extend(tools)
 
         return selected_tools
+
+    def _collect_prompt_metadata(self, slugs: list[str], runtime_context) -> list[RuntimeSkill]:
+        """收集指定 slugs 的提示词元数据"""
+        runtime_skills = self._get_runtime_skills(runtime_context)
+        result: list[RuntimeSkill] = []
+        for slug in slugs:
+            item = runtime_skills.get(slug)
+            if not item:
+                logger.debug(f"Skill slug not found in prompt metadata, skip: {slug}")
+                continue
+            result.append(dict(item))
+        return result
 
     def _process_tool_call_result(self, result: Any, request: ToolCallRequest) -> Any:
         """处理工具调用结果，检查并处理 skill 动态激活"""
@@ -208,6 +225,7 @@ class SkillsMiddleware(AgentMiddleware):
         handler: Callable[[ToolCallRequest], Any],
     ):
         """包装工具调用，处理 skill 动态激活"""
+        request = self._bind_active_mcp_tool(request)
         result = await handler(request)
         return self._process_tool_call_result(result, request)
 
@@ -217,8 +235,21 @@ class SkillsMiddleware(AgentMiddleware):
         handler: Callable[[ToolCallRequest], Any],
     ):
         """同步版本的工具调用包装"""
+        request = self._bind_active_mcp_tool(request)
         result = handler(request)
         return self._process_tool_call_result(result, request)
+
+    def _bind_active_mcp_tool(self, request: ToolCallRequest) -> ToolCallRequest:
+        """为当前模型轮次已开放的动态 MCP 调用绑定真实工具。"""
+
+        if request.tool is not None:
+            return request
+        context = request.runtime.context
+        active_tools = getattr(context, "_active_skill_mcp_tools", {})
+        if not isinstance(active_tools, dict):
+            return request
+        tool = active_tools.get(request.tool_call.get("name"))
+        return request.override(tool=tool) if tool is not None else request
 
     def _extract_skill_slug_from_skill_md_path(self, file_path: Any) -> str | None:
         """从共享投影或个人 UserWorkspace 的 SKILL.md 路径中提取 slug。"""
@@ -244,6 +275,26 @@ class SkillsMiddleware(AgentMiddleware):
     def _get_runtime_skills(self, runtime_context) -> dict[str, RuntimeSkill]:
         runtime_skills = getattr(runtime_context, "_runtime_skills", {})
         return runtime_skills if isinstance(runtime_skills, dict) else {}
+
+    def _get_preloaded_skills(self, runtime_context) -> list[str]:
+        selected = getattr(runtime_context, "_preloaded_skills", [])
+        effective = self._get_effective_skills(runtime_context)
+        return [
+            slug for slug in normalize_string_list(selected if isinstance(selected, list) else []) if slug in effective
+        ]
+
+    def _build_preloaded_skills_section(self, slugs: list[str], runtime_context) -> str:
+        """构建已预加载 Skill 的完整系统提示段。"""
+
+        contents = getattr(runtime_context, "_preloaded_skill_contents", {})
+        if not isinstance(contents, dict):
+            contents = {}
+        sections = ["# Preloaded Skills", "The following Skill instructions are already loaded and active."]
+        for slug in slugs:
+            content = contents.get(slug)
+            if isinstance(content, str):
+                sections.append(f'<preloaded_skill slug="{slug}">\n{content}\n</preloaded_skill>')
+        return "\n\n".join(sections)
 
     def _merge_activated_skill_update(self, result: Any, slug: str):
         """合并动态激活的 skill 更新"""

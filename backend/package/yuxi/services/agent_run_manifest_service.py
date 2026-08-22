@@ -11,12 +11,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.agents.buildin import agent_manager
 from yuxi.agents.context import normalize_agent_context_config
+from yuxi.agents.skills.runtime import resolve_runtime_skills_for_context
+from yuxi.agents.skills.service import PERSONAL_SKILL_SOURCE_TYPE
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.storage.postgres.models_business import AgentRun, Skill, User
 
@@ -30,6 +33,15 @@ MANIFEST_LIMIT_FIELDS = (
     "summary_tool_result_token_limit",
     "summary_l2_trigger_ratio",
 )
+
+
+@dataclass(frozen=True)
+class RunManifestBuildResult:
+    """同时返回持久化清单与本次执行复用的内存快照。"""
+
+    manifest: dict
+    normalized_context: dict
+    skill_runtime_snapshot: dict[str, Any]
 
 
 def canonical_json(payload: Any) -> str:
@@ -92,19 +104,58 @@ def build_manifest_payload(
     }
 
 
-async def resolve_skill_entries(db: AsyncSession, skill_slugs: list[str]) -> list[dict]:
+async def resolve_skill_entries(
+    db: AsyncSession,
+    skill_slugs: list[str],
+    *,
+    preload_content_hashes: dict[str, str] | None = None,
+    personal_skill_slugs: set[str] | None = None,
+) -> list[dict]:
     """按执行时数据库状态读取 Skill 稳定标识；缺失信息显式为 None，不伪造版本。"""
+    preload_hashes = preload_content_hashes or {}
+    personal_slugs = personal_skill_slugs or set()
     entries: list[dict] = []
     for slug in skill_slugs:
         row = (await db.execute(select(Skill.version, Skill.content_hash).where(Skill.slug == slug))).first()
-        entries.append(
-            {
-                "slug": slug,
-                "version": row.version if row else None,
-                "content_hash": row.content_hash if row else None,
-            }
-        )
+        is_personal = slug in personal_slugs
+        entry = {
+            "slug": slug,
+            "version": None if is_personal else (row.version if row else None),
+            "content_hash": None if is_personal else (row.content_hash if row else None),
+        }
+        if slug in preload_hashes:
+            entry["preload_content_hash"] = preload_hashes[slug]
+        entries.append(entry)
     return entries
+
+
+def _manifest_skill_scope(normalized_context: dict, runtime_scope: dict) -> tuple[list[str], dict[str, str], set[str]]:
+    """合并配置 Skill 与预加载闭包，并标识真实个人来源。"""
+    slugs = list(
+        dict.fromkeys(
+            [
+                *_resource_keys(normalized_context.get("skills")),
+                *_resource_keys(runtime_scope.get("preloaded_skills")),
+            ]
+        )
+    )
+    contents = runtime_scope.get("preloaded_skill_contents")
+    hashes = (
+        {
+            slug: hashlib.sha256(content.encode("utf-8")).hexdigest()
+            for slug, content in contents.items()
+            if slug in slugs and isinstance(content, str)
+        }
+        if isinstance(contents, dict)
+        else {}
+    )
+    source_scopes = runtime_scope.get("runtime_skill_source_scopes")
+    personal_slugs = (
+        {slug for slug in slugs if source_scopes.get(slug) == PERSONAL_SKILL_SOURCE_TYPE}
+        if isinstance(source_scopes, dict)
+        else set()
+    )
+    return slugs, hashes, personal_slugs
 
 
 def resolve_code_revision() -> str | None:
@@ -113,8 +164,8 @@ def resolve_code_revision() -> str | None:
     return revision or None
 
 
-async def build_run_manifest(*, run: AgentRun, user: User, db: AsyncSession) -> dict:
-    """在执行边界解析本次运行实际采用的运行资产并构建脱敏 manifest。"""
+async def build_run_manifest_result(*, run: AgentRun, user: User, db: AsyncSession) -> RunManifestBuildResult:
+    """在执行边界构建 manifest 与不可分叉的运行时快照。"""
     agent_item = await AgentRepository(db).get_visible_by_slug(
         slug=run.agent_slug,
         user=user,
@@ -130,9 +181,19 @@ async def build_run_manifest(*, run: AgentRun, user: User, db: AsyncSession) -> 
             context_schema=backend.context_schema,
         )
 
+    runtime_skill_snapshot: dict[str, Any] = {}
+    skill_slugs = _resource_keys(normalized_context.get("skills"))
+    preload_hashes: dict[str, str] = {}
+    personal_slugs: set[str] = set()
+    if backend:
+        context_instance = backend.context_schema()
+        context_instance.update_from_dict(dict(normalized_context))
+        runtime_skill_snapshot = await resolve_runtime_skills_for_context(context_instance, db=db, user=user)
+        skill_slugs, preload_hashes, personal_slugs = _manifest_skill_scope(normalized_context, runtime_skill_snapshot)
+
     payload = run.input_payload if isinstance(run.input_payload, dict) else {}
     effective_limits = _effective_limits(backend, normalized_context)
-    return build_manifest_payload(
+    manifest = build_manifest_payload(
         run_type=run.run_type,
         agent_slug=run.agent_slug,
         backend_id=agent_item.backend_id if agent_item else None,
@@ -140,9 +201,24 @@ async def build_run_manifest(*, run: AgentRun, user: User, db: AsyncSession) -> 
         tool_approval_mode=payload.get("tool_approval_mode"),
         normalized_context=normalized_context,
         limits=effective_limits,
-        skill_entries=await resolve_skill_entries(db, _resource_keys(normalized_context.get("skills"))),
+        skill_entries=await resolve_skill_entries(
+            db,
+            skill_slugs,
+            preload_content_hashes=preload_hashes,
+            personal_skill_slugs=personal_slugs,
+        ),
         code_revision=resolve_code_revision(),
     )
+    return RunManifestBuildResult(
+        manifest=manifest,
+        normalized_context=normalized_context,
+        skill_runtime_snapshot=runtime_skill_snapshot,
+    )
+
+
+async def build_run_manifest(*, run: AgentRun, user: User, db: AsyncSession) -> dict:
+    """构建只含稳定标识和摘要的持久化运行清单。"""
+    return (await build_run_manifest_result(run=run, user=user, db=db)).manifest
 
 
 def _effective_limits(backend, normalized_context: dict) -> dict:

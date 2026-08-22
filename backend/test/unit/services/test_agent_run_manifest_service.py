@@ -5,10 +5,12 @@ from __future__ import annotations
 import pytest
 
 from yuxi.services.agent_run_manifest_service import (
+    _manifest_skill_scope,
     build_manifest_payload,
     canonical_json,
     compute_config_digest,
     compute_manifest_fingerprint,
+    resolve_skill_entries,
 )
 
 
@@ -70,6 +72,86 @@ def test_different_assets_produce_different_fingerprint():
     changed = _manifest(skill_entries=[{"slug": "code-review", "version": "1.3.0", "content_hash": "abc123"}])
 
     assert compute_manifest_fingerprint(_manifest()) != compute_manifest_fingerprint(changed)
+
+
+def test_preload_skill_config_changes_config_digest():
+    base_context = _manifest()["config_digest"]
+    changed_context = {
+        **{
+            "model": "siliconflow-cn:Pro/MiniMaxAI/MiniMax-M2.5",
+            "tools": ["fs", "web"],
+            "mcps": [],
+            "skills": ["code-review"],
+            "max_execution_steps": 150,
+            "model_retry_times": 2,
+            "system_prompt": "You are a reviewer.",
+            "summary_prompt": "Summarize: {messages}",
+        },
+        "preload_skills": ["code-review"],
+    }
+
+    assert base_context != compute_config_digest(changed_context)
+
+
+def test_preloaded_dependency_content_changes_manifest_fingerprint():
+    normalized_context = {"skills": ["parent"], "preload_skills": ["parent"]}
+    first_slugs, first_hashes, _ = _manifest_skill_scope(
+        normalized_context,
+        {
+            "preloaded_skills": ["parent", "dependency"],
+            "preloaded_skill_contents": {"parent": "first", "dependency": "dependency"},
+        },
+    )
+    second_slugs, second_hashes, _ = _manifest_skill_scope(
+        normalized_context,
+        {
+            "preloaded_skills": ["parent", "dependency"],
+            "preloaded_skill_contents": {"parent": "changed", "dependency": "dependency"},
+        },
+    )
+
+    assert first_slugs == second_slugs == ["parent", "dependency"]
+    first = _manifest(
+        skill_entries=[
+            {"slug": slug, "version": None, "content_hash": None, "preload_content_hash": first_hashes[slug]}
+            for slug in first_slugs
+        ]
+    )
+    second = _manifest(
+        skill_entries=[
+            {"slug": slug, "version": None, "content_hash": None, "preload_content_hash": second_hashes[slug]}
+            for slug in second_slugs
+        ]
+    )
+    assert compute_manifest_fingerprint(first) != compute_manifest_fingerprint(second)
+
+
+@pytest.mark.asyncio
+async def test_personal_preloaded_skill_does_not_borrow_shadowed_database_identity():
+    class FakeResult:
+        def first(self):
+            return type("Row", (), {"version": "shared-v1", "content_hash": "shared-hash"})()
+
+    class FakeDB:
+        async def execute(self, statement):
+            del statement
+            return FakeResult()
+
+    entries = await resolve_skill_entries(
+        FakeDB(),
+        ["shadowed"],
+        preload_content_hashes={"shadowed": "personal-root-hash"},
+        personal_skill_slugs={"shadowed"},
+    )
+
+    assert entries == [
+        {
+            "slug": "shadowed",
+            "version": None,
+            "content_hash": None,
+            "preload_content_hash": "personal-root-hash",
+        }
+    ]
 
 
 def test_manifest_excludes_prompts_and_secret_shaped_values():

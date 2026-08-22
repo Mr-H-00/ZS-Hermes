@@ -76,7 +76,7 @@ kb_tools = get_common_kb_tools()
 
 1. **基础工具**：从 `context.tools` 中按名称筛选
 2. **MCP 工具**：根据 `context.mcps` 加载 MCP 服务器工具
-3. **Skill 依赖工具**：由 `SkillsMiddleware` 在 Skill 激活后按需追加，包括 `knowledge-base` 绑定的知识库工具
+3. **Skill 依赖工具**：本地依赖在创建 Graph 时注册，`SkillsMiddleware` 在 Skill 被预加载或动态激活后向模型开放对应本地与 MCP 工具，包括 `knowledge-base` 绑定的知识库工具
 
 ```python
 from yuxi.agents.context import prepare_agent_runtime_context

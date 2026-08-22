@@ -22,7 +22,7 @@ from yuxi.services.agent_request_queue_service import (
     dispatch_next_request,
     recover_pending_dispatches,
 )
-from yuxi.services.agent_run_manifest_service import build_run_manifest, compute_manifest_fingerprint
+from yuxi.services.agent_run_manifest_service import build_run_manifest_result, compute_manifest_fingerprint
 from yuxi.services.chat_service import get_agent_state_view, stream_agent_chat, stream_agent_resume
 from yuxi.services.input_message_service import restore_chat_input_message
 from yuxi.services.run_queue_service import (
@@ -499,17 +499,30 @@ async def reconcile_pending_runtime_cleanups() -> list[str]:
     return cleaned
 
 
-async def persist_run_manifest(*, run: AgentRun, user, worker_id: str) -> None:
+def _require_persisted_manifest_match(persisted_run: AgentRun | None, *, recorded: bool, fingerprint: str) -> None:
+    """重试只能复用与 write-once manifest 完全一致的运行资产。"""
+    if recorded:
+        return
+    if persisted_run is None or persisted_run.manifest_fingerprint != fingerprint:
+        raise RuntimeError("运行资产已在重试前变化，与已固化 manifest 不一致")
+
+
+async def persist_run_manifest(*, run: AgentRun, user, worker_id: str) -> dict:
     """在执行上下文构造前固化运行清单与指纹；固化失败由调用方显式失败。"""
     async with pg_manager.get_async_session_context() as db:
-        manifest = await build_run_manifest(run=run, user=user, db=db)
-        fingerprint = compute_manifest_fingerprint(manifest)
-        await AgentRunRepository(db).record_run_manifest(
+        result = await build_run_manifest_result(run=run, user=user, db=db)
+        fingerprint = compute_manifest_fingerprint(result.manifest)
+        persisted_run, recorded = await AgentRunRepository(db).record_run_manifest(
             run.id,
-            manifest=manifest,
+            manifest=result.manifest,
             fingerprint=fingerprint,
             worker_id=worker_id,
         )
+        _require_persisted_manifest_match(persisted_run, recorded=recorded, fingerprint=fingerprint)
+        return {
+            "normalized_context": result.normalized_context,
+            "skill_runtime_snapshot": result.skill_runtime_snapshot,
+        }
 
 
 async def _load_user(uid: str):
@@ -909,7 +922,7 @@ async def process_agent_run(ctx, run_id: str):
 
         # 运行清单必须在真正构造执行上下文前固化；固化失败时执行不得开始。
         try:
-            await persist_run_manifest(run=run, user=user, worker_id=worker_id)
+            execution_snapshot = await persist_run_manifest(run=run, user=user, worker_id=worker_id)
         except Exception as manifest_error:
             logger.error(f"Failed to persist AgentRun manifest: run={run_id}", exc_info=True)
             await mark_run_terminal(
@@ -978,6 +991,7 @@ async def process_agent_run(ctx, run_id: str):
                     meta=meta,
                     current_user=user,
                     db=db,
+                    execution_snapshot=execution_snapshot,
                 )
             elif run_type in {"chat", "subagent"}:
                 stream = stream_agent_chat(
@@ -988,6 +1002,7 @@ async def process_agent_run(ctx, run_id: str):
                     current_user=user,
                     db=db,
                     save_user_message=False,
+                    execution_snapshot=execution_snapshot,
                 )
             else:
                 raise RuntimeError(f"unsupported run_type after validation: {run_type}")
