@@ -446,6 +446,25 @@ async def test_build_agent_input_context_merges_workspace_agent_context(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_manifest_snapshot_prompt_keeps_workspace_agent_context(monkeypatch: pytest.MonkeyPatch):
+    async def fake_to_thread(func, *args):
+        del func, args
+        return "用户工作区 agents/AGENTS.md 内容：\nWORKSPACE-MARKER"
+
+    monkeypatch.setattr(agent_context.asyncio, "to_thread", fake_to_thread)
+    config = svc._runtime_agent_config(
+        {"system_prompt": "CURRENT-CONFIG"},
+        {"normalized_context": {"system_prompt": "MANIFEST-CONFIG"}},
+    )
+
+    context = await agent_context.build_agent_input_context(config, thread_id="thread-1", uid="user-1")
+
+    assert context["system_prompt"] == "MANIFEST-CONFIG\n\n用户工作区 agents/AGENTS.md 内容：\nWORKSPACE-MARKER"
+    assert context["thread_id"] == "thread-1"
+    assert context["uid"] == "user-1"
+
+
+@pytest.mark.asyncio
 async def test_get_agent_state_view_rejects_async_subagent_without_child_conversation(
     monkeypatch: pytest.MonkeyPatch,
 ):

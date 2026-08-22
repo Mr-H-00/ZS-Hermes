@@ -115,19 +115,27 @@ class SkillsMiddleware(AgentMiddleware):
             enabled_tools = [t for t in get_all_tool_instances() if t.name in activated_tool_names]
         if deps_bundle["mcps"]:
             active_mcp_tools = await self._get_mcp_tools_from_context(runtime_context, extra_mcps=deps_bundle["mcps"])
-            enabled_tools.extend(active_mcp_tools)
         active_mcp_tools_by_name = {}
         for tool in active_mcp_tools:
-            active_mcp_tools_by_name.setdefault(tool.name, tool)
+            existing = active_mcp_tools_by_name.get(tool.name)
+            if existing is not None and existing is not tool:
+                raise RuntimeError(f"Skill MCP 工具名冲突：{tool.name}")
+            active_mcp_tools_by_name[tool.name] = tool
         setattr(runtime_context, "_active_skill_mcp_tools", active_mcp_tools_by_name)
 
         existing_tool_names = {t.name for t in model_tools}
         for t in enabled_tools:
-            if t.name not in existing_tool_names:
-                model_tools.append(t)
-                existing_tool_names.add(t.name)
+            if t.name in existing_tool_names:
+                continue
+            model_tools.append(t)
+            existing_tool_names.add(t.name)
+        for t in active_mcp_tools:
+            if t.name in existing_tool_names:
+                raise RuntimeError(f"Skill MCP 工具名冲突：{t.name}")
+            model_tools.append(t)
+            existing_tool_names.add(t.name)
 
-        if gated_tool_names or enabled_tools:
+        if gated_tool_names or enabled_tools or active_mcp_tools:
             request = request.override(tools=model_tools)
 
         return await handler(request)
@@ -151,14 +159,11 @@ class SkillsMiddleware(AgentMiddleware):
         """从上下文配置中获取 MCP 工具列表"""
         import asyncio
 
-        # MCP 工具（并行加载）
-        mcps = getattr(context, "mcps", None) or []
+        # 显式 MCP 已在 Graph 基础工具中注册，这里只加载 Skill 新增依赖。
+        configured_mcps = set(normalize_string_list(getattr(context, "mcps", None)))
         all_mcp_names: list[str] = []
-        for server_name in mcps:
-            if isinstance(server_name, str):
-                all_mcp_names.append(server_name)
         for server_name in extra_mcps or []:
-            if isinstance(server_name, str):
+            if isinstance(server_name, str) and server_name not in configured_mcps:
                 all_mcp_names.append(server_name)
 
         # 去重

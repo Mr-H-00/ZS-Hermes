@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from langchain_core.messages import SystemMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain.tools.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 import yuxi.agents.middlewares.skills as skills_middleware
@@ -244,7 +244,7 @@ async def test_resolve_skill_gated_tools_registers_kb_tools():
 
 
 @pytest.mark.asyncio
-async def test_preloaded_skill_exposes_mcp_tools_on_first_model_call(monkeypatch):
+async def test_preloaded_skill_rejects_duplicate_mcp_tool_names(monkeypatch):
     @tool("chart_tool")
     async def chart_tool(value: int) -> str:
         """渲染测试图表。"""
@@ -280,30 +280,121 @@ async def test_preloaded_skill_exposes_mcp_tools_on_first_model_call(monkeypatch
             request.runtime = self.runtime
             return request
 
+    middleware = SkillsMiddleware(enable_skills_prompt=False)
+    with pytest.raises(RuntimeError, match="Skill MCP 工具名冲突"):
+        await middleware.awrap_model_call(FakeRequest([]), AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_preloaded_skill_exposes_mcp_tool_on_first_model_call(monkeypatch):
+    @tool("chart_tool")
+    async def chart_tool(value: int) -> str:
+        """渲染测试图表。"""
+
+        return f"rendered:{value}"
+
+    async def fake_get_enabled_mcp_tools(server_name):
+        assert server_name == "charts"
+        return [chart_tool]
+
+    monkeypatch.setattr(skills_middleware, "get_enabled_mcp_tools", fake_get_enabled_mcp_tools)
+    context = SimpleNamespace(
+        tools=[],
+        mcps=[],
+        _effective_skill_slugs=["report"],
+        _preloaded_skills=["report"],
+        _runtime_skills={"report": _runtime_skill("report", mcps=["charts"])},
+    )
+
+    class FakeRequest:
+        def __init__(self, tools):
+            self.runtime = SimpleNamespace(context=context)
+            self.state = {}
+            self.tools = tools
+
+        def override(self, *, tools):
+            request = FakeRequest(tools)
+            request.runtime = self.runtime
+            return request
+
     captured = []
 
     async def handler(request):
-        captured.append([tool.name for tool in request.tools])
+        captured.append([item.name for item in request.tools])
+        return "ok"
+
+    assert await SkillsMiddleware(enable_skills_prompt=False).awrap_model_call(FakeRequest([]), handler) == "ok"
+    assert captured == [["chart_tool"]]
+
+
+@pytest.mark.asyncio
+async def test_skill_reusing_explicit_mcp_server_does_not_duplicate_registered_tool(monkeypatch):
+    @tool("chart_tool")
+    async def chart_tool(value: int) -> str:
+        """渲染测试图表。"""
+
+        return f"rendered:{value}"
+
+    calls = []
+
+    async def fake_get_enabled_mcp_tools(server_name):
+        calls.append(server_name)
+        return [chart_tool]
+
+    monkeypatch.setattr(skills_middleware, "get_enabled_mcp_tools", fake_get_enabled_mcp_tools)
+    context = SimpleNamespace(
+        tools=[],
+        mcps=["charts"],
+        _effective_skill_slugs=["report"],
+        _preloaded_skills=["report"],
+        _runtime_skills={"report": _runtime_skill("report", mcps=["charts"])},
+    )
+
+    class FakeRequest:
+        def __init__(self, tools):
+            self.runtime = SimpleNamespace(context=context)
+            self.state = {}
+            self.tools = tools
+
+        def override(self, *, tools):
+            request = FakeRequest(tools)
+            request.runtime = self.runtime
+            return request
+
+    captured = []
+
+    async def handler(request):
+        captured.append([item.name for item in request.tools])
         return "ok"
 
     middleware = SkillsMiddleware(enable_skills_prompt=False)
-    await middleware.awrap_model_call(FakeRequest([]), handler)
-
+    assert await middleware.awrap_model_call(FakeRequest([chart_tool]), handler) == "ok"
     assert captured == [["chart_tool"]]
+    assert calls == []
 
-    tool_request = ToolCallRequest(
-        tool_call={"name": "chart_tool", "args": {"value": 7}, "id": "call-chart", "type": "tool_call"},
-        tool=None,
-        state={},
-        runtime=SimpleNamespace(context=context),
+
+@pytest.mark.asyncio
+async def test_explicit_mcp_rejects_skill_local_tool_name_collision(monkeypatch):
+    @tool("list_kbs")
+    async def conflicting_list_kbs() -> str:
+        """模拟与 Skill 本地依赖同名的显式 MCP 工具。"""
+
+        return "wrong-source"
+
+    async def fake_get_enabled_mcp_tools(server_name):
+        assert server_name == "configured"
+        return [conflicting_list_kbs]
+
+    monkeypatch.setattr("yuxi.agents.mcp.service.get_enabled_mcp_tools", fake_get_enabled_mcp_tools)
+    context = SimpleNamespace(
+        tools=[],
+        mcps=["configured"],
+        _effective_skill_slugs=["knowledge-base"],
+        _runtime_skills={"knowledge-base": _runtime_skill("knowledge-base", tools=["list_kbs"])},
     )
 
-    async def execute(request):
-        assert request.tool is chart_tool
-        return await request.tool.ainvoke(request.tool_call["args"])
-
-    result = await middleware.awrap_tool_call(tool_request, execute)
-    assert result == "rendered:7"
+    with pytest.raises(RuntimeError, match="Skill 本地工具 'list_kbs'"):
+        await resolve_configured_runtime_tools(context)
 
 
 def _make_gated_request(activated, *, preloaded=None):

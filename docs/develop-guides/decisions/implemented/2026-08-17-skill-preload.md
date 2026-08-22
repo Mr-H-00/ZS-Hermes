@@ -14,11 +14,11 @@ Agent 的普通 Skill 只在系统提示中提供名称、描述和 `SKILL.md` �
 
 `BaseContext.preload_skills` 是默认空列表，并复用 `kind="skills"` 的配置选项。它不是新的资源授权入口：配置归一化先解析 `skills`，再把预加载根 Skill 限制为该列表的子集。`prepare_agent_runtime_context` 先按当前部署模式过滤运行时 Skill，再沿依赖图展开预加载闭包，从本次权限解析得到的真实 `source_dir` 读取每个 Skill 的根级 `SKILL.md`，并把有序内容快照保存在本次 Graph 的私有 Context 字段中。读取从文件系统根目录描述符开始逐段使用 `O_NOFOLLOW` 打开来源目录，再以同样约束打开根文件并验证为普通文件；缓存命中后任一祖先目录或根文件被替换成符号链接都会 fail-closed。
 
-`agents.skills.runtime` 拥有授权后的 Skill scope、依赖闭包和预加载内容读取。`SkillsMiddleware` 只在每次模型调用中基于原始 request 注入预加载完整说明，并把预加载闭包与 checkpoint 中仍可读的动态激活 Skill 合并为本轮有效激活集合；它不修改持久配置、`context.system_prompt` 或 checkpoint。依赖工具沿用现有本地工具注册与 MCP 加载路径，不新增第二套工具注册表、冲突协议或缓存。
+`agents.skills.runtime` 拥有授权后的 Skill scope、依赖闭包和预加载内容读取。`SkillsMiddleware` 只在每次模型调用中基于原始 request 注入预加载完整说明，并把预加载闭包与 checkpoint 中仍可读的动态激活 Skill 合并为本轮有效激活集合；它不修改持久配置、`context.system_prompt` 或 checkpoint。依赖工具沿用现有本地工具注册与 MCP 加载路径；不同来源的同名本地或 MCP 工具在 Graph 构建期显式失败，避免模型 schema 与 ToolNode 执行对象分叉。
 
 预加载只包含根级 `SKILL.md`，不递归拼接 references、scripts 或 assets。配置为空时不读取文件、不注入完整说明，也不改变工具可见性。预加载文件不可读时 Graph 创建显式失败，不静默退回懒加载。`knowledge-base` 是使用场景而非硬编码默认值；现有 Agent 配置不迁移，LITE 继续从可用 Skill 集合排除它。
 
-运行清单沿用现有 schema。`preload_skills` 作为规范化 context 的一部分进入 `config_digest`，已选择共享 Skill 的目录摘要仍由现有 `resources.skills[].content_hash` 记录。预加载根说明不建立独立持久快照，也不跨 worker、chat service 和 Graph 传递私有协议；重试按当前授权来源重新构造 Graph。这一取舍避免为提示词便利功能引入第二套 Run 资产生命周期。
+运行清单沿用现有 schema。`preload_skills` 作为规范化 context 的一部分进入 `config_digest`，共享 Skill 的目录摘要由 `resources.skills[].content_hash` 记录，实际预加载根说明以 `preload_content_hash` 记录；个人 Skill 不借用同 slug 共享记录的版本和摘要。worker 在固化 manifest 时生成同一份内存执行快照并传给 Graph，重试重新解析后的 fingerprint 必须与 write-once manifest 一致，否则在执行前 fail-closed。
 
 ## 替代方案
 

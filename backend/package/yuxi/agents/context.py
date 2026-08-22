@@ -617,7 +617,9 @@ async def prepare_agent_runtime_context(
             from yuxi.agents.backends.knowledge_base_backend import resolve_visible_knowledge_bases_for_context
 
             await resolve_visible_knowledge_bases_for_context(context)
-        skill_scope = await resolve_runtime_skills_for_context(context, db=db, user=user)
+        skill_scope = getattr(context, "_skill_runtime_snapshot", None)
+        if not isinstance(skill_scope, dict):
+            skill_scope = await resolve_runtime_skills_for_context(context, db=db, user=user)
         context.skills = skill_scope["context_skills"]
         context.preload_skills = skill_scope["context_preload_skills"]
         setattr(context, "_effective_skill_slugs", skill_scope["effective_skills"])

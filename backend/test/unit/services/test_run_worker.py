@@ -1384,3 +1384,11 @@ async def test_manifest_persist_failure_fails_run_before_execution(monkeypatch: 
     assert terminal_calls[0]["status"] == "failed"
     assert terminal_calls[0]["error_type"] == "manifest_persist_failed"
     assert "执行未开始" in terminal_calls[0]["error_message"]
+
+
+def test_retry_requires_new_manifest_fingerprint_to_match_write_once_fact():
+    persisted = SimpleNamespace(manifest_fingerprint="a" * 64)
+
+    run_worker._require_persisted_manifest_match(persisted, recorded=False, fingerprint="a" * 64)
+    with pytest.raises(RuntimeError, match="运行资产已在重试前变化"):
+        run_worker._require_persisted_manifest_match(persisted, recorded=False, fingerprint="b" * 64)

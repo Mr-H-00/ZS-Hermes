@@ -10,8 +10,8 @@ from typing import Any, TypedDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.agents.backends.paths import VIRTUAL_PERSONAL_SKILLS_PATH, VIRTUAL_SKILLS_PATH
-from yuxi.agents.toolkits import get_all_tool_instances
 from yuxi.agents.skills.service import list_accessible_skills, normalize_string_list
+from yuxi.agents.toolkits import get_all_tool_instances
 from yuxi.config.runtime import lite_mode_enabled
 from yuxi.storage.postgres.models_business import User
 from yuxi.utils.logging_config import logger
@@ -125,6 +125,7 @@ async def resolve_runtime_skills_for_context(
         "context_preload_skills": context_preload_skills,
         "effective_skills": effective_skills,
         "runtime_skills": runtime_skills,
+        "runtime_skill_source_scopes": {slug: items_by_slug[slug].source_scope for slug in effective_skills},
         "preloaded_skills": preloaded_skills,
         "preloaded_skill_contents": preloaded_contents,
     }

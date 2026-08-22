@@ -236,6 +236,12 @@ def _apply_subagent_runtime_context(input_context: dict, meta: dict | None) -> N
     input_context["is_subagent_runtime"] = True
 
 
+def _runtime_agent_config(agent_config: dict | None, execution_snapshot: dict | None) -> dict:
+    """优先使用 manifest 同次解析的配置，再由调用方追加工作区上下文。"""
+    snapshot_context = execution_snapshot.get("normalized_context") if isinstance(execution_snapshot, dict) else None
+    return snapshot_context if isinstance(snapshot_context, dict) else dict(agent_config or {})
+
+
 def _stream_message_key(metadata: dict | None, namespace: list[str], thread_id: str | None) -> tuple[str, str]:
     if not isinstance(metadata, dict):
         return thread_id or "", "/".join(namespace)
@@ -922,6 +928,7 @@ async def stream_agent_chat(
     current_user,
     db,
     save_user_message: bool = True,
+    execution_snapshot: dict | None = None,
 ) -> AsyncIterator[bytes]:
     start_time = asyncio.get_event_loop().time()
 
@@ -1000,7 +1007,7 @@ async def stream_agent_chat(
             agent_item=agent_item,
         )
         input_context = await build_agent_input_context(
-            agent_config,
+            _runtime_agent_config(agent_config, execution_snapshot),
             thread_id=thread_id,
             uid=uid,
             run_id=meta.get("run_id"),
@@ -1019,6 +1026,8 @@ async def stream_agent_chat(
         meta["workdir_path"] = input_context["workdir_path"]
         _apply_subagent_runtime_context(input_context, meta)
         context = _build_agent_context(agent, input_context)
+        if isinstance(execution_snapshot, dict):
+            setattr(context, "_skill_runtime_snapshot", execution_snapshot.get("skill_runtime_snapshot"))
         langfuse_run = _build_langfuse_run_context(
             current_user=current_user,
             thread_id=thread_id,
@@ -1304,6 +1313,7 @@ async def stream_agent_resume(
     meta: dict,
     current_user,
     db,
+    execution_snapshot: dict | None = None,
 ) -> AsyncIterator[bytes]:
     start_time = asyncio.get_event_loop().time()
 
@@ -1353,7 +1363,7 @@ async def stream_agent_resume(
         workdir_path=conversation.workdir_path,
     )
     input_context = await build_agent_input_context(
-        agent_config or {},
+        _runtime_agent_config(agent_config, execution_snapshot),
         thread_id=thread_id,
         uid=uid,
         run_id=meta.get("run_id"),
@@ -1365,6 +1375,8 @@ async def stream_agent_resume(
     input_context["workdir_relative_path"] = conversation.workdir_path
     input_context["workdir_path"] = meta["workdir_path"]
     context = _build_agent_context(agent, input_context)
+    if isinstance(execution_snapshot, dict):
+        setattr(context, "_skill_runtime_snapshot", execution_snapshot.get("skill_runtime_snapshot"))
     langfuse_run = _build_langfuse_run_context(
         current_user=current_user,
         thread_id=thread_id,
