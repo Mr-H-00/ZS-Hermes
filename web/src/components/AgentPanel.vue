@@ -45,15 +45,6 @@
       <div class="window-actions">
         <button
           class="header-action-btn"
-          :class="{ active: activeSectionKey === 'file-tree' }"
-          title="文件树"
-          aria-label="文件树"
-          @click="emit('activate-section', 'file-tree')"
-        >
-          <Folders :size="15" />
-        </button>
-        <button
-          class="header-action-btn"
           :title="maximized ? '还原面板' : '最大化面板'"
           :aria-label="maximized ? '还原面板' : '最大化面板'"
           :disabled="isResizing"
@@ -76,71 +67,130 @@
     <div class="tab-content">
       <div v-show="activeSectionKey === 'file-tree'" class="tree-pane">
           <div class="tree-toolbar">
-            <strong>文件</strong>
+            <div class="tree-scope-tabs" role="tablist" aria-label="文件树目录">
+              <template v-for="(scope, index) in treeScopes" :key="scope.key">
+                <span v-if="index > 0" class="tree-scope-separator" aria-hidden="true"></span>
+                <button
+                  type="button"
+                  class="tree-scope-tab"
+                  :class="{ active: activeTreeScope === scope.key }"
+                  role="tab"
+                  :aria-selected="activeTreeScope === scope.key"
+                  @click="setTreeScope(scope.key)"
+                >
+                  {{ scope.label }}
+                </button>
+              </template>
+            </div>
             <div class="tree-toolbar-actions">
               <button
                 class="header-action-btn"
-                title="搜索文件"
-                aria-label="搜索文件"
-                :disabled="!threadId"
+                :title="activeTreeScope === 'workspace' ? '搜索用户目录' : '搜索对话目录'"
+                :aria-label="activeTreeScope === 'workspace' ? '搜索用户目录' : '搜索对话目录'"
+                :disabled="activeTreeScope === 'thread' && !threadId"
                 @click="fileSearchOpen = true"
               >
                 <Search :size="15" />
               </button>
               <button
                 class="header-action-btn"
-                title="刷新文件"
-                aria-label="刷新文件"
+                :title="activeTreeScope === 'workspace' ? '刷新用户目录' : '刷新文件'"
+                :aria-label="activeTreeScope === 'workspace' ? '刷新用户目录' : '刷新文件'"
                 @click="emitRefresh"
               >
                 <RefreshCw :size="15" />
               </button>
             </div>
           </div>
-          <div v-if="!threadId" class="empty">创建对话后可查看工作区</div>
-          <div v-else-if="loadingFiles" class="empty">正在加载文件系统...</div>
-          <div v-else-if="filesystemError" class="empty error-state">
-            <div>{{ filesystemError }}</div>
-            <a-button type="link" size="small" @click="refreshFileSystem">重试</a-button>
+          <div v-show="activeTreeScope === 'thread'" class="tree-scope-pane">
+            <div v-if="!threadId" class="empty">创建对话后可查看工作区</div>
+            <div v-else-if="loadingFiles" class="empty">正在加载文件系统...</div>
+            <div v-else-if="filesystemError" class="empty error-state">
+              <div>{{ filesystemError }}</div>
+              <a-button type="link" size="small" @click="refreshFileSystem">重试</a-button>
+            </div>
+            <div v-else-if="!fileTreeData.length" class="empty">当前工作区为空</div>
+            <div v-else class="file-tree-container">
+              <FileTreeComponent
+                v-model:selectedKeys="selectedKeys"
+                v-model:expandedKeys="expandedKeys"
+                :tree-data="fileTreeData"
+                :load-data="loadData"
+                @select="onFileSelect"
+              >
+                <template #title="{ node }">
+                  <div class="tree-node-name" :title="node.title">
+                    <span class="name-start">{{ node.nameStart || node.title }}</span>
+                    <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
+                  </div>
+                </template>
+                <template #actions="{ node }">
+                  <div class="node-actions-container">
+                    <button
+                      v-if="node.isLeaf"
+                      class="tree-action-btn tree-download-btn"
+                      @click.stop="downloadFile(node.fileData)"
+                      title="下载文件"
+                      aria-label="下载文件"
+                    >
+                      <Download :size="14" />
+                    </button>
+                    <button
+                      class="tree-action-btn tree-delete-btn"
+                      :disabled="deletingPaths.has(node.key)"
+                      @click.stop="confirmDeleteNode(node)"
+                      :title="node.isLeaf ? '删除文件' : '删除文件夹'"
+                      :aria-label="node.isLeaf ? '删除文件' : '删除文件夹'"
+                    >
+                      <Trash2 :size="14" />
+                    </button>
+                  </div>
+                </template>
+              </FileTreeComponent>
+            </div>
           </div>
-          <div v-else-if="!fileTreeData.length" class="empty">当前工作区为空</div>
-          <div v-else class="file-tree-container">
-            <FileTreeComponent
-              v-model:selectedKeys="selectedKeys"
-              v-model:expandedKeys="expandedKeys"
-              :tree-data="fileTreeData"
-              :load-data="loadData"
-              @select="onFileSelect"
-            >
-              <template #title="{ node }">
-                <div class="tree-node-name" :title="node.title">
-                  <span class="name-start">{{ node.nameStart || node.title }}</span>
-                  <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
-                </div>
-              </template>
-              <template #actions="{ node }">
-                <div class="node-actions-container">
-                  <button
-                    v-if="node.isLeaf"
-                    class="tree-action-btn tree-download-btn"
-                    @click.stop="downloadFile(node.fileData)"
-                    title="下载文件"
-                    aria-label="下载文件"
-                  >
-                    <Download :size="14" />
-                  </button>
-                  <button
-                    class="tree-action-btn tree-delete-btn"
-                    :disabled="deletingPaths.has(node.key)"
-                    @click.stop="confirmDeleteNode(node)"
-                    :title="node.isLeaf ? '删除文件' : '删除文件夹'"
-                    :aria-label="node.isLeaf ? '删除文件' : '删除文件夹'"
-                  >
-                    <Trash2 :size="14" />
-                  </button>
-                </div>
-              </template>
-            </FileTreeComponent>
+          <div v-show="activeTreeScope === 'workspace'" class="tree-scope-pane">
+            <div v-if="workspaceLoading" class="empty">正在加载用户目录...</div>
+            <div v-else-if="workspaceError" class="empty error-state">
+              <div>{{ workspaceError }}</div>
+              <a-button
+                type="link"
+                size="small"
+                @click="refreshWorkspaceTree({ force: true })"
+              >
+                重试
+              </a-button>
+            </div>
+            <div v-else-if="!workspaceTreeData.length" class="empty">用户目录为空</div>
+            <div v-else class="file-tree-container">
+              <FileTreeComponent
+                v-model:selectedKeys="workspaceSelectedKeys"
+                v-model:expandedKeys="workspaceExpandedKeys"
+                :tree-data="workspaceTreeData"
+                :load-data="loadWorkspaceData"
+                @select="onWorkspaceFileSelect"
+              >
+                <template #title="{ node }">
+                  <div class="tree-node-name" :title="node.title">
+                    <span class="name-start">{{ node.nameStart || node.title }}</span>
+                    <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
+                  </div>
+                </template>
+                <template #actions="{ node }">
+                  <div class="node-actions-container">
+                    <button
+                      v-if="node.isLeaf"
+                      class="tree-action-btn tree-download-btn"
+                      @click.stop="downloadFile(node.fileData)"
+                      title="下载文件"
+                      aria-label="下载文件"
+                    >
+                      <Download :size="14" />
+                    </button>
+                  </div>
+                </template>
+              </FileTreeComponent>
+            </div>
           </div>
       </div>
       <div v-show="activeSection?.type === 'file'" class="preview-pane">
@@ -177,15 +227,24 @@
       v-model:open="fileSearchOpen"
       :modes="['file']"
       default-mode="file"
-      :file-search="searchThreadFiles"
-      file-placeholder="搜索当前对话的文件..."
+      :file-search="searchActiveTreeFiles"
+      :file-placeholder="fileSearchPlaceholder"
       @select-file="handleSearchSelect"
     />
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch
+} from 'vue'
 import {
   Download,
   Folders,
@@ -221,6 +280,12 @@ import {
   getViewerFileSystemTree,
   searchViewerFiles
 } from '@/apis/viewer_filesystem'
+import {
+  downloadWorkspaceFile,
+  getWorkspaceFileContent,
+  getWorkspaceTree,
+  searchWorkspaceFiles
+} from '@/apis/workspace_api'
 import { normalizePreviewResponse } from '@/utils/file_preview'
 import { threadApi } from '@/apis/agent_api'
 
@@ -259,7 +324,10 @@ const props = defineProps({
     type: Array,
     default: () => [{ key: 'file-tree', type: 'file-tree', title: '文件' }]
   },
-  activeSectionKey: { type: String, default: 'file-tree' }
+  activeSectionKey: { type: String, default: 'file-tree' },
+  filesystemVisible: { type: Boolean, default: false },
+  filesystemPollingActive: { type: Boolean, default: false },
+  filesystemRefreshVersion: { type: Number, default: 0 }
 })
 
 const emit = defineEmits([
@@ -285,6 +353,19 @@ const dynamicTreeData = ref([])
 const selectedKeys = ref([])
 const expandedKeys = ref([])
 const deletingPaths = ref(new Set())
+
+// 用户目录（个人 workspace）树：与对话目录相互独立、切换保活。
+const treeScopes = [
+  { key: 'thread', label: '对话目录' },
+  { key: 'workspace', label: '用户目录' }
+]
+const activeTreeScope = ref('thread')
+const workspaceTreeData = ref([])
+const workspaceSelectedKeys = ref([])
+const workspaceExpandedKeys = ref([])
+const workspaceLoading = ref(false)
+const workspaceError = ref('')
+const workspaceLoaded = ref(false)
 const isResizing = ref(false)
 const fileSearchOpen = ref(false)
 const sectionTabsRef = ref(null)
@@ -304,17 +385,35 @@ const ensureActiveSectionVisible = async () => {
   activeTab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
 }
 const filesystemRefreshGate = createFilesystemRefreshGate()
+let filesystemRefreshGeneration = 0
 
 // uploads/outputs 只是 Project Workdir 下的目录约定；预取用于决定空目录是否展示。
 const PREFETCH_DIRECTORY_NAMES = ['outputs', 'uploads']
 const HIDE_WHEN_EMPTY_NAMES = ['outputs', 'uploads']
 
-const searchThreadFiles = (query) => searchViewerFiles(props.threadId, query)
+const fileSearchPlaceholder = computed(() =>
+  activeTreeScope.value === 'workspace' ? '搜索用户目录的文件...' : '搜索当前对话的文件...'
+)
+
+const searchActiveTreeFiles = (query) =>
+  activeTreeScope.value === 'workspace'
+    ? searchWorkspaceFiles(query)
+    : searchViewerFiles(props.threadId, query)
 
 const handleSearchSelect = (entry) => {
-  if (!entry?.path || !props.threadId) return
+  if (!entry?.path) return
+  if (activeTreeScope.value === 'workspace') {
+    workspaceSelectedKeys.value = [entry.path]
+    emit(
+      'open-preview',
+      { ...entry, type: 'file', workdir: false, workspace: true },
+      false
+    )
+    return
+  }
+  if (!props.threadId) return
   selectedKeys.value = [entry.path]
-  emit('open-preview', { ...entry, type: 'file' }, false)
+  emit('open-preview', { ...entry, type: 'file', workdir: true }, false)
 }
 
 const normalizedPreviewTabs = computed(() =>
@@ -352,7 +451,7 @@ const sortEntries = (entries) => {
   })
 }
 
-const createTreeNode = (entry) => {
+const createTreeNode = (entry, extraFileData = {}) => {
   const fullPath = String(entry?.path || '')
   const title = buildDisplayName(fullPath)
   const isLeaf = !entry?.is_dir
@@ -376,11 +475,17 @@ const createTreeNode = (entry) => {
       ...entry,
       path: fullPath,
       name: title,
-      type: isLeaf ? 'file' : 'directory'
+      type: isLeaf ? 'file' : 'directory',
+      workdir: isLeaf,
+      ...extraFileData
     },
     class: isLeaf ? 'file-node' : 'folder-node'
   }
 }
+
+// 用户目录树节点：预览与下载走 workspace 身份，而非当前对话。
+const createWorkspaceTreeNode = (entry) =>
+  createTreeNode(entry, { workdir: false, workspace: true })
 
 const updateTreeChildren = (nodes, targetKey, children) => {
   return nodes.map((node) => {
@@ -459,14 +564,15 @@ const loadDirectoryChildren = async (directoryPath, threadId = props.threadId) =
   return sortEntries(res?.entries || []).map((entry) => createTreeNode(entry))
 }
 
-const refreshFileSystem = async ({ silent = false } = {}) => {
+const refreshFileSystem = async ({ silent = false, ensure = false } = {}) => {
   const requestedThreadId = props.threadId
+  const requestedGeneration = filesystemRefreshGeneration
   if (!requestedThreadId) {
     dynamicTreeData.value = []
     filesystemError.value = ''
     return
   }
-  if (!filesystemRefreshGate.begin(requestedThreadId)) return
+  if (!filesystemRefreshGate.begin(requestedThreadId, { ensure })) return
 
   if (!silent) loadingFiles.value = true
   filesystemError.value = ''
@@ -489,6 +595,9 @@ const refreshFileSystem = async ({ silent = false } = {}) => {
           return { node, children }
         })
       )
+      const prefetchedKeys = prefetched
+        .filter(({ children }) => children !== null)
+        .map(({ node }) => node.key)
 
       nodes = prefetched.reduce((visible, { node, children }) => {
         if (children === null) {
@@ -500,28 +609,51 @@ const refreshFileSystem = async ({ silent = false } = {}) => {
       }, [])
 
       if (silent && expandedKeys.value.length) {
-        nodes = await refreshExpandedTree(nodes, expandedKeys.value, (directoryPath) =>
-          loadDirectoryChildren(directoryPath, requestedThreadId)
+        nodes = await refreshExpandedTree(
+          nodes,
+          expandedKeys.value,
+          (directoryPath) => loadDirectoryChildren(directoryPath, requestedThreadId),
+          prefetchedKeys
         )
       }
 
-      if (!filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) return
+      if (
+        requestedGeneration !== filesystemRefreshGeneration ||
+        !filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)
+      ) {
+        return
+      }
       dynamicTreeData.value = nodes
       expandedKeys.value = expandedKeysAfterFilesystemRefresh(expandedKeys.value, { silent })
       selectedKeys.value = props.activePreviewPath ? [props.activePreviewPath] : []
       if (silent) await refreshActivePreviewIfChanged(nodes, requestedThreadId)
-    } else if (filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) {
+    } else if (
+      requestedGeneration === filesystemRefreshGeneration &&
+      filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)
+    ) {
       dynamicTreeData.value = []
     }
   } catch (error) {
-    if (!filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) return
+    if (
+      requestedGeneration !== filesystemRefreshGeneration ||
+      !filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)
+    ) {
+      return
+    }
     dynamicTreeData.value = []
     filesystemError.value = error?.message || '加载文件系统失败'
     console.error('Failed to load root files', error)
   } finally {
-    filesystemRefreshGate.finish(requestedThreadId)
-    if (!silent && filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)) {
+    const refreshAgain = filesystemRefreshGate.finish(requestedThreadId)
+    if (
+      !silent &&
+      requestedGeneration === filesystemRefreshGeneration &&
+      filesystemRefreshGate.canCommit(requestedThreadId, props.threadId)
+    ) {
       loadingFiles.value = false
+    }
+    if (refreshAgain) {
+      void refreshFileSystem({ silent: true })
     }
   }
 }
@@ -537,8 +669,112 @@ const loadData = async (treeNode) => {
   }
 }
 
+const loadWorkspaceChildren = async (directoryPath) => {
+  const res = await getWorkspaceTree(directoryPath)
+  return sortEntries(res?.entries || []).map((entry) => createWorkspaceTreeNode(entry))
+}
+
+let workspaceRefreshInFlight = false
+let workspaceRefreshPending = false
+let workspacePreviewRefreshPending = false
+let workspaceTreeGeneration = 0
+
+const refreshWorkspaceTree = async ({ force = false, refreshPreview = false } = {}) => {
+  if (workspaceLoaded.value && !force && !refreshPreview) return
+  if (workspaceRefreshInFlight) {
+    if (force || refreshPreview) workspaceRefreshPending = true
+    if (refreshPreview) workspacePreviewRefreshPending = true
+    return
+  }
+  workspaceRefreshInFlight = true
+  workspaceLoading.value = true
+  workspaceError.value = ''
+  workspacePreviewRefreshPending ||= refreshPreview
+
+  try {
+    do {
+      workspaceRefreshPending = false
+      const shouldRefreshPreview = workspacePreviewRefreshPending
+      workspacePreviewRefreshPending = false
+
+      workspaceTreeGeneration += 1
+      try {
+        let nodes = await loadWorkspaceChildren('/')
+        if (workspaceExpandedKeys.value.length) {
+          nodes = await refreshExpandedTree(nodes, workspaceExpandedKeys.value, loadWorkspaceChildren)
+        }
+        workspaceTreeData.value = nodes
+        workspaceLoaded.value = true
+
+        if (shouldRefreshPreview && props.activePreviewPath && activePreviewTab.value?.workspace) {
+          const cacheKey = workspacePreviewCacheKey(props.activePreviewPath)
+          const entry = props.previewCache.get(cacheKey)
+          if (entry?.file?.previewUrl) window.URL.revokeObjectURL(entry.file.previewUrl)
+          props.previewCache.delete(cacheKey)
+          await loadActivePreview()
+        }
+      } catch (error) {
+        workspaceError.value = error?.message || '加载用户目录失败'
+        console.error('Failed to load workspace tree', error)
+      }
+    } while (workspaceRefreshPending)
+  } finally {
+    workspaceRefreshInFlight = false
+    workspaceLoading.value = false
+  }
+}
+
+const loadWorkspaceData = async (treeNode) => {
+  if (treeNode.isLeaf || treeNode.children?.length) return
+  const requestedGeneration = workspaceTreeGeneration
+
+  try {
+    const children = await loadWorkspaceChildren(treeNode.key)
+    if (requestedGeneration !== workspaceTreeGeneration) return
+    workspaceTreeData.value = updateTreeChildren(workspaceTreeData.value, treeNode.key, children)
+  } catch (error) {
+    console.error('Failed to load children for', treeNode.key, error)
+  }
+}
+
+const onWorkspaceFileSelect = (nextSelectedKeys, { node }) => {
+  workspaceSelectedKeys.value = nextSelectedKeys
+  if (!node?.isLeaf) return
+  emit('open-preview', node.fileData, false)
+}
+
+const setTreeScope = (scope) => {
+  if (activeTreeScope.value === scope) return
+  activeTreeScope.value = scope
+  syncFilesystemRefreshPolling()
+  if (scope === 'workspace') {
+    void refreshWorkspaceTree({ force: workspaceLoaded.value, refreshPreview: true })
+  }
+}
+
 let stopFilesystemPolling = null
+const componentActive = ref(true)
 let previewRequestSeq = 0
+
+const stopFilesystemRefreshPolling = () => {
+  if (!stopFilesystemPolling) return
+  stopFilesystemPolling()
+  stopFilesystemPolling = null
+}
+
+const syncFilesystemRefreshPolling = () => {
+  stopFilesystemRefreshPolling()
+  if (
+    !componentActive.value ||
+    !props.filesystemPollingActive ||
+    (activeSection.value?.type === 'file-tree' && activeTreeScope.value !== 'thread')
+  ) {
+    return
+  }
+  stopFilesystemPolling = startAgentPanelFilesystemPolling({
+    refresh: () => refreshFileSystem({ silent: true })
+  })
+}
 
 const revokeCurrentPreviewUrl = () => {
   const previewUrl = currentFile.value?.previewUrl
@@ -548,6 +784,7 @@ const revokeCurrentPreviewUrl = () => {
 }
 
 const previewCacheKey = (filePath, threadId = props.threadId) => `${threadId}:${filePath}`
+const workspacePreviewCacheKey = (filePath) => `workspace:${filePath}`
 
 const prunePreviewCache = (activeKey) => {
   const readyEntries = [...props.previewCache.entries()]
@@ -571,7 +808,12 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
     requestedThreadId === props.threadId &&
     filePath === props.activePreviewPath
 
-  if (!filePath || !requestedThreadId) {
+  const isWorkspaceFile = Boolean(
+    activePreviewTab.value?.workspace || baseFileOverride?.workspace
+  )
+
+  // 用户目录文件不依赖当前对话；对话文件必须先有线程。
+  if (!filePath || (!requestedThreadId && !isWorkspaceFile)) {
     revokeCurrentPreviewUrl()
     currentFile.value = null
     currentFilePath.value = ''
@@ -589,18 +831,21 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
   currentFilePath.value = filePath
   currentFile.value = {
     ...baseFile,
-    content: 'Loading...',
+    content: '',
     supported: true,
     previewType: 'text',
     message: '',
-    previewUrl: ''
+    previewUrl: '',
+    loading: true
   }
 
-  const cacheKey = previewCacheKey(filePath, requestedThreadId)
+  const cacheKey = isWorkspaceFile
+    ? workspacePreviewCacheKey(filePath)
+    : previewCacheKey(filePath, requestedThreadId)
   const cachedEntry = props.previewCache.get(cacheKey)
   if (cachedEntry?.status === 'ready') {
     cachedEntry.lastAccessed = Date.now()
-    if (requestIsCurrent()) currentFile.value = cachedEntry.file
+    if (requestIsCurrent()) currentFile.value = { ...cachedEntry.file, loading: false }
     return
   }
 
@@ -611,7 +856,9 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
       const cacheStillOwnsFile =
         currentEntry === cachedEntry ||
         (currentEntry?.status === 'ready' && currentEntry.file === cachedFile)
-      if (requestIsCurrent() && cacheStillOwnsFile) currentFile.value = cachedFile
+      if (requestIsCurrent() && cacheStillOwnsFile) {
+        currentFile.value = { ...cachedFile, loading: false }
+      }
     } catch {
       const removed = replacePreviewCacheEntryIfCurrent(
         props.previewCache,
@@ -622,11 +869,12 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
       if (requestIsCurrent() && (removed || !props.previewCache.has(cacheKey))) {
         currentFile.value = {
           ...baseFile,
-          content: '文件预览失败',
+          content: '',
           supported: false,
           previewType: 'unsupported',
           message: '文件预览失败',
-          previewUrl: ''
+          previewUrl: '',
+          loading: false
         }
       }
     }
@@ -634,10 +882,16 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
   }
 
   const loadPromise = (async () => {
-    const res = baseFile.artifact
-      ? await threadApi.previewThreadArtifact(requestedThreadId, filePath)
-      : await getViewerFileContent(requestedThreadId, filePath)
-    return normalizePreviewResponse(res, baseFile)
+    // 路径统一为 runtime 身份：用户目录走 workspace 视图，当前 Workdir 文件走 Viewer 渲染，其余走 artifact 原始字节。
+    const res = isWorkspaceFile
+      ? await getWorkspaceFileContent(filePath)
+      : baseFile.workdir
+        ? await getViewerFileContent(requestedThreadId, filePath)
+        : await threadApi.previewThreadArtifact(requestedThreadId, filePath)
+    return normalizePreviewResponse(res, {
+      ...baseFile,
+      artifact: !isWorkspaceFile && baseFile.workdir !== true
+    })
   })()
   const loadingEntry = { status: 'loading', promise: loadPromise }
   props.previewCache.set(cacheKey, loadingEntry)
@@ -654,7 +908,9 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
     })
     if (!published) return
     prunePreviewCache(cacheKey)
-    if (requestIsCurrent()) currentFile.value = nextFile
+    if (requestIsCurrent()) {
+      currentFile.value = { ...nextFile, loading: false }
+    }
   } catch (error) {
     const removed = replacePreviewCacheEntryIfCurrent(
       props.previewCache,
@@ -664,13 +920,22 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
     )
     if (!requestIsCurrent() || !removed) return
 
+    const is403 =
+      Number(error?.status || error?.statusCode || 0) === 403 ||
+      String(error?.message || '').includes('403')
+    const errorMessage = is403
+      ? '暂无权限访问该文件（403），请确认文件是否属于当前对话工作区。'
+      : error?.message || '文件加载失败，请重试'
+
     currentFile.value = {
       ...baseFile,
-      content: `Error loading file: ${error?.message || 'unknown error'}`,
+      content: '',
       supported: false,
       previewType: 'unsupported',
-      message: error?.message || '文件预览失败',
-      previewUrl: ''
+      message: errorMessage,
+      previewUrl: '',
+      loading: false,
+      error: true
     }
   }
 }
@@ -688,7 +953,7 @@ const findTreeNode = (nodes, filePath) => {
 
 const refreshActivePreviewIfChanged = async (nodes, requestedThreadId) => {
   const tab = activePreviewTab.value
-  if (!tab || requestedThreadId !== props.threadId) return
+  if (!tab || tab.workdir !== true || requestedThreadId !== props.threadId) return
   let latestFile = findTreeNode(nodes, tab.path)?.fileData || null
   if (!latestFile) {
     const parentPath = tab.path.split('/').slice(0, -1).join('/') || '/'
@@ -763,10 +1028,15 @@ const confirmDeleteNode = (node) => {
 }
 
 const downloadFile = async (fileItem) => {
-  if (!props.threadId || !fileItem?.path) return
+  if (!fileItem?.path) return
+  if (!fileItem.workspace && !props.threadId) return
 
   try {
-    const response = await downloadViewerFile(props.threadId, fileItem.path)
+    const response = fileItem.workspace
+      ? await downloadWorkspaceFile(fileItem.path)
+      : fileItem.workdir
+        ? await downloadViewerFile(props.threadId, fileItem.path)
+        : await threadApi.downloadThreadArtifact(props.threadId, fileItem.path)
     const blob = await response.blob()
     const contentDisposition =
       response.headers.get('Content-Disposition') || response.headers.get('content-disposition')
@@ -784,7 +1054,20 @@ const downloadFile = async (fileItem) => {
   }
 }
 
+const releaseWorkspacePreviewCache = () => {
+  for (const [key, entry] of props.previewCache) {
+    if (!key.startsWith('workspace:')) continue
+    if (entry.file?.previewUrl) window.URL.revokeObjectURL(entry.file.previewUrl)
+    props.previewCache.delete(key)
+  }
+}
+
 const emitRefresh = async () => {
+  if (activeTreeScope.value === 'workspace') {
+    releaseWorkspacePreviewCache()
+    await refreshWorkspaceTree({ force: true, refreshPreview: true })
+    return
+  }
   for (const [key, entry] of props.previewCache) {
     if (key.startsWith(`${props.threadId}:`) && entry.file?.previewUrl) {
       window.URL.revokeObjectURL(entry.file.previewUrl)
@@ -861,17 +1144,28 @@ const stopResize = (e) => {
 }
 
 onMounted(() => {
-  refreshFileSystem()
-  stopFilesystemPolling = startAgentPanelFilesystemPolling({
-    refresh: () => refreshFileSystem({ silent: true })
-  })
+  if (props.filesystemVisible) void refreshFileSystem({ silent: true })
+  syncFilesystemRefreshPolling()
+})
+
+onActivated(() => {
+  const wasInactive = !componentActive.value
+  componentActive.value = true
+  if (wasInactive && activeTreeScope.value === 'workspace') {
+    void refreshWorkspaceTree({ force: true, refreshPreview: true })
+  } else if (wasInactive && props.filesystemVisible) {
+    void refreshFileSystem({ silent: true })
+  }
+  syncFilesystemRefreshPolling()
+})
+
+onDeactivated(() => {
+  componentActive.value = false
+  stopFilesystemRefreshPolling()
 })
 
 onUnmounted(() => {
-  if (stopFilesystemPolling) {
-    stopFilesystemPolling()
-    stopFilesystemPolling = null
-  }
+  stopFilesystemRefreshPolling()
   if (resizeFrameId) {
     window.cancelAnimationFrame(resizeFrameId)
     resizeFrameId = 0
@@ -886,26 +1180,84 @@ onUnmounted(() => {
 watch(
   () => props.threadId,
   (threadId) => {
+    filesystemRefreshGeneration += 1
+    previewRequestSeq += 1
+    for (const [key, entry] of props.previewCache) {
+      if (!key.startsWith(`${threadId}:`)) continue
+      if (entry.file?.previewUrl) window.URL.revokeObjectURL(entry.file.previewUrl)
+      props.previewCache.delete(key)
+    }
     loadingFiles.value = false
     dynamicTreeData.value = []
     expandedKeys.value = []
     selectedKeys.value = []
     filesystemError.value = ''
-    if (threadId) {
-      refreshFileSystem()
+    if (threadId && props.filesystemVisible) {
+      refreshFileSystem({ ensure: true })
     }
   }
 )
 
-watch([() => props.threadId, () => props.activePreviewPath], loadActivePreview, { immediate: true })
+watch(
+  [() => props.threadId, () => props.activePreviewPath, () => activePreviewTab.value?.workdir, () => activePreviewTab.value?.workspace],
+  loadActivePreview,
+  { immediate: true }
+)
+
+watch(
+  () => props.filesystemVisible,
+  (visible) => {
+    if (!visible || !componentActive.value) return
+    if (activeTreeScope.value === 'workspace') {
+      void refreshWorkspaceTree({ force: true, refreshPreview: true })
+    }
+    else void refreshFileSystem({ silent: true })
+  }
+)
+
+watch([() => props.filesystemPollingActive, componentActive], syncFilesystemRefreshPolling)
+
+watch(
+  () => props.filesystemRefreshVersion,
+  () => {
+    if (!props.filesystemVisible || !componentActive.value) return
+    if (activeTreeScope.value === 'workspace') {
+      void refreshWorkspaceTree({ force: true, refreshPreview: true })
+    } else {
+      void refreshFileSystem({ silent: true, ensure: true })
+    }
+  }
+)
 
 watch(
   () => props.activePreviewPath,
   (filePath) => {
     selectedKeys.value = filePath ? [filePath] : []
+    workspaceSelectedKeys.value = filePath ? [filePath] : []
   }
 )
-watch(() => props.activeSectionKey, ensureActiveSectionVisible, { immediate: true })
+watch(
+  () => props.activeSectionKey,
+  () => {
+    void ensureActiveSectionVisible()
+    if (activeSection.value?.type === 'file' && activePreviewTab.value?.workspace) {
+      const cacheKey = workspacePreviewCacheKey(activePreviewTab.value.path)
+      const entry = props.previewCache.get(cacheKey)
+      if (entry?.file?.previewUrl) window.URL.revokeObjectURL(entry.file.previewUrl)
+      props.previewCache.delete(cacheKey)
+      void loadActivePreview()
+    }
+    if (
+      props.activeSectionKey === 'file-tree' &&
+      activeTreeScope.value === 'workspace' &&
+      componentActive.value
+    ) {
+      void refreshWorkspaceTree({ force: true, refreshPreview: true })
+    }
+    syncFilesystemRefreshPolling()
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped lang="less">
@@ -1133,6 +1485,51 @@ watch(() => props.activeSectionKey, ensureActiveSectionVisible, { immediate: tru
   border-bottom: 1px solid var(--gray-100);
   color: var(--gray-700);
   font-size: 12px;
+}
+
+.tree-scope-tabs {
+  display: flex;
+  align-items: center;
+}
+
+.tree-scope-separator {
+  width: 1px;
+  height: 10px;
+  margin: 0 8px;
+  background: var(--gray-200);
+}
+
+.tree-scope-tab {
+  border: 0;
+  background: transparent;
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--gray-900);
+  }
+
+  &.active {
+    color: var(--main-600);
+    font-weight: 700;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--main-300);
+    outline-offset: 1px;
+  }
+}
+
+.tree-scope-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .tree-toolbar-actions {

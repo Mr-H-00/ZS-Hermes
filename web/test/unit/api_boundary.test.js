@@ -238,3 +238,29 @@ test('知识库 API 单一构造并编码文件上传端点', async () => {
     )
   })
 })
+
+test('工具元数据 API 使用普通用户认证且普通用户可正常请求', async () => {
+  await withServer(async (server) => {
+    storageValues.clear()
+    storageValues.set('user_token', 'user-token')
+    globalThis.fetch = async (url) => {
+      assert.equal(url, '/api/system/tools')
+      return new Response(JSON.stringify({ success: true, data: [{ name: '搜索', slug: 'web_search' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+
+    setActivePinia(createPinia())
+    const { useUserStore } = await server.ssrLoadModule('/src/stores/user.js')
+    const userStore = useUserStore()
+    userStore.token = 'user-token'
+    userStore.role = 'user' // 非管理员
+
+    const { toolApi } = await server.ssrLoadModule('/src/apis/tool_api.js')
+    const result = await toolApi.getTools()
+    assert.equal(result.success, true)
+    assert.equal(result.data.length, 1)
+    assert.equal(result.data[0].slug, 'web_search')
+  })
+})

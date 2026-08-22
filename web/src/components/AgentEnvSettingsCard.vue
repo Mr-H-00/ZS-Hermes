@@ -8,9 +8,13 @@
         </p>
       </div>
       <div class="header-actions">
-        <a-button class="lucide-icon-btn" :loading="loading" @click="loadAgentEnv">
+        <a-button
+          class="refresh-btn lucide-icon-btn"
+          :loading="loading"
+          title="刷新"
+          @click="loadAgentEnv"
+        >
           <template #icon><RefreshCw :size="16" :class="{ spin: loading }" /></template>
-          刷新
         </a-button>
         <a-button type="primary" :loading="saving" @click="saveAgentEnv">
           {{ saveButtonText }}
@@ -18,7 +22,10 @@
       </div>
     </div>
 
-    <div class="env-tip">保存后仅对新建沙盒生效，已运行沙盒不会热更新。</div>
+    <div class="env-tip">
+      <Info :size="14" class="tip-icon" />
+      <span>保存后仅对新建沙盒生效，已运行沙盒不会热更新。</span>
+    </div>
 
     <a-spin :spinning="loading">
       <McpEnvEditor
@@ -35,7 +42,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { RefreshCw } from 'lucide-vue-next'
+import { Info, RefreshCw } from 'lucide-vue-next'
 import { agentEnvApi } from '@/apis/agent_env_api'
 import McpEnvEditor from '@/components/McpEnvEditor.vue'
 
@@ -152,7 +159,7 @@ onMounted(loadAgentEnv)
     justify-content: space-between;
     align-items: flex-end;
     gap: 16px;
-    margin-bottom: 12px;
+    margin-bottom: 14px;
 
     @media (max-width: 760px) {
       align-items: stretch;
@@ -163,6 +170,21 @@ onMounted(loadAgentEnv)
   .header-content {
     flex: 1;
     min-width: 0;
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--gray-900);
+      line-height: 1.4;
+      margin: 12px 0 12px;
+    }
+
+    .section-description {
+      font-size: 14px;
+      color: var(--gray-600);
+      line-height: 1.4;
+      margin: 0;
+    }
   }
 
   .header-actions {
@@ -170,17 +192,43 @@ onMounted(loadAgentEnv)
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+
+    .refresh-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: var(--gray-25);
+      }
+
+      .spin {
+        animation: spin 1s linear infinite;
+      }
+    }
   }
 
   .env-tip {
     margin-bottom: 14px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: var(--main-10);
-    border: 1px solid var(--main-300);
-    color: var(--main-700);
-    font-size: 13px;
-    line-height: 1.5;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: var(--gray-50);
+    border: 1px solid var(--gray-150);
+    color: var(--gray-600);
+    font-size: 12px;
+    line-height: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .tip-icon {
+      color: var(--gray-400);
+      flex-shrink: 0;
+    }
   }
 }
 

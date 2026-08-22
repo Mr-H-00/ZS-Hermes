@@ -7,6 +7,7 @@ import {
   selectDatabaseType,
   validateDatabaseConfig
 } from '../../src/utils/databaseCreateForm.js'
+import { getKbTypeLabel } from '../../src/utils/kb_utils.js'
 
 const difyType = {
   create_params: {
@@ -56,4 +57,12 @@ test('只为需要嵌入模型的类型构建模型和分块参数', () => {
   )
   assert.equal('embedding_model_spec' in connectorRequest, false)
   assert.equal('chunk_preset_id' in connectorRequest.additional_params, false)
+})
+
+test('知识库类型标签映射将 milvus 解析为 Yuxi', () => {
+  assert.equal(getKbTypeLabel('milvus'), 'Yuxi')
+  assert.equal(getKbTypeLabel('Milvus'), 'Yuxi')
+  assert.equal(getKbTypeLabel('dify'), 'Dify')
+  assert.equal(getKbTypeLabel('notion'), 'Notion')
+  assert.equal(getKbTypeLabel('unknown'), 'unknown')
 })

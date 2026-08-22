@@ -3,7 +3,7 @@
     v-model:open="visible"
     :title="null"
     width="90%"
-    :style="{ maxWidth: '980px', minWidth: '320px', top: '10%' }"
+    :style="{ maxWidth: '980px', minWidth: '320px', top: '5vh' }"
     :footer="null"
     :closable="false"
     @cancel="handleClose"
@@ -319,14 +319,14 @@ watch(
 
 .settings-container {
   display: flex;
-  height: 70vh;
+  height: min(84vh, 840px);
   width: 100%;
   position: relative;
 
   @media (max-width: 900px) {
     flex-direction: column;
     height: auto;
-    min-height: 70vh;
+    min-height: 75vh;
   }
 }
 

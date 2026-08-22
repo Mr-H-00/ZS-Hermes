@@ -424,12 +424,21 @@ useOutsidePointerdown(agentDropdownOpen, [agentDropdownTriggerRef, agentDropdown
   min-width: 0;
   width: 100%;
   padding: 6px 8px;
+  margin: 3px 0;
   border: none;
   border-radius: 6px;
   background: transparent;
   text-align: left;
   cursor: pointer;
   transition: background-color 0.15s ease;
+
+  &:first-child {
+    margin-top: 0;
+  }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
 }
 
 .config-dropdown-overlay .config-dropdown-item:hover {

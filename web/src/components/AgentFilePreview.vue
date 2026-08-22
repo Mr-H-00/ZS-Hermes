@@ -183,6 +183,11 @@
           spellcheck="false"
         />
       </template>
+      <template v-else-if="file?.loading === true">
+        <div class="unsupported-preview loading-preview">
+          {{ file?.loadingMessage || '正在加载文件内容...' }}
+        </div>
+      </template>
       <template v-else-if="file?.previewType === 'image' && file?.previewUrl">
         <div class="image-preview-wrapper">
           <img :src="file.previewUrl" :alt="filePath" class="image-preview" />
@@ -204,7 +209,7 @@
         <MarkdownPreview :content="formatContent(file?.content)" />
       </template>
       <template v-else-if="file?.supported === false">
-        <div class="unsupported-preview">
+        <div class="unsupported-preview" :class="{ 'error-preview': file?.error }">
           {{ file?.message || '当前文件暂不支持预览，请下载后查看' }}
         </div>
       </template>
@@ -284,7 +289,12 @@
         </div>
         <div class="fullscreen-preview-content">
           <div class="file-content fullscreen-file-content">
-            <template v-if="file?.previewType === 'image' && file?.previewUrl">
+            <template v-if="file?.loading === true">
+              <div class="unsupported-preview loading-preview fullscreen-unsupported-preview">
+                {{ file?.loadingMessage || '正在加载文件内容...' }}
+              </div>
+            </template>
+            <template v-else-if="file?.previewType === 'image' && file?.previewUrl">
               <div class="image-preview-wrapper fullscreen-image-preview-wrapper">
                 <img :src="file.previewUrl" :alt="filePath" class="image-preview" />
               </div>

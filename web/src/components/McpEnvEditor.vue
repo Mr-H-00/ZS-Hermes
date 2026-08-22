@@ -1,44 +1,79 @@
 <template>
-  <div class="env-editor">
-    <div v-for="(row, index) in rows" :key="index" class="env-row">
-      <a-input
-        v-model:value="row.key"
-        placeholder="Key"
-        class="env-key-input"
-        :disabled="isKeyLocked(row)"
-      />
-      <div class="env-value-field">
-        <a-input
-          v-model:value="row.value"
-          placeholder="Value"
-          class="env-value-input"
-          :type="isValueHidden(row) ? 'password' : 'text'"
-        />
-        <a-button
-          v-if="shouldConcealRow(row)"
-          size="small"
-          type="text"
-          class="env-value-toggle"
-          :aria-label="isValueHidden(row) ? '查看变量值' : '隐藏变量值'"
-          @click="toggleValueVisible(row)"
-        >
-          <Eye v-if="isValueHidden(row)" :size="14" />
-          <EyeOff v-else :size="14" />
-        </a-button>
+  <div class="env-editor-container">
+    <div class="settings-table-wrapper">
+      <div class="env-table-header">
+        <div class="col-key">变量名 (KEY)</div>
+        <div class="col-value">变量值 (VALUE)</div>
+        <div class="col-action">操作</div>
       </div>
-      <a-button size="small" type="text" danger @click="removeRow(index)"> 删除 </a-button>
+
+      <div class="env-table-body">
+        <div v-if="rows.length === 0" class="env-empty-row">
+          <span>暂无环境变量，点击下方添加</span>
+        </div>
+        <div
+          v-for="(row, index) in rows"
+          :key="index"
+          class="env-table-row"
+        >
+          <div class="col-key">
+            <a-input
+              v-model:value="row.key"
+              placeholder="例如：API_KEY"
+              class="env-input font-mono"
+              :disabled="isKeyLocked(row)"
+            />
+          </div>
+          <div class="col-value">
+            <div class="env-value-field">
+              <a-input
+                v-model:value="row.value"
+                placeholder="变量值内容"
+                class="env-input font-mono"
+                :type="isValueHidden(row) ? 'password' : 'text'"
+              />
+              <a-button
+                v-if="shouldConcealRow(row)"
+                size="small"
+                type="text"
+                class="env-value-toggle"
+                :aria-label="isValueHidden(row) ? '查看变量值' : '隐藏变量值'"
+                @click="toggleValueVisible(row)"
+              >
+                <Eye v-if="isValueHidden(row)" :size="14" />
+                <EyeOff v-else :size="14" />
+              </a-button>
+            </div>
+          </div>
+          <div class="col-action">
+            <a-tooltip title="删除变量">
+              <a-button
+                type="text"
+                size="small"
+                danger
+                class="action-btn lucide-icon-btn"
+                @click="removeRow(index)"
+              >
+                <Trash2 :size="14" />
+              </a-button>
+            </a-tooltip>
+          </div>
+        </div>
+      </div>
     </div>
-    <a-button @click="addRow" class="add-env">
-      <template #icon><PlusOutlined /></template>
-      添加变量
-    </a-button>
+
+    <div class="env-editor-footer">
+      <a-button class="add-env-btn lucide-icon-btn" @click="addRow">
+        <Plus :size="14" />
+        <span>添加变量</span>
+      </a-button>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
-import { Eye, EyeOff } from 'lucide-vue-next'
+import { Eye, EyeOff, Plus, Trash2 } from 'lucide-vue-next'
 
 const props = defineProps({
   modelValue: {
@@ -194,46 +229,143 @@ watch(
 </script>
 
 <style lang="less" scoped>
-.env-editor {
+.env-editor-container {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+}
 
-  .env-row {
+.settings-table-wrapper {
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--gray-0);
+
+  .env-table-header {
     display: flex;
-    gap: 8px;
     align-items: center;
+    background: var(--gray-50);
+    border-bottom: 1px solid var(--gray-150);
+    padding: 9px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-500);
+    user-select: none;
+  }
 
-    .env-key-input,
-    .env-value-input {
-      flex: 1;
+  .env-table-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .env-table-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--gray-100);
+    transition: background 0.15s ease;
+
+    &:last-child {
+      border-bottom: none;
     }
 
-    .env-value-field {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      flex: 1;
-      min-width: 0;
-
-      .env-value-input {
-        min-width: 0;
-      }
-    }
-
-    .env-value-toggle {
-      width: 28px;
-      height: 28px;
-      flex: 0 0 auto;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--gray-500);
+    &:hover {
+      background: var(--gray-25);
     }
   }
 
-  button.add-env {
-    width: fit-content;
+  .col-key {
+    flex: 0 0 38%;
+    padding-right: 12px;
+  }
+
+  .col-value {
+    flex: 1;
+    min-width: 0;
+    padding-right: 12px;
+  }
+
+  .col-action {
+    flex: 0 0 40px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .env-input {
+    border-radius: 6px;
+    font-size: 12px;
+
+    &.font-mono {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Menlo', monospace;
+    }
+  }
+
+  .env-value-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+
+    .env-input {
+      width: 100%;
+    }
+
+    .env-value-toggle {
+      position: absolute;
+      right: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      color: var(--gray-400);
+
+      &:hover {
+        color: var(--gray-700);
+      }
+    }
+  }
+
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    color: var(--gray-400);
+    transition: all 0.15s ease;
+
+    &:hover:not(:disabled) {
+      background: var(--color-error-50, #fff2f0);
+      color: var(--color-error-500, #ff4d4f);
+    }
+  }
+
+  .env-empty-row {
+    padding: 36px 16px;
+    text-align: center;
+    color: var(--gray-400);
+    font-size: 13px;
+  }
+}
+
+.env-editor-footer {
+  display: flex;
+  align-items: center;
+
+  .add-env-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--gray-700);
+    border-radius: 6px;
+
+    &:hover {
+      color: var(--gray-900);
+      border-color: var(--gray-300);
+    }
   }
 }
 </style>

@@ -106,6 +106,7 @@ async def test_viewer_root_is_realtime_project_workdir(realtime_viewer):
         thread_id="thread-1", path="/", current_user=SimpleNamespace(uid="user-1"), db=object()
     )
     assert [item["name"] for item in result["entries"]] == ["outputs", "report.txt"]
+    assert result["entries"][0]["path"] == "/outputs/"
     assert result["entries"][1]["path"] == "/report.txt"
 
 
@@ -129,6 +130,19 @@ async def test_viewer_reads_live_file_without_revision(realtime_viewer):
     )
     assert result["content"] == "hello\nworld\n"
     assert result["preview_type"] == "text"
+
+
+@pytest.mark.asyncio
+async def test_viewer_rejects_other_workdir_runtime_identity(realtime_viewer):
+    with pytest.raises(HTTPException) as exc:
+        await svc.read_viewer_file_content(
+            thread_id="thread-1",
+            path="/home/gem/user-data/projects/other/report.txt",
+            current_user=SimpleNamespace(uid="user-1"),
+            db=object(),
+        )
+
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -231,7 +245,7 @@ async def test_viewer_upload_maps_final_no_clobber_conflict_to_409(realtime_view
 
 
 @pytest.mark.asyncio
-async def test_viewer_upload_returns_scope_path_and_runtime_artifact_url(realtime_viewer):
+async def test_viewer_upload_returns_scope_path_and_artifact_url(realtime_viewer):
     realtime_viewer.directories["/projects/11111111-1111-4111-8111-111111111111"] = []
 
     result = await svc.upload_viewer_files(

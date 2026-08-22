@@ -8,16 +8,23 @@
     >
       <span>{{ summary }}</span>
     </button>
-    <div v-if="expanded" class="process-content">
-      <template v-for="item in items" :key="item.key">
-        <AgentMessageComponent
-          v-if="item.type === 'message'"
-          :message="item.message"
-          :hide-tool-calls="true"
-          :mention="mention"
-        />
-        <ToolCallsGroupComponent v-else :tool-calls="item.toolCalls" />
-      </template>
+    <div
+      class="process-collapse-panel"
+      :class="{ 'is-expanded': expanded }"
+    >
+      <div class="process-collapse-inner">
+        <div class="process-content">
+          <template v-for="item in items" :key="item.key">
+            <AgentMessageComponent
+              v-if="item.type === 'message'"
+              :message="item.message"
+              :hide-tool-calls="true"
+              :mention="mention"
+            />
+            <ToolCallsGroupComponent v-else :tool-calls="item.toolCalls" />
+          </template>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -46,6 +53,11 @@ const summary = computed(() => {
 </script>
 
 <style scoped lang="less">
+.conversation-process-group {
+  display: flex;
+  flex-direction: column;
+}
+
 .process-summary {
   display: flex;
   align-items: center;
@@ -58,7 +70,9 @@ const summary = computed(() => {
   color: var(--gray-500);
   cursor: pointer;
   font: inherit;
+  font-size: 12px;
   text-align: left;
+  transition: color 0.18s ease;
 
   &:hover,
   &:focus-visible {
@@ -71,7 +85,46 @@ const summary = computed(() => {
   }
 }
 
+.process-collapse-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0.24s ease;
+  visibility: hidden;
+  min-width: 0;
+
+  &.is-expanded {
+    grid-template-rows: 1fr;
+    visibility: visible;
+  }
+}
+
+.process-collapse-inner {
+  overflow: hidden;
+  min-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.process-collapse-panel.is-expanded .process-collapse-inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .process-content {
+  display: flex;
+  flex-direction: column;
   padding-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .process-collapse-panel,
+  .process-collapse-inner {
+    transition: none;
+  }
 }
 </style>

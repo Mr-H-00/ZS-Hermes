@@ -610,9 +610,6 @@ const resetFileState = () => {
   fileContent.value = ''
 }
 
-const expandAllKeys = (nodes) =>
-  nodes.flatMap((node) => (node.is_dir ? [node.key, ...expandAllKeys(node.children || [])] : []))
-
 const reloadTree = async () => {
   if (!currentSkill.value || !isInstalledSkill.value) return
   loading.value = true
@@ -620,7 +617,7 @@ const reloadTree = async () => {
     const result = await skillApi.getSkillTree(currentSkill.value.slug)
     const normalized = normalizeTree(result?.data || [])
     treeData.value = normalized
-    expandedKeys.value = expandAllKeys(normalized)
+    expandedKeys.value = []
   } catch {
     message.error('加载目录树失败')
   } finally {

@@ -55,6 +55,16 @@ test('filesystem refreshes are isolated by thread and stale responses cannot com
   assert.equal(gate.begin('thread-a'), true)
 })
 
+test('ensured filesystem refresh is queued while the same thread is in flight', () => {
+  const gate = createFilesystemRefreshGate()
+
+  assert.equal(gate.begin('thread-a'), true)
+  assert.equal(gate.begin('thread-a', { ensure: true }), false)
+  assert.equal(gate.finish('thread-a'), true)
+  assert.equal(gate.begin('thread-a'), true)
+  assert.equal(gate.finish('thread-a'), false)
+})
+
 test('silent filesystem polling preserves expanded directories', () => {
   const expanded = ['/project/outputs', '/project/uploads']
 
@@ -91,6 +101,26 @@ test('silent filesystem polling reloads every visible expanded subtree', async (
   assert.deepEqual(refreshed[0].children[0].children, [
     { key: '/project/outputs/nested/new.txt', fileData: { size: 8 } }
   ])
+})
+
+test('silent filesystem polling does not reload directories prefetched in the same pass', async () => {
+  const requested = []
+  await refreshExpandedTree(
+    [
+      {
+        key: '/outputs',
+        children: [{ key: '/outputs/nested', children: [] }]
+      }
+    ],
+    ['/outputs', '/outputs/nested'],
+    async (path) => {
+      requested.push(path)
+      return []
+    },
+    ['/outputs']
+  )
+
+  assert.deepEqual(requested, ['/outputs/nested'])
 })
 
 test('active preview refreshes only when Project metadata changes', () => {

@@ -103,10 +103,6 @@ async def main() -> None:
         if requires_quiescence:
             _require_quiescence_proof()
         await pg_manager.create_business_tables()
-        await _converge_database_state(fail_nonterminal_runs=requires_quiescence)
-        legacy_config_file = get_legacy_storage_dir() / "config/base.toml"
-        if legacy_config_file.is_file() and not legacy_config_file.is_symlink():
-            legacy_config_file.unlink()
         if migrates_workdirs:
             await asyncio.to_thread(import_v071_workdirs, workdir_plan.workdirs, workdir_plan.conversations)
             async with pg_manager.get_async_session_context() as session:
@@ -116,6 +112,10 @@ async def main() -> None:
                 await verify_workdir_bindings(session)
                 await session.commit()
         await pg_manager.ensure_business_schema()
+        await _converge_database_state(fail_nonterminal_runs=requires_quiescence)
+        legacy_config_file = get_legacy_storage_dir() / "config/base.toml"
+        if legacy_config_file.is_file() and not legacy_config_file.is_symlink():
+            legacy_config_file.unlink()
         if migrates_workdirs:
             await asyncio.to_thread(cleanup_v071_thread_sources, workdir_plan.conversations)
         async with pg_manager.get_async_session_context() as session:

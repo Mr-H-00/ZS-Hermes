@@ -31,58 +31,65 @@
           <a-alert type="error" :message="error" show-icon />
         </div>
 
-        <div class="cards-container">
-          <div v-if="apiKeys.length === 0" class="empty-state">
-            <a-empty description="暂无 API Key，点击上方按钮创建一个" />
-          </div>
-          <div v-else class="apikey-cards-grid">
-            <div v-for="key in apiKeys" :key="key.id" class="apikey-card">
-              <div class="card-header">
-                <div class="key-info">
-                  <KeyIcon size="18" class="key-icon" />
-                  <div class="key-info-content">
-                    <h4 class="key-name">{{ key.name }}</h4>
+        <template v-if="apiKeys.length > 0">
+          <div class="settings-table-wrapper">
+            <a-table
+              :dataSource="apiKeys"
+              :columns="columns"
+              :rowKey="(record) => record.id"
+              :pagination="false"
+              class="settings-table"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'name'">
+                  <div class="table-cell-title">
+                    <KeyIcon :size="15" class="cell-icon" />
+                    <span class="cell-main-text" :title="record.name">{{ record.name }}</span>
                   </div>
-                </div>
-                <code class="key-prefix">{{ key.key_prefix }}****</code>
-              </div>
-
-              <div class="card-content">
-                <div class="info-item">
-                  <span class="info-label">过期时间:</span>
-                  <span class="info-value">{{ key.expires_at || '永不过期' }}</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">最后使用:</span>
-                  <span class="info-value">{{ formatTime(key.last_used_at) }}</span>
-                </div>
-              </div>
-
-              <div class="card-footer">
-                <div class="footer-left">
-                  <span class="switch-label">{{ key.is_enabled ? '已启用' : '已禁用' }}</span>
-                  <a-switch :checked="key.is_enabled" size="small" @change="toggleEnabled(key)" />
-                </div>
-                <div class="footer-actions">
+                </template>
+                <template v-if="column.key === 'prefix'">
+                  <code class="code-badge">{{ record.key_prefix }}****</code>
+                </template>
+                <template v-if="column.key === 'status'">
+                  <div class="status-cell">
+                    <a-switch :checked="record.is_enabled" size="small" @change="toggleEnabled(record)" />
+                    <span class="status-text" :class="{ enabled: record.is_enabled }">
+                      {{ record.is_enabled ? '已启用' : '已禁用' }}
+                    </span>
+                  </div>
+                </template>
+                <template v-if="column.key === 'lastUsed'">
+                  <span class="time-text">{{ formatTime(record.last_used_at) }}</span>
+                </template>
+                <template v-if="column.key === 'expiresAt'">
+                  <span class="time-text">{{ record.expires_at || '永不过期' }}</span>
+                </template>
+                <template v-if="column.key === 'action'">
                   <a-popconfirm
                     title="确定要删除此 API Key 吗？此操作不可恢复。"
-                    @confirm="deleteKey(key)"
+                    @confirm="deleteKey(record)"
                     ok-text="确定"
                     cancel-text="取消"
                   >
-                    <a-button
-                      size="small"
-                      danger
-                      class="action-btn delete-action-btn lucide-icon-btn"
-                    >
-                      <Trash2 :size="14" />
-                      <span>删除</span>
-                    </a-button>
+                    <a-tooltip title="删除 API Key">
+                      <a-button
+                        type="text"
+                        size="small"
+                        danger
+                        class="action-btn lucide-icon-btn"
+                      >
+                        <Trash2 :size="14" />
+                      </a-button>
+                    </a-tooltip>
                   </a-popconfirm>
-                </div>
-              </div>
-            </div>
+                </template>
+              </template>
+            </a-table>
           </div>
+        </template>
+
+        <div v-else class="empty-state">
+          <a-empty description="暂无 API Key，点击上方按钮创建一个" />
         </div>
       </a-spin>
     </div>
@@ -158,6 +165,15 @@ const createLoading = ref(false)
 const createdSecret = ref('')
 const createRequestId = ref('')
 const CREATE_REQUEST_STORAGE_KEY = 'yuxi_pending_api_key_request_id'
+
+const columns = [
+  { title: '名称', dataIndex: 'name', key: 'name', width: '22%' },
+  { title: '前缀', dataIndex: 'key_prefix', key: 'prefix', width: '18%' },
+  { title: '状态', dataIndex: 'is_enabled', key: 'status', width: '14%' },
+  { title: '最后使用', dataIndex: 'last_used_at', key: 'lastUsed', width: '18%' },
+  { title: '过期时间', dataIndex: 'expires_at', key: 'expiresAt', width: '18%' },
+  { title: '操作', key: 'action', width: '10%', align: 'center' }
+]
 
 const createForm = reactive({
   name: '',
@@ -338,140 +354,129 @@ onMounted(() => {
       margin-bottom: 16px;
     }
 
-    .cards-container {
-      .empty-state {
-        padding: 48px 0;
+    .empty-state {
+      padding: 48px 0;
+    }
+
+    .settings-table-wrapper {
+      border: 1px solid var(--gray-150);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--gray-0);
+
+      :deep(.ant-table) {
+        background: transparent;
+        font-size: 13px;
       }
 
-      .apikey-cards-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-        gap: 12px;
+      :deep(.ant-table-thead > tr > th) {
+        background: var(--gray-50);
+        color: var(--gray-500);
+        font-weight: 500;
+        font-size: 12px;
+        padding: 9px 14px;
+        border-bottom: 1px solid var(--gray-150);
+        white-space: nowrap;
+
+        &::before {
+          display: none !important;
+        }
       }
 
-      .apikey-card {
-        background: var(--gray-0);
-        border: 1px solid var(--gray-150);
-        border-radius: 8px;
-        padding: 12px;
-        transition:
-          border-color 0.2s,
-          box-shadow 0.2s;
+      :deep(.ant-table-tbody > tr > td) {
+        padding: 10px 14px;
+        color: var(--gray-800);
+        border-bottom: 1px solid var(--gray-100);
+        transition: background 0.15s ease;
+      }
 
-        &:hover {
-          border-color: var(--gray-300);
+      :deep(.ant-table-tbody > tr:last-child > td) {
+        border-bottom: none;
+      }
+
+      :deep(.ant-table-tbody > tr:hover > td) {
+        background: var(--gray-25) !important;
+      }
+
+      .table-cell-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        max-width: 100%;
+
+        .cell-icon {
+          color: var(--gray-400);
+          flex-shrink: 0;
         }
 
-        .card-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-
-          .key-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-
-            .key-icon {
-              color: var(--main-600);
-              flex-shrink: 0;
-            }
-
-            .key-info-content {
-              .key-name {
-                font-size: 14px;
-                font-weight: 600;
-                color: var(--gray-900);
-                margin: 0;
-              }
-            }
-          }
-
-          .key-prefix {
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 12px;
-            color: var(--gray-600);
-            background: var(--gray-50);
-            padding: 2px 8px;
-            border-radius: 8px;
-          }
+        .cell-main-text {
+          font-weight: 500;
+          color: var(--gray-900);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
+      }
 
-        .card-content {
-          margin-bottom: 10px;
+      .code-badge {
+        font-family: 'JetBrains Mono', 'Fira Code', 'Menlo', monospace;
+        font-size: 12px;
+        color: var(--gray-700);
+        background: var(--gray-50);
+        border: 1px solid var(--gray-200);
+        border-radius: 4px;
+        padding: 2px 6px;
+        letter-spacing: 0.5px;
+      }
 
-          .info-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 6px;
-            margin-bottom: 6px;
-            font-size: 13px;
+      .status-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
 
-            &:last-child {
-              margin-bottom: 0;
-            }
+        :deep(.ant-switch.ant-switch-checked) {
+          background-color: var(--gray-700) !important;
 
-            .info-label {
-              color: var(--gray-600);
-              flex-shrink: 0;
-            }
-
-            .info-value {
-              color: var(--gray-900);
-              word-break: break-all;
-            }
-
-            &.half {
-              flex: 1;
-            }
+          &:hover:not(.ant-switch-disabled) {
+            background-color: var(--gray-800) !important;
           }
         }
 
-        .card-footer {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding-top: 8px;
-          border-top: 1px solid var(--gray-100);
+        .status-text {
+          font-size: 12px;
+          color: var(--gray-400);
 
-          .footer-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-
-            .switch-label {
-              font-size: 12px;
-              color: var(--gray-600);
-            }
-          }
-
-          .footer-actions {
-            display: flex;
-            gap: 4px;
-          }
-
-          .action-btn {
-            font-size: 12px;
+          &.enabled {
             color: var(--gray-700);
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-
-            &:hover {
-              color: var(--main-600);
-            }
-
-            &.delete-action-btn:hover {
-              color: var(--color-error-700);
-              background: var(--color-error-50);
-            }
-
-            &.delete-action-btn {
-              border-color: var(--color-error-100);
-              color: var(--color-error-700);
-            }
+            font-weight: 500;
           }
+        }
+      }
+
+      .time-text {
+        color: var(--gray-500);
+        font-size: 12px;
+      }
+
+      .action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        color: var(--gray-400);
+        transition: all 0.15s ease;
+
+        &:hover:not(:disabled) {
+          background: var(--gray-100);
+          color: var(--gray-800);
+        }
+
+        &.ant-btn-dangerous:hover:not(:disabled) {
+          background: var(--color-error-50, #fff2f0);
+          color: var(--color-error-500, #ff4d4f);
         }
       }
     }

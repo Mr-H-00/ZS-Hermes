@@ -1,6 +1,6 @@
 <template>
   <div class="subagent-thread-view">
-    <div ref="scrollContainerRef" class="subagent-thread-scroll">
+    <div ref="scrollContainerRef" class="subagent-thread-scroll" @scroll="handleScroll">
       <div ref="contentRef" class="subagent-thread-content">
         <div v-if="loading && !hasRenderableMessages" class="subagent-thread-state">
           正在加载子智能体消息...
@@ -94,6 +94,9 @@ const scrollController = new ScrollController(() => scrollContainerRef.value, {
   threshold: 80,
   scrollDelay: 80
 })
+const handleScroll = (event) => {
+  scrollController.handleScroll(event)
+}
 
 const flattenContent = (content) => {
   if (typeof content === 'string') return content
@@ -283,7 +286,7 @@ onUnmounted(() => {
 
 .subagent-thread-scroll {
   overflow-y: auto;
-  padding: 16px 20px 28px;
+  padding: 16px 28px 28px;
 }
 
 .subagent-thread-content {

@@ -103,7 +103,7 @@ def test_import_does_not_fold_thread_id_onto_another_thread_directory(monkeypatc
     assert (other_thread / "secret.txt").read_text(encoding="utf-8") == "secret"
 
 
-def test_import_rejects_thread_symlink_without_replacing_existing_target(monkeypatch, tmp_path: Path):
+def test_import_preserves_thread_symlinks_without_reading_target(monkeypatch, tmp_path: Path):
     legacy_storage = tmp_path / "legacy"
     uploads = legacy_storage / "threads" / "thread-1" / "user-data" / "uploads"
     uploads.mkdir(parents=True)
@@ -111,19 +111,18 @@ def test_import_rejects_thread_symlink_without_replacing_existing_target(monkeyp
     outside.write_text("secret", encoding="utf-8")
     (uploads / "escape.txt").symlink_to(outside)
     user_data = tmp_path / "user-data"
-    target = user_data / "shared" / "user-1" / "workspace" / "projects" / "11111111-1111-4111-8111-111111111111"
-    target.mkdir(parents=True)
-    (target / "keep.txt").write_text("keep", encoding="utf-8")
 
     monkeypatch.setenv("YUXI_USER_DATA_DIR", str(user_data))
     monkeypatch.setattr(svc, "get_legacy_storage_dir", lambda: legacy_storage)
     workdirs = (svc.V071WorkdirBinding("11111111-1111-4111-8111-111111111111", "user-1"),)
     conversations = (svc.V071ConversationBinding("thread-1", "user-1", "11111111-1111-4111-8111-111111111111"),)
 
-    with pytest.raises(RuntimeError, match="symlink"):
-        svc.import_v071_workdirs(workdirs, conversations)
+    svc.import_v071_workdirs(workdirs, conversations)
 
-    assert (target / "keep.txt").read_text(encoding="utf-8") == "keep"
+    target = user_data / "shared" / "user-1" / "workspace" / "projects" / "11111111-1111-4111-8111-111111111111"
+    imported_symlink = target / "uploads" / "escape.txt"
+    assert imported_symlink.is_symlink()
+    assert os.readlink(imported_symlink) == str(outside)
     assert outside.read_text(encoding="utf-8") == "secret"
 
 

@@ -343,17 +343,22 @@ def _merge_tree(source: Path, target: Path) -> None:
         if target.is_symlink() or not target.is_dir():
             raise RuntimeError(f"Workdir 迁移目标不是安全目录: {target.name}") from None
     for entry in source.iterdir():
-        if entry.is_symlink():
-            raise RuntimeError(f"旧 Workdir 包含 symlink: {entry.name}")
         destination = target / entry.name
-        if entry.is_dir():
-            _merge_tree(entry, destination)
-        elif entry.is_file():
-            if destination.exists():
-                if not destination.is_file() or _file_digest(destination) != _file_digest(entry):
+        if entry.is_symlink():
+            link_target = os.readlink(entry)
+            if destination.is_symlink() or destination.exists():
+                if not destination.is_symlink() or os.readlink(destination) != link_target:
                     raise RuntimeError(f"旧 Workdir 文件冲突: {entry.name}")
             else:
-                shutil.copy2(entry, destination)
+                os.symlink(link_target, destination)
+        elif entry.is_dir():
+            _merge_tree(entry, destination)
+        elif entry.is_file():
+            if destination.is_symlink() or destination.exists():
+                if destination.is_symlink() or not destination.is_file() or _file_digest(destination) != _file_digest(entry):
+                    raise RuntimeError(f"旧 Workdir 文件冲突: {entry.name}")
+            else:
+                shutil.copy2(entry, destination, follow_symlinks=False)
         else:
             raise RuntimeError(f"旧 Workdir 包含非常规文件: {entry.name}")
 
@@ -363,10 +368,10 @@ def _tree_manifest(root: Path) -> tuple[tuple[str, str], ...]:
         raise RuntimeError("Workdir manifest 根必须是真实目录")
     entries: list[tuple[str, str]] = []
     for path in sorted(root.rglob("*")):
-        if path.is_symlink():
-            raise RuntimeError("Workdir manifest 拒绝 symlink")
         relative = path.relative_to(root).as_posix()
-        if path.is_dir():
+        if path.is_symlink():
+            entries.append((relative, f"symlink:{os.readlink(path)}"))
+        elif path.is_dir():
             entries.append((relative + "/", ""))
         elif path.is_file():
             entries.append((relative, _file_digest(path)))

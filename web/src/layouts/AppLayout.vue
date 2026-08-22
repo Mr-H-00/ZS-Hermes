@@ -7,7 +7,7 @@ import {
   ClipboardList,
   LibraryBig,
   Box,
-  FolderKanban,
+  HardDrive,
   PanelLeft,
   PanelLeftOpen,
   MessageCirclePlus,
@@ -175,8 +175,8 @@ const mainList = computed(() => {
   items.push({
     name: '工作区',
     path: '/workspace',
-    icon: FolderKanban,
-    activeIcon: FolderKanban
+    icon: HardDrive,
+    activeIcon: HardDrive
   })
 
   items.push({
@@ -572,7 +572,7 @@ div.header,
     justify-content: flex-start;
     align-items: stretch;
     position: relative;
-    gap: 0;
+    gap: 2px;
   }
 
   .sidebar-conversations {
@@ -721,13 +721,6 @@ div.header,
       outline: none;
     }
 
-    &.active {
-      border-color: transparent;
-      background-color: color-mix(in srgb, var(--main-color) 6%, var(--gray-0));
-      font-weight: 600;
-      color: var(--main-color);
-    }
-
     &.primary-action {
       margin-bottom: 8px;
       border-color: var(--gray-150);
@@ -738,7 +731,7 @@ div.header,
       &:hover {
         border-color: var(--gray-200);
         background-color: var(--gray-0);
-        color: var(--main-color);
+        color: var(--gray-900);
         box-shadow: 0 3px 4px rgba(0, 10, 20, 0.07);
       }
     }
@@ -749,8 +742,15 @@ div.header,
 
     &:hover {
       border-color: transparent;
-      background-color: var(--main-20);
-      color: var(--main-color);
+      background-color: var(--gray-50);
+      color: var(--gray-900);
+    }
+
+    &.active {
+      border-color: transparent;
+      background-color: color-mix(in srgb, var(--gray-100) 6%, var(--gray-100));
+      font-weight: 600;
+      color: var(--gray-1000);
     }
 
     &.github {

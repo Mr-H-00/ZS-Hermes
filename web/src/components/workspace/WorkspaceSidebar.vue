@@ -17,22 +17,22 @@
       <button
         type="button"
         class="workspace-nav-item secondary"
+        :class="{ active: activeKey === 'personal' && isSamePath(currentPath, agentsPath) }"
+        @click="$emit('select-path', agentsPath)"
+      >
+        <FileTypeIcon is-dir :size="18" />
+        <span>智能体文件</span>
+      </button>
+      <button
+        type="button"
+        class="workspace-nav-item secondary"
         :class="{
           active: activeKey === 'personal' && isSamePath(currentPath, savedArtifactsPath)
         }"
         @click="$emit('select-path', savedArtifactsPath)"
       >
         <FileTypeIcon is-dir :size="18" />
-        <span>保存的交付物</span>
-      </button>
-      <button
-        type="button"
-        class="workspace-nav-item secondary"
-        :class="{ active: activeKey === 'personal' && isSamePath(currentPath, agentsPath) }"
-        @click="$emit('select-path', agentsPath)"
-      >
-        <FileTypeIcon is-dir :size="18" />
-        <span>智能体文件</span>
+        <span>保存的产物</span>
       </button>
     </section>
 

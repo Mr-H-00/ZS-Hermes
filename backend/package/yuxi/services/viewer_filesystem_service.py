@@ -48,14 +48,14 @@ def _validate_viewer_path(access: AuthorizedWorkdir, path: str) -> None:
         raise HTTPException(status_code=403, detail="Access denied") from exc
 
 
-def _entry(access: AuthorizedWorkdir, parent: str, item: dict) -> dict:
-    path = f"{parent.rstrip('/')}/{item['name']}"
-    if not path.startswith("/"):
-        path = f"/{path}"
+def _entry(access: AuthorizedWorkdir, parent_scope: str, item: dict) -> dict:
+    scope = f"{parent_scope.rstrip('/')}/{item['name']}"
+    if not scope.startswith("/"):
+        scope = f"/{scope}"
     is_dir = bool(item.get("is_dir"))
-    runtime_path = runtime_path_for_workdir_scope(access.workdir_path, path)
+    runtime_path = runtime_path_for_workdir_scope(access.workdir_path, scope)
     return {
-        "path": f"{path}/" if is_dir else path,
+        "path": f"{scope}/" if is_dir else scope,
         "name": str(item["name"]),
         "is_dir": is_dir,
         "size": int(item.get("size") or 0),
@@ -64,18 +64,18 @@ def _entry(access: AuthorizedWorkdir, parent: str, item: dict) -> dict:
     }
 
 
-async def _list_directory(access: AuthorizedWorkdir, path: str) -> list[dict]:
+async def _list_directory(access: AuthorizedWorkdir, scope: str) -> list[dict]:
     try:
         items = await asyncio.to_thread(
             access.workdir.list_directory,
-            path,
+            scope,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="Access denied") from exc
     except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         raise HTTPException(status_code=404, detail="目录不存在") from exc
     return sorted(
-        (_entry(access, path, item) for item in items),
+        (_entry(access, scope, item) for item in items),
         key=lambda item: (not item["is_dir"], item["name"].lower()),
     )
 
@@ -177,11 +177,8 @@ async def download_viewer_file(*, thread_id: str, path: str, current_user, db) -
 async def delete_viewer_file(*, thread_id: str, path: str, current_user, db) -> dict:
     """实时删除 Workdir 内文件或目录。"""
     access = await _viewer_state(thread_id=thread_id, current_user=current_user, db=db)
-    try:
-        normalized = PurePosixPath(path).as_posix()
-        _validate_viewer_path(access, normalized)
-    except ValueError as exc:
-        raise HTTPException(status_code=403, detail="Access denied") from exc
+    normalized = PurePosixPath(path).as_posix()
+    _validate_viewer_path(access, normalized)
     if normalized == "/":
         raise HTTPException(status_code=400, detail="Project Workdir 根目录不允许删除")
     try:

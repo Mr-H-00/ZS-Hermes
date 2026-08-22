@@ -205,7 +205,8 @@ def test_storage_migration_script_quiesces_runtime_before_issuing_proof() -> Non
     assert provisioner_stop < source.index("YUXI_STORAGE_MIGRATION_QUIESCENCE_TOKEN")
     assert 'compose=(docker compose "$@")' in source
     assert "up -d --no-deps --build --wait sandbox-provisioner" in source
-    assert 'mkdir -p "$(dirname "$proof_file")"' in source
+    assert "mktemp" in source
+    assert '-v "$proof_file:/app/legacy-saves/.storage-migration-quiesced:ro"' in source
 
 
 def test_v071_options_migration_is_not_part_of_normal_startup() -> None:
@@ -266,7 +267,13 @@ def test_storage_migration_script_recovers_stopped_production_deployment(
     assert all(command.startswith(prefix) for command in commands)
     assert any("up -d --no-deps --build --wait sandbox-provisioner" in command for command in commands)
     assert any("exec -T sandbox-provisioner python -" in command for command in commands)
-    assert any("run --rm -e YUXI_STORAGE_MIGRATION_QUIESCENCE_TOKEN=" in command for command in commands)
+    assert any(
+        "run --rm" in command
+        and "-v " in command
+        and ":/app/legacy-saves/.storage-migration-quiesced:ro" in command
+        and "-e YUXI_STORAGE_MIGRATION_QUIESCENCE_TOKEN=" in command
+        for command in commands
+    )
 
 
 @pytest.mark.parametrize("filename", ["docker-compose.yml", "docker-compose.prod.yml"])
