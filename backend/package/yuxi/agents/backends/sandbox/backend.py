@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
 import os
 import uuid
-from contextlib import suppress
+from contextlib import aclosing, suppress
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any
 
+import httpx
 from deepagents.backends.protocol import (
     EditResult,
     ExecuteResponse,
@@ -40,6 +42,29 @@ _SKILLS_ROOT = "/" + VIRTUAL_SKILLS_PATH.strip("/")
 _BINARY_PREVIEW_TOO_LARGE_ERROR = f"Binary file exceeds maximum preview size of {MAX_BINARY_BYTES} bytes"
 _IMAGE_EXTENSIONS = frozenset({".gif", ".heic", ".heif", ".jpeg", ".jpg", ".png", ".webp"})
 _DOCUMENT_EXTENSIONS = frozenset({".doc", ".docx", ".pdf", ".ppt", ".pptx", ".xls", ".xlsx"})
+_DOCUMENT_READ_ERROR = (
+    "read_file does not support PDF or Office documents. Use ocr_parse_file to convert the file to Markdown first."
+)
+_BINARY_READ_ERROR = "read_file only supports UTF-8 text and image files. This file type is not supported."
+
+
+def _read_file_kind(path: str) -> str:
+    """按读取契约分类文件。"""
+    extension = PurePosixPath(path).suffix.lower()
+    if extension in _IMAGE_EXTENSIONS:
+        return "image"
+    if extension in _DOCUMENT_EXTENSIONS:
+        return "document"
+    if _get_file_type(path) != "text":
+        return "binary"
+    return "text"
+
+
+def _read_window(offset: int, limit: int | None) -> tuple[int, int | None]:
+    """将读取偏移和数量转换为 sandbox 行窗口。"""
+    start_line = max(0, int(offset))
+    end_line = start_line + int(limit) if limit is not None else None
+    return start_line, end_line
 
 
 def _normalize_path(path: str) -> str:
@@ -233,7 +258,24 @@ class ProvisionerSandboxBackend(BaseSandbox):
             timeout=self._command_timeout_seconds,
         )
 
-    def _get_client(self) -> Any:
+    def _build_async_client(self, sandbox_url: str, http_client: httpx.AsyncClient):
+        """使用显式生命周期的 HTTP client 构造异步 sandbox client。"""
+        try:
+            from agent_sandbox import AsyncSandbox as AsyncAgentSandboxClient
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                "agent-sandbox is required. Install dependency `agent-sandbox` in the docker image."
+            ) from exc
+
+        return AsyncAgentSandboxClient(
+            base_url=sandbox_url,
+            headers={"Authorization": f"Bearer {sandbox_provisioner_token()}"},
+            timeout=self._command_timeout_seconds,
+            httpx_client=http_client,
+        )
+
+    def _get_connection(self) -> Any:
+        """发现当前 runtime scope 对应的 sandbox 连接。"""
         connection = self._provider.get(
             self._thread_id,
             uid=self._uid,
@@ -243,6 +285,10 @@ class ProvisionerSandboxBackend(BaseSandbox):
         )
         if connection is None:
             raise RuntimeError(f"sandbox is unavailable for thread {self._thread_id}")
+        return connection
+
+    def _get_client(self) -> Any:
+        connection = self._get_connection()
 
         if self._client is None or self._client_url != connection.sandbox_url:
             self._client = self._build_client(connection.sandbox_url)
@@ -255,23 +301,10 @@ class ProvisionerSandboxBackend(BaseSandbox):
         self._get_client()
         return self.id
 
-    def _read_binary(self, path: str, offset: int = 0, limit: int | None = None) -> bytes:
-        """Read file content from the sandbox file API and normalize it to bytes.
-
-        The underlying API returns plain text by default and may include an
-        explicit `encoding="base64"` marker for binary payloads. This helper is
-        the single normalization point used by read() and edit().
-        """
-        start_line = max(0, int(offset))
-        end_line = start_line + int(limit) if limit is not None else None
-
-        result = self._get_client().file.read_file(
-            file=path,
-            start_line=start_line,
-            end_line=end_line,
-        )
-
-        content = result.data.content
+    @staticmethod
+    def _normalize_read_content(result: Any) -> bytes:
+        """将 sandbox 文件响应统一转换为原始字节。"""
+        content = result.content
         if content is None:
             return b""
         if isinstance(content, bytes):
@@ -279,10 +312,54 @@ class ProvisionerSandboxBackend(BaseSandbox):
         if not isinstance(content, str):
             return str(content).encode("utf-8")
 
-        encoding = getattr(result.data, "encoding", None)
+        encoding = getattr(result, "encoding", None)
         if isinstance(encoding, str) and encoding.lower() == "base64":
             return base64.b64decode(content, validate=True)
         return content.encode("utf-8")
+
+    def _read_binary(self, path: str, offset: int = 0, limit: int | None = None) -> bytes:
+        """Read file content from the sandbox file API and normalize it to bytes."""
+        start_line, end_line = _read_window(offset, limit)
+        result = self._get_client().file.read_file(
+            file=path,
+            start_line=start_line,
+            end_line=end_line,
+        )
+        return self._normalize_read_content(result.data)
+
+    async def _aread_binary(self, client: Any, path: str, offset: int, limit: int | None) -> bytes:
+        """通过原生异步文件 API 读取文本窗口。"""
+        start_line, end_line = _read_window(offset, limit)
+        result = await client.file.read_file(
+            file=path,
+            start_line=start_line,
+            end_line=end_line,
+        )
+        return self._normalize_read_content(result.data)
+
+    async def _aread_base64_file(self, client: Any, path: str) -> ReadResult:
+        """流式下载并有界编码异步图片预览。"""
+        content = bytearray()
+        chunks = client.file.download_file(
+            path=path,
+            request_options={"timeout_in_seconds": self._command_timeout_seconds},
+        )
+        async with aclosing(chunks):
+            async for chunk in chunks:
+                content.extend(chunk)
+                if len(content) > MAX_BINARY_BYTES:
+                    return ReadResult(error=_BINARY_PREVIEW_TOO_LARGE_ERROR)
+        encoded_content = base64.b64encode(content).decode("ascii")
+        return ReadResult(file_data={"content": encoded_content, "encoding": "base64"})
+
+    async def _aensure_file_exists(self, client: Any, path: str) -> None:
+        """通过原生下载端点确认非文本文件可读取。"""
+        chunks = client.file.download_file(
+            path=path,
+            request_options={"timeout_in_seconds": self._command_timeout_seconds},
+        )
+        async with aclosing(chunks):
+            await anext(chunks, None)
 
     def _file_size_bytes(self, path: str) -> int:
         path_b64 = base64.b64encode(path.encode("utf-8")).decode("ascii")
@@ -361,21 +438,16 @@ class ProvisionerSandboxBackend(BaseSandbox):
             return ReadResult(no_lines_requested=True)
         start_line = max(0, int(offset)) + 1
 
-        document_read_error = (
-            "read_file does not support PDF or Office documents. "
-            "Use ocr_parse_file to convert the file to Markdown first."
-        )
-        binary_read_error = "read_file only supports UTF-8 text and image files. This file type is not supported."
         try:
-            extension = PurePosixPath(normalized_path).suffix.lower()
-            if extension in _IMAGE_EXTENSIONS:
+            file_kind = _read_file_kind(normalized_path)
+            if file_kind == "image":
                 return self._read_base64_file(normalized_path)
-            if extension in _DOCUMENT_EXTENSIONS:
+            if file_kind == "document":
                 self._file_size_bytes(normalized_path)
-                return ReadResult(error=document_read_error)
-            if _get_file_type(normalized_path) != "text":
+                return ReadResult(error=_DOCUMENT_READ_ERROR)
+            if file_kind == "binary":
                 self._file_size_bytes(normalized_path)
-                return ReadResult(error=binary_read_error)
+                return ReadResult(error=_BINARY_READ_ERROR)
 
             try:
                 content = self._read_binary(
@@ -386,15 +458,70 @@ class ProvisionerSandboxBackend(BaseSandbox):
             except Exception as exc:  # noqa: BLE001
                 if not _is_utf8_decode_failure(exc):
                     raise
-                return ReadResult(error=binary_read_error)
+                return ReadResult(error=_BINARY_READ_ERROR)
 
-            if not _looks_like_binary(content):
-                return self._text_read_result(content.decode("utf-8"), start_line=start_line)
-
-            return ReadResult(error=binary_read_error)
+            return self._text_content_read_result(content, start_line=start_line)
         except Exception as exc:  # noqa: BLE001
             error = _describe_read_error(file_path, exc)
             return ReadResult(error=error.removeprefix("Error: "))
+
+    async def aread(
+        self,
+        file_path: str,
+        offset: int = 0,
+        limit: int = 2000,
+    ) -> ReadResult:
+        """通过 sandbox 原生异步文件 API 读取授权内容。"""
+        try:
+            normalized_path = _normalize_path(file_path)
+        except Exception as exc:  # noqa: BLE001
+            return ReadResult(error=f"Invalid path '{file_path}': {exc}")
+        if not self._can_read_path(normalized_path):
+            return ReadResult(error=_permission_error("read", normalized_path))
+        if limit is not None and int(limit) <= 0:
+            return ReadResult(no_lines_requested=True)
+
+        start_line = max(0, int(offset)) + 1
+
+        try:
+            connection = await asyncio.to_thread(self._get_connection)
+            async with httpx.AsyncClient(
+                timeout=self._command_timeout_seconds,
+                follow_redirects=True,
+            ) as http_client:
+                client = self._build_async_client(connection.sandbox_url, http_client)
+                file_kind = _read_file_kind(normalized_path)
+                if file_kind == "image":
+                    return await self._aread_base64_file(client, normalized_path)
+                if file_kind == "document":
+                    await self._aensure_file_exists(client, normalized_path)
+                    return ReadResult(error=_DOCUMENT_READ_ERROR)
+                if file_kind == "binary":
+                    await self._aensure_file_exists(client, normalized_path)
+                    return ReadResult(error=_BINARY_READ_ERROR)
+
+                try:
+                    content = await self._aread_binary(
+                        client,
+                        normalized_path,
+                        offset=start_line - 1,
+                        limit=int(limit) if limit is not None else None,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    if not _is_utf8_decode_failure(exc):
+                        raise
+                    return ReadResult(error=_BINARY_READ_ERROR)
+
+                return self._text_content_read_result(content, start_line=start_line)
+        except Exception as exc:  # noqa: BLE001
+            error = _describe_read_error(file_path, exc)
+            return ReadResult(error=error.removeprefix("Error: "))
+
+    def _text_content_read_result(self, content: bytes, *, start_line: int) -> ReadResult:
+        """将文本候选字节转换为读取结果。"""
+        if _looks_like_binary(content):
+            return ReadResult(error=_BINARY_READ_ERROR)
+        return self._text_read_result(content.decode("utf-8"), start_line=start_line)
 
     @staticmethod
     def _text_read_result(text: str, *, start_line: int) -> ReadResult:

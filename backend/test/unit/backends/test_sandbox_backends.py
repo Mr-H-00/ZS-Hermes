@@ -32,6 +32,30 @@ WORKDIR_PATH = "/home/gem/user-data/projects/11111111-1111-4111-8111-11111111111
 VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_CONVERSATION_HISTORY = workdir_runtime_paths(WORKDIR_PATH)
 
 
+class _OwnedAsyncHttpClient:
+    def __init__(self):
+        self.closed = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        self.closed = True
+
+
+def _install_async_file_client(monkeypatch, backend, file_client):
+    backend._provider = SimpleNamespace(get=lambda *_args, **_kwargs: SimpleNamespace(sandbox_url="http://sandbox"))
+    http_client = _OwnedAsyncHttpClient()
+    monkeypatch.setattr(sandbox_backend_module.httpx, "AsyncClient", lambda **_kwargs: http_client)
+
+    def build_async_client(_url, owning_http_client):
+        assert owning_http_client is http_client
+        return SimpleNamespace(file=file_client)
+
+    monkeypatch.setattr(backend, "_build_async_client", build_async_client)
+    return http_client
+
+
 def _runtime(
     *,
     thread_id: str | None = "thread-1",
@@ -1155,6 +1179,144 @@ def test_provisioner_read_negative_offset_clamps_to_first_line(monkeypatch) -> N
     assert result.next_offset == 2
 
 
+@pytest.mark.asyncio
+async def test_provisioner_aread_rejects_outside_path_before_async_client(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+    monkeypatch.setattr(
+        sandbox_backend_module.httpx,
+        "AsyncClient",
+        lambda **_kwargs: pytest.fail("unauthorized path constructed async client"),
+    )
+
+    result = await backend.aread("/tmp/preview_check.jpg")
+
+    assert result.error == "permission denied for read on '/tmp/preview_check.jpg'"
+
+
+@pytest.mark.asyncio
+async def test_provisioner_aread_returns_pagination_and_closes_http_client(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+    read_calls: list[dict] = []
+
+    async def read_file(**kwargs):
+        read_calls.append(kwargs)
+        return SimpleNamespace(data=SimpleNamespace(content="line-2\nline-3\nline-4\n", encoding="utf-8"))
+
+    owned_http_client = _install_async_file_client(
+        monkeypatch,
+        backend,
+        SimpleNamespace(read_file=read_file),
+    )
+
+    result = await backend.aread("/home/gem/user-data/outputs/report.md", offset=2, limit=3)
+
+    assert read_calls == [
+        {
+            "file": "/home/gem/user-data/outputs/report.md",
+            "start_line": 2,
+            "end_line": 5,
+        }
+    ]
+    assert result.file_data == {"content": "line-2\nline-3\nline-4\n", "encoding": "utf-8"}
+    assert result.start_line == 3
+    assert result.end_line == 5
+    assert result.next_offset == 5
+    assert owned_http_client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_provisioner_aread_image_streams_native_download_without_shell(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+    download_calls: list[dict] = []
+
+    async def download_file(**kwargs):
+        download_calls.append(kwargs)
+        yield b"\x89PNG"
+        yield b"image-bytes"
+
+    _install_async_file_client(monkeypatch, backend, SimpleNamespace(download_file=download_file))
+
+    result = await backend.aread("/home/gem/user-data/uploads/image.png")
+
+    assert result.file_data == {
+        "content": base64.b64encode(b"\x89PNGimage-bytes").decode("ascii"),
+        "encoding": "base64",
+    }
+    assert download_calls == [
+        {
+            "path": "/home/gem/user-data/uploads/image.png",
+            "request_options": {"timeout_in_seconds": backend._command_timeout_seconds},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_provisioner_aread_image_rejects_stream_over_limit(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    monkeypatch.setattr(sandbox_backend_module, "MAX_BINARY_BYTES", 5)
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+
+    async def download_file(**_kwargs):
+        yield b"1234"
+        yield b"567"
+
+    _install_async_file_client(monkeypatch, backend, SimpleNamespace(download_file=download_file))
+
+    result = await backend.aread("/home/gem/user-data/uploads/large.png")
+
+    assert result.file_data is None
+    assert result.error == f"Binary file exceeds maximum preview size of {MAX_BINARY_BYTES} bytes"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "expected_error"),
+    [
+        (
+            "/home/gem/user-data/uploads/document.pdf",
+            "read_file does not support PDF or Office documents. "
+            "Use ocr_parse_file to convert the file to Markdown first.",
+        ),
+        (
+            "/home/gem/user-data/uploads/audio.mp3",
+            "read_file only supports UTF-8 text and image files. This file type is not supported.",
+        ),
+    ],
+)
+async def test_provisioner_aread_preserves_known_binary_type_errors(monkeypatch, path, expected_error) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+
+    async def download_file(**_kwargs):
+        yield b"content"
+
+    _install_async_file_client(monkeypatch, backend, SimpleNamespace(download_file=download_file))
+
+    result = await backend.aread(path)
+
+    assert result.file_data is None
+    assert result.error == expected_error
+
+
+@pytest.mark.asyncio
+async def test_provisioner_aread_rejects_unknown_binary_decode_failure(monkeypatch) -> None:
+    monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
+    backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
+
+    async def read_file(**_kwargs):
+        raise RuntimeError("'utf-8' codec can't decode byte 0x89 in position 0")
+
+    _install_async_file_client(monkeypatch, backend, SimpleNamespace(read_file=read_file))
+
+    result = await backend.aread("/home/gem/user-data/uploads/data.unknown")
+
+    assert result.file_data is None
+    assert result.error == "read_file only supports UTF-8 text and image files. This file type is not supported."
+
+
 def test_provisioner_grep_applies_global_max_count_across_roots(monkeypatch) -> None:
     monkeypatch.setattr("yuxi.agents.backends.sandbox.backend.get_sandbox_provider", lambda: object())
     backend = ProvisionerSandboxBackend(thread_id="thread-1", uid="user-1")
@@ -1163,9 +1325,7 @@ def test_provisioner_grep_applies_global_max_count_across_roots(monkeypatch) -> 
     def _super_grep(self, pattern, path=None, glob=None, *, max_count=None):
         grep_calls.append({"path": path, "max_count": max_count})
         count = 3 if path == "/home/gem/user-data" else 2
-        matches = [
-            {"path": f"{path}/file-{index}.md", "line": 1, "text": pattern} for index in range(count)
-        ]
+        matches = [{"path": f"{path}/file-{index}.md", "line": 1, "text": pattern} for index in range(count)]
         truncated = False
         if max_count is not None and len(matches) > max_count:
             matches = matches[:max_count]
