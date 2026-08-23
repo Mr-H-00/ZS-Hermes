@@ -6,9 +6,7 @@
           <div class="config-meta">
             <div class="config-title-line">
               <span class="config-title">是否启用 Memory</span>
-              <span class="reserved-badge">预留开关</span>
             </div>
-            <p class="config-description">当前仅保存配置值，暂不接入智能体运行逻辑。</p>
           </div>
           <a-switch :checked="draftEnableMemory" @change="handleMemoryChange" />
         </div>
@@ -102,27 +100,6 @@ defineExpose({ refresh: loadUserConfig })
     font-size: 14px;
     font-weight: 500;
     line-height: 1.4;
-  }
-
-  .reserved-badge {
-    display: inline-flex;
-    align-items: center;
-    height: 22px;
-    padding: 0 8px;
-    border-radius: 999px;
-    border: 1px solid var(--color-warning-100);
-    background: var(--color-warning-10);
-    color: var(--color-warning-700);
-    font-size: 12px;
-    line-height: 1;
-    white-space: nowrap;
-  }
-
-  .config-description {
-    margin: 6px 0 0;
-    color: var(--gray-600);
-    font-size: 13px;
-    line-height: 1.5;
   }
 }
 </style>

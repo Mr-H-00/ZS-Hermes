@@ -59,33 +59,35 @@
     </div>
 
     <!-- Content Area -->
-    <div v-if="isExpanded" class="tool-content">
-      <!-- Params Slot -->
-      <div class="tool-params" v-if="hasParams && !hideParams">
-        <slot name="params" :tool-call="toolCall" :args="formattedArgs">
-          <div class="tool-params-content">
-            <strong>参数: </strong>
-            <span>{{ formattedArgs }}</span>
-          </div>
-        </slot>
-      </div>
+    <CollapseTransition>
+      <div v-if="isExpanded" class="tool-content">
+        <!-- Params Slot -->
+        <div class="tool-params" v-if="hasParams && !hideParams">
+          <slot name="params" :tool-call="toolCall" :args="formattedArgs">
+            <div class="tool-params-content">
+              <strong>参数: </strong>
+              <span>{{ formattedArgs }}</span>
+            </div>
+          </slot>
+        </div>
 
-      <!-- Result Slot -->
-      <div class="tool-result" style="opacity: 0.8" v-if="hasResult || forceShowResult">
-        <slot name="result" :tool-call="toolCall" :result-content="resultContent">
-          <div class="tool-result-content" :data-tool-call-id="toolCall.id">
-            <!-- Default rendering -->
-            <div class="tool-result-renderer">
-              <div class="default-result">
-                <div class="default-content">
-                  <pre>{{ formatResultData(parsedResultData) }}</pre>
+        <!-- Result Slot -->
+        <div class="tool-result" style="opacity: 0.8" v-if="hasResult || forceShowResult">
+          <slot name="result" :tool-call="toolCall" :result-content="resultContent">
+            <div class="tool-result-content" :data-tool-call-id="toolCall.id">
+              <!-- Default rendering -->
+              <div class="tool-result-renderer">
+                <div class="default-result">
+                  <div class="default-content">
+                    <pre>{{ formatResultData(parsedResultData) }}</pre>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </slot>
+          </slot>
+        </div>
       </div>
-    </div>
+    </CollapseTransition>
   </div>
 </template>
 
@@ -94,6 +96,7 @@ import { ref, computed } from 'vue'
 import { Loader, ChevronsUpDown, ChevronsDownUp, XCircle, CheckCircle } from 'lucide-vue-next'
 import { useAgentStore } from '@/stores/agent'
 import { storeToRefs } from 'pinia'
+import CollapseTransition from '@/components/common/CollapseTransition.vue'
 import { getToolCallId, getToolIcon, getToolName, findToolInList } from './toolRegistry'
 
 const props = defineProps({
@@ -356,8 +359,6 @@ const formatResultData = (data) => {
   }
 
   .tool-content {
-    transition: all 0.3s ease;
-
     .tool-params {
       padding: 8px 12px;
       background-color: var(--gray-25);

@@ -44,6 +44,7 @@ import MysqlListTablesTool from './tools/MysqlListTablesTool.vue'
 import AskUserQuestionTool from './tools/AskUserQuestionTool.vue'
 import ExecuteTool from './tools/ExecuteTool.vue'
 import OcrParseFileTool from './tools/OcrParseFileTool.vue'
+import RememberMemoryTool from './tools/RememberMemoryTool.vue'
 import { getToolCallId, isHiddenToolCall } from './toolRegistry'
 
 const props = defineProps({
@@ -84,6 +85,7 @@ const TOOL_RENDERERS = {
   open_kb_document: OpenKbDocumentTool,
   query_kb: QueryKbTool,
   read_file: ReadFileTool,
+  remember_memory: RememberMemoryTool,
   replace: EditFileTool,
   run_shell_command: ExecuteTool,
   search_file: SearchFileTool,

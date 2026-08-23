@@ -21,6 +21,7 @@ from yuxi.agents.middlewares import (
     ImageInputCompatibilityMiddleware,
     SteerMiddleware,
     TokenUsageMiddleware,
+    create_memory_middleware,
     create_summary_middleware,
 )
 from yuxi.agents.middlewares.skills import SkillsMiddleware
@@ -66,6 +67,9 @@ async def _build_middlewares(context, backend):
         ),
         SkillsMiddleware(),
     ]
+    memory_middleware = await create_memory_middleware(context)
+    if memory_middleware:
+        middlewares.append(memory_middleware)
     subagent_middleware = await create_subagent_task_middleware(context)
     if subagent_middleware:
         middlewares.append(subagent_middleware)

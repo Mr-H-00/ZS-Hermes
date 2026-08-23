@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Bot,
+  Brain,
   Calculator,
   CheckSquare,
   Database,
@@ -40,6 +41,7 @@ export const TOOL_ICON_MAP = {
   present_artifacts: FolderOutput,
   query_kb: BookOpen,
   read_file: FileText,
+  remember_memory: Brain,
   replace: FilePen,
   run_shell_command: SquareTerminal,
   search_file: FolderSearch,
@@ -71,6 +73,7 @@ export const TOOL_NAME_MAP = {
   glob: '匹配文件路径',
   grep: '搜索文件内容',
   read_file: '读取文件',
+  remember_memory: '更新记忆',
   write_file: '写入文件',
   edit_file: '编辑文件',
   replace: '编辑文件',

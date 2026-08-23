@@ -56,9 +56,11 @@
             <ChevronRight v-else size="14" />
           </span>
         </button>
-        <div v-if="!isReasoningActive && reasoningExpanded" class="reasoning-panel">
-          <p class="reasoning-content">{{ parsedData.reasoning_content }}</p>
-        </div>
+        <CollapseTransition>
+          <div v-if="!isReasoningActive && reasoningExpanded" class="reasoning-panel">
+            <p class="reasoning-content">{{ parsedData.reasoning_content }}</p>
+          </div>
+        </CollapseTransition>
       </div>
 
       <!-- 消息内容 -->
@@ -160,6 +162,7 @@ import { computed, ref, onUnmounted } from 'vue'
 import RefsComponent from '@/components/RefsComponent.vue'
 import { Brain, Check, ChevronDown, ChevronRight, Copy, LoaderCircle, X } from 'lucide-vue-next'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
+import CollapseTransition from '@/components/common/CollapseTransition.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import MentionTextRenderer from '@/components/common/MentionTextRenderer.vue'
 import { useAgentStore } from '@/stores/agent'
@@ -501,8 +504,7 @@ const parsedData = computed(() => {
 
     .reasoning-panel {
       margin-top: 4px;
-      padding: 4px 0 4px 22px;
-      border-top: 1px solid var(--gray-100);
+      padding: 4px 0;
     }
 
     .reasoning-content {

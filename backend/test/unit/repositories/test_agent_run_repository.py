@@ -910,3 +910,39 @@ async def test_record_run_manifest_is_write_once_and_requires_live_owner(session
             worker_id="worker-a:token-1",
             now=now + timedelta(seconds=61),
         )
+
+
+async def test_lock_memory_write_requires_current_top_level_lease_owner(session):
+    repository = AgentRunRepository(session)
+    run = await _seed_running_run(session, run_id="memory-run", request_id="memory-request")
+    now = utc_now_naive()
+    await repository.mark_running(run.id, worker_id="worker-a:token-1", lease_seconds=60, now=now)
+
+    locked = await repository.lock_memory_write(
+        run.id,
+        uid="user-1",
+        worker_id="worker-a:token-1",
+        conversation_thread_id="attempt-thread",
+        request_id="memory-request",
+        now=now + timedelta(seconds=1),
+    )
+
+    assert locked is run
+    with pytest.raises(ValueError, match="lease owner"):
+        await repository.lock_memory_write(
+            run.id,
+            uid="user-1",
+            worker_id="worker-b:token-2",
+            conversation_thread_id="attempt-thread",
+            request_id="memory-request",
+            now=now + timedelta(seconds=2),
+        )
+    with pytest.raises(ValueError, match="同一顶层 Run"):
+        await repository.lock_memory_write(
+            run.id,
+            uid="other-user",
+            worker_id="worker-a:token-1",
+            conversation_thread_id="attempt-thread",
+            request_id="memory-request",
+            now=now + timedelta(seconds=2),
+        )

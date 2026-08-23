@@ -171,6 +171,50 @@ class Workspace:
             final_stat = os.fstat(target_fd)
             return self._metadata_from_stat(final_stat)
 
+    def replace_authorized_file(self, path: str, content: bytes) -> dict:
+        """在同一目录内完整写入并原子替换普通文件。"""
+        base, parts = self._resolve_path(path)
+        if not parts:
+            raise IsADirectoryError(path)
+
+        parent_fd = self._open_directory(base, parts[:-1])
+        target_fd = None
+        temp_name = f".yuxi-replace-{uuid.uuid4().hex}"
+        try:
+            try:
+                target_stat = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                # 目标不存在时 rename 直接创建，无需校验既有类型
+                target_stat = None
+            if target_stat is not None:
+                if stat.S_ISLNK(target_stat.st_mode):
+                    raise PermissionError("symlink paths are not allowed")
+                if not stat.S_ISREG(target_stat.st_mode):
+                    raise PermissionError("only regular files can be replaced")
+
+            target_fd = os.open(
+                temp_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent_fd,
+            )
+            self._write_all(target_fd, content)
+            os.fsync(target_fd)
+            final_stat = os.fstat(target_fd)
+            os.close(target_fd)
+            target_fd = None
+            os.rename(temp_name, parts[-1], src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+            os.fsync(parent_fd)
+            return self._metadata_from_stat(final_stat)
+        finally:
+            if target_fd is not None:
+                os.close(target_fd)
+            try:
+                os.unlink(temp_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            os.close(parent_fd)
+
     def stat_authorized_path(self, path: str, *, root: str) -> dict:
         """在 no-follow 边界内读取普通文件或真实目录元数据。"""
         self._require_within(path, root)

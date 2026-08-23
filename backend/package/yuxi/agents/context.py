@@ -10,9 +10,9 @@ from yuxi.config.options import system_options
 from yuxi.config.runtime import lite_mode_enabled
 from yuxi.utils.logging_config import logger
 from yuxi.workspace.filesystem import Workspace
-from yuxi.workspace.paths import WORKSPACE_AGENT_CONTEXT_FILES
 
 WORKSPACE_AGENTS_PROMPT_MAX_BYTES = 64 * 1024
+WORKSPACE_BASE_CONTEXT_FILES = ("AGENTS.md", "USER.md")
 DEFAULT_SUMMARY_THRESHOLD_K = 100  # 100K tokens
 DEFAULT_SUMMARY_KEEP_MESSAGES = 10
 DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT = 300
@@ -65,7 +65,7 @@ def _role_can_access(auth: str | None, role: str | None) -> bool:
 def _load_workspace_agent_context(uid: str) -> str:
     sections: list[str] = []
     filesystem = Workspace(uid)
-    for filename in WORKSPACE_AGENT_CONTEXT_FILES:
+    for filename in WORKSPACE_BASE_CONTEXT_FILES:
         try:
             content, truncated = filesystem.read_authorized_file_prefix(
                 f"/agents/{filename}",
@@ -96,6 +96,7 @@ async def build_agent_input_context(
     uid: str,
     run_id: str | None = None,
     request_id: str | None = None,
+    worker_id: str | None = None,
 ) -> dict:
     input_context = dict(agent_config or {})
     agent_context = await asyncio.to_thread(_load_workspace_agent_context, uid)
@@ -104,7 +105,15 @@ async def build_agent_input_context(
         base_prompt = str(input_context.get("system_prompt") or "").rstrip()
         input_context["system_prompt"] = f"{base_prompt}\n\n{agent_context}" if base_prompt else agent_context
 
-    input_context.update({"uid": uid, "thread_id": thread_id, "run_id": run_id, "request_id": request_id})
+    input_context.update(
+        {
+            "uid": uid,
+            "thread_id": thread_id,
+            "run_id": run_id,
+            "request_id": request_id,
+            "worker_id": worker_id,
+        }
+    )
     return input_context
 
 
@@ -174,6 +183,11 @@ class BaseContext:
     request_id: str | None = field(
         default=None,
         metadata={"name": "请求 ID", "configurable": False, "hide": True},
+    )
+
+    worker_id: str | None = field(
+        default=None,
+        metadata={"name": "Worker Attempt Owner", "configurable": False, "hide": True},
     )
 
     runtime_scope_id: str | None = field(

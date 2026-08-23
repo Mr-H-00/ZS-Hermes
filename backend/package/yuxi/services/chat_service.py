@@ -1029,6 +1029,7 @@ async def stream_agent_chat(
             uid=uid,
             run_id=meta.get("run_id"),
             request_id=meta.get("request_id"),
+            worker_id=meta.get("worker_id"),
         )
         _apply_model_override(input_context, meta)
         _apply_input_context_field(input_context, meta, "tool_approval_mode")
@@ -1382,6 +1383,7 @@ async def stream_agent_resume(
         uid=uid,
         run_id=meta.get("run_id"),
         request_id=meta.get("request_id"),
+        worker_id=meta.get("worker_id"),
     )
     _apply_model_override(input_context, meta)
     _apply_input_context_field(input_context, meta, "tool_approval_mode")

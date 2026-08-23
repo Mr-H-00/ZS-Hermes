@@ -406,7 +406,7 @@ async def test_interrupt_persists_message_and_terminal_status_in_one_commit(
 
 
 @pytest.mark.asyncio
-async def test_build_agent_input_context_loads_all_workspace_agent_context_files(
+async def test_build_agent_input_context_excludes_memory_from_shared_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -420,10 +420,9 @@ async def test_build_agent_input_context_loads_all_workspace_agent_context_files
     context = await agent_context.build_agent_input_context({}, thread_id="thread-1", uid="user-1")
 
     assert context["system_prompt"] == (
-        "用户工作区 agents/AGENTS.md 内容：\n行为约束\n\n"
-        "用户工作区 agents/USER.md 内容：\n用户信息\n\n"
-        "用户工作区 agents/MEMORY.md 内容：\n长期记忆"
+        "用户工作区 agents/AGENTS.md 内容：\n行为约束\n\n用户工作区 agents/USER.md 内容：\n用户信息"
     )
+    assert "长期记忆" not in context["system_prompt"]
 
 
 @pytest.mark.asyncio

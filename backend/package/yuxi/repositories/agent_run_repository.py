@@ -328,6 +328,33 @@ class AgentRunRepository:
             raise ValueError("AgentRun 输出缺少 conversation 归属")
         return run
 
+    async def lock_memory_write(
+        self,
+        run_id: str,
+        *,
+        uid: str,
+        worker_id: str,
+        conversation_thread_id: str,
+        request_id: str,
+        now: datetime | None = None,
+    ) -> AgentRun | None:
+        """锁定并验证允许写入用户 Memory 的当前顶层 attempt。"""
+        if not worker_id.strip():
+            raise ValueError("worker_id 不能为空")
+        run = await self._lock_run(run_id)
+        if run is None:
+            return None
+
+        self._require_lease_owner(run, worker_id=worker_id, now=now or utc_now_naive(), action="写入 Memory")
+        if (
+            run.uid != str(uid)
+            or run.conversation_thread_id != conversation_thread_id
+            or run.request_id != request_id
+            or run.run_type not in TOP_LEVEL_RUN_TYPES
+        ):
+            raise ValueError("Memory 写入必须属于当前用户的同一顶层 Run、thread 和 request")
+        return run
+
     async def mark_running(
         self,
         run_id: str,
