@@ -1,5 +1,10 @@
 <template>
   <BaseToolCall :tool-call="toolCall">
+    <template #header>
+      <div class="sep-header">
+        <span class="note">生成图表</span>
+      </div>
+    </template>
     <template #result="{}">
       <div class="chart-result">
         <img :src="chartUrl" />

@@ -2,7 +2,7 @@
   <BaseToolCall :tool-call="toolCall" :hide-params="true">
     <template #header>
       <div class="sep-header">
-        <span class="note">{{ toolCallName }}</span>
+        <span class="note">列出目录</span>
         <span class="separator" v-if="dirPath">|</span>
         <span class="description code">{{ dirPath }}</span>
       </div>
@@ -20,10 +20,6 @@ const props = defineProps({
     required: true
   }
 })
-
-const toolCallName = computed(
-  () => props.toolCall.name || props.toolCall.function?.name || 'list_directory'
-)
 
 const parsedArgs = computed(() => {
   const args = props.toolCall.args || props.toolCall.function?.arguments

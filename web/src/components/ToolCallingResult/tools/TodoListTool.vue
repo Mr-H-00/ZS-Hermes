@@ -2,7 +2,7 @@
   <BaseToolCall :tool-call="toolCall" hide-params>
     <template #header>
       <div class="sep-header">
-        <span class="note">todo</span>
+        <span class="note">任务清单</span>
         <span class="separator" v-if="query">|</span>
         <span class="description">{{ query }}</span>
       </div>

@@ -37,9 +37,7 @@ const args = computed(() => {
   }
 })
 
-const toolName = computed(() => props.toolCall.name || props.toolCall.function?.name || '思维导图')
-
-const operationLabel = computed(() => toolName.value)
+const operationLabel = computed(() => '获取思维导图')
 
 const kbName = computed(() => args.value.kb_name || '')
 

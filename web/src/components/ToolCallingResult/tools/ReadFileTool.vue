@@ -9,7 +9,7 @@
           <span class="description skill-name">{{ skillName }}</span>
         </template>
         <template v-else>
-          <span class="note">Read</span>
+          <span class="note">读取文件</span>
           <span class="separator" v-if="filePath">|</span>
           <span class="description" :title="filePath">
             <span class="code">{{ fileName }}</span>

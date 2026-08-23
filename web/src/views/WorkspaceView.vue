@@ -14,20 +14,6 @@
           <template #icon><CircleHelp :size="16" /></template>
           使用说明
         </a-button>
-        <a-button
-          :disabled="activeSourceKey !== 'personal' || isReadonlyWorkspacePath"
-          @click="openCreateDirectoryModal"
-        >
-          新建文件夹
-        </a-button>
-        <a-button
-          type="primary"
-          :loading="uploadingFile"
-          :disabled="activeSourceKey !== 'personal' || isReadonlyWorkspacePath"
-          @click="openUploadFilePicker"
-        >
-          上传文件
-        </a-button>
       </template>
     </PageHeader>
 
@@ -65,9 +51,13 @@
           :loading-databases="loadingDatabases"
           :knowledge-enabled="knowledgeEnabled"
           :current-uid="userStore.uid"
+          :disabled="activeSourceKey !== 'personal' || isReadonlyWorkspacePath"
+          :uploading="uploadingFile"
           @select-personal="selectPersonalWorkspace"
           @select-database="selectDatabase"
           @select-path="selectWorkspacePath"
+          @upload-file="openUploadFilePicker"
+          @create-directory="openCreateDirectoryModal"
         />
       </div>
       <button
@@ -1034,7 +1024,7 @@ watch(useInlinePreview, (isInline, wasInline) => {
 .workspace-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 195px minmax(0, 1fr);
+  grid-template-columns: 168px minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
   background: var(--gray-0);

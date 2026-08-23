@@ -1,5 +1,10 @@
 <template>
   <BaseToolCall :tool-call="toolCall">
+    <template #header>
+      <div class="sep-header">
+        <span class="note">计算器</span>
+      </div>
+    </template>
     <template #result="{ resultContent }">
       <div class="calculator-result">
         <!-- <div class="calc-header">

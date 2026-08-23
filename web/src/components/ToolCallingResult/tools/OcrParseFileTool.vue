@@ -2,7 +2,7 @@
   <BaseToolCall :tool-call="toolCall" :hide-params="true">
     <template #header>
       <div class="sep-header">
-        <span class="note">OCR</span>
+        <span class="note">OCR识别</span>
         <span class="separator" v-if="sourceName">|</span>
         <span class="description" :title="sourcePath">
           <span class="code">{{ sourceName }}</span>

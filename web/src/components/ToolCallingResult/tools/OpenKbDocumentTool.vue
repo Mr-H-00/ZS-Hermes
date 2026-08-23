@@ -2,7 +2,7 @@
   <BaseToolCall :tool-call="toolCall" :hide-params="true">
     <template #header>
       <div class="sep-header">
-        <span class="note">Open</span>
+        <span class="note">打开知识库文档</span>
         <span class="separator" v-if="resourceName">|</span>
         <span class="description" v-if="resourceName">知识库: {{ resourceName }}</span>
         <span class="separator" v-if="fileId">|</span>

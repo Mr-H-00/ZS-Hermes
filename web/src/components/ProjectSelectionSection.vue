@@ -24,7 +24,7 @@
         <div class="project-dropdown-panel">
           <template v-if="dropdownView === 'projects'">
             <label class="project-search">
-              <Search :size="16" aria-hidden="true" />
+              <Search :size="14" aria-hidden="true" />
               <input
                 ref="projectSearchInput"
                 v-model="projectQuery"
@@ -46,13 +46,13 @@
                   :aria-pressed="!modelValue || modelValue === AUTO_PROJECT_ID"
                   @click="selectProject(AUTO_PROJECT_ID)"
                 >
-                  <span class="project-option-icon"><FolderX :size="17" /></span>
+                  <span class="project-option-icon"><FolderX :size="15" /></span>
                   <span class="project-option-body">
                     <strong>不使用项目</strong>
                   </span>
                   <Check
                     v-if="!modelValue || modelValue === AUTO_PROJECT_ID"
-                    :size="16"
+                    :size="14"
                     class="project-option-check"
                   />
                 </button>
@@ -66,11 +66,11 @@
                   :aria-pressed="modelValue === project.id"
                   @click="selectProject(project.id)"
                 >
-                  <span class="project-option-icon"><FolderClosed :size="17" /></span>
+                  <span class="project-option-icon"><FolderClosed :size="15" /></span>
                   <span class="project-option-body">
                     <strong :title="project.name">{{ project.name }}</strong>
                   </span>
-                  <Check v-if="modelValue === project.id" :size="16" class="project-option-check" />
+                  <Check v-if="modelValue === project.id" :size="14" class="project-option-check" />
                 </button>
 
                 <div v-if="!filteredProjects.length" class="project-empty">
@@ -86,13 +86,13 @@
 
             <div class="project-dropdown-actions">
               <button type="button" @click="openCreateModal()">
-                <FolderPlus :size="16" />
+                <FolderPlus :size="14" />
                 <span>新建项目</span>
               </button>
               <button type="button" @click="openHistoryView">
-                <History :size="16" />
+                <History :size="14" />
                 <span>从历史对话添加</span>
-                <ChevronRight :size="15" class="project-action-chevron" />
+                <ChevronRight :size="14" class="project-action-chevron" />
               </button>
             </div>
           </template>
@@ -100,10 +100,10 @@
           <template v-else>
             <div class="history-search-row">
               <button type="button" aria-label="返回项目列表" @click="closeHistoryView">
-                <ArrowLeft :size="17" />
+                <ArrowLeft :size="15" />
               </button>
               <label class="project-search">
-                <Search :size="16" aria-hidden="true" />
+                <Search :size="14" aria-hidden="true" />
                 <input
                   ref="historySearchInput"
                   v-model="historyQuery"
@@ -126,7 +126,7 @@
                   class="history-option"
                   @click="selectHistoryDirectory(candidate)"
                 >
-                  <MessageSquare :size="15" class="history-option-icon" />
+                  <MessageSquare :size="14" class="history-option-icon" />
                   <span :title="candidate.title">{{ candidate.title || '未命名对话' }}</span>
                   <time
                     v-if="formatRelativeTime(candidate.updated_at)"
@@ -434,34 +434,34 @@ onUnmounted(() => {
 }
 
 .project-dropdown-panel {
-  width: min(360px, calc(100vw - 24px));
+  width: min(300px, calc(100vw - 24px));
   overflow: hidden;
   border: 1px solid var(--gray-150);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--gray-0);
-  box-shadow: 0 12px 32px var(--shadow-4);
+  box-shadow: 0 8px 24px var(--shadow-4);
 }
 
 .project-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 8px 8px 0;
-  padding: 0 8px;
+  gap: 6px;
+  margin: 6px 6px 0;
+  padding: 0 6px;
   color: var(--color-text-tertiary);
 }
 
 .project-search input {
   width: 100%;
   min-width: 0;
-  height: 34px;
+  height: 28px;
   padding: 0;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--color-text);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .project-search input::placeholder {
@@ -471,12 +471,12 @@ onUnmounted(() => {
 .project-option-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-height: 180px;
-  max-height: min(320px, calc(100vh - 220px));
+  gap: 1px;
+  min-height: 120px;
+  max-height: min(260px, calc(100vh - 220px));
   overflow-y: auto;
   border-bottom: 1px solid var(--gray-100);
-  padding: 2px 8px 8px;
+  padding: 4px 6px;
 }
 
 .project-loading,
@@ -484,28 +484,29 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 180px;
+  min-height: 120px;
   width: 100%;
 }
 
 .project-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   width: 100%;
-  min-height: 36px;
-  padding: 6px 9px;
+  min-height: 28px;
+  padding: 4px 6px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--color-text);
   cursor: pointer;
   text-align: left;
+  transition: background-color 0.12s ease;
 }
 
 .project-option:hover:not(:disabled) {
-  background: var(--gray-25);
+  background: var(--gray-50);
 }
 
 .project-option.selected {
@@ -545,7 +546,7 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 400;
 }
 
@@ -557,21 +558,22 @@ onUnmounted(() => {
 .project-dropdown-actions {
   display: flex;
   flex-direction: column;
-  padding: 6px 8px 8px;
+  gap: 1px;
+  padding: 4px 6px;
 }
 
 .project-dropdown-actions button {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 7px 9px;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 6px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--gray-0);
   color: var(--color-text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12.5px;
   text-align: left;
   transition:
     background-color 0.15s ease,
@@ -579,7 +581,7 @@ onUnmounted(() => {
 }
 
 .project-dropdown-actions button:hover {
-  background: var(--gray-25);
+  background: var(--gray-50);
   color: var(--gray-1000);
 }
 
@@ -592,19 +594,19 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 4px 6px;
 }
 
 .history-search-row > button {
   display: inline-flex;
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
@@ -622,7 +624,7 @@ onUnmounted(() => {
 }
 
 .project-empty {
-  padding: 20px 12px 16px;
+  padding: 14px 8px 12px;
   color: var(--color-text-secondary);
   font-size: 12px;
   text-align: center;
@@ -633,8 +635,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 8px 10px;
-  padding: 8px 10px;
+  margin: 6px 8px;
+  padding: 6px 8px;
   border-radius: 6px;
   background: var(--color-error-50);
   color: var(--color-error-700);
@@ -666,22 +668,23 @@ onUnmounted(() => {
 
 .history-option-list {
   display: flex;
-  min-height: 200px;
-  max-height: 280px;
+  min-height: 140px;
+  max-height: 240px;
   flex-direction: column;
   overflow-y: auto;
   border-top: 1px solid var(--gray-100);
   background: var(--gray-0);
+  padding: 2px 4px;
 }
 
 .history-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  min-height: 36px;
-  padding: 7px 12px;
+  min-height: 28px;
+  padding: 4px 6px;
   border: 0;
   border-bottom: 1px solid var(--gray-100);
   background: transparent;
@@ -695,7 +698,7 @@ onUnmounted(() => {
 }
 
 .history-option:hover:not(:disabled) {
-  background: var(--gray-25);
+  background: var(--gray-50);
 }
 
 .history-option:disabled {
@@ -709,7 +712,7 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .history-option-icon {
@@ -726,9 +729,9 @@ onUnmounted(() => {
 
 .history-empty {
   margin: auto;
-  padding: 24px;
+  padding: 16px;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   text-align: center;
 }
 

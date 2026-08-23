@@ -11,7 +11,7 @@
       <a-result status="error" :title="error.title" :sub-title="error.message">
         <template #extra>
           <a-button type="primary" @click="retryLoad">重试</a-button>
-          <a-button :href="faqUrl" target="_blank" rel="noopener noreferrer">常见问题</a-button>
+          <a-button :href="docsUrl" target="_blank" rel="noopener noreferrer">常见问题</a-button>
         </template>
       </a-result>
     </div>
@@ -20,13 +20,91 @@
     <template v-else>
       <!-- 氛围装饰背景 -->
       <div class="ambient" aria-hidden="true">
-        <span class="orb orb-1"></span>
-        <span class="orb orb-2"></span>
-        <span class="orb orb-3"></span>
-        <div class="grid-mesh"></div>
+        <span class="glow"></span>
+        <span class="glow-accent"></span>
+        <svg
+          class="constellation"
+          viewBox="0 0 1440 900"
+          preserveAspectRatio="xMidYMid slice"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <!-- 左翼星群 -->
+          <g class="drift drift-a">
+            <g class="edges">
+              <line x1="120" y1="180" x2="240" y2="120" />
+              <line x1="120" y1="180" x2="90" y2="420" />
+              <line x1="240" y1="120" x2="320" y2="300" />
+              <line x1="90" y1="420" x2="210" y2="540" />
+              <line x1="90" y1="420" x2="60" y2="600" />
+              <line x1="210" y1="540" x2="150" y2="720" />
+              <line x1="60" y1="600" x2="150" y2="720" />
+              <line x1="320" y1="300" x2="90" y2="420" />
+            </g>
+            <circle class="leaf" cx="240" cy="120" r="3" />
+            <circle class="leaf" cx="320" cy="300" r="2.5" />
+            <circle class="leaf" cx="90" cy="420" r="4" />
+            <circle class="leaf" cx="210" cy="540" r="3" />
+            <circle class="leaf" cx="60" cy="600" r="2.5" />
+            <circle class="pulse-ring" cx="120" cy="180" r="6" />
+            <circle class="hub" cx="120" cy="180" r="6" />
+            <circle class="hub" cx="150" cy="720" r="5" />
+          </g>
+
+          <!-- 右翼星群 -->
+          <g class="drift drift-b">
+            <g class="edges">
+              <line x1="1320" y1="200" x2="1200" y2="140" />
+              <line x1="1320" y1="200" x2="1350" y2="440" />
+              <line x1="1200" y1="140" x2="1120" y2="320" />
+              <line x1="1350" y1="440" x2="1230" y2="560" />
+              <line x1="1350" y1="440" x2="1380" y2="620" />
+              <line x1="1230" y1="560" x2="1300" y2="740" />
+              <line x1="1380" y1="620" x2="1300" y2="740" />
+              <line x1="1120" y1="320" x2="1350" y2="440" />
+            </g>
+            <circle class="leaf" cx="1200" cy="140" r="3" />
+            <circle class="leaf" cx="1120" cy="320" r="2.5" />
+            <circle class="leaf" cx="1350" cy="440" r="4" />
+            <circle class="leaf" cx="1230" cy="560" r="3" />
+            <circle class="leaf" cx="1380" cy="620" r="2.5" />
+            <circle class="pulse-ring" cx="1320" cy="200" r="6" />
+            <circle class="hub" cx="1320" cy="200" r="6" />
+            <circle class="hub" cx="1300" cy="740" r="5" />
+          </g>
+
+          <!-- 上下稀疏星群 -->
+          <g class="drift drift-c">
+            <g class="edges">
+              <line x1="560" y1="120" x2="720" y2="190" />
+              <line x1="720" y1="190" x2="880" y2="100" />
+              <line x1="520" y1="780" x2="710" y2="850" />
+              <line x1="710" y1="850" x2="900" y2="790" />
+              <line x1="420" y1="480" x2="320" y2="300" />
+              <line x1="1020" y1="470" x2="1120" y2="320" />
+            </g>
+            <circle class="leaf" cx="560" cy="120" r="3" />
+            <circle class="leaf" cx="880" cy="100" r="3" />
+            <circle class="leaf" cx="720" cy="190" r="2.5" />
+            <circle class="leaf" cx="520" cy="780" r="3" />
+            <circle class="leaf" cx="900" cy="790" r="3" />
+            <circle class="leaf" cx="710" cy="850" r="2.5" />
+            <circle class="leaf" cx="420" cy="480" r="2" />
+            <circle class="leaf" cx="1020" cy="470" r="2" />
+          </g>
+
+          <!-- 信号流：知识在节点间流动 -->
+          <g class="signals">
+            <path class="signal" d="M120 180 L240 120 L320 300" />
+            <path class="signal signal-late" d="M1320 200 L1350 440 L1230 560" />
+            <path class="signal signal-slow" d="M560 120 L720 190 L880 100" />
+            <path class="signal signal-slower" d="M90 420 L210 540 L150 720" />
+            <path class="signal signal-late signal-slow" d="M1350 440 L1380 620 L1300 740" />
+            <path class="signal signal-slower signal-late" d="M520 780 L710 850 L900 790" />
+          </g>
+        </svg>
       </div>
 
-      <header class="glass-header">
+      <header class="site-header">
         <div class="logo">
           <img
             :src="infoStore.organization.logo"
@@ -55,140 +133,34 @@
       </header>
 
       <main class="hero-section">
-        <div class="hero-layout">
-          <div class="hero-content reveal-up">
-            <p v-if="typedBadge" class="hero-badge" :class="{ typing: isBadgeTyping }">
-              <span class="badge-dot"></span>
-              <template v-if="badgeParts.number">
-                <span>{{ badgeParts.prefix }}</span>
-                <a
-                  class="hero-badge-link"
-                  :href="repoUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <span class="hero-badge-number">{{ badgeParts.number }}</span>
-                </a>
-                <span>{{ badgeParts.suffix }}</span>
-              </template>
-              <template v-else>{{ typedBadge }}</template>
-            </p>
-            <h1 class="title reveal-up delay-1">{{ infoStore.branding.title }}</h1>
-            <Transition name="subtitle-switch" mode="out-in">
+        <span class="hero-vignette" aria-hidden="true"></span>
+        <div class="hero-content">
+          <p class="hero-eyebrow reveal-up">
+            <span class="eyebrow-dot"></span>开源 · 知识库 × 智能体 Harness
+          </p>
+          <h1 class="title reveal-up delay-1">{{ infoStore.branding.title }}</h1>
+          <div class="subtitle-wrap reveal-up delay-1">
+            <Transition name="subtitle-switch">
               <p v-if="currentSubtitle" class="subtitle" :key="currentSubtitle">
                 {{ currentSubtitle }}
               </p>
             </Transition>
-            <div class="hero-actions reveal-up delay-2">
-              <button class="button-base primary" @click="goToChat">
-                <span>开始体验</span>
-                <ArrowRight :size="18" />
-              </button>
-              <a
-                class="button-base secondary"
-                href="https://xerrors.github.io/Yuxi/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <BookText :size="18" />
-                <span>查看文档</span>
-              </a>
-            </div>
           </div>
-
-          <aside class="hero-visual reveal-up delay-1">
-            <div class="visual-card">
-              <div class="visual-glow" aria-hidden="true"></div>
-              <svg
-                class="graph-watermark"
-                viewBox="0 0 240 200"
-                fill="none"
-                aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <g stroke="currentColor" stroke-width="2">
-                  <line x1="120" y1="100" x2="48" y2="44" />
-                  <line x1="120" y1="100" x2="200" y2="56" />
-                  <line x1="120" y1="100" x2="56" y2="156" />
-                  <line x1="120" y1="100" x2="180" y2="150" />
-                  <line x1="48" y1="44" x2="200" y2="56" />
-                </g>
-                <g fill="currentColor">
-                  <circle cx="120" cy="100" r="11" />
-                  <circle cx="48" cy="44" r="7" />
-                  <circle cx="200" cy="56" r="8" />
-                  <circle cx="56" cy="156" r="6" />
-                  <circle cx="180" cy="150" r="9" />
-                </g>
-              </svg>
-
-              <div class="flow-diagram">
-                <div class="flow-row">
-                  <div class="flow-node">
-                    <span class="flow-icon"><Workflow :size="22" /></span>
-                    <span class="flow-name">智能体 Harness</span>
-                  </div>
-
-                  <div class="flow-link" aria-hidden="true">
-                    <span class="flow-rail"></span>
-                    <span
-                      class="flow-dot flow-dot--fwd"
-                      v-for="n in 2"
-                      :key="`f1${n}`"
-                      :style="{ '--i': n - 1 }"
-                    ></span>
-                    <span
-                      class="flow-dot flow-dot--back"
-                      v-for="n in 2"
-                      :key="`b1${n}`"
-                      :style="{ '--i': n - 1 }"
-                    ></span>
-                  </div>
-
-                  <div class="flow-node flow-node--hub">
-                    <span class="flow-icon flow-icon--hub">
-                      <span class="hub-ring"></span>
-                      <Sparkles :size="24" />
-                    </span>
-                    <span class="flow-name">RAG 引擎</span>
-                  </div>
-
-                  <div class="flow-link" aria-hidden="true">
-                    <span class="flow-rail"></span>
-                    <span
-                      class="flow-dot flow-dot--fwd"
-                      v-for="n in 2"
-                      :key="`f2${n}`"
-                      :style="{ '--i': n - 1 }"
-                    ></span>
-                    <span
-                      class="flow-dot flow-dot--back"
-                      v-for="n in 2"
-                      :key="`b2${n}`"
-                      :style="{ '--i': n - 1 }"
-                    ></span>
-                  </div>
-
-                  <div class="flow-node">
-                    <span class="flow-icon"><Library :size="22" /></span>
-                    <span class="flow-name">知识库</span>
-                  </div>
-                </div>
-
-                <p class="flow-caption">智能体发起检索 · 引擎融合向量与图谱 · 召回知识增强生成</p>
-              </div>
-
-              <div class="stat-row" v-if="realtimeStats.length">
-                <div class="stat-item" v-for="stat in realtimeStats" :key="stat.key">
-                  <span class="stat-item-value">
-                    <component :is="stat.icon" :size="15" />
-                    {{ stat.value }}
-                  </span>
-                  <span class="stat-item-label">{{ stat.label }}</span>
-                </div>
-              </div>
-            </div>
-          </aside>
+          <div class="hero-actions reveal-up delay-2">
+            <button class="button-base primary" @click="goToChat">
+              <span>开始体验</span>
+              <ArrowRight :size="18" />
+            </button>
+            <a
+              class="button-base secondary"
+              :href="docsUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <BookText :size="18" />
+              <span>查看文档</span>
+            </a>
+          </div>
         </div>
       </main>
 
@@ -210,44 +182,18 @@ import { useUserStore } from '@/stores/user'
 import { useInfoStore } from '@/stores/info'
 import { healthApi } from '@/apis/system_api'
 import UserInfoComponent from '@/components/UserInfoComponent.vue'
-import {
-  BookText,
-  Star,
-  GitFork,
-  CircleDot,
-  ArrowRight,
-  Workflow,
-  Library,
-  Sparkles
-} from 'lucide-vue-next'
+import { ArrowRight, BookText } from 'lucide-vue-next'
 
 const router = useRouter()
 const userStore = useUserStore()
 const infoStore = useInfoStore()
-const repoUrl = 'https://github.com/xerrors/Yuxi'
-const faqUrl = 'https://xerrors.github.io/Yuxi/'
+const docsUrl = 'https://xerrors.github.io/Yuxi/'
 
 // 加载状态
 const isLoading = ref(true)
 const error = ref(null)
-const typedBadge = ref('')
-const isBadgeTyping = ref(false)
-const githubStats = ref(null)
-let badgeTimer = null
-let subtitleTimer = null
-let starsFetchController = null
-
-const GITHUB_REPO_API = 'https://api.github.com/repos/xerrors/Yuxi'
-const GITHUB_STARS_TIMEOUT = 3000
-
-const formatStars = (count) => {
-  if (!Number.isFinite(count) || count <= 0) {
-    return ''
-  }
-  return `${count}`
-}
-
 const subtitleIndex = ref(0)
+let subtitleTimer = null
 
 const subtitleOptions = computed(() => {
   const subtitles = infoStore.branding?.subtitles
@@ -265,23 +211,6 @@ const subtitleOptions = computed(() => {
 })
 
 const currentSubtitle = computed(() => subtitleOptions.value[subtitleIndex.value] || '')
-const badgeParts = computed(() => {
-  const text = typedBadge.value || ''
-  const match = text.match(/^(.*?)(\d[\d,]*\+?)(\s+GitHub Stars.*)?$/)
-  if (!match) {
-    return {
-      prefix: text,
-      number: '',
-      suffix: ''
-    }
-  }
-
-  return {
-    prefix: match[1] || '',
-    number: match[2] || '',
-    suffix: match[3] || ''
-  }
-})
 
 const stopSubtitleCarousel = () => {
   if (subtitleTimer) {
@@ -301,76 +230,6 @@ const startSubtitleCarousel = () => {
   subtitleTimer = setInterval(() => {
     subtitleIndex.value = (subtitleIndex.value + 1) % subtitleOptions.value.length
   }, 2800)
-}
-
-const stopStarsFetch = () => {
-  if (starsFetchController) {
-    starsFetchController.abort()
-    starsFetchController = null
-  }
-}
-
-const fetchGithubRepo = async () => {
-  stopStarsFetch()
-  const controller = new AbortController()
-  starsFetchController = controller
-  const timer = setTimeout(() => {
-    controller.abort()
-  }, GITHUB_STARS_TIMEOUT)
-
-  try {
-    const response = await fetch(GITHUB_REPO_API, { signal: controller.signal })
-    if (!response.ok) {
-      return null
-    }
-
-    const data = await response.json()
-    return {
-      stars: Number(data?.stargazers_count) || 0,
-      forks: Number(data?.forks_count) || 0,
-      issues: Number(data?.open_issues_count) || 0
-    }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
-    if (starsFetchController === controller) {
-      starsFetchController = null
-    }
-  }
-}
-
-const getHeroBadgeText = (starsCount = null) => {
-  const realtimeStars = formatStars(starsCount)
-  return realtimeStars ? `已获得 ${realtimeStars} GitHub Stars` : ''
-}
-
-const stopBadgeTyping = () => {
-  if (badgeTimer) {
-    clearInterval(badgeTimer)
-    badgeTimer = null
-  }
-  isBadgeTyping.value = false
-}
-
-const startBadgeTyping = (starsCount = null) => {
-  stopBadgeTyping()
-  const text = getHeroBadgeText(starsCount)
-  typedBadge.value = ''
-
-  if (!text) {
-    return
-  }
-
-  let index = 0
-  isBadgeTyping.value = true
-  badgeTimer = setInterval(() => {
-    index += 1
-    typedBadge.value = text.slice(0, index)
-    if (index >= text.length) {
-      stopBadgeTyping()
-    }
-  }, 45)
 }
 
 const checkHealth = async () => {
@@ -398,15 +257,9 @@ const loadData = async () => {
     // 健康检查通过后加载配置
     await infoStore.loadInfoConfig()
     startSubtitleCarousel()
-    const repo = await fetchGithubRepo()
-    githubStats.value = repo
-    startBadgeTyping(repo?.stars ?? null)
   } catch (e) {
     console.error('加载失败:', e)
-    stopBadgeTyping()
     stopSubtitleCarousel()
-    stopStarsFetch()
-    typedBadge.value = ''
   } finally {
     isLoading.value = false
   }
@@ -427,31 +280,11 @@ const goToChat = async () => {
 }
 
 onMounted(() => {
-  // 加载数据
   loadData()
 })
 
 onUnmounted(() => {
-  stopBadgeTyping()
   stopSubtitleCarousel()
-  stopStarsFetch()
-})
-
-const formatCount = (count) =>
-  Number.isFinite(count) && count >= 0 ? count.toLocaleString('en-US') : ''
-
-// 首页统计直接展示实时的 GitHub 仓库数据，不再依赖 branding 配置
-const realtimeStats = computed(() => {
-  const stats = githubStats.value
-  if (!stats) {
-    return []
-  }
-
-  return [
-    { key: 'stars', label: 'Stars', value: formatCount(stats.stars), icon: Star },
-    { key: 'forks', label: 'Forks', value: formatCount(stats.forks), icon: GitFork },
-    { key: 'issues', label: 'Open Issues', value: formatCount(stats.issues), icon: CircleDot }
-  ]
 })
 </script>
 
@@ -497,72 +330,127 @@ const realtimeStats = computed(() => {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+
+  // 整页缓慢流动的浅色渐变层，使用极浅 token 保持克制
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      115deg,
+      var(--main-30) 0%,
+      var(--main-50) 28%,
+      var(--second-50) 52%,
+      var(--main-50) 76%,
+      var(--main-30) 100%
+    );
+    background-size: 300% 300%;
+    opacity: 0.35;
+    animation: bgFlow 36s ease-in-out infinite alternate;
+  }
 }
 
-.orb {
+.glow {
   position: absolute;
+  top: -260px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 920px;
+  height: 600px;
   border-radius: 50%;
-  filter: blur(70px);
-  will-change: transform;
+  background: radial-gradient(closest-side, var(--main-50), transparent);
+  opacity: 0.7;
+  animation: glowDrift 26s ease-in-out infinite alternate;
 }
 
-.orb-1 {
-  width: 440px;
-  height: 440px;
-  top: -140px;
-  right: -90px;
-  background: var(--main-100);
-  opacity: 0.55;
-  animation: orbFloat 18s ease-in-out infinite;
-}
-
-.orb-2 {
-  width: 380px;
-  height: 380px;
-  bottom: -160px;
-  left: -120px;
-  background: var(--main-200);
+// 辅助色光晕：暖金流光从右下呼应信号流
+.glow-accent {
+  position: absolute;
+  bottom: -280px;
+  right: -160px;
+  width: 760px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--second-50), transparent);
   opacity: 0.4;
-  animation: orbFloat 22s ease-in-out infinite reverse;
+  animation: glowDriftAccent 34s ease-in-out infinite alternate;
 }
 
-.orb-3 {
-  width: 300px;
-  height: 300px;
-  top: 32%;
-  left: 52%;
-  background: var(--main-50);
-  opacity: 0.6;
-  animation: orbFloat 26s ease-in-out infinite;
-}
-
-.grid-mesh {
+// 知识星图
+.constellation {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(to right, var(--main-40) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--main-40) 1px, transparent 1px);
-  background-size: 60px 60px;
-  opacity: 0.7;
-  -webkit-mask-image: radial-gradient(ellipse 75% 55% at 50% 8%, #000, transparent 72%);
-  mask-image: radial-gradient(ellipse 75% 55% at 50% 8%, #000, transparent 72%);
+  width: 100%;
+  height: 100%;
 }
 
-// 顶部导航
-.glass-header {
+.edges line {
+  stroke: var(--main-200);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.leaf {
+  fill: var(--main-300);
+  opacity: 0.85;
+}
+
+.hub {
+  fill: var(--main-500);
+}
+
+.pulse-ring {
+  fill: none;
+  stroke: var(--main-400);
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nodePulse 3s ease-out infinite;
+}
+
+.signals .signal {
+  fill: none;
+  stroke: var(--second-500);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-dasharray: 6 140;
+  opacity: 0.8;
+  animation: signalFlow 4.5s linear infinite;
+}
+
+.signal-late {
+  animation-delay: 1.6s;
+}
+
+.signal-slow {
+  animation-duration: 6s;
+  animation-delay: 0.8s;
+}
+
+.drift-a {
+  animation: driftA 26s ease-in-out infinite alternate;
+}
+
+.drift-b {
+  animation: driftB 30s ease-in-out infinite alternate;
+}
+
+.drift-c {
+  animation: driftC 34s ease-in-out infinite alternate;
+}
+
+// 顶部导航：无背景无边框，融入页面
+.site-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   width: 100%;
   padding: 0.85rem 2.5rem;
-  background-color: var(--color-trans-light);
-  backdrop-filter: blur(20px);
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
-  border-bottom: 1px solid var(--main-40);
 }
 
 .header-actions {
@@ -623,24 +511,30 @@ const realtimeStats = computed(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 7rem 2rem 3rem;
+  padding: 4rem 2rem 8.5rem;
 }
 
-.hero-layout {
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 3rem;
-  align-items: start;
-  width: 100%;
-  max-width: 1180px;
-  margin: 0 auto;
+// 文字背后的柔光衬底，保证星图之上可读性
+.hero-vignette {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(1100px, 92vw);
+  height: min(560px, 72vh);
+  background: radial-gradient(closest-side, var(--main-5) 30%, transparent);
+  pointer-events: none;
 }
 
 .hero-content {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 1.4rem;
-  padding-top: 0.5rem;
+  align-items: center;
+  text-align: center;
+  gap: 1.6rem;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .reveal-up {
@@ -650,113 +544,106 @@ const realtimeStats = computed(() => {
 }
 
 .reveal-up.delay-1 {
-  animation-delay: 110ms;
+  animation-delay: 120ms;
 }
 
 .reveal-up.delay-2 {
-  animation-delay: 220ms;
+  animation-delay: 240ms;
 }
 
-.hero-badge {
+.reveal-up.delay-3 {
+  animation-delay: 380ms;
+}
+
+.hero-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  align-self: flex-start;
-  padding: 0.4rem 0.9rem;
+  margin: 0;
+  padding: 0.42rem 1.05rem;
   border-radius: 999px;
   background: var(--main-0);
   border: 1px solid var(--main-40);
   color: var(--main-700);
-  font-size: 0.85rem;
-  letter-spacing: 0.02em;
+  font-size: 0.84rem;
   font-weight: 600;
-  margin: 0;
-  box-shadow: 0 4px 14px -8px rgba(3, 80, 101, 0.4);
+  letter-spacing: 0.06em;
 }
 
-.badge-dot {
-  width: 7px;
-  height: 7px;
+.eyebrow-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--main-500);
-  box-shadow: 0 0 0 4px var(--main-50);
-  flex-shrink: 0;
-}
-
-.hero-badge-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.hero-badge-number {
-  color: var(--main-700);
-  font-weight: 700;
-  transition: color 0.2s ease;
-}
-
-.hero-badge-link:hover .hero-badge-number {
-  color: var(--main-800);
-}
-
-.hero-badge.typing::after {
-  content: '';
-  display: inline-block;
-  width: 1px;
-  height: 1em;
-  margin-left: 2px;
-  background: var(--main-600);
-  vertical-align: -0.1em;
-  animation: caretBlink 0.8s steps(1, end) infinite;
+  background: var(--second-500);
+  box-shadow: 0 0 0 3px var(--second-50);
 }
 
 .title {
-  font-size: clamp(2.6rem, 4.4vw, 4.2rem);
+  font-size: clamp(2.4rem, 4.2vw, 4rem);
   font-weight: 800;
   margin: 0;
   background: linear-gradient(120deg, var(--main-900) 10%, var(--main-600) 60%, var(--main-500));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  letter-spacing: -0.02em;
-  line-height: 1.08;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+}
+
+// 交叉淡入淡出容器：离开的旧文案绝对定位，避免布局跳动
+.subtitle-wrap {
+  position: relative;
+  width: 100%;
+  min-height: calc(1.35em * 1.3);
 }
 
 .subtitle {
-  font-size: 1.45rem;
+  font-size: 1.35rem;
   font-weight: 600;
   color: var(--gray-700);
-  line-height: 1.45;
+  line-height: 1.5;
   margin: 0;
-  min-height: calc(1.45em * 1.3);
 }
 
 .subtitle-switch-enter-active,
 .subtitle-switch-leave-active {
   transition:
-    opacity 0.32s ease,
-    transform 0.32s ease;
+    opacity 0.55s ease,
+    transform 0.55s ease;
 }
 
-.subtitle-switch-enter-from,
+.subtitle-switch-leave-active {
+  position: absolute;
+  inset: 0;
+}
+
+.subtitle-switch-enter-from {
+  opacity: 0;
+  transform: translateY(5px);
+}
+
 .subtitle-switch-leave-to {
   opacity: 0;
-  transform: translateY(7px);
+  transform: translateY(-5px);
 }
 
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 1.25rem;
   align-items: center;
-  margin-top: 0.5rem;
+  margin-top: 0.6rem;
 }
 
 .button-base {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.5rem 2rem;
+  padding: 0.5rem 2.2rem;
   border-radius: 999px;
   font-size: 1.05rem;
   font-weight: 600;
@@ -765,14 +652,32 @@ const realtimeStats = computed(() => {
   text-decoration: none;
   transition:
     background 0.25s ease,
+    border-color 0.25s ease,
     box-shadow 0.25s ease;
-  min-height: 52px;
+  min-height: 54px;
+  min-width: 11rem;
 }
 
 .button-base.primary {
   background: linear-gradient(135deg, var(--main-600), var(--main-500));
   color: var(--gray-0);
-  box-shadow: 0 12px 28px -12px rgba(3, 80, 101, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 12px 28px -12px rgba(3, 80, 101, 0.55);
+
+  // hover 时一道流光扫过
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 45%;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+    transform: translateX(-160%) skewX(-18deg);
+    transition: transform 0.7s ease;
+    pointer-events: none;
+  }
 
   :deep(svg) {
     transition: transform 0.25s ease;
@@ -780,7 +685,13 @@ const realtimeStats = computed(() => {
 
   &:hover {
     background: linear-gradient(135deg, var(--main-700), var(--main-600));
-    box-shadow: 0 16px 34px -12px rgba(3, 80, 101, 0.6);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 16px 34px -12px rgba(3, 80, 101, 0.6);
+
+    &::after {
+      transform: translateX(340%) skewX(-18deg);
+    }
 
     :deep(svg) {
       transform: translateX(3px);
@@ -788,11 +699,12 @@ const realtimeStats = computed(() => {
   }
 }
 
+// 次按钮：玻璃质感，融入流光背景
 .button-base.secondary {
-  background: var(--main-0);
+  background: var(--color-trans-light);
+  backdrop-filter: blur(8px);
   color: var(--main-700);
   border-color: var(--main-40);
-  padding: 0.5rem 1.6rem;
 
   :deep(svg) {
     color: var(--main-600);
@@ -805,232 +717,11 @@ const realtimeStats = computed(() => {
   }
 }
 
-// Hero 右侧可视化卡片
-.hero-visual {
-  display: flex;
-  justify-content: center;
-}
-
-.visual-card {
-  position: relative;
-  width: 100%;
-  max-width: 460px;
-  padding: 1.75rem;
-  border-radius: 24px;
-  background: linear-gradient(165deg, var(--main-0), var(--main-20));
-  border: 1px solid var(--main-40);
-  box-shadow: 0 30px 60px -34px rgba(3, 80, 101, 0.35);
-  overflow: hidden;
-}
-
-.visual-glow {
-  position: absolute;
-  top: -40%;
-  right: -20%;
-  width: 70%;
-  height: 70%;
-  background: radial-gradient(circle, var(--main-100), transparent 70%);
-  opacity: 0.7;
-  pointer-events: none;
-}
-
-.graph-watermark {
-  position: absolute;
-  top: -26px;
-  right: -26px;
-  width: 200px;
-  height: auto;
-  color: var(--main-500);
-  opacity: 0.09;
-  pointer-events: none;
-}
-
-// Harness → RAG 引擎 → 知识库 横向数据流
-.flow-diagram {
-  position: relative;
-  z-index: 1;
-}
-
-.flow-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.flow-node {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.55rem;
-  flex-shrink: 0;
-  width: 76px;
-  text-align: center;
-}
-
-.flow-icon {
-  width: 54px;
-  height: 54px;
-  border-radius: 16px;
-  background: var(--main-30);
-  border: 1px solid var(--main-40);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease;
-
-  :deep(svg) {
-    color: var(--main-700);
-  }
-}
-
-.flow-node:hover .flow-icon {
-  background: var(--main-100);
-  border-color: var(--main-200);
-}
-
-.flow-name {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--main-800);
-  line-height: 1.3;
-}
-
-// 中间枢纽：主色高亮 + 脉冲环
-.flow-icon--hub {
-  position: relative;
-  width: 60px;
-  height: 60px;
-  border-radius: 18px;
-  background: linear-gradient(140deg, var(--main-500), var(--main-600));
-  border: none;
-  box-shadow: 0 10px 22px -10px rgba(3, 80, 101, 0.55);
-
-  :deep(svg) {
-    color: var(--gray-0);
-    position: relative;
-    z-index: 1;
-  }
-}
-
-.flow-node--hub:hover .flow-icon--hub {
-  background: linear-gradient(140deg, var(--main-500), var(--main-600));
-}
-
-.hub-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border: 2px solid var(--main-400);
-  animation: hubPulse 2.4s ease-out infinite;
-}
-
-.flow-link {
-  position: relative;
-  flex: 1;
-  height: 54px;
-  min-width: 0;
-}
-
-.flow-rail {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  top: 50%;
-  height: 2px;
-  transform: translateY(-50%);
-  border-radius: 2px;
-  background: linear-gradient(
-    90deg,
-    var(--main-50),
-    var(--main-200) 25%,
-    var(--main-200) 75%,
-    var(--main-50)
-  );
-}
-
-.flow-dot {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.flow-dot--fwd {
-  top: calc(50% - 5px);
-  background: var(--main-500);
-  box-shadow: 0 0 0 4px var(--main-50);
-  animation: flowRight 2.4s linear infinite;
-  animation-delay: calc(var(--i) * 1.2s);
-}
-
-.flow-dot--back {
-  top: calc(50% + 5px);
-  transform: translateY(-100%);
-  background: var(--main-300);
-  box-shadow: 0 0 0 4px var(--main-30);
-  animation: flowLeft 2.4s linear infinite;
-  animation-delay: calc(var(--i) * 1.2s + 0.6s);
-}
-
-.flow-caption {
-  margin: 1.25rem 0 0;
-  text-align: center;
-  font-size: 0.84rem;
-  color: var(--gray-600);
-  line-height: 1.5;
-}
-
-.stat-row {
-  position: relative;
-  display: flex;
-  margin-top: 1.5rem;
-  padding-top: 1.35rem;
-  border-top: 1px solid var(--main-40);
-}
-
-.stat-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-
-  &:not(:first-child) {
-    padding-left: 1.2rem;
-  }
-
-  &:not(:last-child) {
-    padding-right: 1.2rem;
-    border-right: 1px solid var(--main-40);
-  }
-}
-
-.stat-item-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--main-800);
-  line-height: 1.1;
-
-  :deep(svg) {
-    color: var(--main-500);
-  }
-}
-
-.stat-item-label {
-  font-size: 0.8rem;
-  color: var(--gray-600);
-}
-
 // 页脚
 .footer {
   position: relative;
   z-index: 1;
   margin-top: auto;
-  border-top: 1px solid var(--main-40);
 }
 
 .footer-content {
@@ -1048,6 +739,33 @@ const realtimeStats = computed(() => {
   opacity: 0.75;
 }
 
+@keyframes bgFlow {
+  from {
+    background-position: 0% 40%;
+  }
+  to {
+    background-position: 100% 60%;
+  }
+}
+
+@keyframes glowDrift {
+  from {
+    transform: translateX(-50%) translate(0, 0) scale(1);
+  }
+  to {
+    transform: translateX(-50%) translate(90px, 60px) scale(1.15);
+  }
+}
+
+@keyframes glowDriftAccent {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(-100px, -70px) scale(1.18);
+  }
+}
+
 @keyframes revealUp {
   to {
     opacity: 1;
@@ -1055,166 +773,87 @@ const realtimeStats = computed(() => {
   }
 }
 
-@keyframes caretBlink {
-  50% {
-    opacity: 0;
-  }
-}
-
-@keyframes orbFloat {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(0, -26px) scale(1.04);
-  }
-}
-
-@keyframes flowRight {
+@keyframes nodePulse {
   0% {
-    left: -4px;
-    opacity: 0;
-  }
-  15% {
-    opacity: 1;
-  }
-  85% {
-    opacity: 1;
-  }
-  100% {
-    left: calc(100% - 4px);
-    opacity: 0;
-  }
-}
-
-@keyframes flowLeft {
-  0% {
-    left: calc(100% - 4px);
-    opacity: 0;
-  }
-  15% {
-    opacity: 1;
-  }
-  85% {
-    opacity: 1;
-  }
-  100% {
-    left: -4px;
-    opacity: 0;
-  }
-}
-
-@keyframes hubPulse {
-  0% {
-    opacity: 0.6;
+    opacity: 0.7;
     transform: scale(1);
   }
   70%,
   100% {
     opacity: 0;
-    transform: scale(1.4);
+    transform: scale(2.4);
   }
 }
 
-// 暗色模式
-:global(:root.dark) {
-  .home-container {
-    background: var(--main-5);
+@keyframes signalFlow {
+  to {
+    stroke-dashoffset: -146;
   }
+}
 
-  .hero-badge-number {
-    color: var(--main-200);
+@keyframes driftA {
+  from {
+    transform: translate(0, 0);
   }
-
-  .hero-badge-link:hover .hero-badge-number {
-    color: var(--main-100);
+  to {
+    transform: translate(16px, -12px);
   }
+}
 
+@keyframes driftB {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(-18px, 10px);
+  }
+}
+
+@keyframes driftC {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(10px, 14px);
+  }
+}
+
+// 暗色模式：文字与边框颜色随 token 反转自动适配，只需给次按钮换深色玻璃底
+// 注意：:global 包裹嵌套块会被 scoped 编译静默丢弃，必须用 :root.dark 直接嵌套；
+// 暗色下 --light-*/--dark-* 名称互换，--dark-10 才是白色 10% 淡色
+:root.dark {
   .button-base.secondary {
-    color: var(--main-200);
-
-    :deep(svg) {
-      color: var(--main-300);
-    }
+    background: var(--dark-10);
 
     &:hover {
-      color: var(--main-100);
-    }
-  }
-
-  .github-link {
-    color: var(--gray-400);
-
-    &:hover {
-      color: var(--main-200);
+      background: var(--dark-25);
     }
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reveal-up,
-  .orb,
-  .hero-badge.typing::after {
-    animation: none;
-  }
-
   .reveal-up {
     opacity: 1;
     transform: none;
+    animation: none;
   }
 
-  .flow-dot,
-  .hub-ring {
+  .ambient::before,
+  .drift,
+  .pulse-ring,
+  .signals .signal,
+  .glow,
+  .glow-accent {
+    animation: none;
+  }
+
+  .signals {
     display: none;
   }
 
   .subtitle-switch-enter-active,
   .subtitle-switch-leave-active {
     transition: none;
-  }
-}
-
-@media (max-width: 960px) {
-  .hero-layout {
-    grid-template-columns: 1fr;
-    gap: 2.5rem;
-  }
-
-  .hero-content {
-    align-items: flex-start;
-    text-align: left;
-  }
-
-  .visual-card {
-    max-width: 520px;
-    margin: 0 auto;
-  }
-}
-
-@media (max-width: 768px) {
-  .glass-header {
-    padding: 0.75rem 1.25rem;
-  }
-
-  .logo-text {
-    font-size: 1.15rem;
-  }
-
-  .hero-section {
-    padding: 6rem 1.25rem 2.5rem;
-  }
-
-  .title {
-    font-size: clamp(2.2rem, 9vw, 3rem);
-  }
-
-  .subtitle {
-    font-size: 1.2rem;
-  }
-
-  .button-base {
-    width: 100%;
   }
 }
 </style>

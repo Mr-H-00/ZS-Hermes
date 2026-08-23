@@ -2,7 +2,7 @@
   <BaseToolCall :tool-call="toolCall" :hide-params="true">
     <template #header>
       <div class="sep-header">
-        <span class="note">grep</span>
+        <span class="note">搜索文件内容</span>
         <span class="separator" v-if="pattern">|</span>
         <span class="note">{{ pattern }}</span>
         <span class="separator" v-if="targetPath">|</span>

@@ -1,12 +1,11 @@
 <template>
   <BaseToolCall :tool-call="toolCall" :hide-params="true">
-    <template #header-success>
-      <span class="sep-header">
-        <span class="note">描述表结构：</span>
-        <span class="description code">{{
-          extractTableName(toolCall.args || toolCall.function?.arguments)
-        }}</span>
-      </span>
+    <template #header>
+      <div class="sep-header">
+        <span class="note">查看表结构</span>
+        <span class="separator" v-if="tableName">|</span>
+        <span class="description code" v-if="tableName">{{ tableName }}</span>
+      </div>
     </template>
 
     <template #result="{ resultContent }">
@@ -18,14 +17,19 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import BaseToolCall from '../BaseToolCall.vue'
 
-defineProps({
+const props = defineProps({
   toolCall: {
     type: Object,
     required: true
   }
 })
+
+const tableName = computed(() =>
+  extractTableName(props.toolCall.args || props.toolCall.function?.arguments)
+)
 
 const formatResult = (content) => {
   if (!content) return ''

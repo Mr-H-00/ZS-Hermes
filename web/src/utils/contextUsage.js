@@ -3,7 +3,7 @@
  */
 
 /**
- * 格式化 Token 数量（如 51.8K、168.0K、2.5M）
+ * 格式化 Token 数量（如 51.8K、168K、2.5M）
  * @param {number|string|null|undefined} value
  * @returns {string}
  */
@@ -11,10 +11,10 @@ export function formatContextToken(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric <= 0) return '0'
   if (numeric >= 1_000_000) {
-    return `${(numeric / 1_000_000).toFixed(1)}M`
+    return `${Number((numeric / 1_000_000).toPrecision(3))}M`
   }
   if (numeric >= 1_000) {
-    return `${(numeric / 1_000).toFixed(1)}K`
+    return `${Number((numeric / 1_000).toPrecision(3))}K`
   }
   return String(Math.round(numeric))
 }

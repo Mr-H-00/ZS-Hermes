@@ -7,6 +7,8 @@
         <span class="description" v-if="resourceLabel">知识库: {{ resourceLabel }}</span>
         <span class="separator" v-if="queryText">|</span>
         <span class="description">{{ queryText }}</span>
+        <span class="separator" v-if="resultSummary">|</span>
+        <span class="description" v-if="resultSummary">{{ resultSummary }}</span>
       </div>
     </template>
     <template #result="{ resultContent }">
@@ -115,14 +117,35 @@ const args = computed(() => {
   }
 })
 
-const toolName = computed(() => props.toolCall.name || props.toolCall.function?.name || '知识库')
-
-const operationLabel = computed(() => `${toolName.value} 搜索`)
+const operationLabel = computed(() => '搜索知识库')
 
 const resourceLabel = computed(
   () => args.value.kb_name || databaseStore.getDatabaseNameById(args.value.kb_id)
 )
 const queryText = computed(() => args.value.query_text || '')
+
+const resultSummary = computed(() => {
+  const content = props.toolCall.tool_call_result?.content
+  if (!content && props.toolCall.status !== 'success') return ''
+  const result = parseResult(content)
+  const chunkCount = result.chunks?.length || 0
+  const entityCount = result.entities?.length || 0
+  const relCount = result.relationships?.length || 0
+
+  if (chunkCount > 0 && (entityCount > 0 || relCount > 0)) {
+    return `${chunkCount} 条片段，${entityCount} 个实体`
+  }
+  if (chunkCount > 0) {
+    return `${chunkCount} 个结果`
+  }
+  if (entityCount > 0 || relCount > 0) {
+    return `${entityCount} 个实体，${relCount} 条关系`
+  }
+  if (props.toolCall.tool_call_result || props.toolCall.status === 'success') {
+    return '未找到结果'
+  }
+  return ''
+})
 
 const EMPTY_RESULT = Object.freeze({
   chunks: [],

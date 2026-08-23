@@ -2,7 +2,7 @@
   <BaseToolCall :tool-call="toolCall">
     <template #header>
       <div class="sep-header">
-        <span class="note">Edit</span>
+        <span class="note">编辑文件</span>
         <span class="separator" v-if="filePath">|</span>
         <span class="description" :title="filePath">
           <span class="code">{{ fileName }}</span>

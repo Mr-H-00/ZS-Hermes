@@ -1,12 +1,11 @@
 <template>
   <BaseToolCall :tool-call="toolCall">
-    <template #header-success>
-      <span class="sep-header">
-        <span class="note">执行SQL查询：</span>
-        <span class="description">{{
-          truncateSql(extractSql(toolCall.args || toolCall.function?.arguments))
-        }}</span>
-      </span>
+    <template #header>
+      <div class="sep-header">
+        <span class="note">执行SQL查询</span>
+        <span class="separator" v-if="sqlText">|</span>
+        <span class="description code" v-if="sqlText">{{ truncateSql(sqlText) }}</span>
+      </div>
     </template>
 
     <template #params="{ args }">
@@ -24,14 +23,19 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import BaseToolCall from '../BaseToolCall.vue'
 
-defineProps({
+const props = defineProps({
   toolCall: {
     type: Object,
     required: true
   }
 })
+
+const sqlText = computed(() =>
+  extractSql(props.toolCall.args || props.toolCall.function?.arguments)
+)
 
 const formatResult = (content) => {
   if (!content) return ''

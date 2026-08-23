@@ -1383,10 +1383,10 @@ const formatTokenCount = (value) => {
   const numeric = toFiniteNumber(value)
   if (numeric === null) return '-'
   if (numeric >= TOKEN_COUNT_M_UNIT) {
-    return `${(numeric / TOKEN_COUNT_M_UNIT).toFixed(1)}M`
+    return `${Number((numeric / TOKEN_COUNT_M_UNIT).toPrecision(3))}M`
   }
   if (numeric >= TOKEN_COUNT_K_UNIT) {
-    return `${(numeric / TOKEN_COUNT_K_UNIT).toFixed(1)}K`
+    return `${Number((numeric / TOKEN_COUNT_K_UNIT).toPrecision(3))}K`
   }
   return String(Math.round(numeric))
 }
@@ -4817,7 +4817,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
 .token-usage-card-percent {
   display: block;
   color: var(--gray-900);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
@@ -4880,16 +4880,12 @@ watch(currentChatId, (threadId, oldThreadId) => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 2px;
-  padding-top: 10px;
-  border-top: 1px solid var(--gray-100);
 }
 
 .token-usage-card-metrics > span {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 
 .token-usage-card-metrics > span + span {

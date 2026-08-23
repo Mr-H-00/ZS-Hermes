@@ -1,5 +1,10 @@
 <template>
   <BaseToolCall :tool-call="toolCall">
+    <template #header>
+      <div class="sep-header">
+        <span class="note">生成图片</span>
+      </div>
+    </template>
     <template #result="{}">
       <div v-if="imageUrl" class="image-result">
         <img :src="imageUrl" />

@@ -2,7 +2,7 @@
   <BaseToolCall :tool-call="toolCall">
     <template #header>
       <div class="sep-header">
-        <span class="note">write_file</span>
+        <span class="note">写入文件</span>
         <span class="separator" v-if="filePath">|</span>
         <span class="description code">{{ filePath }}</span>
         <span class="tag success" v-if="lineCount > 0"> +{{ lineCount }}</span>

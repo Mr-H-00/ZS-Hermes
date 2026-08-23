@@ -68,12 +68,13 @@ export const TOOL_NAME_MAP = {
   run_shell_command: '执行命令',
   ls: '列出目录',
   list_directory: '列出目录',
-  glob: '搜索文件',
+  glob: '匹配文件路径',
   grep: '搜索文件内容',
   read_file: '读取文件',
   write_file: '写入文件',
   edit_file: '编辑文件',
   replace: '编辑文件',
+  search_file: '搜索知识库文件',
   search_file_content: '搜索文件内容',
   write_todos: '更新任务清单',
   task: '调用子智能体',
@@ -82,7 +83,21 @@ export const TOOL_NAME_MAP = {
   subagent_events: '查看子智能体事件',
   subagent_cancel: '取消子智能体',
   subagent_await: '等待子智能体',
-  text_to_img_qwen_image: '生成图片'
+  text_to_img_qwen_image: '生成图片',
+  query_kb: '搜索知识库',
+  list_kbs: '查看知识库列表',
+  find_kb_document: '查找知识库文档',
+  open_kb_document: '打开知识库文档',
+  get_mindmap: '获取思维导图',
+  calculator: '计算器',
+  web_search: '网络搜索',
+  tavily_search: '网络搜索',
+  doubao_search: '网络搜索',
+  ocr_parse_file: 'OCR识别文件',
+  mysql_list_tables: '列出数据库表',
+  mysql_describe_table: '查看表结构',
+  mysql_query: '执行SQL查询',
+  ask_user_question: '向用户提问'
 }
 
 // Keep intentionally hidden tool calls centralized so group summaries and renderers stay consistent.

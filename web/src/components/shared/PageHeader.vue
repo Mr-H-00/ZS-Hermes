@@ -61,7 +61,7 @@ function emitChange(item) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px var(--page-padding);
+  padding: 10px var(--page-padding);
   background-color: var(--light-60);
   backdrop-filter: blur(10px);
   position: sticky;
@@ -75,14 +75,14 @@ function emitChange(item) {
 
 .page-header-left {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
 }
 
 .page-header-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--gray-2000);
   white-space: nowrap;
@@ -109,7 +109,7 @@ function emitChange(item) {
   border-radius: 6px;
   background: transparent;
   color: var(--gray-600);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   text-decoration: none;
@@ -124,8 +124,8 @@ function emitChange(item) {
   }
 
   &.active {
-    color: var(--main-color);
-    background-color: color-mix(in srgb, var(--main-color) 6%, var(--gray-0));
+    color: var(--gray-2000);
+    background-color: color-mix(in srgb, var(--gray-800) 6%, var(--gray-0));
   }
 }
 

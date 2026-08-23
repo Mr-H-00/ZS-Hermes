@@ -58,51 +58,20 @@ const caf =
 
 const DEFAULT_OPTIONS = {
   minChunkSize: 1,
-  maxChunkSize: 64,
-  defaultIntervalMs: 1000,
-  minDrainWindowMs: 400,
-  maxDrainWindowMs: 1400,
-  targetLagMs: 900,
-  minReserveChars: 48,
-  maxReserveChars: 240,
-  maxBufferedChars: 3000,
-  emaAlpha: 0.2,
-  basePaceMultiplier: 0.92,
-  overflowDivisor: 180,
-  maxBurstFactor: 2.6,
-  reserveReleaseDelayMs: 1200,
-  reserveDecayWindowMs: 2200
+  maxChunkSize: 48,
+  // 突发或重新进入对话时历史补发超过此字符量，直接快速放行，避免漫长打字重放
+  fastForwardThreshold: 50,
+  fastForwardTailChars: 6
 }
 
-const getIncomingSize = (chunk) => {
-  let total = 0
-  total += (chunk?.content || '').length
-  total += (chunk?.reasoning_content || '').length
-  total += (chunk?.additional_kwargs?.reasoning_content || '').length
-
-  if (Array.isArray(chunk?.tool_call_chunks)) {
-    chunk.tool_call_chunks.forEach((item) => {
-      total += (item?.args || '').length
-    })
-  }
-
-  return total
-}
-
-const createController = (chunk, options) => ({
+const createController = (chunk) => ({
   skeleton: stripBufferedFields(chunk),
   contentBuffer: '',
   reasoningBuffer: '',
   additionalReasoningBuffer: '',
   toolCallArgBuffers: new Map(),
   scheduled: false,
-  frameId: null,
-  lastPushAt: Date.now(),
-  lastEmitAt: 0,
-  lastFrameAt: Date.now(),
-  carryChars: 0,
-  avgIntervalMs: options.defaultIntervalMs,
-  avgChunkChars: Math.max(options.minReserveChars, getIncomingSize(chunk))
+  frameId: null
 })
 
 const mergeSkeleton = (controller, chunk) => {
@@ -162,68 +131,12 @@ const getBufferedLength = (controller) => {
   return total
 }
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
-
-const getReserveSize = (controller, options) => {
-  const charsPerMs = controller.avgChunkChars / Math.max(1, controller.avgIntervalMs)
-  const lagReserve = Math.ceil(charsPerMs * options.targetLagMs)
-  return clamp(
-    Math.max(options.minReserveChars, lagReserve),
-    options.minReserveChars,
-    options.maxReserveChars
-  )
-}
-
-const getDynamicReserve = (controller, options, now) => {
-  const reserveSize = getReserveSize(controller, options)
-  const elapsedSincePush = Math.max(0, now - controller.lastPushAt)
-  const releaseDelay = Math.max(0, options.reserveReleaseDelayMs)
-
-  if (elapsedSincePush <= releaseDelay) {
-    return reserveSize
-  }
-
-  const decayProgress = clamp(
-    (elapsedSincePush - releaseDelay) / Math.max(1, options.reserveDecayWindowMs),
-    0,
-    1
-  )
-
-  return Math.ceil(reserveSize * (1 - decayProgress))
-}
-
-const getBufferedOverflow = (pending, options) => {
-  const maxBufferedChars = Number(options.maxBufferedChars)
-  if (!Number.isFinite(maxBufferedChars) || maxBufferedChars <= 0) return 0
-  return Math.max(0, pending - Math.floor(maxBufferedChars))
-}
-
-const getChunkSize = (controller, pending, options) => {
-  const now = Date.now()
-  const deltaMs = Math.max(16, now - controller.lastFrameAt)
-  const charsPerMs = controller.avgChunkChars / Math.max(1, controller.avgIntervalMs)
-  const baseRate = charsPerMs * options.basePaceMultiplier
-  const dynamicReserve = getDynamicReserve(controller, options, now)
-  const overflow = Math.max(0, pending - dynamicReserve)
-  const overflowBoost = overflow / options.overflowDivisor
-  const maxRate = Math.max(baseRate, charsPerMs * options.maxBurstFactor)
-  const pacedRate = clamp(baseRate + overflowBoost, options.minChunkSize / 240, maxRate)
-
-  controller.carryChars += pacedRate * deltaMs
-  controller.lastFrameAt = now
-
-  const budget = Math.floor(controller.carryChars)
-  if (budget <= 0) return 0
-
-  const maxAllowed = Math.max(1, pending - dynamicReserve)
-  const emitCount = Math.min(budget, maxAllowed, options.maxChunkSize)
-
-  if (emitCount <= 0) {
-    return 0
-  }
-
-  controller.carryChars -= emitCount
-  return emitCount
+const getSmoothBudget = (pending, options) => {
+  if (pending <= 0) return 0
+  if (pending <= 3) return 1
+  if (pending <= 12) return 2
+  if (pending <= 30) return Math.ceil(pending / 4)
+  return Math.min(options.maxChunkSize, Math.ceil(pending / 2))
 }
 
 const takeFromBuffer = (value, count) => {
@@ -251,7 +164,7 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
     return controllersByThread.get(threadId)
   }
 
-  const emitDelta = (threadId, messageId, forceFlush = false, immediateBudget = null) => {
+  const emitDelta = (threadId, messageId, forceFlush = false, customBudget = null) => {
     const threadState = getThreadState(threadId)
     const threadControllers = controllersByThread.get(threadId)
     const controller = threadControllers?.get(messageId)
@@ -265,12 +178,12 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
       return
     }
 
-    const hasImmediateBudget = Number.isFinite(immediateBudget) && Math.floor(immediateBudget) > 0
     const budget = forceFlush
       ? pending
-      : hasImmediateBudget
-        ? Math.min(pending, Math.floor(immediateBudget))
-        : getChunkSize(controller, pending, resolvedOptions)
+      : Number.isFinite(customBudget) && customBudget > 0
+        ? Math.min(pending, Math.floor(customBudget))
+        : getSmoothBudget(pending, resolvedOptions)
+
     let remaining = budget
     const delta = stripBufferedFields(controller.skeleton)
 
@@ -324,7 +237,6 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
         delta.tool_call_chunks.some((item) => hasText(item?.args)))
 
     if (hasOutput) {
-      controller.lastEmitAt = Date.now()
       appendLoadingChunk(threadState, delta)
     }
 
@@ -358,34 +270,14 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
     const threadControllers = getThreadControllers(threadId)
     let controller = threadControllers.get(chunk.id)
 
-    const now = Date.now()
-
     if (!controller) {
-      controller = createController(chunk, resolvedOptions)
+      controller = createController(chunk)
       threadControllers.set(chunk.id, controller)
       appendLoadingChunk(threadState, controller.skeleton)
     } else {
       mergeSkeleton(controller, chunk)
-      const observedInterval = now - controller.lastPushAt
-      if (observedInterval > 0) {
-        controller.avgIntervalMs = clamp(
-          controller.avgIntervalMs * (1 - resolvedOptions.emaAlpha) +
-            observedInterval * resolvedOptions.emaAlpha,
-          resolvedOptions.minDrainWindowMs,
-          resolvedOptions.maxDrainWindowMs
-        )
-      }
     }
 
-    const incomingSize = Math.max(1, getIncomingSize(chunk))
-    controller.avgChunkChars = clamp(
-      controller.avgChunkChars * (1 - resolvedOptions.emaAlpha) +
-        incomingSize * resolvedOptions.emaAlpha,
-      resolvedOptions.minReserveChars,
-      resolvedOptions.maxReserveChars * 4
-    )
-
-    controller.lastPushAt = now
     controller.contentBuffer += chunk.content || ''
     controller.reasoningBuffer += chunk.reasoning_content || ''
     controller.additionalReasoningBuffer += chunk.additional_kwargs?.reasoning_content || ''
@@ -401,15 +293,12 @@ export function useStreamSmoother({ getThreadState, options = {} }) {
       })
     }
 
-    const overflowBudget = getBufferedOverflow(getBufferedLength(controller), resolvedOptions)
-    if (overflowBudget > 0) {
-      if (controller.frameId !== null) {
-        caf(controller.frameId)
+    const pending = getBufferedLength(controller)
+    if (pending > resolvedOptions.fastForwardThreshold) {
+      const fastForwardCount = pending - resolvedOptions.fastForwardTailChars
+      if (fastForwardCount > 0) {
+        emitDelta(threadId, chunk.id, false, fastForwardCount)
       }
-      controller.scheduled = false
-      controller.frameId = null
-      emitDelta(threadId, chunk.id, false, overflowBudget)
-      return
     }
 
     schedule(threadId, chunk.id)

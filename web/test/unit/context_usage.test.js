@@ -15,9 +15,9 @@ test('formatContextToken: 正确格式化 K / M 及普通数值', () => {
   assert.equal(formatContextToken(undefined), '0')
   assert.equal(formatContextToken(500), '500')
   assert.equal(formatContextToken(51800), '51.8K')
-  assert.equal(formatContextToken(168000), '168.0K')
-  assert.equal(formatContextToken(1000000), '1.0M')
-  assert.equal(formatContextToken(2560000), '2.6M')
+  assert.equal(formatContextToken(168000), '168K')
+  assert.equal(formatContextToken(1000000), '1M')
+  assert.equal(formatContextToken(2560000), '2.56M')
 })
 
 test('calculateContextRatio: 比例计算与上下界限制', () => {
@@ -37,7 +37,7 @@ test('formatContextUsageTooltip: 生成规范的上下文使用提示文本', ()
       limitTokens: 168000,
       ratio: 51800 / 168000
     }),
-    '30.8% · 51.8K/168.0K 上下文已使用'
+    '30.8% · 51.8K/168K 上下文已使用'
   )
 
   assert.equal(
@@ -45,7 +45,7 @@ test('formatContextUsageTooltip: 生成规范的上下文使用提示文本', ()
       usedTokens: 0,
       limitTokens: 128000
     }),
-    '0.0% · 0/128.0K 上下文已使用'
+    '0.0% · 0/128K 上下文已使用'
   )
 
   assert.equal(
