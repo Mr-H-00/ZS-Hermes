@@ -57,7 +57,7 @@ Yuxi（语析）是一个**可私有部署的多租户知识智能体平台**。
 **1. 克隆代码并初始化**
 
 ```bash
-git clone --branch v0.7.1 --depth 1 https://github.com/xerrors/Yuxi.git
+git clone --branch v0.7.2.beta1 --depth 1 https://github.com/xerrors/Yuxi.git
 cd Yuxi
 
 # Linux/macOS
@@ -73,7 +73,7 @@ cd Yuxi
 docker compose up --build
 ```
 
-从旧文件布局升级到 v0.7.2 时不能直接 `up`；停机迁移命令、失败恢复与 Kubernetes 边界只在
+从旧文件布局升级到 v0.7.2 时不能直接 `up`；停机迁移、失败续跑、成套回滚与 Kubernetes 边界只在
 [生产部署指南](docs/advanced/deployment.md#2-启动服务) 中维护。
 
 **3. 访问平台**

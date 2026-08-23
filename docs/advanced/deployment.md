@@ -42,10 +42,12 @@ SILICONFLOW_API_KEY=
 
 ### 2. 启动服务
 
-使用生产环境配置文件启动：
+从 v0.7.1 升级前，先停止业务写入，并在同一停机时点完整备份 PostgreSQL、MinIO 和 `docker/volumes/yuxi`，验证三者可以成套恢复。迁移会重写历史 Conversation 的 Project 绑定、附件路径与 thread 文件布局，终结非终态 Run，并收紧持久目录所有权；旧 SQLite checkpoint 不迁移。v0.7.2 Beta 不建议用于重要或缺少可恢复备份的环境，完整风险见[版本变更记录](../develop-guides/changelog.md#v072beta1-2026-08-23)。
+
+使用生产环境配置文件启动。升级实例必须先检出目标版本，再运行迁移脚本；迁移成功前不要启动新 API 或 worker：
 
 ```bash
-# 从旧文件布局升级时先执行；运行中、已 stop 或已 down 均可
+# 从 v0.7.1 文件布局升级时先执行；运行中、已 stop 或已 down 均可
 bash scripts/migrate-storage.sh -f docker-compose.prod.yml --env-file .env.prod
 
 # 仅启动核心服务（CPU 模式）
@@ -55,10 +57,11 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml --profile all up -d --build
 ```
 
-迁移脚本会把其后的参数原样用于每一次 Docker Compose 调用，因此迁移和重启必须使用同一份 Compose
-文件、env file 与 profile。脚本只在 API/worker 已停止、provisioner 已禁止新建 Sandbox，且 Docker
-容器或 Kubernetes Pod 的权威清单确认为空后签发一次性 proof；枚举失败或 Pod 仍在 Terminating
-都会 fail-closed。
+迁移脚本会把其后的参数原样用于每一次 Docker Compose 调用，因此迁移和重启必须使用同一份 Compose 文件、env file 与 profile。脚本只在 API/worker 已停止、provisioner 已禁止新建 Sandbox，且 Docker 容器或 Kubernetes Pod 的权威清单确认为空后签发一次性 proof；枚举失败或 Pod 仍在 Terminating 都会 fail-closed。
+
+迁移按 Workdir、系统配置、共享 Skill 和运行身份分阶段提交，不是跨 PostgreSQL、MinIO 与文件卷的单事务操作。命令失败后保持 API/worker 停止并保留日志；目标冲突或权限问题修复后，使用完全相同的参数重跑迁移，迁移器会校验已经提交的确定性目标并继续。需要放弃升级时，先保持服务停止并检出 v0.7.1，再从升级前同一停机时点的备份成套恢复 PostgreSQL、MinIO 和 `docker/volumes/yuxi`；只恢复数据库或单个文件卷会造成跨 Owner 状态不一致。
+
+历史知识库 Markdown 中指向 `public` bucket 的图片不会由该脚本迁移，升级后旧 URL 仍可能匿名可读。对敏感知识库应在升级后重新解析生成私有 `kb-images` 对象，确认新 Markdown 与权限代理可用后，再按实际对象清单清理旧公开图片。
 
 ### Kubernetes 存储边界
 
