@@ -275,6 +275,7 @@ class PostgresManager(metaclass=SingletonMeta):
                 conninfo=langgraph_db_url,
                 max_size=10,  # 根据你的 Agent 并发情况设置，通常 5-10 足够了
                 kwargs={"autocommit": True},  # LangGraph Checkpoint 强依赖 autocommit
+                check=AsyncConnectionPool.check_connection,
             )
 
             self._initialized = True
