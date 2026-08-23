@@ -3,7 +3,7 @@ import markdownItKatex from '@vscode/markdown-it-katex'
 import taskLists from 'markdown-it-task-lists'
 import DOMPurify from 'dompurify'
 import { createHighlighter } from 'shiki'
-import yaml from 'js-yaml'
+import { load as yamlLoad } from 'js-yaml'
 import { escapeHtml } from './html.js'
 import { normalizeCodeLanguage } from './file_preview.js'
 import { renderSvgBlocks } from './svgRenderer.js'
@@ -109,7 +109,7 @@ const markdownItFrontmatterCard = (md) => {
     let data
 
     try {
-      data = yaml.load(rawYaml) || {}
+      data = yamlLoad(rawYaml) || {}
     } catch {
       return false
     }

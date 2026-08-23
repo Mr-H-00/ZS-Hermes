@@ -6,7 +6,11 @@ from langchain.agents.middleware import ModelRetryMiddleware, TodoListMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 
 from yuxi.agents import BaseAgent, BaseState, load_chat_model, resolve_chat_model_spec
-from yuxi.agents.backends import create_agent_filesystem_middleware, sync_agent_context_skills
+from yuxi.agents.backends import (
+    create_agent_composite_backend,
+    create_agent_filesystem_middleware,
+    sync_agent_context_skills,
+)
 from yuxi.agents.buildin.chatbot.prompt import TODO_MID_PROMPT, build_prompt_with_context
 from yuxi.agents.buildin.subagent.context import SubAgentContext
 from yuxi.agents.context import (
@@ -62,7 +66,7 @@ class _SubAgentToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
         return await handler(request.override(tools=_filter_disabled_tools(request.tools or [], self.disabled_tools)))
 
 
-async def _build_middlewares(context, tool_approval_mode: str):
+async def _build_middlewares(context, backend, tool_approval_mode: str):
     # tool_approval_mode is normalized once by the caller (get_graph / SubAgentBackend.get_graph).
 
     summary_trigger_tokens = getattr(context, "summary_threshold", DEFAULT_SUMMARY_THRESHOLD_K) * 1024
@@ -77,7 +81,7 @@ async def _build_middlewares(context, tool_approval_mode: str):
     model_spec = resolve_chat_model_spec(context.model)
     summary_middleware = create_summary_middleware(
         model=load_chat_model(fully_specified_name=model_spec),
-        workdir_path=context.workdir_path,
+        backend=backend,
         trigger=("tokens", summary_trigger_tokens),
         keep=("messages", summary_keep_messages),
         summary_prompt=summary_prompt,
@@ -89,7 +93,7 @@ async def _build_middlewares(context, tool_approval_mode: str):
     return [
         create_agent_filesystem_middleware(
             getattr(context, "tool_token_limit", DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS) * 1024,
-            context=context,
+            backend=backend,
         ),
         SkillsMiddleware(),
         summary_middleware,
@@ -139,12 +143,13 @@ class SubAgentBackend(BaseAgent):
         model_spec = resolve_chat_model_spec(context.model)
         tool_approval_mode = normalize_tool_approval_mode(getattr(context, "tool_approval_mode", "default"))
         disabled_tools = _disabled_tools_for(tool_approval_mode)
+        backend = create_agent_composite_backend(context)
 
         return create_agent(
             model=load_chat_model(fully_specified_name=model_spec),
             tools=_filter_disabled_tools(await resolve_configured_runtime_tools(context), disabled_tools),
             system_prompt=build_prompt_with_context(context),
-            middleware=await _build_middlewares(context, tool_approval_mode),
+            middleware=await _build_middlewares(context, backend, tool_approval_mode),
             state_schema=BaseState,
             checkpointer=await self._get_checkpointer(),
         )

@@ -36,8 +36,8 @@ def _patch_common_graph_deps(monkeypatch: pytest.MonkeyPatch, graph_module, capt
 @pytest.mark.parametrize(
     ("graph_module", "threshold", "build_args", "patch_subagent_task"),
     [
-        (chatbot_graph, 123, (), True),
-        (subagent_graph, 64, ("default",), False),
+        (chatbot_graph, 123, (object(),), True),
+        (subagent_graph, 64, (object(), "default"), False),
     ],
 )
 @pytest.mark.unit

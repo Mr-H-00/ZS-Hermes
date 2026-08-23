@@ -357,6 +357,10 @@ class ProvisionerSandboxBackend(BaseSandbox):
         if not self._can_read_path(normalized_path):
             return ReadResult(error=_permission_error("read", normalized_path))
 
+        if limit is not None and int(limit) <= 0:
+            return ReadResult(no_lines_requested=True)
+        start_line = max(0, int(offset)) + 1
+
         document_read_error = (
             "read_file does not support PDF or Office documents. "
             "Use ocr_parse_file to convert the file to Markdown first."
@@ -374,19 +378,37 @@ class ProvisionerSandboxBackend(BaseSandbox):
                 return ReadResult(error=binary_read_error)
 
             try:
-                content = self._read_binary(normalized_path, offset=offset, limit=limit)
+                content = self._read_binary(
+                    normalized_path,
+                    offset=start_line - 1,
+                    limit=int(limit) if limit is not None else None,
+                )
             except Exception as exc:  # noqa: BLE001
                 if not _is_utf8_decode_failure(exc):
                     raise
                 return ReadResult(error=binary_read_error)
 
             if not _looks_like_binary(content):
-                return ReadResult(file_data={"content": content.decode("utf-8"), "encoding": "utf-8"})
+                return self._text_read_result(content.decode("utf-8"), start_line=start_line)
 
             return ReadResult(error=binary_read_error)
         except Exception as exc:  # noqa: BLE001
             error = _describe_read_error(file_path, exc)
             return ReadResult(error=error.removeprefix("Error: "))
+
+    @staticmethod
+    def _text_read_result(text: str, *, start_line: int) -> ReadResult:
+        """按 0.7 协议补齐分页窗口字段，支持可靠续读提示。"""
+        lines_returned = len(text.splitlines())
+        if lines_returned <= 0:
+            return ReadResult(file_data={"content": text, "encoding": "utf-8"})
+        end_line = start_line + lines_returned - 1
+        return ReadResult(
+            file_data={"content": text, "encoding": "utf-8"},
+            start_line=start_line,
+            end_line=end_line,
+            next_offset=end_line,
+        )
 
     def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
         """Execute a shell command in the sandbox.
@@ -570,8 +592,10 @@ finally:
         pattern: str,
         path: str | None = None,
         glob: str | None = None,
+        *,
+        max_count: int | None = None,
     ) -> GrepResult:
-        """Search allowed sandbox paths for literal text."""
+        """Search allowed sandbox paths for literal text with a global match cap."""
         try:
             normalized_path = _normalize_path(path or "/")
         except Exception as exc:  # noqa: BLE001
@@ -582,12 +606,25 @@ finally:
             return GrepResult(error=_permission_error("read", normalized_path))
 
         matches: list[GrepMatch] = []
+        truncated = False
         for search_path in search_paths:
-            result = super().grep(pattern=pattern, path=search_path, glob=glob)
+            if max_count is not None:
+                remaining = max(max_count - len(matches), 0)
+                if remaining == 0:
+                    truncated = True
+                    break
+            else:
+                remaining = None
+            result = super().grep(pattern=pattern, path=search_path, glob=glob, max_count=remaining)
             if result.error:
                 return result
             matches.extend(result.matches or [])
-        return GrepResult(matches=self._filter_readable_matches(matches))
+            truncated = truncated or result.truncated
+
+        if max_count is not None and len(matches) > max_count:
+            matches = matches[:max_count]
+            truncated = True
+        return GrepResult(matches=self._filter_readable_matches(matches), truncated=truncated)
 
     def glob(self, pattern: str, path: str = "/") -> GlobResult:
         """Return files matching a glob pattern under allowed sandbox paths."""

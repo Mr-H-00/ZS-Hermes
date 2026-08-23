@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
+from deepagents.backends import CompositeBackend
 from deepagents.middleware.summarization import SummarizationMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, get_buffer_string
 from langchain_core.exceptions import ContextOverflowError
 
-from yuxi.agents.backends.composite import create_agent_composite_backend
 from yuxi.agents.middlewares.summary import (
     YuxiSummarizationMiddleware,
     create_summary_middleware,
@@ -27,6 +27,9 @@ class _DummyModel:
 
     def _get_ls_params(self) -> dict[str, str]:
         return {"ls_provider": "openai"}
+
+    def with_retry(self, **_kwargs):
+        return self
 
     def invoke(self, _prompt: str, config: dict | None = None) -> SimpleNamespace:
         return SimpleNamespace(text="summary")
@@ -73,6 +76,15 @@ class _MemoryBackend:
 
     async def aedit(self, path: str, old_string: str, new_string: str) -> SimpleNamespace:
         return self.edit(path, old_string, new_string)
+
+
+def _scoped_backend(memory: _MemoryBackend | None = None) -> CompositeBackend:
+    """按 Yuxi 契约构造 outputs 根的 CompositeBackend，验证前缀自动派生。"""
+    return CompositeBackend(
+        default=memory if memory is not None else _MemoryBackend(),
+        routes={},
+        artifacts_root=f"{WORKDIR_PATH}/outputs",
+    )
 
 
 def _expected_tool_result_path(content: str, tool_name: str = "query_kb") -> str:
@@ -146,9 +158,10 @@ def compression_events(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 @pytest.mark.unit
 def test_create_summary_middleware_uses_deepagents_with_yuxi_outputs_root() -> None:
+    memory = _MemoryBackend()
     middleware = create_summary_middleware(
         model=_DummyModel(),
-        workdir_path=WORKDIR_PATH,
+        backend=_scoped_backend(memory),
         trigger=("tokens", 90_000),
         keep=("tokens", 45_000),
         trim_tokens_to_summarize=4000,
@@ -156,7 +169,7 @@ def test_create_summary_middleware_uses_deepagents_with_yuxi_outputs_root() -> N
 
     assert isinstance(middleware, SummarizationMiddleware)
     assert isinstance(middleware, YuxiSummarizationMiddleware)
-    assert middleware._backend is create_agent_composite_backend
+    assert middleware._backend.default is memory
     assert middleware._history_path_prefix == VIRTUAL_PATH_CONVERSATION_HISTORY
     assert middleware._large_tool_results_prefix == VIRTUAL_PATH_LARGE_TOOL_RESULTS
     assert middleware._lc_helper.trigger == ("tokens", 90_000)
@@ -170,7 +183,7 @@ def test_create_summary_middleware_passes_custom_summary_prompt() -> None:
     model = _RecordingModel()
     middleware = create_summary_middleware(
         model=model,
-        workdir_path=WORKDIR_PATH,
+        backend=_scoped_backend(),
         trigger=("messages", 3),
         keep=("messages", 1),
         summary_prompt="CUSTOM SUMMARY PROMPT\n用户要求和偏好必须记录\n{messages}",
@@ -200,7 +213,7 @@ def test_wrap_model_call_ignores_provider_reported_usage_for_token_trigger() -> 
     ]
     middleware = create_summary_middleware(
         model=model,
-        workdir_path=WORKDIR_PATH,
+        backend=_scoped_backend(backend),
         trigger=("tokens", 1_000),
         keep=("messages", 1),
         trim_tokens_to_summarize=None,
@@ -212,7 +225,6 @@ def test_wrap_model_call_ignores_provider_reported_usage_for_token_trigger() -> 
         captured_messages = request.messages
         return ModelResponse(result=[AIMessage(content="ok")])
 
-    middleware._backend_for_request = lambda _request: backend
     result = middleware.wrap_model_call(_model_request(messages), handler)
 
     assert not isinstance(result, ExtendedModelResponse)
@@ -417,7 +429,7 @@ def test_wrap_model_call_does_not_sanitize_without_summary_trigger() -> None:
     ]
     middleware = create_summary_middleware(
         model=_DummyModel(),
-        workdir_path=WORKDIR_PATH,
+        backend=_scoped_backend(backend),
         trigger=("messages", 100),
         keep=("messages", 10),
         trim_tokens_to_summarize=None,
@@ -429,7 +441,6 @@ def test_wrap_model_call_does_not_sanitize_without_summary_trigger() -> None:
         captured_messages = request.messages
         return ModelResponse(result=[AIMessage(content="ok")])
 
-    middleware._backend_for_request = lambda _request: backend
     result = middleware.wrap_model_call(_model_request(messages), handler)
 
     assert isinstance(result, ModelResponse)
@@ -643,7 +654,7 @@ def test_offload_history_uses_tool_messages_with_replaced_content() -> None:
     middleware._large_tool_results_prefix = VIRTUAL_PATH_LARGE_TOOL_RESULTS
 
     l1_messages = middleware._sanitize_messages_for_l1(_tool_messages(), backend=backend)
-    path = middleware._offload_to_backend(backend, l1_messages)
+    path = middleware._offload_to_backend(backend, l1_messages, "session-test")
 
     assert path is not None
     assert backend.writes
@@ -671,7 +682,6 @@ def _make_compressing_middleware(backend: _MemoryBackend) -> tuple[YuxiSummariza
     )
     middleware._history_path_prefix = VIRTUAL_PATH_CONVERSATION_HISTORY
     middleware._large_tool_results_prefix = VIRTUAL_PATH_LARGE_TOOL_RESULTS
-    middleware._backend_for_request = lambda _request: backend
     return middleware, large_result
 
 
@@ -722,12 +732,11 @@ async def test_awrap_model_call_emits_nothing_when_summary_not_triggered(compres
     backend = _MemoryBackend()
     middleware = create_summary_middleware(
         model=_DummyModel(),
-        workdir_path=WORKDIR_PATH,
+        backend=_scoped_backend(backend),
         trigger=("messages", 100),
         keep=("messages", 10),
         trim_tokens_to_summarize=None,
     )
-    middleware._backend_for_request = lambda _request: backend
     messages = [*_tool_messages(), HumanMessage(content="新的问题")]
 
     async def handler(request: ModelRequest) -> ModelResponse:

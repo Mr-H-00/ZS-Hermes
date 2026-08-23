@@ -25,8 +25,6 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.config import get_stream_writer
 from langgraph.constants import TAG_NOSTREAM
 
-from yuxi.agents.backends.composite import create_agent_composite_backend
-from yuxi.agents.backends.paths import workdir_runtime_paths
 from yuxi.utils.logging_config import logger
 
 _APPROX_CHARS_PER_TOKEN = 4
@@ -35,7 +33,6 @@ _DEFAULT_L1_L2_TRIGGER_RATIO = 0.4
 _DEFAULT_TOOL_ARG_MAX_LENGTH = 2000
 _TRUNCATED_TOOL_ARG_TEXT = "...(argument truncated for context view)"
 _TOOL_RESULT_SAVED_MARKER = "yuxi_tool_result_saved"
-_SUMMARY_BACKEND: ContextVar[Any | None] = ContextVar("yuxi_summary_backend", default=None)
 _SUMMARY_SANITIZED_MESSAGES: ContextVar[dict[tuple[int, ...], list[AnyMessage]] | None] = ContextVar(
     "yuxi_summary_sanitized_messages",
     default=None,
@@ -386,19 +383,6 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
             compacted.append(message)
         return compacted if modified else messages
 
-    def _count_request_tokens(
-        self,
-        messages: list[AnyMessage],
-        *,
-        system_message,
-        tools,
-    ) -> int:
-        counted_messages = [system_message, *messages] if system_message is not None else messages
-        try:
-            return self.token_counter(counted_messages, tools=tools)  # ty: ignore[unknown-argument]
-        except TypeError:
-            return self.token_counter(counted_messages)
-
     def _entry_trigger_tokens(self) -> int | None:
         token_thresholds: list[int] = []
         for clause in getattr(self._lc_helper, "_trigger_clauses", []) or []:
@@ -421,12 +405,6 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
             return True
         threshold = max(int(entry_threshold_tokens * self.l1_l2_trigger_ratio), 1)
         return compacted_total_tokens > threshold
-
-    def _backend_for_request(self, request: ModelRequest):
-        try:
-            return self._get_backend(request.state, request.runtime)
-        except Exception:
-            return None
 
     @staticmethod
     def _summarization_event_from_result(result: Any) -> dict | None:
@@ -466,7 +444,7 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
     def _create_summary(self, messages_to_summarize: list[AnyMessage]) -> str:
         sanitized = self._sanitize_messages_for_summary(
             messages_to_summarize,
-            backend=_SUMMARY_BACKEND.get(),
+            backend=self._backend,
         )
         if not sanitized:
             return "No previous conversation history."
@@ -481,7 +459,7 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
     async def _acreate_summary(self, messages_to_summarize: list[AnyMessage]) -> str:
         sanitized = self._sanitize_messages_for_summary(
             messages_to_summarize,
-            backend=_SUMMARY_BACKEND.get(),
+            backend=self._backend,
         )
         if not sanitized:
             return "No previous conversation history."
@@ -494,7 +472,7 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         except Exception as e:
             return f"Error generating summary: {e!s}"
 
-    def _offload_to_backend(self, backend, messages: list[AnyMessage]) -> str | None:
+    def _offload_to_backend(self, backend, messages: list[AnyMessage], session_id: str) -> str | None:
         _emit_compression_started_once()
         return super()._offload_to_backend(
             backend,
@@ -502,9 +480,10 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
                 messages,
                 backend=backend,
             ),
+            session_id,
         )
 
-    async def _aoffload_to_backend(self, backend, messages: list[AnyMessage]) -> str | None:
+    async def _aoffload_to_backend(self, backend, messages: list[AnyMessage], session_id: str) -> str | None:
         _emit_compression_started_once()
         return await super()._aoffload_to_backend(
             backend,
@@ -512,6 +491,7 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
                 messages,
                 backend=backend,
             ),
+            session_id,
         )
 
     def wrap_model_call(
@@ -519,7 +499,6 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
-        backend_token = _SUMMARY_BACKEND.set(self._backend_for_request(request))
         sanitized_token = _SUMMARY_SANITIZED_MESSAGES.set({})
         compression_state: dict[str, bool] = {"started": False}
         compression_token = _SUMMARY_COMPRESSION_STATE.set(compression_state)
@@ -535,14 +514,12 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         finally:
             _SUMMARY_COMPRESSION_STATE.reset(compression_token)
             _SUMMARY_SANITIZED_MESSAGES.reset(sanitized_token)
-            _SUMMARY_BACKEND.reset(backend_token)
 
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        backend_token = _SUMMARY_BACKEND.set(self._backend_for_request(request))
         sanitized_token = _SUMMARY_SANITIZED_MESSAGES.set({})
         compression_state: dict[str, bool] = {"started": False}
         compression_token = _SUMMARY_COMPRESSION_STATE.set(compression_state)
@@ -558,7 +535,6 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         finally:
             _SUMMARY_COMPRESSION_STATE.reset(compression_token)
             _SUMMARY_SANITIZED_MESSAGES.reset(sanitized_token)
-            _SUMMARY_BACKEND.reset(backend_token)
 
     def _wrap_model_call_with_l1(
         self,
@@ -566,16 +542,8 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse | ExtendedModelResponse:
         effective_messages = self._get_effective_messages(request)
-        truncated_messages, _ = self._truncate_args(
-            effective_messages,
-            request.system_message,
-            request.tools,
-        )
-        total_tokens = self._count_request_tokens(
-            truncated_messages,
-            system_message=request.system_message,
-            tools=request.tools,
-        )
+        total_tokens = self._count_tokens(effective_messages, request.system_message, request.tools)
+        truncated_messages, _ = self._truncate_args(effective_messages, total_tokens)
         should_run_l1 = self._should_run_l1(truncated_messages, total_tokens)
 
         overflow_triggered = False
@@ -585,16 +553,12 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
             except ContextOverflowError:
                 overflow_triggered = True
 
-        backend = self._get_backend(request.state, request.runtime)
+        backend = self._backend
         l1_messages = self._sanitize_messages_for_l1(truncated_messages, backend=backend)
         if should_run_l1:
             _emit_compression_started_once()
 
-        l1_total_tokens = self._count_request_tokens(
-            l1_messages,
-            system_message=request.system_message,
-            tools=request.tools,
-        )
+        l1_total_tokens = self._count_tokens(l1_messages, request.system_message, request.tools)
         should_run_l2 = overflow_triggered or self._should_run_l2(l1_total_tokens, self._entry_trigger_tokens())
 
         if not should_run_l2:
@@ -626,7 +590,12 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
                 large_tool_results_prefix=self._large_tool_results_prefix,
             )
 
-        file_path = self._offload_to_backend(backend, messages_to_summarize)
+        # 采纳 0.7 inline media offload：内联 data: 媒体先落盘为路径引用，
+        # offload 与 summary 两路都收到不含原始媒体字节的视图。
+        offloaded_media_messages, failed_media = self._offload_inline_media(backend, messages_to_summarize)
+        session_id = self._get_session_id(request.state)
+
+        file_path = self._offload_to_backend(backend, offloaded_media_messages, session_id)
         if file_path is None:
             msg = (
                 "Offloading conversation history to backend failed during summarization. "
@@ -634,8 +603,14 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
             )
             logger.error(msg)
             warnings.warn(msg, stacklevel=2)
+        elif failed_media:
+            logger.warning(
+                "Conversation history offloaded to %s, but %d media block(s) could not be offloaded.",
+                file_path,
+                failed_media,
+            )
 
-        summary = self._create_summary(messages_to_summarize)
+        summary = self._create_summary(offloaded_media_messages)
         new_messages = self._build_new_messages_with_path(summary, file_path)
         previous_event = request.state.get("_summarization_event")
         state_cutoff_index = self._compute_state_cutoff(previous_event, cutoff_index)
@@ -646,7 +621,10 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         }
 
         response = handler(request.override(messages=[*new_messages, *preserved_messages]))
-        update: dict[str, Any] = {"_summarization_event": new_event}
+        update: dict[str, Any] = {
+            "_summarization_event": new_event,
+            "_summarization_session_id": session_id,
+        }
         if new_state_tail:
             update["messages"] = list(new_state_tail)
         return ExtendedModelResponse(model_response=response, command=Command(update=update))
@@ -657,16 +635,8 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse | ExtendedModelResponse:
         effective_messages = self._get_effective_messages(request)
-        truncated_messages, _ = self._truncate_args(
-            effective_messages,
-            request.system_message,
-            request.tools,
-        )
-        total_tokens = self._count_request_tokens(
-            truncated_messages,
-            system_message=request.system_message,
-            tools=request.tools,
-        )
+        total_tokens = self._count_tokens(effective_messages, request.system_message, request.tools)
+        truncated_messages, _ = self._truncate_args(effective_messages, total_tokens)
         should_run_l1 = self._should_run_l1(truncated_messages, total_tokens)
 
         overflow_triggered = False
@@ -676,16 +646,12 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
             except ContextOverflowError:
                 overflow_triggered = True
 
-        backend = self._get_backend(request.state, request.runtime)
+        backend = self._backend
         l1_messages = self._sanitize_messages_for_l1(truncated_messages, backend=backend)
         if should_run_l1:
             _emit_compression_started_once()
 
-        l1_total_tokens = self._count_request_tokens(
-            l1_messages,
-            system_message=request.system_message,
-            tools=request.tools,
-        )
+        l1_total_tokens = self._count_tokens(l1_messages, request.system_message, request.tools)
         should_run_l2 = overflow_triggered or self._should_run_l2(l1_total_tokens, self._entry_trigger_tokens())
 
         if not should_run_l2:
@@ -720,9 +686,11 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         # Offload 与 summary 互相独立，并发执行以避免串行等待一次文件 I/O + 一次
         # LLM 调用；_SUMMARY_SANITIZED_MESSAGES 的 id 缓存保证两路 sanitize 不会重复
         # 写入工具结果文件，offload 失败返回 None 时 summary 仍可独立完成。
+        offloaded_media_messages, failed_media = await self._aoffload_inline_media(backend, messages_to_summarize)
+        session_id = self._get_session_id(request.state)
         file_path, summary = await asyncio.gather(
-            self._aoffload_to_backend(backend, messages_to_summarize),
-            self._acreate_summary(messages_to_summarize),
+            self._aoffload_to_backend(backend, offloaded_media_messages, session_id),
+            self._acreate_summary(offloaded_media_messages),
         )
         if file_path is None:
             msg = (
@@ -731,6 +699,12 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
             )
             logger.error(msg)
             warnings.warn(msg, stacklevel=2)
+        elif failed_media:
+            logger.warning(
+                "Conversation history offloaded to %s, but %d media block(s) could not be offloaded.",
+                file_path,
+                failed_media,
+            )
 
         new_messages = self._build_new_messages_with_path(summary, file_path)
         previous_event = request.state.get("_summarization_event")
@@ -742,7 +716,10 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
         }
 
         response = await handler(request.override(messages=[*new_messages, *preserved_messages]))
-        update: dict[str, Any] = {"_summarization_event": new_event}
+        update: dict[str, Any] = {
+            "_summarization_event": new_event,
+            "_summarization_session_id": session_id,
+        }
         if new_state_tail:
             update["messages"] = list(new_state_tail)
         return ExtendedModelResponse(model_response=response, command=Command(update=update))
@@ -751,7 +728,7 @@ class YuxiSummarizationMiddleware(SummarizationMiddleware):
 def create_summary_middleware(
     model: str | BaseChatModel,
     *,
-    workdir_path: str,
+    backend,
     trigger: ContextSize | list[ContextSize] | None,
     keep: ContextSize | list[ContextSize] | None,
     summary_prompt: str | None = None,
@@ -759,10 +736,14 @@ def create_summary_middleware(
     tool_result_offload_token_limit: int | None = _DEFAULT_SUMMARY_TOOL_RESULT_LIMIT_TOKENS,
     l1_l2_trigger_ratio: float = _DEFAULT_L1_L2_TRIGGER_RATIO,
 ) -> SummarizationMiddleware:
-    """Create DeepAgents summarization middleware using Yuxi's virtual outputs root."""
+    """Create DeepAgents summarization middleware bound to a per-run backend instance.
+
+    DeepAgents 0.7 要求 backend 是已初始化实例；history/large_tool_results 前缀由
+    CompositeBackend.artifacts_root 派生，不再手写私有前缀。
+    """
     middleware_kwargs = {
         "model": model,
-        "backend": create_agent_composite_backend,
+        "backend": backend,
         "trigger": trigger,
         "keep": keep,
         "token_counter": _count_tokens_for_summary_trigger,
@@ -772,8 +753,4 @@ def create_summary_middleware(
     }
     if summary_prompt and summary_prompt.strip():
         middleware_kwargs["summary_prompt"] = summary_prompt
-    middleware = YuxiSummarizationMiddleware(**middleware_kwargs)
-    large_tool_results_path, conversation_history_path = workdir_runtime_paths(workdir_path)
-    middleware._history_path_prefix = conversation_history_path
-    middleware._large_tool_results_prefix = large_tool_results_path
-    return middleware
+    return YuxiSummarizationMiddleware(**middleware_kwargs)

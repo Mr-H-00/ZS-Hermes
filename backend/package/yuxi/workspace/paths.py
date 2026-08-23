@@ -23,6 +23,18 @@ WORKSPACE_AGENT_CONTEXT_FILES = {
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 WORKDIR_PROJECTS_DIR_NAME = "projects"
 
+_raw_virtual_prefix = os.getenv("SANDBOX_VIRTUAL_PATH_PREFIX")
+VIRTUAL_PATH_PREFIX = (
+    _raw_virtual_prefix.strip() if _raw_virtual_prefix else "/home/gem/user-data"
+) or "/home/gem/user-data"
+if not VIRTUAL_PATH_PREFIX.startswith("/"):
+    VIRTUAL_PATH_PREFIX = f"/{VIRTUAL_PATH_PREFIX}"
+
+
+def runtime_workdir_path(workdir_path: str) -> str:
+    """把持久化 Workdir 标识映射到 Sandbox runtime。"""
+    return f"{VIRTUAL_PATH_PREFIX.rstrip('/')}/{normalize_workdir_path(workdir_path)}"
+
 
 def validate_thread_id(thread_id: str) -> str:
     value = str(thread_id or "").strip()

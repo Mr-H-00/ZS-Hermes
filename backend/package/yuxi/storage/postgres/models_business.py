@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
@@ -81,8 +82,10 @@ class Project(Base):
     workdir_path = Column(String(512), nullable=False, comment="UserWorkspace-relative Workdir path")
     directory_mode = Column(String(20), nullable=False, comment="managed/linked")
     idempotency_key = Column(String(128), nullable=True, comment="幂等创建键")
-    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False)
+    created_at = Column(DateTime, default=utc_now_naive, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, server_default=func.now(), nullable=False
+    )
 
     conversations = relationship("Conversation", back_populates="project")
 
