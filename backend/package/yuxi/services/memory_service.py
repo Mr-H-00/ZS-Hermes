@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 
 from sqlalchemy import text
-
 from yuxi.config.user import UserConfig
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
