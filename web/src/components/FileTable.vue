@@ -79,6 +79,20 @@
       />
     </a-modal>
 
+    <a-modal
+      v-model:open="renameFolderModalVisible"
+      title="重命名文件夹"
+      :confirm-loading="renameFolderLoading"
+      @ok="handleRenameFolder"
+    >
+      <a-input
+        v-model:value="renamedFolderName"
+        aria-label="文件夹名称"
+        placeholder="请输入文件夹名称"
+        @pressEnter="handleRenameFolder"
+      />
+    </a-modal>
+
     <FileBrowserTable
       class="knowledge-file-browser"
       :rows="files"
@@ -92,9 +106,11 @@
       :empty-text="emptyText"
       refreshable
       :refreshing="refreshing"
+      :breadcrumb-droppable="canUseFileMutations"
       @refresh="handleRefresh"
       @open-row="handleOpenRow"
       @breadcrumb-click="handleBreadcrumbPayloadClick"
+      @breadcrumb-drop="handleBreadcrumbDrop"
       @page-change="handleTablePageChange"
     >
       <template #breadcrumb-suffix>
@@ -233,7 +249,19 @@
       </template>
 
       <template #name="{ row }">
-        <span class="file-name-cell">
+        <span
+          class="file-name-cell"
+          :class="{
+            'is-dragging': draggedRecord?.file_id === row.file_id,
+            'is-drop-target': dragOverFolderId === row.file_id
+          }"
+          :draggable="canDragRow(row)"
+          @dragstart="handleDragStart($event, row)"
+          @dragover="handleDragOver($event, row)"
+          @dragleave="handleDragLeave($event, row)"
+          @drop.stop="handleDrop($event, row)"
+          @dragend="resetDragState"
+        >
           <template v-if="row.is_folder">
             <span class="folder-row" :title="row.filename" @click.stop="openFolder(row)">
               <FileTypeIcon is-dir :size="16" :style="{ marginRight: '8px' }" />
@@ -291,7 +319,7 @@
       </template>
 
       <template #cell-created_by="{ row }">
-        <span v-if="row.is_folder || !row.created_by" class="file-creator-empty">-</span>
+        <span v-if="row.is_virtual_folder || !row.created_by" class="file-creator-empty">-</span>
         <a-tooltip v-else :title="row.created_by_name || row.created_by">
           <span class="file-creator">
             <FallbackAvatar
@@ -310,7 +338,7 @@
 
       <template #cell-created_at="{ row, text }">
         <span class="file-time-cell">
-          {{ row.is_folder ? '-' : formatFileTableTime(text) }}
+          {{ row.is_virtual_folder ? '-' : formatFileTableTime(text) }}
         </span>
       </template>
 
@@ -326,6 +354,15 @@
             <template #content>
               <div class="file-action-list">
                 <template v-if="row.is_folder">
+                  <a-button
+                    v-if="canUseFileMutations"
+                    type="text"
+                    block
+                    @click="showRenameFolderModal(row)"
+                  >
+                    <template #icon><component :is="h(Pencil)" size="14" /></template>
+                    重命名
+                  </a-button>
                   <a-button
                     v-if="!readonly"
                     type="text"
@@ -438,6 +475,11 @@ import {
   getFileStatusView
 } from '@/utils/knowledge_file_policy'
 import {
+  canDragKnowledgeFile,
+  canDropKnowledgeFileIntoFolder,
+  canMutateKnowledgeFiles
+} from '@/utils/knowledgeFileMutations'
+import {
   CheckCircleFilled,
   HourglassFilled,
   CloseCircleFilled,
@@ -455,7 +497,8 @@ import {
   FileText,
   Database,
   Filter,
-  MoreHorizontal
+  MoreHorizontal,
+  Pencil
 } from 'lucide-vue-next'
 
 const store = useDatabaseStore()
@@ -522,10 +565,12 @@ const fileBreadcrumbItems = computed(() =>
   folderBreadcrumbs.value.map((item, index) => ({
     ...item,
     key: item.file_id || `root-${index}`,
-    name: item.filename || '全部文件'
+    name: item.filename || '全部文件',
+    dropDisabled: Boolean(item.is_virtual_folder)
   }))
 )
 const isFilteredView = computed(() => Boolean(store.fileBrowser.recursive))
+const isVirtualPathView = computed(() => Boolean(store.fileBrowser.pathPrefix))
 const refreshing = computed(() => store.state.databaseLoading || store.fileBrowser.loading)
 const lock = computed(() => store.state.lock)
 const batchDeleting = computed(() => store.state.batchDeleting)
@@ -619,6 +664,15 @@ const toggleSelectionMode = () => {
   }
 }
 
+const refreshAfterMutation = async () => {
+  try {
+    await handleRefresh()
+  } catch (error) {
+    console.error(error)
+    message.warning('操作已完成，但列表刷新失败，请手动刷新')
+  }
+}
+
 const handleCreateFolder = async () => {
   if (!newFolderName.value.trim()) {
     message.warning('请输入文件夹名称')
@@ -630,13 +684,124 @@ const handleCreateFolder = async () => {
     await documentApi.createFolder(store.kbId, newFolderName.value, currentParentId.value)
     message.success('创建成功')
     createFolderModalVisible.value = false
-    handleRefresh()
+    await refreshAfterMutation()
   } catch (error) {
     console.error(error)
     message.error('创建失败: ' + (error.message || '未知错误'))
   } finally {
     createFolderLoading.value = false
   }
+}
+
+const renameFolderModalVisible = ref(false)
+const renameFolderLoading = ref(false)
+const renamedFolderName = ref('')
+const folderBeingRenamed = ref(null)
+
+const showRenameFolderModal = (record) => {
+  if (!canUseFileMutations.value || record.is_virtual_folder) return
+  closePopover(record.file_id)
+  folderBeingRenamed.value = record
+  renamedFolderName.value = record.filename || ''
+  renameFolderModalVisible.value = true
+}
+
+const handleRenameFolder = async () => {
+  if (!canUseFileMutations.value || !folderBeingRenamed.value) return
+  const folderName = renamedFolderName.value.trim()
+  if (!folderName) {
+    message.warning('请输入文件夹名称')
+    return
+  }
+
+  renameFolderLoading.value = true
+  try {
+    await documentApi.renameFolder(store.kbId, folderBeingRenamed.value.file_id, folderName)
+    renameFolderModalVisible.value = false
+    message.success('重命名成功')
+    await refreshAfterMutation()
+  } catch (error) {
+    console.error(error)
+    message.error('重命名失败: ' + (error.message || '未知错误'))
+  } finally {
+    renameFolderLoading.value = false
+  }
+}
+
+const draggedRecord = ref(null)
+const dragOverFolderId = ref(null)
+
+const canUseFileMutations = computed(() =>
+  canMutateKnowledgeFiles({
+    readonly: readonly.value,
+    locked: lock.value,
+    filtered: isFilteredView.value,
+    virtualPath: isVirtualPathView.value
+  })
+)
+
+const canDragRow = (record) =>
+  canDragKnowledgeFile({
+    enabled: canUseFileMutations.value,
+    record,
+    breadcrumbs: fileBreadcrumbItems.value,
+    files: files.value
+  })
+
+const canDropInto = (target) => canDropKnowledgeFileIntoFolder(draggedRecord.value, target)
+
+const resetDragState = () => {
+  draggedRecord.value = null
+  dragOverFolderId.value = null
+}
+
+const handleDragStart = (event, record) => {
+  if (!canDragRow(record)) {
+    event.preventDefault()
+    return
+  }
+  draggedRecord.value = record
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', record.file_id)
+}
+
+const handleDragOver = (event, target) => {
+  if (!canDropInto(target)) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  dragOverFolderId.value = target.file_id
+}
+
+const handleDragLeave = (event, target) => {
+  if (event.currentTarget.contains(event.relatedTarget)) return
+  if (dragOverFolderId.value === target.file_id) dragOverFolderId.value = null
+}
+
+const moveDocument = async (record, targetFolderId) => {
+  if (!canUseFileMutations.value || !record || record.is_virtual_folder) return
+  try {
+    await documentApi.moveDocument(store.kbId, record.file_id, targetFolderId)
+    message.success(`已将“${record.filename}”移动到目标文件夹`)
+    await refreshAfterMutation()
+  } catch (error) {
+    console.error(error)
+    message.error('移动失败: ' + (error.message || '未知错误'))
+  }
+}
+
+const handleDrop = async (event, target) => {
+  if (!canDropInto(target)) return
+  event.preventDefault()
+  const record = draggedRecord.value
+  resetDragState()
+  await moveDocument(record, target.file_id)
+}
+
+const handleBreadcrumbDrop = async ({ item }) => {
+  if (!draggedRecord.value || item.dropDisabled) return
+  const record = draggedRecord.value
+  resetDragState()
+  await moveDocument(record, item.file_id || null)
 }
 
 // 入库/重新入库参数配置相关
@@ -807,9 +972,11 @@ const canBatchIndex = computed(() => {
   })
 })
 
-const handleRefresh = () => {
-  store.getDatabaseInfo(undefined, true, true)
-  store.loadDocumentFiles()
+const handleRefresh = async () => {
+  await Promise.all([
+    store.getDatabaseInfo(undefined, true, true),
+    store.loadDocumentFiles({ isBackground: true })
+  ])
 }
 
 const handleBreadcrumbClick = async (index) => {
@@ -1365,6 +1532,24 @@ import { generatePixelAvatar } from '@/utils/pixelAvatar'
   display: inline-flex;
   vertical-align: middle;
   width: auto;
+  border-radius: 4px;
+  transition:
+    background-color 0.12s ease,
+    box-shadow 0.12s ease,
+    opacity 0.12s ease;
+
+  &[draggable='true'] {
+    cursor: grab;
+  }
+
+  &.is-dragging {
+    opacity: 0.45;
+  }
+
+  &.is-drop-target {
+    background: var(--main-10);
+    box-shadow: 0 0 0 2px var(--main-200);
+  }
 }
 
 .main-btn {

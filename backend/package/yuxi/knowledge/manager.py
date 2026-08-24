@@ -118,11 +118,14 @@ class KnowledgeBaseManager:
         return kb_instance
 
     async def move_file(self, kb_id: str, file_id: str, new_parent_id: str | None) -> dict:
-        """
-        移动文件/文件夹
-        """
+        """移动文件或文件夹。"""
         kb_instance = await self.get_kb_executor(kb_id)
         return await kb_instance.move_file(kb_id, file_id, new_parent_id)
+
+    async def rename_folder(self, kb_id: str, folder_id: str, folder_name: str) -> dict:
+        """重命名真实文件夹。"""
+        kb_instance = await self.get_kb_executor(kb_id)
+        return await kb_instance.rename_folder(kb_id, folder_id, folder_name)
 
     async def get_kb_config(self, kb_id: str) -> KnowledgeBaseConfig:
         """读取知识库运行配置，Redis 未命中时回源 PostgreSQL。
@@ -442,12 +445,18 @@ class KnowledgeBaseManager:
                 return True
         return False
 
-    async def create_folder(self, kb_id: str, folder_name: str, parent_id: str = None) -> dict:
-        """Create a folder in the database."""
+    async def create_folder(
+        self,
+        kb_id: str,
+        folder_name: str,
+        parent_id: str | None = None,
+        operator_id: str | None = None,
+    ) -> dict:
+        """创建文件夹并刷新统计。"""
         kb_instance = await self.get_kb_executor(kb_id)
         return await self._run_with_stats_refresh(
             kb_id,
-            kb_instance.create_folder(kb_id, folder_name, parent_id),
+            kb_instance.create_folder(kb_id, folder_name, parent_id, operator_id),
         )
 
     async def create_database(

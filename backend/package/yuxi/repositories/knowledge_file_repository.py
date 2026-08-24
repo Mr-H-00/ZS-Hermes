@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
 
@@ -21,6 +22,13 @@ KB_FILE_STATS_CACHE_TTL = 10
 
 
 class KnowledgeFileRepository:
+    @asynccontextmanager
+    async def lock_file_tree(self, kb_id: str) -> AsyncIterator[None]:
+        """按知识库串行化目录树结构修改。"""
+        async with pg_manager.get_async_session_context() as session:
+            await session.execute(select(func.pg_advisory_xact_lock(func.hashtext(kb_id))))
+            yield
+
     async def aggregate_dashboard_stats(self) -> list[tuple[str, int, int, int]]:
         """按文件类型聚合真实文件数、大小与 Chunk 数。"""
         async with pg_manager.get_async_session_context() as session:

@@ -88,24 +88,45 @@
             <div class="file-management-info">
               <div class="file-info-title">
                 <div class="file-info-title-row">
-                  <button
+                  <div
                     v-if="canManageDatabase"
-                    type="button"
-                    class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
-                    @click="showAddFilesModal()"
+                    ref="uploadActionMenuRef"
+                    class="file-action-dropdown"
                   >
-                    <FileUp :size="14" />
-                    <span>上传</span>
-                  </button>
-                  <button
-                    v-if="canManageDatabase"
-                    type="button"
-                    class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
-                    @click="showCreateFolderModal"
-                  >
-                    <FolderPlus :size="14" />
-                    <span>新建文件夹</span>
-                  </button>
+                    <button
+                      type="button"
+                      class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
+                      @click="uploadActionMenuOpen = !uploadActionMenuOpen"
+                    >
+                      <Upload :size="14" />
+                      <span>上传</span>
+                      <ChevronDown
+                        :size="12"
+                        class="file-action-chevron"
+                        :class="{ 'is-open': uploadActionMenuOpen }"
+                      />
+                    </button>
+                    <Transition name="file-action-menu">
+                      <div v-if="uploadActionMenuOpen" class="file-action-menu">
+                        <button
+                          type="button"
+                          class="file-action-menu-item"
+                          @click="onUploadAction"
+                        >
+                          <Upload :size="14" />
+                          <span>上传文件</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="file-action-menu-item"
+                          @click="onCreateFolderAction"
+                        >
+                          <FolderPlus :size="14" />
+                          <span>新建文件夹</span>
+                        </button>
+                      </div>
+                    </Transition>
+                  </div>
                   <button
                     type="button"
                     class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
@@ -374,9 +395,9 @@ import {
   ArrowLeft,
   BarChart3,
   ClipboardList,
+  ChevronDown,
   Copy,
   Database as DatabaseIcon,
-  FileUp,
   FileText,
   FolderPlus,
   Hash,
@@ -384,7 +405,8 @@ import {
   Map as MapIcon,
   Network,
   Pencil,
-  Search
+  Search,
+  Upload
 } from 'lucide-vue-next'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
@@ -601,6 +623,25 @@ const showAddFilesModal = (options = {}) => {
 
 const showCreateFolderModal = () => {
   fileTableRef.value?.showCreateFolderModal()
+}
+
+const uploadActionMenuRef = ref(null)
+const uploadActionMenuOpen = ref(false)
+
+const onUploadAction = () => {
+  uploadActionMenuOpen.value = false
+  showAddFilesModal()
+}
+
+const onCreateFolderAction = () => {
+  uploadActionMenuOpen.value = false
+  showCreateFolderModal()
+}
+
+const onUploadMenuOutsideClick = (event) => {
+  if (uploadActionMenuRef.value && !uploadActionMenuRef.value.contains(event.target)) {
+    uploadActionMenuOpen.value = false
+  }
 }
 
 const folderTree = computed(() => {
@@ -919,10 +960,12 @@ onMounted(() => {
   loadChunkPresetOptions()
   loadDepartments()
   loadUsers()
+  document.addEventListener('click', onUploadMenuOutsideClick)
 })
 
 onUnmounted(() => {
   store.stopAutoRefresh()
+  document.removeEventListener('click', onUploadMenuOutsideClick)
 })
 </script>
 
@@ -1115,6 +1158,78 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.file-action-dropdown {
+  position: relative;
+
+  .extension-panel-action {
+    font-size: 12px;
+  }
+}
+
+.file-action-chevron {
+  transition: transform 0.15s ease;
+
+  &.is-open {
+    transform: rotate(180deg);
+  }
+}
+
+.file-action-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 130px;
+  padding: 4px;
+  background: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.file-action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gray-700);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+
+  &:hover {
+    background: var(--gray-100);
+    color: var(--gray-900);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+.file-action-menu-enter-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.file-action-menu-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.16s ease;
+}
+
+.file-action-menu-enter-from,
+.file-action-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
 }
 
 .file-panel-desc {

@@ -81,6 +81,10 @@ class AddUploadedDocumentsRequest(BaseModel):
     params: dict | None = None
 
 
+class MoveDocumentRequest(BaseModel):
+    new_parent_id: str | None
+
+
 class ParseDocumentsRequest(BaseModel):
     file_ids: list[str] = Field(default_factory=list)
     params: dict | None = None
@@ -1851,7 +1855,7 @@ async def create_folder(
     """创建文件夹"""
     try:
         await _ensure_database_supports_documents(kb_id, "文件夹创建")
-        return await knowledge_base.create_folder(kb_id, folder_name, parent_id)
+        return await knowledge_base.create_folder(kb_id, folder_name, parent_id, current_user.uid)
     except HTTPException:
         raise
     except Exception as e:
@@ -1859,18 +1863,38 @@ async def create_folder(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@knowledge.put("/databases/{kb_id}/folders/{folder_id}/rename")
+async def rename_folder(
+    kb_id: str,
+    folder_id: str,
+    folder_name: str = Body(..., embed=True),
+    current_user: User = Depends(require_knowledge_base_manage),
+):
+    """重命名真实文件夹。"""
+    try:
+        await _ensure_database_supports_documents(kb_id, "文件夹重命名")
+        return await knowledge_base.rename_folder(kb_id, folder_id, folder_name)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"重命名文件夹失败 {e}, {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @knowledge.put("/databases/{kb_id}/documents/{doc_id}/move")
 async def move_document(
     kb_id: str,
     doc_id: str,
-    new_parent_id: str | None = Body(..., embed=True),
+    request: MoveDocumentRequest,
     current_user: User = Depends(require_knowledge_base_manage),
 ):
     """移动文件或文件夹"""
-    logger.debug(f"Move document {doc_id} to {new_parent_id} in {kb_id}")
+    logger.debug(f"Move document {doc_id} to {request.new_parent_id} in {kb_id}")
     try:
         await _ensure_database_supports_documents(kb_id, "文件移动")
-        return await knowledge_base.move_file(kb_id, doc_id, new_parent_id)
+        return await knowledge_base.move_file(kb_id, doc_id, request.new_parent_id)
     except HTTPException:
         raise
     except ValueError as e:

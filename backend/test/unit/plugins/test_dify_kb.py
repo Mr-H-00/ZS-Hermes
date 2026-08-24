@@ -42,6 +42,14 @@ class _FakeAsyncClient:
         return _FakeResponse(self._response_payload)
 
 
+@pytest.mark.asyncio
+async def test_dify_rejects_folder_rename(tmp_path):
+    kb = DifyKB(str(tmp_path))
+
+    with pytest.raises(ValueError, match="只读检索连接器不支持该操作"):
+        await kb.rename_folder("kb-1", "folder-1", "renamed")
+
+
 def test_dify_create_params_config_and_validation():
     config = DifyKB.get_create_params_config()
     keys = [option["key"] for option in config["options"]]

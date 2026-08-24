@@ -5,10 +5,13 @@ Integration tests for knowledge router endpoints.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 from yuxi.knowledge.chunking.ragflow_like.presets import CHUNK_PRESET_IDS
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -151,6 +154,210 @@ async def test_document_exists_returns_false_for_missing_relative_path(test_clie
 
     assert response.status_code == 200, response.text
     assert response.json() == {"kb_id": kb_id, "filename": filename, "exists": False}
+
+
+async def test_folder_rename_and_move_persist_tree_changes(test_client, admin_headers, knowledge_database):
+    kb_id = knowledge_database["kb_id"]
+
+    async def create_folder(name, parent_id=None):
+        response = await test_client.post(
+            f"/api/knowledge/databases/{kb_id}/folders",
+            json={"folder_name": name, "parent_id": parent_id},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    source = await create_folder(f"source-{uuid.uuid4().hex[:6]}")
+    child = await create_folder("child", source["file_id"])
+    destination = await create_folder(f"destination-{uuid.uuid4().hex[:6]}")
+    assert source["created_at"]
+    assert source["created_by"]
+
+    rename_response = await test_client.put(
+        f"/api/knowledge/databases/{kb_id}/folders/{source['file_id']}/rename",
+        json={"folder_name": "renamed source"},
+        headers=admin_headers,
+    )
+    assert rename_response.status_code == 200, rename_response.text
+    assert rename_response.json()["filename"] == "renamed source"
+    assert rename_response.json()["path"] == "renamed source"
+
+    source_listing = await test_client.get(
+        f"/api/knowledge/databases/{kb_id}/documents",
+        params={"parent_id": source["file_id"]},
+        headers=admin_headers,
+    )
+    assert source_listing.status_code == 200, source_listing.text
+    assert [
+        (item["file_id"], item["parent_id"], item["filename"], item["created_by"])
+        for item in source_listing.json()["items"]
+    ] == [(child["file_id"], source["file_id"], "child", child["created_by"])]
+
+    move_response = await test_client.put(
+        f"/api/knowledge/databases/{kb_id}/documents/{child['file_id']}/move",
+        json={"new_parent_id": destination["file_id"]},
+        headers=admin_headers,
+    )
+    assert move_response.status_code == 200, move_response.text
+    assert move_response.json()["parent_id"] == destination["file_id"]
+
+    destination_listing = await test_client.get(
+        f"/api/knowledge/databases/{kb_id}/documents",
+        params={"parent_id": destination["file_id"]},
+        headers=admin_headers,
+    )
+    assert destination_listing.status_code == 200, destination_listing.text
+    assert [item["file_id"] for item in destination_listing.json()["items"]] == [child["file_id"]]
+
+    move_to_root_response = await test_client.put(
+        f"/api/knowledge/databases/{kb_id}/documents/{child['file_id']}/move",
+        json={"new_parent_id": None},
+        headers=admin_headers,
+    )
+    assert move_to_root_response.status_code == 200, move_to_root_response.text
+    assert move_to_root_response.json()["parent_id"] is None
+
+    root_listing = await test_client.get(
+        f"/api/knowledge/databases/{kb_id}/documents",
+        headers=admin_headers,
+    )
+    assert root_listing.status_code == 200, root_listing.text
+    assert child["file_id"] in {item["file_id"] for item in root_listing.json()["items"]}
+
+    missing_target_response = await test_client.put(
+        f"/api/knowledge/databases/{kb_id}/documents/{child['file_id']}/move",
+        json={},
+        headers=admin_headers,
+    )
+    assert missing_target_response.status_code == 422, missing_target_response.text
+
+
+async def test_folder_mutations_reject_invalid_name_and_directory_cycle(
+    test_client, admin_headers, knowledge_database
+):
+    kb_id = knowledge_database["kb_id"]
+
+    parent_response = await test_client.post(
+        f"/api/knowledge/databases/{kb_id}/folders",
+        json={"folder_name": f"parent-{uuid.uuid4().hex[:6]}", "parent_id": None},
+        headers=admin_headers,
+    )
+    assert parent_response.status_code == 200, parent_response.text
+    parent = parent_response.json()
+
+    child_response = await test_client.post(
+        f"/api/knowledge/databases/{kb_id}/folders",
+        json={"folder_name": "child", "parent_id": parent["file_id"]},
+        headers=admin_headers,
+    )
+    assert child_response.status_code == 200, child_response.text
+    child = child_response.json()
+
+    invalid_rename = await test_client.put(
+        f"/api/knowledge/databases/{kb_id}/folders/{parent['file_id']}/rename",
+        json={"folder_name": "invalid/name"},
+        headers=admin_headers,
+    )
+    assert invalid_rename.status_code == 400, invalid_rename.text
+    assert "path separators" in invalid_rename.json()["detail"]
+
+    cycle_move = await test_client.put(
+        f"/api/knowledge/databases/{kb_id}/documents/{parent['file_id']}/move",
+        json={"new_parent_id": child["file_id"]},
+        headers=admin_headers,
+    )
+    assert cycle_move.status_code == 400, cycle_move.text
+    assert "own subfolder" in cycle_move.json()["detail"]
+
+
+async def test_concurrent_folder_moves_cannot_create_cycle(test_client, admin_headers, knowledge_database):
+    kb_id = knowledge_database["kb_id"]
+
+    async def create_folder(name):
+        response = await test_client.post(
+            f"/api/knowledge/databases/{kb_id}/folders",
+            json={"folder_name": name, "parent_id": None},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    folder_a = await create_folder(f"concurrent-a-{uuid.uuid4().hex[:6]}")
+    folder_b = await create_folder(f"concurrent-b-{uuid.uuid4().hex[:6]}")
+    responses = await asyncio.gather(
+        test_client.put(
+            f"/api/knowledge/databases/{kb_id}/documents/{folder_a['file_id']}/move",
+            json={"new_parent_id": folder_b["file_id"]},
+            headers=admin_headers,
+        ),
+        test_client.put(
+            f"/api/knowledge/databases/{kb_id}/documents/{folder_b['file_id']}/move",
+            json={"new_parent_id": folder_a["file_id"]},
+            headers=admin_headers,
+        ),
+    )
+    assert sorted(response.status_code for response in responses) == [200, 400]
+
+    root_listing = await test_client.get(
+        f"/api/knowledge/databases/{kb_id}/documents",
+        headers=admin_headers,
+    )
+    assert root_listing.status_code == 200, root_listing.text
+    folder_ids = {folder_a["file_id"], folder_b["file_id"]}
+    root_ids = {item["file_id"] for item in root_listing.json()["items"]} & folder_ids
+    assert len(root_ids) == 1
+
+    root_id = root_ids.pop()
+    child_listing = await test_client.get(
+        f"/api/knowledge/databases/{kb_id}/documents",
+        params={"parent_id": root_id},
+        headers=admin_headers,
+    )
+    assert child_listing.status_code == 200, child_listing.text
+    assert {item["file_id"] for item in child_listing.json()["items"]} & folder_ids == folder_ids - {root_id}
+
+
+async def test_folder_move_waits_for_kb_tree_lock(test_client, admin_headers, knowledge_database):
+    kb_id = knowledge_database["kb_id"]
+
+    async def create_folder(name):
+        response = await test_client.post(
+            f"/api/knowledge/databases/{kb_id}/folders",
+            json={"folder_name": name, "parent_id": None},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    source = await create_folder(f"locked-source-{uuid.uuid4().hex[:6]}")
+    destination = await create_folder(f"locked-destination-{uuid.uuid4().hex[:6]}")
+    engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+    move_task = None
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:kb_id))"),
+                {"kb_id": kb_id},
+            )
+            move_task = asyncio.create_task(
+                test_client.put(
+                    f"/api/knowledge/databases/{kb_id}/documents/{source['file_id']}/move",
+                    json={"new_parent_id": destination["file_id"]},
+                    headers=admin_headers,
+                )
+            )
+            await asyncio.sleep(0.1)
+            assert not move_task.done(), "移动请求未等待知识库目录树锁"
+
+        move_response = await asyncio.wait_for(move_task, timeout=2)
+        assert move_response.status_code == 200, move_response.text
+        assert move_response.json()["parent_id"] == destination["file_id"]
+    finally:
+        if move_task is not None and not move_task.done():
+            move_task.cancel()
+            await asyncio.gather(move_task, return_exceptions=True)
+        await engine.dispose()
 
 
 async def test_create_database_with_chunk_preset(test_client, admin_headers):

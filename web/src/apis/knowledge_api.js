@@ -146,6 +146,18 @@ export const documentApi = {
     })
   },
 
+  renameFolder: async (kbId, folderId, folderName) => {
+    return apiAdminPut(`/api/knowledge/databases/${kbId}/folders/${folderId}/rename`, {
+      folder_name: folderName
+    })
+  },
+
+  moveDocument: async (kbId, documentId, newParentId) => {
+    return apiAdminPut(`/api/knowledge/databases/${kbId}/documents/${documentId}/move`, {
+      new_parent_id: newParentId
+    })
+  },
+
   /**
    * 添加文档到知识库
    * @param {string} kbId - 知识库ID

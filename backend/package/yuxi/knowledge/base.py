@@ -825,8 +825,14 @@ class KnowledgeBase(ABC):
         """检测当前知识库类型管理的外部资源不一致。"""
         return {"missing_collections": [], "missing_files": []}
 
-    async def create_folder(self, kb_id: str, folder_name: str, parent_id: str | None = None) -> dict:
-        """Create a folder in the database."""
+    async def create_folder(
+        self,
+        kb_id: str,
+        folder_name: str,
+        parent_id: str | None = None,
+        operator_id: str | None = None,
+    ) -> dict:
+        """创建文件夹并记录操作者。"""
         import uuid
 
         if parent_id:
@@ -846,9 +852,33 @@ class KnowledgeBase(ABC):
             "status": "done",
             "path": folder_name,
             "file_type": "folder",
+            "created_by": operator_id,
         }
         await self._persist_file_meta(folder_id, folder_meta)
         return folder_meta
+
+    async def rename_folder(self, kb_id: str, folder_id: str, folder_name: str) -> dict:
+        """重命名真实文件夹，不改写其子记录。"""
+        normalized_name = folder_name.strip()
+        if not normalized_name:
+            raise ValueError("Folder name cannot be empty")
+        if "/" in normalized_name or "\\" in normalized_name:
+            raise ValueError("Folder name cannot contain path separators")
+
+        meta = await self._load_file_meta(kb_id, folder_id)
+        if not meta.get("is_folder"):
+            raise ValueError("Document is not a folder")
+
+        from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
+
+        record = await KnowledgeFileRepository().update_fields(
+            file_id=folder_id,
+            kb_id=kb_id,
+            data={"filename": normalized_name, "path": normalized_name},
+        )
+        if record is None:
+            raise ValueError(f"File {folder_id} not found")
+        return self._file_record_to_meta(record)
 
     @abstractmethod
     async def update_content(
@@ -1059,31 +1089,36 @@ class KnowledgeBase(ABC):
         Returns:
             dict: Updated metadata
         """
-        meta = await self._load_file_meta(kb_id, file_id)
+        from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
 
-        # Basic cycle detection for folders
-        if meta.get("is_folder") and new_parent_id:
-            # Check if new_parent_id is a child of file_id (or is file_id itself)
-            if new_parent_id == file_id:
-                raise ValueError("Cannot move a folder into itself")
+        async with KnowledgeFileRepository().lock_file_tree(kb_id):
+            meta = await self._load_file_meta(kb_id, file_id)
 
-            # Walk up the tree from new_parent_id
-            current = new_parent_id
-            while current:
-                parent_meta = await self._load_file_meta(kb_id, current)
-                if current == new_parent_id and not parent_meta.get("is_folder"):
+            if meta.get("is_folder") and new_parent_id:
+                if new_parent_id == file_id:
+                    raise ValueError("Cannot move a folder into itself")
+
+                current = new_parent_id
+                while current:
+                    parent_meta = await self._load_file_meta(kb_id, current)
+                    if current == new_parent_id and not parent_meta.get("is_folder"):
+                        raise ValueError("Parent is not a folder")
+                    if current == file_id:
+                        raise ValueError("Cannot move a folder into its own subfolder")
+                    current = parent_meta.get("parent_id")
+            elif new_parent_id:
+                parent_meta = await self._load_file_meta(kb_id, new_parent_id)
+                if not parent_meta.get("is_folder"):
                     raise ValueError("Parent is not a folder")
-                if current == file_id:
-                    raise ValueError("Cannot move a folder into its own subfolder")
-                current = parent_meta.get("parent_id")
-        elif new_parent_id:
-            parent_meta = await self._load_file_meta(kb_id, new_parent_id)
-            if not parent_meta.get("is_folder"):
-                raise ValueError("Parent is not a folder")
 
-        meta["parent_id"] = new_parent_id
-        await self._persist_file_meta(file_id, meta)
-        return meta
+            record = await KnowledgeFileRepository().update_fields(
+                file_id=file_id,
+                kb_id=kb_id,
+                data={"parent_id": new_parent_id},
+            )
+            if record is None:
+                raise ValueError(f"File {file_id} not found")
+            return self._file_record_to_meta(record)
 
     @abstractmethod
     async def delete_file(self, kb_id: str, file_id: str) -> None:
