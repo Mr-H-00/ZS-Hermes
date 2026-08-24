@@ -28,3 +28,4 @@ export const shouldPollAgentPanelFilesystem = ({
 }
 
 export const FILE_TREE_SECTION = { key: 'file-tree', type: 'file-tree', title: '文件' }
+export const MESSAGE_DEBUG_SECTION = { key: 'message-debug', type: 'message-debug', title: '调试' }

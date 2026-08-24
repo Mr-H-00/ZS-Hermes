@@ -25,7 +25,6 @@ import { useTaskerStore } from '@/stores/tasker'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 import UserInfoComponent from '@/components/UserInfoComponent.vue'
-import DebugComponent from '@/components/DebugComponent.vue'
 import TaskCenterDrawer from '@/components/TaskCenterDrawer.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
 import ConversationNavSection from '@/components/ConversationNavSection.vue'
@@ -50,9 +49,6 @@ const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, threadCr
 const githubStars = ref(0)
 const isLoadingStars = ref(false)
 
-// Add state for debug modal
-const showDebugModal = ref(false)
-
 // Add state for settings modal
 const showSettingsModal = ref(false)
 const settingsInitialTab = ref('')
@@ -64,11 +60,6 @@ const conversationSearchOpen = ref(false)
 const openSettingsModal = (tab) => {
   settingsInitialTab.value = tab || (userStore.isAdmin ? 'base' : 'account')
   showSettingsModal.value = true
-}
-
-// Handle debug modal close
-const handleDebugModalClose = () => {
-  showDebugModal.value = false
 }
 
 const getRemoteConfig = async () => {
@@ -104,7 +95,18 @@ const fetchGithubStars = async () => {
   }
 }
 
+const handleGlobalKeydown = (e) => {
+  // Ctrl+Shift+D or Cmd+Shift+D: Toggle Debug Modal for SuperAdmin
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+    if (userStore.isSuperAdmin) {
+      e.preventDefault()
+      infoStore.showDebugModal = !infoStore.showDebugModal
+    }
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', handleGlobalKeydown)
   // 加载信息配置与知识库数据无依赖，可并行
   await Promise.all([infoStore.loadInfoConfig(), getRemoteDatabase()])
   await initAgentNavigation()
@@ -135,6 +137,7 @@ const startThreadStatusSync = () => {
 }
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
   if (threadStatusSyncTimer) {
     clearInterval(threadStatusSyncTimer)
     threadStatusSyncTimer = null
@@ -482,19 +485,6 @@ provide('settingsModal', {
       @select-file="handleSearchSelectFile"
     />
 
-    <!-- Debug Modal -->
-    <a-modal
-      v-model:open="showDebugModal"
-      title="调试面板"
-      width="90%"
-      :footer="null"
-      @cancel="handleDebugModalClose"
-      :maskClosable="true"
-      :destroyOnClose="true"
-      class="debug-modal"
-    >
-      <DebugComponent />
-    </a-modal>
     <TaskCenterDrawer v-if="userStore.isAdmin" />
     <SettingsModal
       v-model:visible="showSettingsModal"

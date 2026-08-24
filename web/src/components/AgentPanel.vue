@@ -19,6 +19,7 @@
           >
             <Folders v-if="section.type === 'file-tree'" :size="15" />
             <FileTypeIcon v-else-if="section.type === 'file'" :name="section.path" :size="15" />
+            <Bug v-else-if="section.type === 'message-debug'" :size="15" />
             <FallbackAvatar
               v-else
               :src="section.avatar"
@@ -217,6 +218,13 @@
           :active="activeSectionKey === section.key"
         />
       </div>
+      <div
+        v-if="hasMessageDebugSection"
+        v-show="activeSectionKey === 'message-debug'"
+        class="message-debug-section"
+      >
+        <MessageDebugPanel :messages="messages" />
+      </div>
     </div>
 
     <GlobalSearchModal
@@ -242,6 +250,7 @@ import {
   watch
 } from 'vue'
 import {
+  Bug,
   Download,
   Folders,
   Maximize2,
@@ -259,6 +268,7 @@ import GlobalSearchModal from '@/components/GlobalSearchModal.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import SubagentThreadView from '@/components/SubagentThreadView.vue'
+import MessageDebugPanel from '@/components/MessageDebugPanel.vue'
 import {
   createFilesystemRefreshGate,
   expandedKeysAfterFilesystemRefresh,
@@ -323,7 +333,8 @@ const props = defineProps({
   activeSectionKey: { type: String, default: 'file-tree' },
   filesystemVisible: { type: Boolean, default: false },
   filesystemPollingActive: { type: Boolean, default: false },
-  filesystemRefreshVersion: { type: Number, default: 0 }
+  filesystemRefreshVersion: { type: Number, default: 0 },
+  messages: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits([
@@ -370,6 +381,11 @@ const normalizedSections = computed(() =>
 )
 const subagentSections = computed(() =>
   normalizedSections.value.filter((section) => section.type === 'subagent' && section.threadId)
+)
+const hasMessageDebugSection = computed(() =>
+  normalizedSections.value.some(
+    (section) => section.type === 'message-debug' || section.key === 'message-debug'
+  )
 )
 const activeSection = computed(
   () => normalizedSections.value.find((section) => section.key === props.activeSectionKey) || null
@@ -1455,7 +1471,8 @@ watch(
 }
 
 .file-section,
-.subagent-section {
+.subagent-section,
+.message-debug-section {
   width: 100%;
   height: 100%;
   min-height: 0;

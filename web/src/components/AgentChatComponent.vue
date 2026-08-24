@@ -21,6 +21,16 @@
         </div>
         <div class="header__right">
           <button
+            v-if="messageDebugEnabled"
+            type="button"
+            class="agent-nav-btn agent-debug-mode-btn"
+            title="调试模式已开启：点击打开消息时序调试面板"
+            @click.stop="toggleMessageDebugPanel"
+          >
+            <Bug size="15" class="nav-btn-icon debug-icon" />
+            <span class="hide-text">Debug</span>
+          </button>
+          <button
             v-if="showStateEntry"
             type="button"
             class="agent-nav-btn agent-state-btn state-entry-btn"
@@ -736,6 +746,7 @@
         <AgentPanel
           :agent-state="currentAgentState"
           :thread-id="currentChatId"
+          :messages="currentDebugMessages"
           :panel-ratio="panelRatio"
           :preview-tabs="agentPanelPreviewTabs"
           :preview-cache="agentPanelPreviewCache"
@@ -780,6 +791,7 @@ import {
 } from 'vue'
 import { message } from 'ant-design-vue'
 import {
+  Bug,
   ChevronDown,
   CornerDownRight,
   Folders,
@@ -818,7 +830,10 @@ import { useAgentStore } from '@/stores/agent'
 import { useChatThreadsStore } from '@/stores/chatThreads'
 import { useChatUIStore } from '@/stores/chatUI'
 import { useConfigStore } from '@/stores/config'
+import { useInfoStore } from '@/stores/info'
+import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
+import { mergeMessageDebugMessages } from '@/utils/messageDebug'
 import { MessageProcessor } from '@/utils/messageProcessor'
 import { agentApi, threadApi } from '@/apis'
 import HumanApprovalModal from '@/components/HumanApprovalModal.vue'
@@ -842,6 +857,7 @@ import { createSingleFlight } from '@/utils/singleFlight'
 import { createThreadForContext } from '@/utils/threadCreation'
 import {
   FILE_TREE_SECTION,
+  MESSAGE_DEBUG_SECTION,
   closeAgentPanelSection as closePanelSectionState,
   shouldPollAgentPanelFilesystem,
   upsertAgentPanelSection
@@ -868,6 +884,9 @@ const agentStore = useAgentStore()
 const chatThreadsStore = useChatThreadsStore()
 const chatUIStore = useChatUIStore()
 const configStore = useConfigStore()
+const infoStore = useInfoStore()
+const userStore = useUserStore()
+const messageDebugEnabled = computed(() => infoStore.debugMode && userStore.isSuperAdmin)
 const { agents, selectedAgentId, agentConfig, configurableItems, availableKnowledgeBases } =
   storeToRefs(agentStore)
 const { threads, currentThreadId, currentThread, threadCreationInFlight } =
@@ -1716,6 +1735,20 @@ const openSubagentThread = (run) => {
   statePanelOpen.value = false
   panelRatio.value = clampPanelRatio(previewPanelRatio)
 }
+
+const toggleMessageDebugPanel = () => {
+  if (isFilePanelOpen.value && agentPanelActiveSectionKey.value === MESSAGE_DEBUG_SECTION.key) {
+    closeFilePanel()
+    return
+  }
+  agentPanelSections.value = upsertAgentPanelSection(
+    agentPanelSections.value,
+    MESSAGE_DEBUG_SECTION
+  )
+  agentPanelActiveSectionKey.value = MESSAGE_DEBUG_SECTION.key
+  isFilePanelOpen.value = true
+  statePanelOpen.value = false
+}
 const activateAgentPanelSection = (key) => {
   const section = agentPanelSections.value.find((item) => item.key === key)
   if (!section) return
@@ -1738,6 +1771,19 @@ const closeAgentPanelSection = (key) => {
   agentPanelSections.value = next.sections
   agentPanelActiveSectionKey.value = next.activeKey
 }
+
+watch(
+  messageDebugEnabled,
+  (enabled) => {
+    if (enabled) return
+    const hadDebugSection = agentPanelSections.value.some(
+      (section) => section.key === MESSAGE_DEBUG_SECTION.key
+    )
+    if (!hadDebugSection) return
+    closeAgentPanelSection(MESSAGE_DEBUG_SECTION.key)
+  }
+)
+
 const isStateSectionExpanded = (key) => !collapsedStateSections[key]
 const toggleStateSection = (key) => {
   collapsedStateSections[key] = !collapsedStateSections[key]
@@ -1859,6 +1905,13 @@ const getThreadOngoingMessages = (threadId) => {
 }
 
 const onGoingConvMessages = computed(() => getThreadOngoingMessages(currentChatId.value))
+const currentDebugMessages = computed(() =>
+  mergeMessageDebugMessages(
+    currentThreadMessages.value,
+    onGoingConvMessages.value,
+    currentThreadState.value?.activeRunId || null
+  )
+)
 
 // 供深层 TaskTool 读取子线程实时轨迹 / 首次运行时定位 child_thread_id
 provide('getThreadOngoingMessages', getThreadOngoingMessages)
@@ -5341,5 +5394,21 @@ watch(currentChatId, (threadId, oldThreadId) => {
 .agent-nav-btn.agent-state-btn.active {
   color: var(--gray-900);
   background-color: var(--gray-100);
+}
+
+.agent-nav-btn.agent-debug-mode-btn {
+  color: var(--gray-800);
+  background-color: var(--gray-100);
+  border: 1px solid var(--gray-300);
+
+  &:hover {
+    background-color: var(--gray-200);
+    color: var(--gray-1000);
+    border-color: var(--gray-400);
+  }
+
+  .debug-icon {
+    color: var(--gray-700);
+  }
 }
 </style>
