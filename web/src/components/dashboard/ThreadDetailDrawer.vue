@@ -28,7 +28,9 @@
         <div class="meta-grid">
           <div class="meta-item">
             <span class="meta-label">Thread ID</span>
-            <span class="meta-value code-font" :title="detail.thread_id">{{ detail.thread_id }}</span>
+            <span class="meta-value code-font" :title="detail.thread_id">{{
+              detail.thread_id
+            }}</span>
           </div>
           <div class="meta-item">
             <span class="meta-label">所属智能体</span>
@@ -96,7 +98,11 @@
                 <a-tag v-if="msg.token_count" size="small" class="token-tag">
                   {{ msg.token_count }} tokens
                 </a-tag>
-                <a-tag v-if="msg.message_type && msg.message_type !== 'text'" size="small" color="purple">
+                <a-tag
+                  v-if="msg.message_type && msg.message_type !== 'text'"
+                  size="small"
+                  color="purple"
+                >
                   {{ msg.message_type }}
                 </a-tag>
               </div>
@@ -118,14 +124,29 @@
                   class="tool-call-item"
                   :class="tc.status"
                 >
-                  <div class="tool-call-summary" @click="toggleToolExpand(tc.id || `${index}-${tcIdx}`)">
+                  <div
+                    class="tool-call-summary"
+                    @click="toggleToolExpand(tc.id || `${index}-${tcIdx}`)"
+                  >
                     <div class="tool-name-wrap">
                       <span class="tool-name">{{ tc.tool_name }}</span>
                       <a-tag
-                        :color="tc.status === 'success' ? 'green' : tc.status === 'error' ? 'red' : 'orange'"
+                        :color="
+                          tc.status === 'success'
+                            ? 'green'
+                            : tc.status === 'error'
+                              ? 'red'
+                              : 'orange'
+                        "
                         size="small"
                       >
-                        {{ tc.status === 'success' ? '成功' : tc.status === 'error' ? '失败' : '执行中' }}
+                        {{
+                          tc.status === 'success'
+                            ? '成功'
+                            : tc.status === 'error'
+                              ? '失败'
+                              : '执行中'
+                        }}
                       </a-tag>
                     </div>
                     <span class="tool-expand-arrow">
@@ -133,7 +154,10 @@
                     </span>
                   </div>
 
-                  <div v-if="isToolExpanded(tc.id || `${index}-${tcIdx}`)" class="tool-call-details">
+                  <div
+                    v-if="isToolExpanded(tc.id || `${index}-${tcIdx}`)"
+                    class="tool-call-details"
+                  >
                     <div v-if="tc.tool_input" class="tool-detail-section">
                       <div class="detail-label">输入参数 (Input):</div>
                       <pre class="json-code">{{ formatJson(tc.tool_input) }}</pre>

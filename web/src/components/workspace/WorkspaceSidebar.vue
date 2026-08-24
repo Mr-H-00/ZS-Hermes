@@ -129,7 +129,13 @@ const props = defineProps({
   uploading: { type: Boolean, default: false }
 })
 
-defineEmits(['select-personal', 'select-database', 'select-path', 'upload-file', 'create-directory'])
+defineEmits([
+  'select-personal',
+  'select-database',
+  'select-path',
+  'upload-file',
+  'create-directory'
+])
 
 const myDatabases = computed(() =>
   props.databases.filter((db) => db.created_by === props.currentUid)

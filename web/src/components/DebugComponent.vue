@@ -29,7 +29,9 @@
             title="点击切换消息调试模式"
           >
             <Bug :size="13" class="switch-icon" />
-            <span class="switch-label">对话 Debug: {{ infoStore.debugMode ? '已开启' : '已关闭' }}</span>
+            <span class="switch-label"
+              >对话 Debug: {{ infoStore.debugMode ? '已开启' : '已关闭' }}</span
+            >
           </div>
 
           <!-- 全屏切换 -->
@@ -136,7 +138,9 @@
                     :class="{ 'auto-refreshing': state.autoRefresh }"
                   >
                     <template #icon><Clock :size="13" /></template>
-                    <span class="refresh-countdown">{{ state.autoRefresh ? '自动刷新 (5s)' : '自动刷新: 关' }}</span>
+                    <span class="refresh-countdown">{{
+                      state.autoRefresh ? '自动刷新 (5s)' : '自动刷新: 关'
+                    }}</span>
                   </a-button>
                 </a-tooltip>
 
@@ -354,12 +358,18 @@
                     </div>
                     <div class="kv-row">
                       <span class="k">超级管理员 (isSuperAdmin)</span>
-                      <span class="v font-mono">{{ userStore.isSuperAdmin ? 'true' : 'false' }}</span>
+                      <span class="v font-mono">{{
+                        userStore.isSuperAdmin ? 'true' : 'false'
+                      }}</span>
                     </div>
                     <div class="kv-row">
                       <span class="k">Token 状态</span>
                       <span class="v font-mono">
-                        {{ userStore.token ? `${userStore.token.slice(0, 12)}...${userStore.token.slice(-6)}` : '未登录' }}
+                        {{
+                          userStore.token
+                            ? `${userStore.token.slice(0, 12)}...${userStore.token.slice(-6)}`
+                            : '未登录'
+                        }}
                       </span>
                     </div>
                   </div>
@@ -506,16 +516,41 @@
                     </td>
                     <td style="text-align: right">
                       <div class="table-actions-group">
-                        <a-button size="small" type="text" class="table-action-btn" @click="viewStorageDetail(item)" title="查看完整数据">
+                        <a-button
+                          size="small"
+                          type="text"
+                          class="table-action-btn"
+                          @click="viewStorageDetail(item)"
+                          title="查看完整数据"
+                        >
                           <template #icon><Eye :size="13" /></template>
                         </a-button>
-                        <a-button size="small" type="text" class="table-action-btn" @click="copyStorageValue(item.value)" title="复制内容">
+                        <a-button
+                          size="small"
+                          type="text"
+                          class="table-action-btn"
+                          @click="copyStorageValue(item.value)"
+                          title="复制内容"
+                        >
                           <template #icon><Copy :size="13" /></template>
                         </a-button>
-                        <a-button size="small" type="text" class="table-action-btn" @click="editStorageItem(item)" title="编辑值">
+                        <a-button
+                          size="small"
+                          type="text"
+                          class="table-action-btn"
+                          @click="editStorageItem(item)"
+                          title="编辑值"
+                        >
                           <template #icon><Edit3 :size="13" /></template>
                         </a-button>
-                        <a-button size="small" type="text" danger class="table-action-btn danger" @click="deleteStorageKey(item.key)" title="删除此键">
+                        <a-button
+                          size="small"
+                          type="text"
+                          danger
+                          class="table-action-btn danger"
+                          @click="deleteStorageKey(item.key)"
+                          title="删除此键"
+                        >
                           <template #icon><Trash2 :size="13" /></template>
                         </a-button>
                       </div>
@@ -539,7 +574,9 @@
                   <div class="setting-inline-row">
                     <div class="setting-text">
                       <span class="setting-name">对话消息 Debug 模式</span>
-                      <span class="setting-desc">在 Agent 侧栏查看消息时序、工具名称与原始 JSON</span>
+                      <span class="setting-desc"
+                        >在 Agent 侧栏查看消息时序、工具名称与原始 JSON</span
+                      >
                     </div>
                     <a-switch :checked="infoStore.debugMode" @change="toggleDebugMode" />
                   </div>
@@ -547,7 +584,10 @@
                   <div class="setting-inline-row">
                     <div class="setting-text">
                       <span class="setting-name">全屏调试快捷键</span>
-                      <span class="setting-desc">按 <kbd>Ctrl + Shift + D</kbd> (Mac 下 <kbd>Cmd + Shift + D</kbd>) 快速开启/关闭</span>
+                      <span class="setting-desc"
+                        >按 <kbd>Ctrl + Shift + D</kbd> (Mac 下 <kbd>Cmd + Shift + D</kbd>)
+                        快速开启/关闭</span
+                      >
                     </div>
                     <a-button size="small" @click="reloadAllStores">
                       <template #icon><RefreshCw :size="13" /></template>
@@ -565,7 +605,13 @@
     <!-- 查看/编辑 LocalStorage 弹窗 -->
     <a-modal
       v-model:open="state.storageModalVisible"
-      :title="state.storageModalMode === 'edit' ? '编辑 LocalStorage' : (state.storageModalMode === 'add' ? '新增 LocalStorage 键值' : '查看 LocalStorage 详情')"
+      :title="
+        state.storageModalMode === 'edit'
+          ? '编辑 LocalStorage'
+          : state.storageModalMode === 'add'
+            ? '新增 LocalStorage 键值'
+            : '查看 LocalStorage 详情'
+      "
       :footer="null"
       width="640px"
     >
@@ -583,7 +629,12 @@
           <div class="label-with-action">
             <label class="form-label">值 (Value)</label>
             <div class="action-links">
-              <a-button v-if="state.storageModalMode !== 'view'" size="small" type="link" @click="formatModalValueJson">
+              <a-button
+                v-if="state.storageModalMode !== 'view'"
+                size="small"
+                type="link"
+                @click="formatModalValueJson"
+              >
                 格式化 JSON
               </a-button>
               <a-button size="small" type="link" @click="copyStorageValue(state.modalStorageValue)">
@@ -616,16 +667,7 @@
 </template>
 
 <script setup>
-import {
-  ref,
-  reactive,
-  computed,
-  onMounted,
-  onActivated,
-  onUnmounted,
-  nextTick,
-  watch
-} from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onUnmounted, nextTick, watch } from 'vue'
 import { useConfigStore } from '@/stores/config'
 import { useUserStore } from '@/stores/user'
 import { useDatabaseStore } from '@/stores/database'
@@ -741,16 +783,14 @@ function parseLogLine(line) {
 
 // 处理日志过滤
 const processedLogs = computed(() => {
-  return state.rawLogs
-    .map(parseLogLine)
-    .filter((log) => {
-      if (!log) return false
-      if (log.level && !state.selectedLevels.includes(log.level.toUpperCase())) {
-        return false
-      }
-      if (!state.searchText) return true
-      return log.raw.toLowerCase().includes(state.searchText.toLowerCase())
-    })
+  return state.rawLogs.map(parseLogLine).filter((log) => {
+    if (!log) return false
+    if (log.level && !state.selectedLevels.includes(log.level.toUpperCase())) {
+      return false
+    }
+    if (!state.searchText) return true
+    return log.raw.toLowerCase().includes(state.searchText.toLowerCase())
+  })
 })
 
 // 导航 Tab 定义 (移除了知识库状态与智能体运行时)
@@ -758,7 +798,12 @@ const tabs = computed(() => [
   { key: 'logs', label: '系统日志', icon: FileText, badge: processedLogs.value.length || null },
   { key: 'config', label: '系统配置', icon: Settings },
   { key: 'user', label: '用户与会话', icon: User },
-  { key: 'storage', label: '本地存储', icon: HardDrive, badge: state.localStorageList.length || null }
+  {
+    key: 'storage',
+    label: '本地存储',
+    icon: HardDrive,
+    badge: state.localStorageList.length || null
+  }
 ])
 
 // 格式化时间戳
@@ -957,9 +1002,7 @@ const toggleFullscreen = async () => {
 }
 
 const handleFullscreenChange = () => {
-  state.isFullscreen = Boolean(
-    document.fullscreenElement || document.webkitFullscreenElement
-  )
+  state.isFullscreen = Boolean(document.fullscreenElement || document.webkitFullscreenElement)
 }
 
 onMounted(() => {

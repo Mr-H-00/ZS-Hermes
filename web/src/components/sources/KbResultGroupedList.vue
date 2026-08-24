@@ -5,11 +5,7 @@
     </div>
 
     <div class="kb-results" v-if="normalizedChunks.length > 0">
-      <div
-        v-for="fileGroup in fileGroupList"
-        :key="fileGroup.key"
-        class="file-group-item"
-      >
+      <div v-for="fileGroup in fileGroupList" :key="fileGroup.key" class="file-group-item">
         <button
           class="file-info"
           :aria-label="`查看 ${fileGroup.filename} 的检索片段`"
@@ -37,10 +33,7 @@
       <p>{{ emptyText }}</p>
     </div>
 
-    <KbFileChunksModal
-      v-model:open="chunksModalVisible"
-      :file-group="selectedFileGroup"
-    />
+    <KbFileChunksModal v-model:open="chunksModalVisible" :file-group="selectedFileGroup" />
 
     <FileDetailModal
       v-model:open="fileDetailOpen"

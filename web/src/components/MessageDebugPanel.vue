@@ -147,11 +147,7 @@
 
             <!-- 展开后的折叠式 JSON 树 -->
             <div v-if="expandedItemIds.has(item.id)" class="item-body">
-              <JsonTreeViewer
-                :data="item.raw"
-                :default-expanded-depth="1"
-                :show-toolbar="false"
-              />
+              <JsonTreeViewer :data="item.raw" :default-expanded-depth="1" :show-toolbar="false" />
             </div>
           </div>
         </section>
@@ -383,7 +379,6 @@ const copyAllTimelineJson = async () => {
     message.error('复制失败')
   }
 }
-
 </script>
 
 <style scoped lang="less">
@@ -393,8 +388,8 @@ const copyAllTimelineJson = async () => {
   height: 100%;
   background: var(--gray-0);
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 /* 顶部工具栏 */

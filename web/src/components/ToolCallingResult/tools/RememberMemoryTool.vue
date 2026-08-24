@@ -39,7 +39,9 @@ const props = defineProps({
 
 const argsView = computed(() => {
   const args = parseToolCallArgs(props.toolCall)
-  const content = String(args.content || '').replace(/\s+/g, ' ').trim()
+  const content = String(args.content || '')
+    .replace(/\s+/g, ' ')
+    .trim()
   return {
     contentPreview: content.length > 60 ? `${content.slice(0, 60)}…` : content,
     isReplace: Boolean(args.replaces)

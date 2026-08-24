@@ -554,8 +554,7 @@ const RECOMMENDED_SUITES = [
       {
         slug: 'minimax-pdf',
         name: 'minimax-pdf',
-        description:
-          '高视觉质量与设计感的 PDF 生成、表单字段填写、样式转换与专业打印级文档排版。'
+        description: '高视觉质量与设计感的 PDF 生成、表单字段填写、样式转换与专业打印级文档排版。'
       }
     ]
   },
@@ -563,29 +562,25 @@ const RECOMMENDED_SUITES = [
     id: 'skill-builder-suite',
     name: 'Skill 能力与进化套件',
     provider: 'Community',
-    description:
-      '用于 Agent 技能发现、创建、评测调优与自主进化的核心工具合集。',
+    description: '用于 Agent 技能发现、创建、评测调优与自主进化的核心工具合集。',
     skills: [
       {
         slug: 'skill-creator',
         name: 'skill-creator',
         source: 'https://modelscope.cn/skills/@anthropics/skill-creator',
-        description:
-          '创建新技能、修改与优化现有技能，并通过方差基准分析评测技能表现与调优描述。'
+        description: '创建新技能、修改与优化现有技能，并通过方差基准分析评测技能表现与调优描述。'
       },
       {
         slug: 'find-skills',
         name: 'find-skills',
         source: 'https://modelscope.cn/skills/@vercel-labs/find-skills',
-        description:
-          '协助智能体根据用户需求检索并发现可安装的开源 Agent Skills，动态扩展自身能力。'
+        description: '协助智能体根据用户需求检索并发现可安装的开源 Agent Skills，动态扩展自身能力。'
       },
       {
         slug: 'self-improving-agent',
         name: 'self-improving-agent',
         source: 'https://github.com/zhaono1/agent-playbook',
-        description:
-          '通用自我进化技能，基于多重记忆架构从经验与错误中持续学习并自我迭代。'
+        description: '通用自我进化技能，基于多重记忆架构从经验与错误中持续学习并自我迭代。'
       }
     ]
   }

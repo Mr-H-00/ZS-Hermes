@@ -551,7 +551,7 @@ export const useDatabaseStore = defineStore('database', () => {
   }
 
   async function parsePendingFiles(paramsOrCount = {}, count = 0) {
-    const params = typeof paramsOrCount === 'number' ? {} : (paramsOrCount || {})
+    const params = typeof paramsOrCount === 'number' ? {} : paramsOrCount || {}
     const totalCount = typeof paramsOrCount === 'number' ? paramsOrCount : count
     state.chunkLoading = true
     try {
@@ -565,7 +565,12 @@ export const useDatabaseStore = defineStore('database', () => {
             name: `文档解析 (${kbId.value})`,
             task_type: 'knowledge_parse',
             message: data.message,
-            payload: { kb_id: kbId.value, count: data.queued_count || totalCount, scope: 'pending', params }
+            payload: {
+              kb_id: kbId.value,
+              count: data.queued_count || totalCount,
+              scope: 'pending',
+              params
+            }
           })
         }
         await delayedRefresh()

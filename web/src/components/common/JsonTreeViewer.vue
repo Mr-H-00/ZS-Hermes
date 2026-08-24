@@ -5,30 +5,15 @@
         <span v-if="title" class="viewer-title">{{ title }}</span>
       </div>
       <div class="toolbar-right">
-        <button
-          type="button"
-          class="viewer-tool-btn"
-          title="全部展开"
-          @click="triggerExpandAll"
-        >
+        <button type="button" class="viewer-tool-btn" title="全部展开" @click="triggerExpandAll">
           <UnfoldVertical :size="12" />
           <span>展开</span>
         </button>
-        <button
-          type="button"
-          class="viewer-tool-btn"
-          title="全部折叠"
-          @click="triggerCollapseAll"
-        >
+        <button type="button" class="viewer-tool-btn" title="全部折叠" @click="triggerCollapseAll">
           <FoldVertical :size="12" />
           <span>折叠</span>
         </button>
-        <button
-          type="button"
-          class="viewer-tool-btn"
-          title="复制全部 JSON"
-          @click="copyAllJson"
-        >
+        <button type="button" class="viewer-tool-btn" title="复制全部 JSON" @click="copyAllJson">
           <Check v-if="isCopied" :size="12" class="copied-icon" />
           <Copy v-else :size="12" />
           <span>{{ isCopied ? '已复制' : '复制' }}</span>

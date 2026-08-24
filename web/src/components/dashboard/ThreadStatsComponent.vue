@@ -17,7 +17,13 @@
           />
         </div>
 
-        <a-button type="default" size="small" :loading="loading" @click="loadData" class="refresh-btn">
+        <a-button
+          type="default"
+          size="small"
+          :loading="loading"
+          @click="loadData"
+          class="refresh-btn"
+        >
           <template #icon><RefreshCw class="btn-icon" :class="{ spinning: loading }" /></template>
           刷新
         </a-button>
@@ -31,7 +37,9 @@
           <MessageSquare class="icon" />
         </div>
         <div class="stat-content">
-          <div class="stat-value">{{ (threadData?.summary?.total_threads || 0).toLocaleString() }}</div>
+          <div class="stat-value">
+            {{ (threadData?.summary?.total_threads || 0).toLocaleString() }}
+          </div>
           <div class="stat-label">累计会话总量</div>
           <div class="stat-subtag" v-if="threadData?.summary?.pinned_threads">
             置顶 {{ threadData.summary.pinned_threads }} 个
@@ -44,7 +52,9 @@
           <Activity class="icon" />
         </div>
         <div class="stat-content">
-          <div class="stat-value">{{ (threadData?.summary?.active_threads || 0).toLocaleString() }}</div>
+          <div class="stat-value">
+            {{ (threadData?.summary?.active_threads || 0).toLocaleString() }}
+          </div>
           <div class="stat-label">活跃会话数</div>
           <div class="stat-subtag">周期内有更新</div>
         </div>
@@ -68,7 +78,9 @@
           <Cpu class="icon" />
         </div>
         <div class="stat-content">
-          <div class="stat-value">{{ formatTokenNumber(threadData?.summary?.avg_tokens_per_thread || 0) }}</div>
+          <div class="stat-value">
+            {{ formatTokenNumber(threadData?.summary?.avg_tokens_per_thread || 0) }}
+          </div>
           <div class="stat-label">平均 Token 消耗 / 会话</div>
           <div class="stat-subtag">
             总消耗 {{ formatTokenNumber(threadData?.summary?.total_tokens || 0) }}
@@ -276,7 +288,9 @@
             <template v-if="column.key === 'title'">
               <div class="conv-title-cell">
                 <div class="title-row">
-                  <span class="conv-title" :title="record.title">{{ record.title || '未命名会话' }}</span>
+                  <span class="conv-title" :title="record.title">{{
+                    record.title || '未命名会话'
+                  }}</span>
                   <a-tag v-if="record.is_pinned" color="orange" size="small">置顶</a-tag>
                 </div>
                 <div class="id-row">
@@ -302,7 +316,9 @@
                   <span class="entity-name" :title="record.agent_name || record.agent_id">
                     {{ record.agent_name || record.agent_id }}
                   </span>
-                  <span class="entity-id" :title="record.agent_id">{{ truncateIdentifier(record.agent_id) }}</span>
+                  <span class="entity-id" :title="record.agent_id">{{
+                    truncateIdentifier(record.agent_id)
+                  }}</span>
                 </div>
                 <a-tag v-if="record.agent_deleted" class="history-tag">已删除</a-tag>
               </div>
@@ -323,7 +339,9 @@
                   <span class="entity-name" :title="record.username || record.uid">
                     {{ record.username || record.uid }}
                   </span>
-                  <span class="entity-id" :title="record.uid">{{ truncateIdentifier(record.uid) }}</span>
+                  <span class="entity-id" :title="record.uid">{{
+                    truncateIdentifier(record.uid)
+                  }}</span>
                 </div>
                 <a-tag v-if="record.user_deleted" class="history-tag">已注销</a-tag>
               </div>
@@ -367,15 +385,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import {
-  MessageSquare,
-  Activity,
-  Layers,
-  Cpu,
-  RefreshCw,
-  Search,
-  Info
-} from 'lucide-vue-next'
+import { MessageSquare, Activity, Layers, Cpu, RefreshCw, Search, Info } from 'lucide-vue-next'
 import { message } from 'ant-design-vue'
 import { dashboardApi } from '@/apis/dashboard_api'
 import { getColorByIndex } from '@/utils/chartColors'

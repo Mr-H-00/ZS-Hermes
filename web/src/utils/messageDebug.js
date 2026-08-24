@@ -115,7 +115,8 @@ export function buildMessageDebugEntries(messages) {
         ...common,
         role: 'tool',
         roleLabel: 'Tool',
-        summary: [toolName ? `工具: ${toolName}` : '', content].filter(Boolean).join(' | ') || '[工具结果]'
+        summary:
+          [toolName ? `工具: ${toolName}` : '', content].filter(Boolean).join(' | ') || '[工具结果]'
       }
     }
 

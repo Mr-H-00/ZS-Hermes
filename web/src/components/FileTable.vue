@@ -1037,7 +1037,8 @@ const handleParseFile = async (record) => {
   isBatchParseOperation.value = false
   isPendingParseOperation.value = false
   pendingParseTotal.value = 0
-  parseConfigModalTitle.value = record.status === 'error_parsing' ? '重试解析参数配置' : '解析参数配置'
+  parseConfigModalTitle.value =
+    record.status === 'error_parsing' ? '重试解析参数配置' : '解析参数配置'
 
   const processingParams = await loadRecordProcessingParams(record)
   resetParseParams(processingParams)

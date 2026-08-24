@@ -1772,17 +1772,14 @@ const closeAgentPanelSection = (key) => {
   agentPanelActiveSectionKey.value = next.activeKey
 }
 
-watch(
-  messageDebugEnabled,
-  (enabled) => {
-    if (enabled) return
-    const hadDebugSection = agentPanelSections.value.some(
-      (section) => section.key === MESSAGE_DEBUG_SECTION.key
-    )
-    if (!hadDebugSection) return
-    closeAgentPanelSection(MESSAGE_DEBUG_SECTION.key)
-  }
-)
+watch(messageDebugEnabled, (enabled) => {
+  if (enabled) return
+  const hadDebugSection = agentPanelSections.value.some(
+    (section) => section.key === MESSAGE_DEBUG_SECTION.key
+  )
+  if (!hadDebugSection) return
+  closeAgentPanelSection(MESSAGE_DEBUG_SECTION.key)
+})
 
 const isStateSectionExpanded = (key) => !collapsedStateSections[key]
 const toggleStateSection = (key) => {
