@@ -905,7 +905,7 @@ function switchTab(tabKey) {
   state.activeTab = tabKey
   if (tabKey === 'logs' && state.rawLogs.length === 0) {
     fetchLogs()
-  } else if (tabKey === 'config' && !configStore.config) {
+  } else if (tabKey === 'config' && Object.keys(configStore.config || {}).length === 0) {
     refreshConfigData()
   } else if (tabKey === 'user' && state.users.length === 0) {
     fetchUsers()
