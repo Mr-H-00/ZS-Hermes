@@ -249,19 +249,26 @@ export const documentApi = {
    * 手动触发文档解析
    * @param {string} kbId - 知识库ID
    * @param {Array} fileIds - 文件ID列表
+   * @param {Object} params - 处理参数（如 ocr_engine）
    * @returns {Promise} - 解析任务结果
    */
-  parseDocuments: async (kbId, fileIds) => {
-    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/parse`, fileIds)
+  parseDocuments: async (kbId, fileIds, params = {}) => {
+    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/parse`, {
+      file_ids: fileIds,
+      params
+    })
   },
 
   /**
    * 手动触发全部待解析文档解析
    * @param {string} kbId - 知识库ID
+   * @param {Object} params - 处理参数（如 ocr_engine）
    * @returns {Promise} - 解析任务结果
    */
-  parsePendingDocuments: async (kbId) => {
-    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/parse-pending`, {})
+  parsePendingDocuments: async (kbId, params = {}) => {
+    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/parse-pending`, {
+      params
+    })
   },
 
   /**

@@ -405,3 +405,13 @@ def test_parse_pdf_keeps_explicit_disable_when_default_ocr_enabled(
     result = parser_unified.parse_pdf(str(file_path), params={"ocr_engine": "disable"})
 
     assert "Parser PDF content" in result
+
+
+def test_rapid_ocr_resolves_model_dir_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target_dir = tmp_path / "custom_models"
+    monkeypatch.setenv("RAPIDOCR_MODEL_DIR", str(target_dir))
+    parser = RapidOCRParser()
+    params = parser._get_model_params()
+
+    assert params["Global.model_root_dir"] == str(target_dir)
+    assert target_dir.exists()

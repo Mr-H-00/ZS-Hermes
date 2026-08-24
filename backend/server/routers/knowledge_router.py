@@ -7,7 +7,7 @@ from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 from yuxi.config.options import system_options
 from yuxi.knowledge.base import KBNameConflictError, KBNotFoundError
@@ -78,6 +78,15 @@ class WorkspaceImportRequest(BaseModel):
 
 class AddUploadedDocumentsRequest(BaseModel):
     items: list[str]
+    params: dict | None = None
+
+
+class ParseDocumentsRequest(BaseModel):
+    file_ids: list[str] = Field(default_factory=list)
+    params: dict | None = None
+
+
+class PendingParseDocumentsRequest(BaseModel):
     params: dict | None = None
 
 
@@ -1019,15 +1028,31 @@ async def _run_parse_file_ids(
     kb_id: str,
     file_ids: list[str],
     operator_id: str,
+    params: dict | None = None,
 ) -> dict:
     await context.set_message("任务初始化")
     await context.set_progress(5.0, "准备解析文档")
 
     total = len(file_ids)
     processed_items = []
+    param_update_failed = set()
+
+    if params:
+        for file_id in file_ids:
+            try:
+                await knowledge_base.update_file_params(kb_id, file_id, params, operator_id=operator_id)
+            except Exception as e:
+                logger.error(f"Failed to update params for {file_id}: {e}")
+                param_update_failed.add(file_id)
+                processed_items.append({"file_id": file_id, "status": "failed", "error": f"参数更新失败: {str(e)}"})
 
     for idx, file_id in enumerate(file_ids, 1):
         await context.raise_if_cancelled()
+
+        if file_id in param_update_failed:
+            logger.debug(f"Skipping {file_id} due to param update failure")
+            continue
+
         progress = 5.0 + (idx / total) * 90.0
         await context.set_progress(progress, f"正在解析第 {idx}/{total} 个文档")
 
@@ -1102,6 +1127,7 @@ async def _run_parse_pending_statuses(
     statuses: list[str],
     initial_total: int,
     operator_id: str,
+    params: dict | None = None,
 ) -> dict:
     await context.set_message("任务初始化")
     await context.set_progress(5.0, "准备解析待处理文档")
@@ -1120,6 +1146,13 @@ async def _run_parse_pending_statuses(
         )
         if not file_ids:
             break
+
+        if params:
+            for file_id in file_ids:
+                try:
+                    await knowledge_base.update_file_params(kb_id, file_id, params, operator_id=operator_id)
+                except Exception as e:
+                    logger.error(f"Failed to update params for pending parse file {file_id}: {e}")
 
         for file_id in file_ids:
             await context.raise_if_cancelled()
@@ -1217,6 +1250,7 @@ async def _enqueue_parse_task(
     file_ids: list[str],
     operator_id: str,
     db_info: KnowledgeBaseDetail,
+    params: dict | None = None,
 ) -> dict:
     """提交管理端指定 file_ids 的解析任务。"""
 
@@ -1227,6 +1261,7 @@ async def _enqueue_parse_task(
                 kb_id=kb_id,
                 file_ids=file_ids,
                 operator_id=operator_id,
+                params=params,
             )
         except Exception as e:
             logger.exception(f"Parse task failed: {e}")
@@ -1236,7 +1271,7 @@ async def _enqueue_parse_task(
         task = await tasker.enqueue(
             name=f"文档解析 ({db_info.name})",
             task_type="knowledge_parse",
-            payload={"kb_id": kb_id, "file_ids": file_ids},
+            payload={"kb_id": kb_id, "file_ids": file_ids, "params": params or {}},
             coroutine=run_parse,
         )
         return {"message": "解析任务已提交", "status": "queued", "task_id": task.id}
@@ -1244,7 +1279,12 @@ async def _enqueue_parse_task(
         return {"message": f"提交失败: {e}", "status": "failed"}
 
 
-async def _enqueue_parse_pending_task(kb_id: str, operator_id: str, db_info: KnowledgeBaseDetail) -> dict:
+async def _enqueue_parse_pending_task(
+    kb_id: str,
+    operator_id: str,
+    db_info: KnowledgeBaseDetail,
+    params: dict | None = None,
+) -> dict:
     """提交管理端按状态全量待解析任务。"""
     try:
         pending_count = db_info.pending_parse_count
@@ -1259,6 +1299,7 @@ async def _enqueue_parse_pending_task(kb_id: str, operator_id: str, db_info: Kno
                     statuses=PENDING_PARSE_STATUSES,
                     initial_total=pending_count,
                     operator_id=operator_id,
+                    params=params,
                 )
             except Exception as e:
                 logger.exception(f"Pending parse task failed: {e}")
@@ -1273,6 +1314,7 @@ async def _enqueue_parse_pending_task(kb_id: str, operator_id: str, db_info: Kno
                 "action": "parse",
                 "statuses": PENDING_PARSE_STATUSES,
                 "count": pending_count,
+                "params": params or {},
             },
             payload_match={"kb_id": kb_id, "scope": "pending", "action": "parse"},
             statuses=ACTIVE_DOCUMENT_ACTION_TASK_STATUSES,
@@ -1376,22 +1418,33 @@ async def _enqueue_index_pending_task(
 @knowledge.post("/databases/{kb_id}/documents/parse")
 async def parse_documents(
     kb_id: str,
-    file_ids: list[str] = Body(...),
+    payload: ParseDocumentsRequest | list[str] = Body(...),
     current_user: User = Depends(require_knowledge_base_manage),
 ):
     """手动触发文档解析"""
+    if isinstance(payload, list):
+        file_ids = payload
+        params = None
+    else:
+        file_ids = payload.file_ids
+        params = payload.params
     file_ids = _validate_direct_document_action_file_ids(file_ids)
-    logger.debug(f"Parse documents for kb_id {kb_id}: {file_ids}")
+    logger.debug(f"Parse documents for kb_id {kb_id}: {file_ids} {params=}")
     db_info = await _ensure_database_supports_documents(kb_id, "文档解析")
-    return await _enqueue_parse_task(kb_id, file_ids, current_user.uid, db_info)
+    return await _enqueue_parse_task(kb_id, file_ids, current_user.uid, db_info, params=params)
 
 
 @knowledge.post("/databases/{kb_id}/documents/parse-pending")
-async def parse_pending_documents(kb_id: str, current_user: User = Depends(require_knowledge_base_manage)):
+async def parse_pending_documents(
+    kb_id: str,
+    payload: PendingParseDocumentsRequest | None = None,
+    current_user: User = Depends(require_knowledge_base_manage),
+):
     """按状态手动触发全部待解析文档解析。"""
-    logger.debug(f"Parse pending documents for kb_id {kb_id}")
+    params = (payload.params if payload else None) or {}
+    logger.debug(f"Parse pending documents for kb_id {kb_id}: {params=}")
     db_info = await _ensure_database_supports_documents(kb_id, "文档解析")
-    return await _enqueue_parse_pending_task(kb_id, current_user.uid, db_info)
+    return await _enqueue_parse_pending_task(kb_id, current_user.uid, db_info, params=params)
 
 
 @knowledge.post("/databases/{kb_id}/documents/index")

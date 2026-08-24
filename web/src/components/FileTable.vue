@@ -1,5 +1,39 @@
 <template>
   <div class="file-table-container">
+    <!-- 解析/批量解析/重试解析参数配置模态框 -->
+    <a-modal
+      v-model:open="parseConfigModalVisible"
+      :title="parseConfigModalTitle"
+      :confirm-loading="parseConfigModalLoading"
+      width="560px"
+      @cancel="handleParseConfigCancel"
+    >
+      <template #footer>
+        <a-button key="back" @click="handleParseConfigCancel">取消</a-button>
+        <a-button key="submit" type="primary" @click="handleParseConfigConfirm">开始解析</a-button>
+      </template>
+      <div class="parse-params">
+        <a-alert
+          v-if="isPendingParseOperation"
+          class="parse-pending-alert"
+          type="info"
+          show-icon
+          :message="`将提交 ${pendingParseTotalText} 个待解析文件，任务会在后台按批处理，可在任务中心查看进度。`"
+        />
+        <div class="setting-item">
+          <div class="setting-label">OCR 引擎（仅应用于 PDF/图片文件）</div>
+          <div class="setting-content">
+            <OCRSelector
+              v-model="parseParams.ocr_engine"
+              :disabled="parseConfigModalLoading"
+              @options-loaded="handleOcrOptionsLoaded"
+            />
+          </div>
+          <p class="param-description">选择用于识别 PDF 和图片中文字的 OCR 引擎</p>
+        </div>
+      </div>
+    </a-modal>
+
     <!-- 入库/重新入库参数配置模态框 -->
     <a-modal
       v-model:open="indexConfigModalVisible"
@@ -385,6 +419,8 @@
 <script setup>
 import { ref, computed, h, watch } from 'vue'
 import { useDatabaseStore } from '@/stores/database'
+import { useConfigStore } from '@/stores/config'
+import OCRSelector from '@/components/OCRSelector.vue'
 import { message, Modal } from 'ant-design-vue'
 import { documentApi } from '@/apis/knowledge_api'
 import {
@@ -566,6 +602,7 @@ defineExpose({
     await applyFilters({ status })
   },
   startPendingIndex: (count) => startPendingIndex(count),
+  startPendingParse: (count) => startPendingParse(count),
   getCurrentFolderId: () => store.fileBrowser.parentId,
   refresh: () => handleRefresh()
 })
@@ -606,6 +643,46 @@ const handleCreateFolder = async () => {
 const indexConfigModalVisible = ref(false)
 const indexConfigModalLoading = computed(() => store.state.chunkLoading)
 const indexConfigModalTitle = ref('入库参数配置')
+
+// 解析/批量解析/重试解析参数配置相关
+const DEFAULT_OCR_ENGINE = 'rapid_ocr'
+const configStore = useConfigStore()
+
+const parseConfigModalVisible = ref(false)
+const parseConfigModalLoading = computed(() => store.state.chunkLoading)
+const parseConfigModalTitle = ref('解析参数配置')
+const currentParseFileIds = ref([])
+const isBatchParseOperation = ref(false)
+const isPendingParseOperation = ref(false)
+const pendingParseTotal = ref(0)
+const defaultOcrEngine = ref(DEFAULT_OCR_ENGINE)
+
+const resolveDefaultOcrEngine = () => {
+  return configStore.config?.default_ocr_engine || defaultOcrEngine.value || DEFAULT_OCR_ENGINE
+}
+
+const parseParams = ref({
+  ocr_engine: resolveDefaultOcrEngine()
+})
+
+const pendingParseTotalText = computed(() =>
+  Number(pendingParseTotal.value || 0).toLocaleString('zh-CN')
+)
+
+const handleOcrOptionsLoaded = (data) => {
+  defaultOcrEngine.value = data?.default_engine || DEFAULT_OCR_ENGINE
+  if (!parseParams.value.ocr_engine) {
+    parseParams.value.ocr_engine = resolveDefaultOcrEngine()
+  }
+}
+
+const resetParseParams = (processingParams = null) => {
+  if (processingParams?.ocr_engine) {
+    parseParams.value = { ocr_engine: processingParams.ocr_engine }
+  } else {
+    parseParams.value = { ocr_engine: resolveDefaultOcrEngine() }
+  }
+}
 
 const createDefaultIndexParams = () => ({
   chunk_preset_id: '',
@@ -814,8 +891,35 @@ const handleBatchParse = async () => {
     return
   }
 
-  await store.parseFiles(validKeys)
-  selectedRowKeys.value = []
+  currentParseFileIds.value = [...validKeys]
+  isBatchParseOperation.value = true
+  isPendingParseOperation.value = false
+  pendingParseTotal.value = 0
+  parseConfigModalTitle.value = '批量解析参数配置'
+  resetParseParams()
+  parseConfigModalVisible.value = true
+}
+
+const startPendingParse = (count = 0) => {
+  if (lock.value) {
+    message.warning('当前有文件处理中，请稍后再试')
+    return false
+  }
+
+  const total = Number(count || 0)
+  if (total <= 0) {
+    message.info('没有待解析文档')
+    return false
+  }
+
+  currentParseFileIds.value = []
+  isBatchParseOperation.value = false
+  isPendingParseOperation.value = true
+  pendingParseTotal.value = total
+  parseConfigModalTitle.value = '待解析文件参数配置'
+  resetParseParams()
+  parseConfigModalVisible.value = true
+  return true
 }
 
 const handleBatchIndex = async () => {
@@ -929,7 +1033,49 @@ const handleDownloadFile = async (record) => {
 
 const handleParseFile = async (record) => {
   closePopover(record.file_id)
-  await store.parseFiles([record.file_id])
+  currentParseFileIds.value = [record.file_id]
+  isBatchParseOperation.value = false
+  isPendingParseOperation.value = false
+  pendingParseTotal.value = 0
+  parseConfigModalTitle.value = record.status === 'error_parsing' ? '重试解析参数配置' : '解析参数配置'
+
+  const processingParams = await loadRecordProcessingParams(record)
+  resetParseParams(processingParams)
+
+  parseConfigModalVisible.value = true
+}
+
+const handleParseConfigConfirm = async () => {
+  try {
+    const params = { ocr_engine: parseParams.value.ocr_engine }
+    const result = isPendingParseOperation.value
+      ? await store.parsePendingFiles(params, pendingParseTotal.value)
+      : await store.parseFiles(currentParseFileIds.value, params)
+    if (result) {
+      currentParseFileIds.value = []
+      pendingParseTotal.value = 0
+      if (isBatchParseOperation.value || isPendingParseOperation.value) {
+        selectedRowKeys.value = []
+      }
+      parseConfigModalVisible.value = false
+      isBatchParseOperation.value = false
+      isPendingParseOperation.value = false
+      resetParseParams()
+    }
+  } catch (error) {
+    console.error('解析失败:', error)
+    const errorMessage = error.message || '解析失败，请稍后重试'
+    message.error(errorMessage)
+  }
+}
+
+const handleParseConfigCancel = () => {
+  parseConfigModalVisible.value = false
+  currentParseFileIds.value = []
+  isBatchParseOperation.value = false
+  isPendingParseOperation.value = false
+  pendingParseTotal.value = 0
+  resetParseParams()
 }
 
 const handleStatusAction = async (record) => {
@@ -1175,6 +1321,35 @@ import { generatePixelAvatar } from '@/utils/pixelAvatar'
 
 .index-pending-alert {
   margin-bottom: 12px;
+}
+
+.parse-params {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.parse-pending-alert {
+  margin-bottom: 4px;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-700);
+}
+
+.param-description {
+  font-size: 12px;
+  color: var(--gray-400);
+  margin: 4px 0 0 0;
+  line-height: 1.4;
 }
 
 .file-name-cell,

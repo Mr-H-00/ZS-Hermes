@@ -445,9 +445,18 @@ const openReview = (draftPayloads) => {
 
 const prepareSuite = () => {
   const details = suiteSkills.value.filter((skill) => selectedSlugs.value.includes(skill.slug))
-  prepareRequests([
-    { source: props.flow.suite.source, skills: selectedSlugs.value, skillDetails: details }
-  ])
+  const requestsBySource = new Map()
+  for (const skill of details) {
+    const source = skill.source || props.flow.suite?.source
+    if (!source) continue
+    if (!requestsBySource.has(source)) {
+      requestsBySource.set(source, { source, skills: [], skillDetails: [] })
+    }
+    const req = requestsBySource.get(source)
+    req.skills.push(skill.slug)
+    req.skillDetails.push(skill)
+  }
+  prepareRequests(Array.from(requestsBySource.values()))
 }
 
 const installDrafts = async () => {

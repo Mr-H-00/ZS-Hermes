@@ -562,3 +562,109 @@ async def test_add_uploaded_documents_creates_records_without_task(monkeypatch):
         },
         "operator_id": "uid-user",
     }
+
+
+async def test_parse_documents_accepts_payload_with_params(monkeypatch):
+    """parse_documents 支持传入包含 params 的对象并更新文件参数。"""
+    captured = {"updated": [], "parsed": []}
+
+    async def fake_ensure_database_supports_documents(kb_id: str, operation: str) -> KnowledgeBaseDetail:
+        return _database_detail()
+
+    async def fake_get_database_info(kb_id: str) -> KnowledgeBaseDetail:
+        return _database_detail()
+
+    async def fake_update_file_params(kb_id: str, file_id: str, params: dict, operator_id: str | None = None):
+        captured["updated"].append({"kb_id": kb_id, "file_id": file_id, "params": params, "operator_id": operator_id})
+
+    async def fake_parse_file(kb_id: str, file_id: str, operator_id: str | None = None):
+        captured["parsed"].append({"kb_id": kb_id, "file_id": file_id, "operator_id": operator_id})
+        return {"file_id": file_id, "status": "parsed"}
+
+    async def fake_enqueue(name: str, task_type: str, payload: dict, coroutine):
+        captured["payload"] = payload
+        await coroutine(FakeTaskContext())
+        return SimpleNamespace(id="task_parse_1")
+
+    monkeypatch.setattr(
+        knowledge_router,
+        "_ensure_database_supports_documents",
+        fake_ensure_database_supports_documents,
+    )
+    monkeypatch.setattr(knowledge_router.knowledge_base, "get_database_info", fake_get_database_info)
+    monkeypatch.setattr(knowledge_router.knowledge_base, "update_file_params", fake_update_file_params)
+    monkeypatch.setattr(knowledge_router.knowledge_base, "parse_file", fake_parse_file)
+    monkeypatch.setattr(knowledge_router.tasker, "enqueue", fake_enqueue)
+
+    params = {"ocr_engine": "rapid_ocr"}
+    result = await knowledge_router.parse_documents(
+        "kb_1",
+        payload=knowledge_router.ParseDocumentsRequest(file_ids=["file_1"], params=params),
+        current_user=SimpleNamespace(uid="uid-user"),
+    )
+
+    assert result["status"] == "queued"
+    assert captured["payload"]["params"] == params
+    assert captured["updated"] == [
+        {"kb_id": "kb_1", "file_id": "file_1", "params": params, "operator_id": "uid-user"}
+    ]
+    assert captured["parsed"] == [
+        {"kb_id": "kb_1", "file_id": "file_1", "operator_id": "uid-user"}
+    ]
+
+
+async def test_parse_pending_documents_uses_params(monkeypatch):
+    """parse_pending_documents 支持接收 params 并在执行中应用更新。"""
+    captured = {"updated": [], "parsed": []}
+
+    async def fake_ensure_database_supports_documents(kb_id: str, operation: str) -> KnowledgeBaseDetail:
+        return _database_detail(pending_parse_count=1)
+
+    async def fake_get_database_info(kb_id: str) -> KnowledgeBaseDetail:
+        return _database_detail(pending_parse_count=1)
+
+    async def fake_list_document_file_ids_by_statuses(kb_id: str, *, statuses, after_file_id, limit):
+        return ["file_pending_1"] if after_file_id is None else []
+
+    async def fake_update_file_params(kb_id: str, file_id: str, params: dict, operator_id: str | None = None):
+        captured["updated"].append({"kb_id": kb_id, "file_id": file_id, "params": params, "operator_id": operator_id})
+
+    async def fake_parse_file(kb_id: str, file_id: str, operator_id: str | None = None):
+        captured["parsed"].append({"kb_id": kb_id, "file_id": file_id, "operator_id": operator_id})
+        return {"file_id": file_id, "status": "parsed"}
+
+    async def fake_enqueue_unique_by_payload(**kwargs):
+        captured["payload"] = kwargs["payload"]
+        await kwargs["coroutine"](FakeTaskContext())
+        return SimpleNamespace(id="task_pending_1"), True
+
+    monkeypatch.setattr(
+        knowledge_router,
+        "_ensure_database_supports_documents",
+        fake_ensure_database_supports_documents,
+    )
+    monkeypatch.setattr(knowledge_router.knowledge_base, "get_database_info", fake_get_database_info)
+    monkeypatch.setattr(
+        knowledge_router.knowledge_base,
+        "list_document_file_ids_by_statuses",
+        fake_list_document_file_ids_by_statuses,
+    )
+    monkeypatch.setattr(knowledge_router.knowledge_base, "update_file_params", fake_update_file_params)
+    monkeypatch.setattr(knowledge_router.knowledge_base, "parse_file", fake_parse_file)
+    monkeypatch.setattr(knowledge_router.tasker, "enqueue_unique_by_payload", fake_enqueue_unique_by_payload)
+
+    params = {"ocr_engine": "rapid_ocr"}
+    result = await knowledge_router.parse_pending_documents(
+        "kb_1",
+        payload=knowledge_router.PendingParseDocumentsRequest(params=params),
+        current_user=SimpleNamespace(uid="uid-user"),
+    )
+
+    assert result["status"] == "queued"
+    assert captured["payload"]["params"] == params
+    assert captured["updated"] == [
+        {"kb_id": "kb_1", "file_id": "file_pending_1", "params": params, "operator_id": "uid-user"}
+    ]
+    assert captured["parsed"] == [
+        {"kb_id": "kb_1", "file_id": "file_pending_1", "operator_id": "uid-user"}
+    ]

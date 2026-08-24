@@ -5,6 +5,7 @@ x-api-worker-env: &api-worker-env
   YUXI_ENV: development
   API_KEY_DERIVATION_SECRET: ${API_KEY_DERIVATION_SECRET:?Set API_KEY_DERIVATION_SECRET in .env [v0.7.2+], or rerun `bash scripts/init.sh`.}
   NLTK_DATA: /home/yuxi/nltk_data
+  RAPIDOCR_MODEL_DIR: /home/yuxi/.cache/rapidocr/models
   # DBs and other services
   POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-yuxi}}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}

@@ -29,8 +29,32 @@ class RapidOCRParser(BaseDocumentProcessor):
         self.ocr = None
         self.det_box_thresh = det_box_thresh
 
+    @staticmethod
+    def _resolve_model_dir() -> Path:
+        """获取并确保可写的 RapidOCR 模型存放目录。"""
+        env_dir = os.getenv("RAPIDOCR_MODEL_DIR")
+        if env_dir:
+            model_dir = Path(env_dir).expanduser().resolve()
+            model_dir.mkdir(parents=True, exist_ok=True)
+            return model_dir
+
+        try:
+            import rapidocr
+
+            default_dir = Path(rapidocr.__file__).resolve().parent / "models"
+            if default_dir.exists() and os.access(default_dir, os.W_OK):
+                return default_dir
+        except Exception:
+            pass
+
+        cache_dir = Path.home() / ".cache" / "rapidocr" / "models"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
+
     def _get_model_params(self) -> dict[str, object]:
+        model_dir = self._resolve_model_dir()
         return {
+            "Global.model_root_dir": str(model_dir),
             "Det.engine_type": EngineType.ONNXRUNTIME,
             "Det.lang_type": LangDet.CH,
             "Det.model_type": ModelType.MOBILE,

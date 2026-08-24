@@ -242,7 +242,7 @@
                     <div class="repo-input-field">
                       <a-input
                         v-model:value="remoteInstallForm.source"
-                        placeholder="来源仓库，如 anthropics/skills 或 GitHub URL"
+                        placeholder="来源仓库或合集地址，如 https://modelscope.cn/collections/MiniMax/MiniMax-Office-skills"
                       >
                         <template #suffix>
                           <a-dropdown
@@ -526,32 +526,66 @@ import { getSkillIcon } from '@/utils/skill_icon_utils'
 
 const RECOMMENDED_SUITES = [
   {
-    id: 'anthropic-documents',
-    name: 'Anthropic 文档处理套件',
-    provider: 'Anthropic',
+    id: 'minimax-office-skills',
+    name: 'MiniMax 办公文档套件',
+    provider: 'MiniMax-AI',
     description:
-      'Anthropic 官方文档处理 Skills，覆盖 PDF、Word、电子表格与演示文稿的读取、创建和编辑。',
-    source: 'anthropics/skills',
+      'MiniMax 开源的办公文档 Skills 合集，覆盖 DOCX、PDF、XLSX 与 PPTX 演示文稿的创建与格式化。',
+    source: 'https://modelscope.cn/collections/MiniMax/MiniMax-Office-skills',
     skills: [
       {
-        slug: 'pdf',
-        name: 'PDF',
-        description: '提取文本与表格，支持合并拆分、旋转水印、表单、加解密、图片提取和 OCR。'
+        slug: 'pptx-generator',
+        name: 'pptx-generator',
+        description:
+          '生成、编辑和阅读 PowerPoint 演示文稿。使用 PptxGenJS 从头开始创建，通过 XML 工作流编辑现有的 PPTX，或使用 markitdown 提取文本。'
       },
       {
-        slug: 'docx',
-        name: 'Docs',
-        description: '创建和编辑 Word 文档，处理目录、页码、图片、查找替换、修订与批注。'
+        slug: 'minimax-docx',
+        name: 'minimax-docx',
+        description:
+          '使用 OpenXML SDK（.NET）进行专业的 DOCX 文档创建、编辑和格式化，支持模板应用与 XSD 验证门控检查。'
       },
       {
-        slug: 'xlsx',
-        name: 'XLSX',
-        description: '创建和编辑电子表格，支持公式、格式、图表、数据清洗、表格重构与格式转换。'
+        slug: 'minimax-xlsx',
+        name: 'minimax-xlsx',
+        description:
+          '创建、读取、分析、编辑或验证 Excel/电子表格文件，支持公式重算校验与专业财务格式标准。'
       },
       {
-        slug: 'pptx',
-        name: 'PPTX',
-        description: '创建和编辑演示文稿，支持文本提取、模板版式、备注批注以及合并拆分。'
+        slug: 'minimax-pdf',
+        name: 'minimax-pdf',
+        description:
+          '高视觉质量与设计感的 PDF 生成、表单字段填写、样式转换与专业打印级文档排版。'
+      }
+    ]
+  },
+  {
+    id: 'skill-builder-suite',
+    name: 'Skill 能力与进化套件',
+    provider: 'Community',
+    description:
+      '用于 Agent 技能发现、创建、评测调优与自主进化的核心工具合集。',
+    skills: [
+      {
+        slug: 'skill-creator',
+        name: 'skill-creator',
+        source: 'https://modelscope.cn/skills/@anthropics/skill-creator',
+        description:
+          '创建新技能、修改与优化现有技能，并通过方差基准分析评测技能表现与调优描述。'
+      },
+      {
+        slug: 'find-skills',
+        name: 'find-skills',
+        source: 'https://modelscope.cn/skills/@vercel-labs/find-skills',
+        description:
+          '协助智能体根据用户需求检索并发现可安装的开源 Agent Skills，动态扩展自身能力。'
+      },
+      {
+        slug: 'self-improving-agent',
+        name: 'self-improving-agent',
+        source: 'https://github.com/zhaono1/agent-playbook',
+        description:
+          '通用自我进化技能，基于多重记忆架构从经验与错误中持续学习并自我迭代。'
       }
     ]
   }
@@ -582,7 +616,7 @@ const installFlow = ref(null)
 const activeTab = ref('repo') // 'repo' 或 'search'
 
 const remoteInstallForm = reactive({
-  source: 'https://github.com/anthropics/skills',
+  source: 'https://modelscope.cn/collections/MiniMax/MiniMax-Office-skills',
   skills: []
 })
 const remoteSkillOptions = ref([])
