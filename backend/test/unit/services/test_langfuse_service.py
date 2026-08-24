@@ -44,6 +44,7 @@ def run_context_with_last_trace(monkeypatch):
     _FakeLangfuseClient.instances.clear()
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://langfuse.local")
     monkeypatch.setattr(svc, "Langfuse", _FakeLangfuseClient)
     monkeypatch.setattr(svc, "CallbackHandler", _FakeCallbackHandler)
     svc.get_langfuse_client.cache_clear()
@@ -144,6 +145,42 @@ async def test_get_trace_url_async_returns_trace_url(run_context_with_last_trace
     trace_url = await svc.get_trace_url_async(run_context_with_last_trace)
 
     assert trace_url == "https://langfuse.local/trace/trace-runtime"
+
+
+async def test_get_trace_url_by_id_async_rejects_non_http_url(run_context_with_last_trace):
+    client = svc.get_langfuse_client()
+    client.get_trace_url = lambda **_kwargs: "javascript:alert(1)"
+
+    trace_url = await svc.get_trace_url_by_id_async("trace-runtime")
+
+    assert trace_url is None
+
+
+async def test_get_trace_url_by_id_async_rejects_other_https_origin(run_context_with_last_trace):
+    client = svc.get_langfuse_client()
+    client.get_trace_url = lambda **_kwargs: "https://attacker.example/project/1/traces/trace-runtime"
+
+    trace_url = await svc.get_trace_url_by_id_async("trace-runtime")
+
+    assert trace_url is None
+
+
+async def test_get_trace_url_by_id_async_fails_closed_for_invalid_config(run_context_with_last_trace, monkeypatch):
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "not-a-url")
+
+    trace_url = await svc.get_trace_url_by_id_async("trace-runtime")
+
+    assert trace_url is None
+
+
+async def test_get_trace_url_by_id_async_accepts_default_cloud_origin(run_context_with_last_trace, monkeypatch):
+    monkeypatch.delenv("LANGFUSE_BASE_URL")
+    client = svc.get_langfuse_client()
+    client.get_trace_url = lambda **_kwargs: "https://cloud.langfuse.com/project/1/traces/trace-runtime"
+
+    trace_url = await svc.get_trace_url_by_id_async("trace-runtime")
+
+    assert trace_url == "https://cloud.langfuse.com/project/1/traces/trace-runtime"
 
 
 def test_submit_user_feedback_score_creates_boolean_score(monkeypatch):

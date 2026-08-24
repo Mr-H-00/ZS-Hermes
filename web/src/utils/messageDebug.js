@@ -145,6 +145,20 @@ export function buildMessageDebugEntries(messages) {
   })
 }
 
+/** 从后端响应中读取可安全打开的 Langfuse HTTP(S) 地址。 */
+export function resolveLangfuseRunUrl(payload) {
+  if (payload?.available !== true || typeof payload?.url !== 'string') return null
+
+  const value = payload.url.trim()
+  if (!value) return null
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? value : null
+  } catch {
+    return null
+  }
+}
+
 /** 按连续 run_id 建立调试分组，不改变消息的事实顺序。 */
 export function groupMessageDebugEntries(entries) {
   const source = Array.isArray(entries) ? entries : []

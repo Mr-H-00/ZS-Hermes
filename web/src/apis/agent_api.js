@@ -175,6 +175,13 @@ export const agentApi = {
   getAgentRun: (runId) => apiGet(`/api/agent/runs/${runId}`),
 
   /**
+   * 获取 Run 对应的 Langfuse 精确跳转地址
+   * @param {string} runId - run ID
+   * @returns {Promise<Object>}
+   */
+  getAgentRunLangfuseLink: (runId) => apiGet(`/api/agent/runs/${runId}/langfuse`),
+
+  /**
    * 取消 Run
    * @param {string} runId - run ID
    * @returns {Promise<Object>}

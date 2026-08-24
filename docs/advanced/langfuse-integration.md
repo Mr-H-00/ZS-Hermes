@@ -38,6 +38,8 @@ Yuxi 使用以下映射组织观测数据：
 
 请求关键路径不会同步获取可点击的 trace URL，因为该操作需要访问 Langfuse 远程接口。界面和业务状态以 Yuxi 本地数据为准；Langfuse 控制台承担观测查询。
 
+超级管理员开启对话 Debug 模式后，可以从消息调试面板的 Run 分组直接打开对应 Langfuse trace。点击入口时，后端按当前 uid 校验 AgentRun 可见性，从该 Run 权威输出消息的 metadata 读取 trace ID，再通过 Langfuse SDK 惰性解析项目 URL；系统不会从相邻 Run 或消息猜测关联。后端只接受与 `LANGFUSE_BASE_URL` 同源的 URL；未配置该变量时使用 `https://cloud.langfuse.com`。Run 没有持久化 trace 时，界面提示该 Run 暂无 Trace；Langfuse 未配置、远端解析失败或返回跨源 URL 时，界面提示 Langfuse 不可用。这些失败不影响 AgentRun 和聊天结果。
+
 ## 如何查看是否生效
 
 1. 使用测试账号发起一轮真实 Agent 对话，并记录 thread、Agent 和发起时间。

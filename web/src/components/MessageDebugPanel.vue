@@ -82,7 +82,31 @@
             <code v-if="group.runId" class="run-group-id" :title="group.runId">
               {{ formatRunId(group.runId) }}
             </code>
-            <span class="run-group-count">{{ group.items.length }} 条</span>
+            <div class="run-group-actions">
+              <button
+                v-if="group.runId"
+                type="button"
+                class="run-langfuse-btn"
+                :disabled="isLangfuseRunOpening(group.runId)"
+                :aria-busy="isLangfuseRunOpening(group.runId)"
+                :title="
+                  isLangfuseRunOpening(group.runId)
+                    ? '正在打开 Langfuse'
+                    : '在 Langfuse 中查看此 Run'
+                "
+                @click.stop="openRunInLangfuse(group.runId)"
+              >
+                <LoaderCircle
+                  v-if="isLangfuseRunOpening(group.runId)"
+                  :size="12"
+                  class="run-langfuse-spinner"
+                  aria-hidden="true"
+                />
+                <ExternalLink v-else :size="12" aria-hidden="true" />
+                <span>Langfuse</span>
+              </button>
+              <span class="run-group-count">{{ group.items.length }} 条</span>
+            </div>
           </header>
 
           <div
@@ -146,7 +170,9 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  ExternalLink,
   FoldVertical,
+  LoaderCircle,
   Search,
   Settings2,
   TriangleAlert,
@@ -157,8 +183,13 @@ import {
 } from 'lucide-vue-next'
 import { message } from 'ant-design-vue'
 import JsonTreeViewer from '@/components/common/JsonTreeViewer.vue'
+import { agentApi } from '@/apis/agent_api'
 import { copyTextToClipboard } from '@/utils/clipboard'
-import { buildMessageDebugEntries, groupMessageDebugEntries } from '@/utils/messageDebug'
+import {
+  buildMessageDebugEntries,
+  groupMessageDebugEntries,
+  resolveLangfuseRunUrl
+} from '@/utils/messageDebug'
 
 const props = defineProps({
   messages: {
@@ -171,6 +202,7 @@ const searchQuery = ref('')
 const expandedItemIds = ref(new Set())
 const isAllCopied = ref(false)
 const copiedItemId = ref('')
+const openingLangfuseRunIds = ref(new Set())
 
 // 格式化 Tokens 显示
 const formatTokens = (usage) => {
@@ -277,6 +309,47 @@ const toggleItemExpand = (id) => {
     expandedItemIds.value.delete(id)
   } else {
     expandedItemIds.value.add(id)
+  }
+}
+
+const isLangfuseRunOpening = (runId) => openingLangfuseRunIds.value.has(runId)
+
+const setLangfuseRunOpening = (runId, opening) => {
+  const next = new Set(openingLangfuseRunIds.value)
+  if (opening) next.add(runId)
+  else next.delete(runId)
+  openingLangfuseRunIds.value = next
+}
+
+const openRunInLangfuse = async (runId) => {
+  if (!runId || isLangfuseRunOpening(runId)) return
+
+  const targetWindow = window.open('about:blank', '_blank')
+  if (!targetWindow) {
+    message.warning('浏览器阻止了新标签页，请允许弹窗后重试')
+    return
+  }
+  targetWindow.opener = null
+  setLangfuseRunOpening(runId, true)
+
+  try {
+    const result = await agentApi.getAgentRunLangfuseLink(runId)
+    const traceUrl = resolveLangfuseRunUrl(result)
+    if (!traceUrl) {
+      targetWindow.close()
+      if (result?.reason === 'trace_not_available') {
+        message.warning('该 Run 暂无可用的 Langfuse Trace')
+      } else {
+        message.error('Langfuse 当前不可用，请检查配置或稍后重试')
+      }
+      return
+    }
+    targetWindow.location.replace(traceUrl)
+  } catch {
+    targetWindow.close()
+    message.error('获取 Langfuse 跳转地址失败，请稍后重试')
+  } finally {
+    setLangfuseRunOpening(runId, false)
   }
 }
 
@@ -544,9 +617,61 @@ const copyAllTimelineJson = async () => {
   white-space: nowrap;
 }
 
+.run-group-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.run-langfuse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-600);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+
+  &:hover:not(:disabled) {
+    border-color: var(--gray-200);
+    background: var(--gray-100);
+    color: var(--main-color);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--main-color);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    color: var(--gray-400);
+    cursor: wait;
+  }
+}
+
+.run-langfuse-spinner {
+  animation: run-langfuse-spin 0.8s linear infinite;
+}
+
+@keyframes run-langfuse-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .run-group-count {
   flex-shrink: 0;
-  margin-left: auto;
   color: var(--gray-500);
   font-size: 11px;
 }

@@ -5,7 +5,8 @@ import {
   buildMessageDebugEntries,
   extractMessageToolNames,
   groupMessageDebugEntries,
-  mergeMessageDebugMessages
+  mergeMessageDebugMessages,
+  resolveLangfuseRunUrl
 } from '../../src/utils/messageDebug.js'
 
 test('消息调试条目保持后端数组顺序并保留独立工具消息', () => {
@@ -56,6 +57,21 @@ test('消息调试按连续 Run 分组且不猜测无 run_id 消息的归属', (
       ['system'],
       ['user-b']
     ]
+  )
+})
+
+test('Langfuse Run 地址仅接受后端确认的 HTTP(S) URL', () => {
+  assert.equal(
+    resolveLangfuseRunUrl({
+      available: true,
+      url: 'https://langfuse.example/project/project-1/traces/trace-1'
+    }),
+    'https://langfuse.example/project/project-1/traces/trace-1'
+  )
+  assert.equal(resolveLangfuseRunUrl({ available: true, url: 'javascript:alert(1)' }), null)
+  assert.equal(
+    resolveLangfuseRunUrl({ available: false, url: 'https://langfuse.example/trace-1' }),
+    null
   )
 })
 

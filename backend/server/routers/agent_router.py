@@ -28,6 +28,7 @@ from yuxi.services.agent_run_service import (
     cancel_agent_run_view,
     create_agent_run_view,
     get_active_run_by_thread,
+    get_agent_run_langfuse_link,
     get_agent_run_result,
     get_agent_run_view,
     stream_agent_run_events,
@@ -37,7 +38,7 @@ from yuxi.services.run_submission_service import RunOrigin, RunSubmissionCommand
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import User
 
-from server.utils.auth_middleware import get_admin_user, get_db, get_required_user
+from server.utils.auth_middleware import get_admin_user, get_db, get_required_user, get_superadmin_user
 
 agent_router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -420,6 +421,13 @@ async def get_agent_run_result_route(
     run_id: str, current_user: User = Depends(get_required_user), db: AsyncSession = Depends(get_db)
 ):
     return await get_agent_run_result(run_id=run_id, current_uid=str(current_user.uid), db=db)
+
+
+@agent_router.get("/runs/{run_id}/langfuse")
+async def get_agent_run_langfuse_link_route(
+    run_id: str, current_user: User = Depends(get_superadmin_user), db: AsyncSession = Depends(get_db)
+):
+    return await get_agent_run_langfuse_link(run_id=run_id, current_uid=str(current_user.uid), db=db)
 
 
 @agent_router.post("/runs/{run_id}/cancel")

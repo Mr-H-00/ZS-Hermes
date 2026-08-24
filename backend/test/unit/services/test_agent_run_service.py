@@ -1338,6 +1338,102 @@ async def test_get_agent_run_result_missing_run_returns_failed(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
+async def test_get_agent_run_langfuse_link_resolves_bound_trace(monkeypatch: pytest.MonkeyPatch):
+    class FakeDb:
+        committed = False
+
+        async def commit(self):
+            self.committed = True
+
+    async def fake_result(*, run_id: str, current_uid: str, db):
+        assert (run_id, current_uid, db) == ("run-1", "user-1", fake_db)
+        return {"status": "completed", "langfuse_trace_id": "trace-1"}
+
+    async def fake_trace_url(trace_id: str):
+        assert trace_id == "trace-1"
+        assert fake_db.committed is True
+        return "https://langfuse.example/project/project-1/traces/trace-1"
+
+    monkeypatch.setattr(agent_run_service, "get_agent_run_result", fake_result)
+    monkeypatch.setattr(agent_run_service, "get_trace_url_by_id_async", fake_trace_url)
+    fake_db = FakeDb()
+
+    payload = await agent_run_service.get_agent_run_langfuse_link(
+        run_id="run-1",
+        current_uid="user-1",
+        db=fake_db,
+    )
+
+    assert payload == {
+        "run_id": "run-1",
+        "available": True,
+        "url": "https://langfuse.example/project/project-1/traces/trace-1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_agent_run_langfuse_link_does_not_resolve_without_trace(monkeypatch: pytest.MonkeyPatch):
+    async def fake_result(**_kwargs):
+        return {"status": "completed", "langfuse_trace_id": None}
+
+    async def unexpected_trace_url(_trace_id: str):
+        raise AssertionError("无 trace 的 Run 不应调用 Langfuse")
+
+    monkeypatch.setattr(agent_run_service, "get_agent_run_result", fake_result)
+    monkeypatch.setattr(agent_run_service, "get_trace_url_by_id_async", unexpected_trace_url)
+
+    payload = await agent_run_service.get_agent_run_langfuse_link(
+        run_id="run-1",
+        current_uid="user-1",
+        db=object(),
+    )
+
+    assert payload == {"run_id": "run-1", "available": False, "reason": "trace_not_available"}
+
+
+@pytest.mark.asyncio
+async def test_get_agent_run_langfuse_link_reports_optional_provider_unavailable(monkeypatch: pytest.MonkeyPatch):
+    class FakeDb:
+        async def commit(self):
+            return None
+
+    async def fake_result(**_kwargs):
+        return {"status": "completed", "langfuse_trace_id": "trace-1"}
+
+    async def fake_trace_url(_trace_id: str):
+        return None
+
+    monkeypatch.setattr(agent_run_service, "get_agent_run_result", fake_result)
+    monkeypatch.setattr(agent_run_service, "get_trace_url_by_id_async", fake_trace_url)
+
+    payload = await agent_run_service.get_agent_run_langfuse_link(
+        run_id="run-1",
+        current_uid="user-1",
+        db=FakeDb(),
+    )
+
+    assert payload == {"run_id": "run-1", "available": False, "reason": "langfuse_unavailable"}
+
+
+@pytest.mark.asyncio
+async def test_get_agent_run_langfuse_link_hides_missing_run(monkeypatch: pytest.MonkeyPatch):
+    async def fake_result(**_kwargs):
+        return {"status": "failed", "error": {"type": "run_not_found", "message": "运行任务不存在"}}
+
+    monkeypatch.setattr(agent_run_service, "get_agent_run_result", fake_result)
+
+    with pytest.raises(agent_run_service.HTTPException) as exc:
+        await agent_run_service.get_agent_run_langfuse_link(
+            run_id="run-x",
+            current_uid="user-1",
+            db=object(),
+        )
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "运行任务不存在"
+
+
+@pytest.mark.asyncio
 async def test_await_agent_run_result_drains_stream_then_loads_result(monkeypatch: pytest.MonkeyPatch):
     drained: list[str] = []
 

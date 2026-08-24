@@ -37,6 +37,7 @@ from yuxi.services.input_message_service import (
     AgentRunInputMessage,
     build_resume_input_message,
 )
+from yuxi.services.langfuse_service import get_trace_url_by_id_async
 from yuxi.services.run_queue_service import (
     build_run_event_envelope,
     get_arq_pool,
@@ -852,6 +853,25 @@ async def get_agent_run_result(*, run_id: str, current_uid: str, db: AsyncSessio
     if run.error_type or run.error_message:
         payload["error"] = {"type": run.error_type, "message": run.error_message}
     return payload
+
+
+async def get_agent_run_langfuse_link(*, run_id: str, current_uid: str, db: AsyncSession) -> dict:
+    """按用户可见 Run 的权威输出绑定解析 Langfuse 跳转地址。"""
+    result = await get_agent_run_result(run_id=run_id, current_uid=current_uid, db=db)
+    if result.get("error", {}).get("type") == "run_not_found":
+        raise HTTPException(status_code=404, detail="运行任务不存在")
+
+    trace_id = result.get("langfuse_trace_id")
+    if not isinstance(trace_id, str) or not trace_id.strip():
+        return {"run_id": run_id, "available": False, "reason": "trace_not_available"}
+
+    # 远端项目解析可能等待数秒，先结束只读事务并归还数据库连接。
+    await db.commit()
+    trace_url = await get_trace_url_by_id_async(trace_id)
+    if not trace_url:
+        return {"run_id": run_id, "available": False, "reason": "langfuse_unavailable"}
+
+    return {"run_id": run_id, "available": True, "url": trace_url}
 
 
 async def load_agent_run_result(*, run_id: str, current_uid: str) -> dict:

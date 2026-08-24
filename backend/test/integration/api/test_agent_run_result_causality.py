@@ -16,8 +16,17 @@ from yuxi.utils.auth_utils import AuthUtils
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
-async def test_result_api_never_reads_another_runs_assistant_message(test_client):
-    """精确绑定和历史兼容都只能读取当前 Run 的 assistant 消息。"""
+async def test_langfuse_link_requires_superadmin(test_client, standard_user):
+    response = await test_client.get(
+        "/api/agent/runs/nonexistent/langfuse",
+        headers=standard_user["headers"],
+    )
+
+    assert response.status_code == 403, response.text
+
+
+async def test_run_observability_api_never_reads_another_runs_assistant_message(test_client):
+    """结果与 Langfuse 入口都只能读取当前 Run 的 assistant 消息。"""
     unique = uuid.uuid4().hex
     uid = f"pytest_output_{unique[:16]}"
     thread_id = f"pytest-output-{unique}"
@@ -31,7 +40,9 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
     conversation_id: int | None = None
     department_id: int | None = None
     user_id: int | None = None
+    other_user_id: int | None = None
     api_key_id: int | None = None
+    other_api_key_id: int | None = None
     project_id: str | None = None
 
     try:
@@ -45,7 +56,7 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
                 username=uid,
                 uid=uid,
                 password_hash="integration-api-key-only",
-                role="user",
+                role="superadmin",
                 department_id=department.id,
             )
             db.add(user)
@@ -64,6 +75,31 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
             db.add(api_key)
             await db.flush()
             api_key_id = api_key.id
+
+            other_uid = f"pytest_output_other_{unique[:10]}"
+            other_user = User(
+                username=other_uid,
+                uid=other_uid,
+                password_hash="integration-api-key-only",
+                role="superadmin",
+                department_id=department.id,
+            )
+            db.add(other_user)
+            await db.flush()
+            other_user_id = other_user.id
+
+            other_api_key_secret, other_key_hash, other_key_prefix = AuthUtils.generate_api_key()
+            other_api_key = APIKey(
+                key_hash=other_key_hash,
+                key_prefix=other_key_prefix,
+                name="pytest output causality other user",
+                user_id=other_user.id,
+                department_id=department.id,
+                created_by=other_uid,
+            )
+            db.add(other_api_key)
+            await db.flush()
+            other_api_key_id = other_api_key.id
 
             project_id = str(uuid.uuid4())
             db.add(
@@ -112,6 +148,7 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
                 run_id=exact_run_id,
                 role="assistant",
                 content="exact run output",
+                extra_metadata={"langfuse_trace_id": "trace-exact"},
                 created_at=created_at + timedelta(seconds=3),
             )
             wrong_runs_own_message = Message(
@@ -119,6 +156,7 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
                 run_id=wrong_run_id,
                 role="assistant",
                 content="wrong run own compatibility candidate",
+                extra_metadata={"langfuse_trace_id": "trace-wrong"},
                 created_at=created_at + timedelta(seconds=4),
             )
             legacy_old_message = Message(
@@ -163,6 +201,14 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
             f"/api/agent/runs/{legacy_run_id}/result",
             headers=headers,
         )
+        wrong_langfuse_response = await test_client.get(
+            f"/api/agent/runs/{wrong_run_id}/langfuse",
+            headers=headers,
+        )
+        other_user_response = await test_client.get(
+            f"/api/agent/runs/{exact_run_id}/langfuse",
+            headers={"Authorization": f"Bearer {other_api_key_secret}"},
+        )
 
         assert exact_response.status_code == 200, exact_response.text
         assert exact_response.json()["output"] == "exact run output"
@@ -175,6 +221,15 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
         assert legacy_response.status_code == 200, legacy_response.text
         assert legacy_response.json()["output"] == "legacy latest output"
         assert legacy_response.json()["final_message_id"] == legacy_latest_message_id
+
+        assert wrong_langfuse_response.status_code == 200, wrong_langfuse_response.text
+        assert wrong_langfuse_response.json() == {
+            "run_id": wrong_run_id,
+            "available": False,
+            "reason": "trace_not_available",
+        }
+        assert other_user_response.status_code == 404, other_user_response.text
+        assert "trace" not in other_user_response.text.lower()
     finally:
         async with session_factory() as db:
             if conversation_id is not None:
@@ -184,10 +239,12 @@ async def test_result_api_never_reads_another_runs_assistant_message(test_client
                 await db.execute(delete(Conversation).where(Conversation.id == conversation_id))
             if project_id is not None:
                 await db.execute(delete(Project).where(Project.id == project_id))
-            if api_key_id is not None:
-                await db.execute(delete(APIKey).where(APIKey.id == api_key_id))
-            if user_id is not None:
-                await db.execute(delete(User).where(User.id == user_id))
+            api_key_ids = [item for item in (api_key_id, other_api_key_id) if item is not None]
+            if api_key_ids:
+                await db.execute(delete(APIKey).where(APIKey.id.in_(api_key_ids)))
+            user_ids = [item for item in (user_id, other_user_id) if item is not None]
+            if user_ids:
+                await db.execute(delete(User).where(User.id.in_(user_ids)))
             if department_id is not None:
                 await db.execute(delete(Department).where(Department.id == department_id))
             await db.commit()
