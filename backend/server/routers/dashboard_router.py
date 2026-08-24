@@ -1,24 +1,20 @@
 """Dashboard 统计与监控 HTTP 路由。"""
 
-import traceback
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.utils.auth_middleware import get_db, get_superadmin_user
-from yuxi.repositories.conversation_repository import ConversationRepository
-from yuxi.repositories.dashboard_repository import DashboardRepository
-from yuxi.storage.minio.client import normalize_public_minio_url
+from yuxi.services.dashboard_service import DashboardService
 from yuxi.storage.postgres.models_business import User
-from yuxi.utils.logging_config import logger
-
 
 dashboard = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 class UserActivityStats(BaseModel):
-    """用户活跃度统计"""
+    """用户活跃度统计。"""
 
     total_users: int
     active_users_24h: int
@@ -27,7 +23,7 @@ class UserActivityStats(BaseModel):
 
 
 class ToolCallStats(BaseModel):
-    """工具调用统计"""
+    """工具调用统计。"""
 
     total_calls: int
     successful_calls: int
@@ -39,7 +35,7 @@ class ToolCallStats(BaseModel):
 
 
 class AgentAnalytics(BaseModel):
-    """AI 智能体分析"""
+    """AI 智能体分析。"""
 
     total_agents: int
     agent_conversation_counts: list[dict]
@@ -54,12 +50,47 @@ class ConversationListItem(BaseModel):
 
     thread_id: str
     uid: str
+    username: str | None = None
+    user_avatar: str | None = None
+    user_deleted: bool = False
     agent_id: str
+    agent_name: str | None = None
+    agent_avatar: str | None = None
+    agent_deleted: bool = False
     title: str | None
     status: str
+    is_pinned: bool = False
     message_count: int
+    total_tokens: int = 0
     created_at: str
     updated_at: str
+
+
+class ConversationListResponse(BaseModel):
+    """会话分页列表响应。"""
+
+    items: list[ConversationListItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class ConversationFilterOption(BaseModel):
+    """会话审计筛选选项。"""
+
+    uid: str | None = None
+    username: str | None = None
+    agent_id: str | None = None
+    agent_name: str | None = None
+    avatar: str | None = None
+    is_deleted: bool = False
+
+
+class ConversationFilterOptionsResponse(BaseModel):
+    """会话审计用户与 Agent 筛选项。"""
+
+    users: list[ConversationFilterOption]
+    agents: list[ConversationFilterOption]
 
 
 class ConversationDetailResponse(BaseModel):
@@ -67,152 +98,21 @@ class ConversationDetailResponse(BaseModel):
 
     thread_id: str
     uid: str
+    username: str | None = None
+    user_avatar: str | None = None
+    user_deleted: bool = False
     agent_id: str
+    agent_name: str | None = None
+    agent_avatar: str | None = None
+    agent_deleted: bool = False
     title: str | None
     status: str
+    is_pinned: bool = False
     message_count: int
     created_at: str
     updated_at: str
     total_tokens: int
     messages: list[dict]
-
-
-@dashboard.get("/conversations", response_model=list[ConversationListItem])
-async def get_all_conversations(
-    uid: str | None = None,
-    agent_id: str | None = None,
-    status: str = "active",
-    limit: int = 100,
-    offset: int = 0,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_superadmin_user),
-):
-    """获取所有对话（超级管理员权限）。"""
-    try:
-        return await DashboardRepository(db).list_conversations(
-            uid=uid,
-            agent_id=agent_id,
-            status=status,
-            limit=limit,
-            offset=offset,
-        )
-    except Exception as exc:
-        logger.error(f"Error getting conversations: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get conversations: {str(exc)}") from exc
-
-
-@dashboard.get("/conversations/{thread_id}", response_model=ConversationDetailResponse)
-async def get_conversation_detail(
-    thread_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_superadmin_user),
-):
-    """获取指定对话详情（超级管理员权限）。"""
-    try:
-        repository = ConversationRepository(db)
-        conversation = await repository.get_conversation_by_thread_id(thread_id)
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-
-        messages = await repository.get_messages(conversation.id)
-        stats = await repository.get_stats(conversation.id)
-        message_list = []
-        for message in messages:
-            message_data = {
-                "id": message.id,
-                "role": message.role,
-                "content": message.content,
-                "message_type": message.message_type,
-                "created_at": message.created_at.isoformat(),
-            }
-            if message.tool_calls:
-                message_data["tool_calls"] = [
-                    {
-                        "id": tool_call.id,
-                        "tool_name": tool_call.tool_name,
-                        "tool_input": tool_call.tool_input,
-                        "tool_output": tool_call.tool_output,
-                        "status": tool_call.status,
-                    }
-                    for tool_call in message.tool_calls
-                ]
-            message_list.append(message_data)
-
-        return {
-            "thread_id": conversation.thread_id,
-            "uid": conversation.uid,
-            "agent_id": conversation.agent_id,
-            "title": conversation.title,
-            "status": conversation.status,
-            "message_count": stats.message_count if stats else len(message_list),
-            "created_at": conversation.created_at.isoformat(),
-            "updated_at": conversation.updated_at.isoformat(),
-            "total_tokens": stats.total_tokens if stats else 0,
-            "messages": message_list,
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(f"Error getting conversation detail: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get conversation detail: {str(exc)}") from exc
-
-
-@dashboard.get("/stats/users", response_model=UserActivityStats)
-async def get_user_activity_stats(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_superadmin_user),
-):
-    """获取用户活动统计（超级管理员权限）。"""
-    try:
-        return UserActivityStats(**await DashboardRepository(db).get_user_activity_stats())
-    except Exception as exc:
-        logger.error(f"Error getting user activity stats: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get user activity stats: {str(exc)}") from exc
-
-
-@dashboard.get("/stats/tools", response_model=ToolCallStats)
-async def get_tool_call_stats(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_superadmin_user),
-):
-    """获取工具调用统计（超级管理员权限）。"""
-    try:
-        return ToolCallStats(**await DashboardRepository(db).get_tool_call_stats())
-    except Exception as exc:
-        logger.error(f"Error getting tool call stats: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get tool call stats: {str(exc)}") from exc
-
-
-@dashboard.get("/stats/agents", response_model=AgentAnalytics)
-async def get_agent_analytics(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_superadmin_user),
-):
-    """获取智能体分析（超级管理员权限）。"""
-    try:
-        return AgentAnalytics(**await DashboardRepository(db).get_agent_analytics())
-    except Exception as exc:
-        logger.error(f"Error getting agent analytics: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get agent analytics: {str(exc)}") from exc
-
-
-@dashboard.get("/stats")
-async def get_dashboard_stats(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_superadmin_user),
-):
-    """获取基础统计（超级管理员权限）。"""
-    try:
-        return await DashboardRepository(db).get_basic_stats()
-    except Exception as exc:
-        logger.error(f"Error getting dashboard stats: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get dashboard stats: {str(exc)}") from exc
 
 
 class FeedbackListItem(BaseModel):
@@ -230,39 +130,6 @@ class FeedbackListItem(BaseModel):
     agent_id: str
 
 
-@dashboard.get("/feedbacks", response_model=list[FeedbackListItem])
-async def get_all_feedbacks(
-    rating: str | None = None,
-    agent_id: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_superadmin_user),
-):
-    """获取所有反馈记录（超级管理员权限）。"""
-    try:
-        rows = await DashboardRepository(db).list_feedbacks(rating=rating, agent_id=agent_id)
-        logger.info(f"Found {len(rows)} feedback records")
-        return [
-            {
-                "id": feedback.id,
-                "message_id": feedback.message_id,
-                "uid": feedback.uid,
-                "username": user.username if user else None,
-                "avatar": normalize_public_minio_url(user.avatar) if user else None,
-                "rating": feedback.rating,
-                "reason": feedback.reason,
-                "created_at": feedback.created_at.isoformat(),
-                "message_content": message.content,
-                "conversation_title": conversation.title,
-                "agent_id": conversation.agent_id,
-            }
-            for feedback, message, conversation, user in rows
-        ]
-    except Exception as exc:
-        logger.error(f"Error getting feedbacks: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get feedbacks: {str(exc)}") from exc
-
-
 class TimeSeriesStats(BaseModel):
     """时间序列统计数据。"""
 
@@ -275,23 +142,176 @@ class TimeSeriesStats(BaseModel):
     agent_names: dict[str, str] | None = None
 
 
+class ThreadSummary(BaseModel):
+    """会话汇总指标。"""
+
+    total_threads: int
+    active_threads: int
+    total_messages: int
+    total_tokens: int
+    avg_messages_per_thread: float
+    avg_tokens_per_thread: float
+    pinned_threads: int = 0
+
+
+class ThreadDailyTrend(BaseModel):
+    """每日会话趋势。"""
+
+    date: str
+    new_threads: int
+    active_threads: int
+    message_count: int
+
+
+class ThreadAgentStat(BaseModel):
+    """智能体会话分布指标。"""
+
+    agent_id: str
+    agent_name: str
+    thread_count: int
+    message_count: int
+    token_count: int
+    avg_messages: float
+
+
+class ThreadUserStat(BaseModel):
+    """高频用户统计项。"""
+
+    uid: str
+    username: str | None
+    avatar: str | None
+    thread_count: int
+    message_count: int
+    last_active_at: str | None
+
+
+class ThreadAnalyticsResponse(BaseModel):
+    """会话多维分析响应模型。"""
+
+    summary: ThreadSummary
+    daily_trends: list[ThreadDailyTrend]
+    depth_distribution: dict[str, int]
+    agent_distribution: list[ThreadAgentStat]
+    top_users: list[ThreadUserStat]
+    status_distribution: dict[str, int]
+
+
+@dashboard.get("/stats")
+async def get_dashboard_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取基础统计指标（超级管理员权限）。"""
+    return await DashboardService(db).get_basic_stats()
+
+
+@dashboard.get("/stats/users", response_model=UserActivityStats)
+async def get_user_activity_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取用户活动统计（超级管理员权限）。"""
+    return UserActivityStats(**await DashboardService(db).get_user_activity_stats())
+
+
+@dashboard.get("/stats/tools", response_model=ToolCallStats)
+async def get_tool_call_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取工具调用统计（超级管理员权限）。"""
+    return ToolCallStats(**await DashboardService(db).get_tool_call_stats())
+
+
+@dashboard.get("/stats/agents", response_model=AgentAnalytics)
+async def get_agent_analytics(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取智能体分析（超级管理员权限）。"""
+    return AgentAnalytics(**await DashboardService(db).get_agent_analytics())
+
+
 @dashboard.get("/stats/calls/timeseries", response_model=TimeSeriesStats)
 async def get_call_timeseries_stats(
-    type: str = "models",
-    time_range: str = "14days",
+    type: Literal["models", "agents", "tokens", "tools"] = "models",
+    time_range: Literal["14hours", "14days", "14weeks"] = "14days",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_superadmin_user),
 ):
     """获取调用分析时间序列统计（超级管理员权限）。"""
-    if type not in {"models", "agents", "tokens", "tools"}:
-        raise HTTPException(status_code=422, detail=f"Invalid type: {type}")
-    try:
-        data = await DashboardRepository(db).get_call_timeseries(
-            metric_type=type,
-            time_range=time_range,
-        )
-        return TimeSeriesStats(**data)
-    except Exception as exc:
-        logger.error(f"Error getting call timeseries stats: {exc}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to get call timeseries stats: {str(exc)}") from exc
+    data = await DashboardService(db).get_call_timeseries(
+        metric_type=type,
+        time_range=time_range,
+    )
+    return TimeSeriesStats(**data)
+
+
+@dashboard.get("/stats/threads", response_model=ThreadAnalyticsResponse)
+async def get_thread_analytics_stats(
+    time_range: Literal["7days", "14days", "30days", "90days"] = "30days",
+    agent_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取会话多维分析统计（超级管理员权限）。"""
+    data = await DashboardService(db).get_thread_analytics(
+        time_range=time_range,
+        agent_id=agent_id,
+    )
+    return ThreadAnalyticsResponse(**data)
+
+
+@dashboard.get("/feedbacks", response_model=list[FeedbackListItem])
+async def get_all_feedbacks(
+    rating: str | None = None,
+    agent_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取所有反馈记录（超级管理员权限）。"""
+    return await DashboardService(db).get_feedbacks(rating=rating, agent_id=agent_id)
+
+
+@dashboard.get("/conversations/options", response_model=ConversationFilterOptionsResponse)
+async def get_conversation_filter_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取会话审计用户与 Agent 筛选项（超级管理员权限）。"""
+    return await DashboardService(db).get_conversation_filter_options()
+
+
+@dashboard.get("/conversations", response_model=ConversationListResponse)
+async def get_all_conversations(
+    uid: str | None = None,
+    agent_id: str | None = None,
+    status: Literal["active", "archived", "deleted", "subagent", "all"] = "all",
+    search: Annotated[str | None, Query(max_length=255)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取所有对话（超级管理员权限）。"""
+    return await DashboardService(db).list_conversations(
+        uid=uid,
+        agent_id=agent_id,
+        status=status,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@dashboard.get("/conversations/{thread_id}", response_model=ConversationDetailResponse)
+async def get_conversation_detail(
+    thread_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_superadmin_user),
+):
+    """获取指定对话详情（超级管理员权限）。"""
+    data = await DashboardService(db).get_conversation_detail(thread_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return data

@@ -14,7 +14,7 @@ from server.routers.dashboard_router import (
     get_user_activity_stats,
 )
 from server.utils.auth_middleware import get_superadmin_user
-from yuxi.storage.postgres.models_business import Base, Conversation, Department, Message, ToolCall, User
+from yuxi.storage.postgres.models_business import Agent, Base, Conversation, Department, Message, ToolCall, User
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
@@ -64,6 +64,12 @@ async def dashboard_session():
             role="user",
             department=dept_b,
         )
+        agent = Agent(
+            slug="agent-shared",
+            backend_id="shared-backend",
+            name="Shared Agent",
+            share_config={},
+        )
         now = utc_now_naive()
         conversation_a = Conversation(
             thread_id="thread-a",
@@ -98,6 +104,7 @@ async def dashboard_session():
                 user_a,
                 admin_b,
                 user_b,
+                agent,
                 conversation_a,
                 conversation_b,
                 message_a,
@@ -142,7 +149,8 @@ async def test_dashboard_dependency_rejects_department_admin(dashboard_session):
 async def test_conversation_list_superadmin_sees_all_departments(dashboard_session):
     response = await get_all_conversations(db=dashboard_session["db"], current_user=dashboard_session["superadmin"])
 
-    assert {item["thread_id"] for item in response} == {"thread-a", "thread-b"}
+    assert response["total"] == 2
+    assert {item["thread_id"] for item in response["items"]} == {"thread-a", "thread-b"}
 
 
 async def test_conversation_detail_superadmin_can_view_other_department(dashboard_session):

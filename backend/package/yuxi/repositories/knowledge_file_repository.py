@@ -21,6 +21,24 @@ KB_FILE_STATS_CACHE_TTL = 10
 
 
 class KnowledgeFileRepository:
+    async def aggregate_dashboard_stats(self) -> list[tuple[str, int, int, int]]:
+        """按文件类型聚合真实文件数、大小与 Chunk 数。"""
+        async with pg_manager.get_async_session_context() as session:
+            result = await session.execute(
+                select(
+                    KnowledgeFile.file_type,
+                    func.count(KnowledgeFile.file_id),
+                    func.coalesce(func.sum(KnowledgeFile.file_size), 0),
+                    func.coalesce(func.sum(KnowledgeFile.chunk_count), 0),
+                )
+                .where(or_(KnowledgeFile.is_folder.is_(False), KnowledgeFile.is_folder.is_(None)))
+                .group_by(KnowledgeFile.file_type)
+            )
+            return [
+                (str(file_type or "unknown"), int(count or 0), int(size or 0), int(nodes or 0))
+                for file_type, count, size, nodes in result.all()
+            ]
+
     _writable_fields = {
         "kb_id",
         "parent_id",

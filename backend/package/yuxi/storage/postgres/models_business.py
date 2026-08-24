@@ -279,7 +279,15 @@ class Agent(Base):
     created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
-    __table_args__ = (Index("uq_agents_default", "is_default", unique=True, postgresql_where=is_default.is_(True)),)
+    __table_args__ = (
+        Index(
+            "uq_agents_default",
+            "is_default",
+            unique=True,
+            postgresql_where=is_default.is_(True),
+            sqlite_where=is_default.is_(True),
+        ),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {

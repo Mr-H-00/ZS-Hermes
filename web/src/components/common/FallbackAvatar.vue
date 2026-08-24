@@ -1,6 +1,7 @@
 <template>
   <span
     class="fallback-avatar"
+    :aria-hidden="decorative ? 'true' : undefined"
     :class="[`fallback-avatar--${shape}`, { 'fallback-avatar--image': currentSrc }]"
     :style="[avatarSizeStyle, fallbackStyle]"
   >
@@ -54,6 +55,10 @@ const props = defineProps({
   alt: {
     type: String,
     default: ''
+  },
+  decorative: {
+    type: Boolean,
+    default: false
   }
 })
 

@@ -23,7 +23,30 @@ async def test_standard_user_is_forbidden(test_client, standard_user):
 async def test_admin_can_fetch_conversations(test_client, admin_headers):
     response = await test_client.get("/api/dashboard/conversations", headers=admin_headers)
     assert response.status_code == 200, response.text
-    assert isinstance(response.json(), list)
+    data = response.json()
+    assert set(data) == {"items", "total", "limit", "offset"}
+    assert isinstance(data["items"], list)
+    assert data["total"] >= len(data["items"])
+
+
+async def test_admin_can_fetch_conversation_filter_options(test_client, admin_headers):
+    response = await test_client.get("/api/dashboard/conversations/options", headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert set(data) == {"users", "agents"}
+    assert all("is_deleted" in item for item in data["users"])
+    assert all("is_deleted" in item for item in data["agents"])
+
+
+async def test_dashboard_rejects_invalid_query_ranges(test_client, admin_headers):
+    responses = [
+        await test_client.get("/api/dashboard/stats/threads?time_range=365days", headers=admin_headers),
+        await test_client.get("/api/dashboard/conversations?limit=0", headers=admin_headers),
+        await test_client.get("/api/dashboard/conversations?offset=-1", headers=admin_headers),
+    ]
+
+    assert [response.status_code for response in responses] == [422, 422, 422]
 
 
 async def test_admin_can_fetch_stats(test_client, admin_headers):
@@ -55,6 +78,24 @@ async def test_knowledge_stats_matches_runtime_capability(test_client, admin_hea
         "databases_by_type",
         "file_type_distribution",
     }
+
+
+async def test_admin_can_fetch_thread_analytics(test_client, admin_headers):
+    """Test that thread analytics endpoint returns complete statistics schema."""
+    response = await test_client.get(
+        "/api/dashboard/stats/threads?time_range=30days",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "summary" in data
+    assert "daily_trends" in data
+    assert "depth_distribution" in data
+    assert "agent_distribution" in data
+    assert "top_users" in data
+    assert "status_distribution" in data
+    assert len(data["daily_trends"]) == 30
+    assert data["summary"]["total_threads"] >= 0
 
 
 async def test_admin_can_fetch_feedbacks(test_client, admin_headers):

@@ -2,29 +2,39 @@ import { apiAdminGet } from './base'
 
 /**
  * Dashboard API模块
- * 用于管理员查看所有用户的对话记录
+ * 用于超级管理员查看系统概览、调用监控与会话深度分析
  */
 
 export const dashboardApi = {
   /**
    * 获取所有对话记录
    * @param {Object} params - 查询参数
-   * @param {string} params.uid - 用户 UID 过滤
-   * @param {string} params.agent_id - 智能体ID过滤
-   * @param {string} params.status - 状态过滤 (active/deleted/all)
-   * @param {number} params.limit - 每页数量
-   * @param {number} params.offset - 偏移量
-   * @returns {Promise<Array>} - 对话列表
+   * @param {string} [params.uid] - 用户 UID 过滤
+   * @param {string} [params.agent_id] - 智能体ID过滤
+   * @param {string} [params.status] - 状态过滤 (active/archived/deleted/all)
+   * @param {string} [params.search] - 标题/ID/UID 关键字搜索
+   * @param {number} [params.limit] - 每页数量
+   * @param {number} [params.offset] - 偏移量
+   * @returns {Promise<Object>} - 分页对话列表（items/total/limit/offset）
    */
   getConversations: (params = {}) => {
     const queryParams = new URLSearchParams()
     if (params.uid) queryParams.append('uid', params.uid)
     if (params.agent_id) queryParams.append('agent_id', params.agent_id)
     if (params.status) queryParams.append('status', params.status)
+    if (params.search) queryParams.append('search', params.search)
     if (params.limit) queryParams.append('limit', params.limit)
     if (params.offset) queryParams.append('offset', params.offset)
 
     return apiAdminGet(`/api/dashboard/conversations?${queryParams.toString()}`)
+  },
+
+  /**
+   * 获取会话审计筛选选项
+   * @returns {Promise<Object>} - 用户与智能体选项
+   */
+  getConversationFilterOptions: () => {
+    return apiAdminGet('/api/dashboard/conversations/options')
   },
 
   /**
@@ -37,7 +47,7 @@ export const dashboardApi = {
   },
 
   /**
-   * 获取Dashboard统计信息
+   * 获取Dashboard基础统计信息
    * @returns {Promise<Object>} - 统计信息
    */
   getStats: () => {
@@ -47,8 +57,8 @@ export const dashboardApi = {
   /**
    * 获取用户反馈列表
    * @param {Object} params - 查询参数
-   * @param {string} params.rating - 反馈类型过滤 (like/dislike/all)
-   * @param {string} params.agent_id - 智能体ID过滤
+   * @param {string} [params.rating] - 反馈类型过滤 (like/dislike/all)
+   * @param {string} [params.agent_id] - 智能体ID过滤
    * @returns {Promise<Array>} - 反馈列表
    */
   getFeedbacks: (params = {}) => {
@@ -58,8 +68,6 @@ export const dashboardApi = {
 
     return apiAdminGet(`/api/dashboard/feedbacks?${queryParams.toString()}`)
   },
-
-  // ========== 新增并行API接口 ==========
 
   /**
    * 获取用户活跃度统计
@@ -94,7 +102,22 @@ export const dashboardApi = {
   },
 
   /**
-   * 批量获取所有统计数据（并行请求）
+   * 获取会话（Thread）多维分析统计
+   * @param {Object} params - 查询参数
+   * @param {string} [params.timeRange='30days'] - 时间范围 (7days/14days/30days/90days)
+   * @param {string} [params.agentId] - 智能体过滤
+   * @returns {Promise<Object>} - 会话分析统计数据
+   */
+  getThreadStats: (params = {}) => {
+    const queryParams = new URLSearchParams()
+    if (params.timeRange) queryParams.append('time_range', params.timeRange)
+    if (params.agentId) queryParams.append('agent_id', params.agentId)
+
+    return apiAdminGet(`/api/dashboard/stats/threads?${queryParams.toString()}`)
+  },
+
+  /**
+   * 批量获取系统概览所有统计数据（并行请求）
    * @param {Object} options - 当前运行时能力
    * @param {boolean} options.includeKnowledge - 是否请求知识库统计
    * @returns {Promise<Object>} - 所有统计数据

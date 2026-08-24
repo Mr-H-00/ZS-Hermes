@@ -5,71 +5,73 @@ from typing import Any
 from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
 
+FILE_TYPE_MAPPING = {
+    "txt": "文本文件",
+    "pdf": "PDF文档",
+    "docx": "Word文档",
+    "doc": "Word文档",
+    "md": "Markdown",
+    "html": "HTML网页",
+    "htm": "HTML网页",
+    "json": "JSON数据",
+    "csv": "CSV表格",
+    "xlsx": "Excel表格",
+    "xls": "Excel表格",
+    "pptx": "PowerPoint",
+    "ppt": "PowerPoint",
+    "png": "PNG图片",
+    "jpg": "JPEG图片",
+    "jpeg": "JPEG图片",
+    "gif": "GIF图片",
+    "svg": "SVG图片",
+    "mp4": "MP4视频",
+    "mp3": "MP3音频",
+    "zip": "ZIP压缩包",
+    "rar": "RAR压缩包",
+    "7z": "7Z压缩包",
+}
+
+DATABASE_TYPE_MAPPING = {
+    "faiss": "FAISS",
+    "milvus": "Milvus",
+    "dify": "Dify",
+    "qdrant": "Qdrant",
+    "elasticsearch": "Elasticsearch",
+    "unknown": "未知类型",
+}
+
 
 async def get_knowledge_stats() -> dict[str, Any]:
-    """汇总知识库、文件类型与存储大小统计。"""
+    """通过单批 SQL 聚合高效汇总知识库、文件类型与存储大小统计。"""
 
-    knowledge_bases = await KnowledgeBaseRepository().get_all()
-    file_repository = KnowledgeFileRepository()
     databases_by_type: dict[str, int] = {}
     files_by_type: dict[str, int] = {}
+    total_databases = 0
     total_files = 0
+    total_nodes = 0
     total_storage_size = 0
 
-    file_type_mapping = {
-        "txt": "文本文件",
-        "pdf": "PDF文档",
-        "docx": "Word文档",
-        "doc": "Word文档",
-        "md": "Markdown",
-        "html": "HTML网页",
-        "htm": "HTML网页",
-        "json": "JSON数据",
-        "csv": "CSV表格",
-        "xlsx": "Excel表格",
-        "xls": "Excel表格",
-        "pptx": "PowerPoint",
-        "ppt": "PowerPoint",
-        "png": "PNG图片",
-        "jpg": "JPEG图片",
-        "jpeg": "JPEG图片",
-        "gif": "GIF图片",
-        "svg": "SVG图片",
-        "mp4": "MP4视频",
-        "mp3": "MP3音频",
-        "zip": "ZIP压缩包",
-        "rar": "RAR压缩包",
-        "7z": "7Z压缩包",
-    }
-    database_type_mapping = {
-        "faiss": "FAISS",
-        "milvus": "Milvus",
-        "dify": "Dify",
-        "qdrant": "Qdrant",
-        "elasticsearch": "Elasticsearch",
-        "unknown": "未知类型",
-    }
+    for kb_type, count in await KnowledgeBaseRepository().count_by_type():
+        db_type = kb_type.lower()
+        display_type = DATABASE_TYPE_MAPPING.get(db_type, kb_type or "未知类型")
+        databases_by_type[display_type] = databases_by_type.get(display_type, 0) + count
+        total_databases += count
 
-    for knowledge_base in knowledge_bases:
-        database_type = (knowledge_base.kb_type or "unknown").lower()
-        display_type = database_type_mapping.get(database_type, knowledge_base.kb_type or "未知类型")
-        databases_by_type[display_type] = databases_by_type.get(display_type, 0) + 1
-
-        files = await file_repository.list_by_kb_id(knowledge_base.kb_id)
-        total_files += len(files)
-        for record in files:
-            file_extension = (record.file_type or "").lower()
-            display_name = file_type_mapping.get(
-                file_extension,
-                file_extension.upper() + "文件" if file_extension else "其他",
-            )
-            files_by_type[display_name] = files_by_type.get(display_name, 0) + 1
-            total_storage_size += int(record.file_size or 0)
+    for file_type, count, size, nodes in await KnowledgeFileRepository().aggregate_dashboard_stats():
+        ext = file_type.lower()
+        display_name = FILE_TYPE_MAPPING.get(
+            ext,
+            ext.upper() + "文件" if ext and ext != "unknown" else "其他",
+        )
+        files_by_type[display_name] = files_by_type.get(display_name, 0) + count
+        total_files += count
+        total_storage_size += size
+        total_nodes += nodes
 
     return {
-        "total_databases": len(knowledge_bases),
+        "total_databases": total_databases,
         "total_files": total_files,
-        "total_nodes": 0,
+        "total_nodes": total_nodes,
         "total_storage_size": total_storage_size,
         "databases_by_type": databases_by_type,
         "file_type_distribution": files_by_type,
