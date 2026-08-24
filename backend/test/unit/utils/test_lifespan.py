@@ -52,6 +52,28 @@ async def test_invalid_security_secrets_fail_before_database_startup(
     }
 
 
+async def test_api_startup_validates_full_schema_without_running_ddl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+    monkeypatch.delenv("LITE_MODE", raising=False)
+    monkeypatch.setenv("API_KEY_DERIVATION_SECRET", "schema-test-api-secret-at-least-thirty-two-characters")
+    monkeypatch.setenv("JWT_SECRET_KEY", "schema-test-jwt-secret-at-least-thirty-two-characters")
+    monkeypatch.setenv("SANDBOX_PROVISIONER_TOKEN", "schema-test-sandbox-token-at-least-thirty-two-characters")
+    monkeypatch.setattr(lifespan_module.pg_manager, "initialize", lambda: calls.append("initialize"))
+
+    async def require_current_schema(*, include_knowledge: bool) -> None:
+        calls.append(("require_current_schema", include_knowledge))
+        raise RuntimeError("stop after schema assertion")
+
+    monkeypatch.setattr(lifespan_module.pg_manager, "require_current_schema", require_current_schema)
+
+    with pytest.raises(RuntimeError, match="stop after schema assertion"):
+        await lifespan_module._startup(FastAPI())
+
+    assert calls == ["initialize", ("require_current_schema", True)]
+
+
 async def test_required_startup_component_failure_still_releases_every_runtime_component(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

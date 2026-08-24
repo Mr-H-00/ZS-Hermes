@@ -1195,14 +1195,9 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
     def fake_initialize():
         calls.append("initialize")
 
-    async def fake_create_business_tables():
-        calls.append("create_business_tables")
-
-    async def fake_ensure_business_schema():
-        calls.append("ensure_business_schema")
-
-    async def fake_setup_langgraph_checkpointer():
-        calls.append("setup_langgraph_checkpointer")
+    async def fake_require_current_schema(*, include_knowledge: bool):
+        assert include_knowledge is True
+        calls.append("require_current_schema")
 
     async def fake_ensure_builtin_mcp_servers_in_db():
         calls.append("ensure_builtin_mcp_servers_in_db")
@@ -1241,9 +1236,7 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
         calls.append("reconciliation_loop")
 
     monkeypatch.setattr(run_worker.pg_manager, "initialize", fake_initialize)
-    monkeypatch.setattr(run_worker.pg_manager, "create_business_tables", fake_create_business_tables)
-    monkeypatch.setattr(run_worker.pg_manager, "ensure_business_schema", fake_ensure_business_schema)
-    monkeypatch.setattr(run_worker.pg_manager, "setup_langgraph_checkpointer", fake_setup_langgraph_checkpointer)
+    monkeypatch.setattr(run_worker.pg_manager, "require_current_schema", fake_require_current_schema)
     monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", fake_session_ctx)
     monkeypatch.setattr(run_worker, "ensure_builtin_mcp_servers_in_db", fake_ensure_builtin_mcp_servers_in_db)
     monkeypatch.setattr(run_worker, "init_builtin_skills", fake_init_builtin_skills)
@@ -1267,9 +1260,7 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
 
     assert calls == [
         "initialize",
-        "create_business_tables",
-        "ensure_business_schema",
-        "setup_langgraph_checkpointer",
+        "require_current_schema",
         "ensure_options_in_db",
         "invalidate_option_cache",
         "ensure_builtin_mcp_servers_in_db",
@@ -1334,9 +1325,7 @@ async def test_reconciliation_failure_does_not_refresh_success_lease(monkeypatch
 async def test_worker_startup_fails_when_system_options_cannot_initialize(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(run_worker.pg_manager, "initialize", lambda: None)
-    monkeypatch.setattr(run_worker.pg_manager, "create_business_tables", AsyncMock())
-    monkeypatch.setattr(run_worker.pg_manager, "ensure_business_schema", AsyncMock())
-    monkeypatch.setattr(run_worker.pg_manager, "setup_langgraph_checkpointer", AsyncMock())
+    monkeypatch.setattr(run_worker.pg_manager, "require_current_schema", AsyncMock())
 
     @asynccontextmanager
     async def fake_session_ctx():

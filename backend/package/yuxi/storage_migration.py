@@ -11,8 +11,11 @@ from sqlalchemy import text
 
 from yuxi.config import get_legacy_storage_dir
 from yuxi.config.options import ensure_options_in_db
+from yuxi.config.runtime import lite_mode_enabled
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.storage.postgres.manager import (
+    BUSINESS_SCHEMA_VERSION,
+    KNOWLEDGE_SCHEMA_VERSION,
     V071_WORKDIR_CUTOVER_STATEMENTS,
     pg_manager,
 )
@@ -87,41 +90,66 @@ async def _converge_database_state(*, fail_nonterminal_runs: bool) -> None:
         await session.commit()
 
 
+def _require_supported_version(domain: str, actual: int | None, expected: int) -> None:
+    """只接受未版本化 legacy baseline 或当前精确版本。"""
+    if actual not in (None, expected):
+        raise RuntimeError(f"Unsupported {domain} schema version: {actual}; expected {expected}")
+
+
 async def main() -> None:
-    """初始化迁移所需 schema，并在停机窗口切换全部文件 Owner。"""
+    """独占迁移数据库 Schema，并在停机窗口切换历史文件 Owner。"""
     pg_manager.initialize()
     try:
-        async with pg_manager.get_async_session_context() as session:
-            workdir_plan = await read_v071_workdir_plan(session)
-        migrates_workdirs = workdir_plan.requires_cutover or bool(workdir_plan.workdirs)
-        requires_quiescence = (
-            migrates_workdirs
-            or _legacy_skill_roots_exist()
-            or _legacy_system_config_exists()
-            or runtime_storage_requires_quiescence()
-        )
-        if requires_quiescence:
-            _require_quiescence_proof()
-        await pg_manager.create_business_tables()
-        if migrates_workdirs:
-            await asyncio.to_thread(import_v071_workdirs, workdir_plan.workdirs, workdir_plan.conversations)
+        async with pg_manager.schema_migration_lock():
             async with pg_manager.get_async_session_context() as session:
-                for statement in V071_WORKDIR_CUTOVER_STATEMENTS:
-                    await session.execute(text(statement))
-                await rewrite_v071_workdir_paths(session)
-                await verify_workdir_bindings(session)
-                await session.commit()
-        await pg_manager.ensure_business_schema()
-        await _converge_database_state(fail_nonterminal_runs=requires_quiescence)
-        legacy_config_file = get_legacy_storage_dir() / "config/base.toml"
-        if legacy_config_file.is_file() and not legacy_config_file.is_symlink():
-            legacy_config_file.unlink()
-        if migrates_workdirs:
-            await asyncio.to_thread(cleanup_v071_thread_sources, workdir_plan.conversations)
-        async with pg_manager.get_async_session_context() as session:
-            await migrate_shared_skills(session)
-        mark_v071_skills_migrated()
-        await asyncio.to_thread(migrate_runtime_storage_identity)
+                workdir_plan = await read_v071_workdir_plan(session)
+            migrates_workdirs = workdir_plan.requires_cutover or bool(workdir_plan.workdirs)
+            requires_quiescence = (
+                migrates_workdirs
+                or _legacy_skill_roots_exist()
+                or _legacy_system_config_exists()
+                or runtime_storage_requires_quiescence()
+            )
+            if requires_quiescence:
+                _require_quiescence_proof()
+
+            await pg_manager.create_schema_version_table()
+            versions = await pg_manager.get_schema_versions()
+            business_version = versions.get("business")
+            _require_supported_version("business", business_version, BUSINESS_SCHEMA_VERSION)
+            if not lite_mode_enabled():
+                _require_supported_version("knowledge", versions.get("knowledge"), KNOWLEDGE_SCHEMA_VERSION)
+
+            if business_version is None:
+                await pg_manager.create_business_tables()
+            if migrates_workdirs:
+                await asyncio.to_thread(import_v071_workdirs, workdir_plan.workdirs, workdir_plan.conversations)
+                async with pg_manager.get_async_session_context() as session:
+                    for statement in V071_WORKDIR_CUTOVER_STATEMENTS:
+                        await session.execute(text(statement))
+                    await rewrite_v071_workdir_paths(session)
+                    await verify_workdir_bindings(session)
+                    await session.commit()
+            if business_version is None:
+                await pg_manager.ensure_business_schema()
+                await pg_manager.setup_langgraph_checkpointer()
+                await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
+
+            if not lite_mode_enabled() and versions.get("knowledge") is None:
+                await pg_manager.create_knowledge_tables()
+                await pg_manager.ensure_knowledge_schema()
+                await pg_manager.record_schema_version("knowledge", KNOWLEDGE_SCHEMA_VERSION)
+
+            await _converge_database_state(fail_nonterminal_runs=requires_quiescence)
+            legacy_config_file = get_legacy_storage_dir() / "config/base.toml"
+            if legacy_config_file.is_file() and not legacy_config_file.is_symlink():
+                legacy_config_file.unlink()
+            if migrates_workdirs:
+                await asyncio.to_thread(cleanup_v071_thread_sources, workdir_plan.conversations)
+            async with pg_manager.get_async_session_context() as session:
+                await migrate_shared_skills(session)
+            mark_v071_skills_migrated()
+            await asyncio.to_thread(migrate_runtime_storage_identity)
     finally:
         await pg_manager.close()
 

@@ -20,6 +20,9 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
+BUSINESS_SCHEMA_VERSION = 1
+KNOWLEDGE_SCHEMA_VERSION = 1
+SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS worker_id VARCHAR(128)",
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP WITHOUT TIME ZONE",
@@ -320,13 +323,92 @@ class PostgresManager(metaclass=SingletonMeta):
                 logger.info("LangGraph checkpoint tables verified/created")
         return checkpointer
 
-    async def create_tables(self):
-        """创建所有表（知识库和业务表）"""
+    @asynccontextmanager
+    async def schema_migration_lock(self):
+        """用独立 PostgreSQL session 串行化唯一 Schema migrator。"""
+        self._check_initialized()
+        async with self.async_engine.connect() as conn:
+            params = {"lock_scope": "yuxi:schema-migration"}
+            await conn.execute(text("SELECT pg_advisory_lock(hashtextextended(:lock_scope, 0))"), params)
+            await conn.commit()
+            try:
+                yield
+            finally:
+                unlocked = await conn.scalar(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:lock_scope, 0))"),
+                    params,
+                )
+                await conn.commit()
+                if unlocked is not True:
+                    await conn.close()
+                    raise RuntimeError("Failed to release Yuxi schema migration advisory lock")
+
+    async def create_schema_version_table(self) -> None:
+        """创建轻量 Schema 版本表；仅允许迁移器调用。"""
+        self._check_initialized()
+        async with self.async_engine.begin() as conn:
+            await conn.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {SCHEMA_VERSION_TABLE} (
+                        domain VARCHAR(32) PRIMARY KEY,
+                        version INTEGER NOT NULL CHECK (version > 0),
+                        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+
+    async def get_schema_versions(self) -> dict[str, int]:
+        """读取当前数据库已完成的 Yuxi Schema 版本。"""
+        self._check_initialized()
+        async with self.async_engine.connect() as conn:
+            exists = await conn.scalar(
+                text("SELECT to_regclass(:table_name) IS NOT NULL"),
+                {"table_name": SCHEMA_VERSION_TABLE},
+            )
+            if not exists:
+                return {}
+            rows = await conn.execute(text(f"SELECT domain, version FROM {SCHEMA_VERSION_TABLE}"))
+            return {str(row.domain): int(row.version) for row in rows}
+
+    async def record_schema_version(self, domain: str, version: int) -> None:
+        """在对应域迁移完整成功后记录当前版本。"""
+        self._check_initialized()
+        async with self.async_engine.begin() as conn:
+            await conn.execute(
+                text(
+                    f"""
+                    INSERT INTO {SCHEMA_VERSION_TABLE} (domain, version, applied_at)
+                    VALUES (:domain, :version, CURRENT_TIMESTAMP)
+                    ON CONFLICT (domain) DO UPDATE
+                    SET version = EXCLUDED.version, applied_at = EXCLUDED.applied_at
+                    """
+                ),
+                {"domain": domain, "version": version},
+            )
+
+    async def require_current_schema(self, *, include_knowledge: bool) -> None:
+        """只读校验运行进程需要的 Schema 域均为精确当前版本。"""
+        versions = await self.get_schema_versions()
+        required = {"business": BUSINESS_SCHEMA_VERSION}
+        if include_knowledge:
+            required["knowledge"] = KNOWLEDGE_SCHEMA_VERSION
+        mismatches = [
+            f"{domain}={versions.get(domain, 'missing')} (required {version})"
+            for domain, version in required.items()
+            if versions.get(domain) != version
+        ]
+        if mismatches:
+            detail = ", ".join(mismatches)
+            raise RuntimeError(f"Database schema migration is incomplete or incompatible: {detail}")
+
+    async def create_knowledge_tables(self):
+        """创建完整模式使用的知识与评估表。"""
         self._check_initialized()
         async with self.async_engine.begin() as conn:
             await conn.run_sync(KnowledgeBase.metadata.create_all)
-            await conn.run_sync(BusinessBase.metadata.create_all)
-        logger.info("PostgreSQL tables created/checked (knowledge + business)")
+        logger.info("PostgreSQL knowledge tables created/checked")
 
     async def create_business_tables(self):
         """创建所有业务数据表"""

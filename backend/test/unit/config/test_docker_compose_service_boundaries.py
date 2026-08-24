@@ -221,6 +221,28 @@ def test_v071_options_migration_is_not_part_of_normal_startup() -> None:
     assert "storage_migrations" not in worker_source
 
 
+def test_runtime_processes_only_validate_schema_version() -> None:
+    """API 与 worker 不得重新取得建表、DDL 收敛或 checkpoint setup ownership。"""
+    root = _project_root()
+    migration_source = (root / "backend/package/yuxi/storage_migration.py").read_text()
+    runtime_sources = {
+        "api": (root / "backend/server/utils/lifespan.py").read_text(),
+        "worker": (root / "backend/package/yuxi/services/run_worker.py").read_text(),
+    }
+    ddl_markers = (
+        "create_business_tables(",
+        "create_knowledge_tables(",
+        "ensure_business_schema(",
+        "ensure_knowledge_schema(",
+        "setup_langgraph_checkpointer(",
+    )
+
+    assert "require_current_schema(" in migration_source or "record_schema_version(" in migration_source
+    for source in runtime_sources.values():
+        assert "require_current_schema(" in source
+        assert all(marker not in source for marker in ddl_markers)
+
+
 def test_storage_migration_script_recovers_stopped_production_deployment(
     tmp_path: Path,
 ) -> None:

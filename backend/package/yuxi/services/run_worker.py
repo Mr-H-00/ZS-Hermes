@@ -17,6 +17,7 @@ from yuxi.agents.backends.paths import runtime_workdir_path
 from yuxi.agents.backends.sandbox.provider import get_sandbox_provider
 from yuxi.agents.mcp.service import ensure_builtin_mcp_servers_in_db
 from yuxi.agents.skills.service import init_builtin_skills
+from yuxi.config.runtime import lite_mode_enabled
 from yuxi.repositories.agent_run_repository import TERMINAL_RUN_STATUSES, AgentRunRepository
 from yuxi.services.agent_request_queue_service import (
     dispatch_next_request,
@@ -1424,9 +1425,7 @@ async def _worker_startup(ctx):
     AuthUtils.require_security_secrets()
     ctx["worker_id"] = WORKER_ID
     pg_manager.initialize()
-    await pg_manager.create_business_tables()
-    await pg_manager.ensure_business_schema()
-    await pg_manager.setup_langgraph_checkpointer()
+    await pg_manager.require_current_schema(include_knowledge=not lite_mode_enabled())
     async with pg_manager.get_async_session_context() as session:
         from yuxi.config.options import (
             ensure_options_in_db,

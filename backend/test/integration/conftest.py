@@ -46,19 +46,13 @@ def ensure_live_api_schema():
     if not ADMIN_LOGIN or not ADMIN_PASSWORD:
         return
 
-    async def run_schema_setup() -> None:
+    async def verify_schema_version() -> None:
         from yuxi.storage.postgres.manager import pg_manager
 
         pg_manager.initialize()
-        if LITE_MODE:
-            await pg_manager.create_business_tables()
-        else:
-            await pg_manager.create_tables()
-        await pg_manager.ensure_business_schema()
-        if not LITE_MODE:
-            await pg_manager.ensure_knowledge_schema()
+        await pg_manager.require_current_schema(include_knowledge=not LITE_MODE)
 
-    anyio.run(run_schema_setup)
+    anyio.run(verify_schema_version)
 
 
 def _require_admin_credentials() -> tuple[str, str]:

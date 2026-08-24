@@ -65,15 +65,9 @@ async def _startup(app: FastAPI) -> None:
         operation=AuthUtils.require_security_secrets,
     )
 
-    # 初始化数据库连接
+    # Schema 只由 Compose 中的 storage-migrator 修改；运行进程仅校验兼容版本。
     pg_manager.initialize()
-    if lite_mode:
-        await pg_manager.create_business_tables()
-    else:
-        await pg_manager.create_tables()
-    await pg_manager.ensure_business_schema()
-    if not lite_mode:
-        await pg_manager.ensure_knowledge_schema()
+    await pg_manager.require_current_schema(include_knowledge=not lite_mode)
 
     from yuxi.config.options import (
         ensure_options_in_db,
@@ -190,8 +184,6 @@ async def _startup(app: FastAPI) -> None:
         required=True,
         operation=init_sandbox_provider,
     )
-
-    await pg_manager.setup_langgraph_checkpointer()
 
     await tasker.start()
     app.state.startup_complete = True
