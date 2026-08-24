@@ -252,6 +252,47 @@ async def test_admin_can_create_and_delete_user(test_client, admin_headers):
     assert delete_payload["success"] is True
     assert delete_payload["message"] == "用户已删除"
 
+    list_response = await test_client.get("/api/auth/users?limit=1000", headers=admin_headers)
+    assert list_response.status_code == 200, list_response.text
+    assert created_user["id"] not in {user["id"] for user in list_response.json()}
+
+
+async def test_admin_user_page_filters_before_pagination_and_excludes_deleted(test_client, admin_headers):
+    suffix = uuid.uuid4().hex[:8]
+    created_users = []
+    try:
+        for index in range(3):
+            response = await test_client.post(
+                "/api/auth/users",
+                json={
+                    "username": f"paged_{suffix}_{index}",
+                    "password": "routerTest123!",
+                    "role": "user",
+                },
+                headers=admin_headers,
+            )
+            assert response.status_code == 200, response.text
+            created_users.append(response.json())
+
+        delete_response = await test_client.delete(f"/api/auth/users/{created_users[1]['id']}", headers=admin_headers)
+        assert delete_response.status_code == 200, delete_response.text
+
+        page_response = await test_client.get(
+            "/api/auth/users/page",
+            params={"search": f"paged_{suffix}", "offset": 1, "limit": 1, "role": "user"},
+            headers=admin_headers,
+        )
+        assert page_response.status_code == 200, page_response.text
+        page = page_response.json()
+        assert page["total"] == 2
+        assert page["limit"] == 1
+        assert page["offset"] == 1
+        assert [item["id"] for item in page["items"]] == [created_users[2]["id"]]
+        assert created_users[1]["id"] not in {item["id"] for item in page["items"]}
+    finally:
+        for user in created_users:
+            await test_client.delete(f"/api/auth/users/{user['id']}", headers=admin_headers)
+
 
 async def test_admin_password_mutations_reject_passwords_shorter_than_eight_characters(
     test_client, admin_headers, standard_user
@@ -315,6 +356,18 @@ async def test_department_admin_is_limited_to_own_department_users(test_client, 
         assert user_a["id"] in listed_user_ids
         assert user_b["id"] not in listed_user_ids
         assert all(user["department_id"] == department_a["id"] for user in listed_users)
+
+        page_response = await test_client.get(
+            "/api/auth/users/page",
+            params={"department_id": department_b["id"], "limit": 100},
+            headers=dept_a["admin_headers"],
+        )
+        assert page_response.status_code == 200, page_response.text
+        paged_users = page_response.json()["items"]
+        paged_user_ids = {user["id"] for user in paged_users}
+        assert user_a["id"] in paged_user_ids
+        assert user_b["id"] not in paged_user_ids
+        assert all(user["department_id"] == department_a["id"] for user in paged_users)
 
         options_response = await test_client.get("/api/auth/users/access-options", headers=dept_a["admin_headers"])
         assert options_response.status_code == 200, options_response.text

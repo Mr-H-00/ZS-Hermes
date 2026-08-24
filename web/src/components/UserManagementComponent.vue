@@ -62,10 +62,10 @@
           <a-alert type="error" :message="userManagement.error" show-icon />
         </div>
 
-        <template v-if="filteredUsers.length > 0">
+        <template v-if="userManagement.users.length > 0">
           <div class="settings-table-wrapper">
             <a-table
-              :dataSource="paginatedUsers"
+              :dataSource="userManagement.users"
               :columns="columns"
               :rowKey="(record) => record.id"
               :pagination="false"
@@ -142,22 +142,21 @@
             </a-table>
           </div>
 
-          <div v-if="filteredUsers.length > userManagement.pageSize" class="pagination-section">
+          <div v-if="userManagement.total > userManagement.pageSize" class="pagination-section">
             <a-pagination
-              v-model:current="userManagement.currentPage"
-              v-model:page-size="userManagement.pageSize"
-              :total="filteredUsers.length"
+              :current="userManagement.currentPage"
+              :page-size="userManagement.pageSize"
+              :total="userManagement.total"
               :page-size-options="['20', '50', '100']"
               show-size-changer
               size="small"
+              @change="handlePageChange"
             />
           </div>
         </template>
 
         <div v-else class="empty-state">
-          <a-empty
-            :description="userManagement.users.length === 0 ? '暂无用户数据' : '没有匹配的用户'"
-          />
+          <a-empty :description="hasActiveFilters ? '没有匹配的用户' : '暂无用户数据'" />
         </div>
       </a-spin>
     </div>
@@ -254,10 +253,10 @@
 </template>
 
 <script setup>
-import { reactive, onMounted, watch, computed } from 'vue'
+import { reactive, onMounted, onUnmounted, watch, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
-import { departmentApi } from '@/apis'
+import { authApi, departmentApi } from '@/apis'
 import {
   Plus,
   SquarePen,
@@ -298,11 +297,12 @@ const userManagement = reactive({
   loading: false,
   refreshing: false,
   users: [],
+  total: 0,
   searchKeyword: '',
   departmentFilter: '',
   roleFilter: '',
   currentPage: 1,
-  pageSize: 50,
+  pageSize: 20,
   error: null,
   modalVisible: false,
   modalTitle: '添加用户',
@@ -326,6 +326,13 @@ const userManagement = reactive({
 const departmentManagement = reactive({
   departments: []
 })
+
+const hasActiveFilters = computed(
+  () =>
+    Boolean(userManagement.searchKeyword.trim()) ||
+    Boolean(userManagement.departmentFilter) ||
+    Boolean(userManagement.roleFilter)
+)
 
 const departmentFilterOptions = computed(() => {
   const options = new Map()
@@ -354,32 +361,6 @@ const departmentFilterOptions = computed(() => {
   })
 
   return [...options.values()]
-})
-
-const filteredUsers = computed(() => {
-  const keyword = userManagement.searchKeyword.trim().toLowerCase()
-
-  return userManagement.users.filter((user) => {
-    const matchesKeyword =
-      !keyword ||
-      [user.username, user.uid, user.phone_number].some((value) =>
-        String(value || '')
-          .toLowerCase()
-          .includes(keyword)
-      )
-    const matchesDepartment =
-      !userManagement.departmentFilter ||
-      String(user.department_id ?? user.department_name ?? '') === userManagement.departmentFilter
-    const matchesRole = !userManagement.roleFilter || user.role === userManagement.roleFilter
-
-    return matchesKeyword && matchesDepartment && matchesRole
-  })
-})
-
-const paginatedUsers = computed(() => {
-  const pageSize = Number(userManagement.pageSize)
-  const start = (userManagement.currentPage - 1) * pageSize
-  return filteredUsers.value.slice(start, start + pageSize)
 })
 
 // 获取部门列表
@@ -453,20 +434,13 @@ watch(
   }
 )
 
+let filterRequestTimer = null
 watch(
   () => [userManagement.searchKeyword, userManagement.departmentFilter, userManagement.roleFilter],
   () => {
     userManagement.currentPage = 1
-  }
-)
-
-watch(
-  () => filteredUsers.value.length,
-  (total) => {
-    const maxPage = Math.max(1, Math.ceil(total / Number(userManagement.pageSize)))
-    if (userManagement.currentPage > maxPage) {
-      userManagement.currentPage = maxPage
-    }
+    if (filterRequestTimer) clearTimeout(filterRequestTimer)
+    filterRequestTimer = setTimeout(() => fetchUsers(), 250)
   }
 )
 
@@ -479,19 +453,45 @@ const isUserDeleteDisabled = (user) =>
   user.id === userStore.userId ||
   (user.role === 'superadmin' && userStore.userRole !== 'superadmin')
 
-// 获取用户列表
+let latestUserRequest = 0
 const fetchUsers = async () => {
+  const requestId = ++latestUserRequest
   try {
     userManagement.loading = true
-    const users = await userStore.getUsers()
-    userManagement.users = users
+    const pageSize = Number(userManagement.pageSize)
+    const response = await authApi.getUsersPage({
+      offset: (userManagement.currentPage - 1) * pageSize,
+      limit: pageSize,
+      search: userManagement.searchKeyword.trim(),
+      departmentId: userManagement.departmentFilter,
+      role: userManagement.roleFilter
+    })
+    if (requestId !== latestUserRequest) return
+
+    const maxPage = Math.max(1, Math.ceil(response.total / pageSize))
+    if (userManagement.currentPage > maxPage) {
+      userManagement.currentPage = maxPage
+      await fetchUsers()
+      return
+    }
+
+    userManagement.users = response.items
+    userManagement.total = response.total
     userManagement.error = null
   } catch (error) {
+    if (requestId !== latestUserRequest) return
     console.error('获取用户列表失败:', error)
     userManagement.error = '获取用户列表失败'
   } finally {
-    userManagement.loading = false
+    if (requestId === latestUserRequest) userManagement.loading = false
   }
+}
+
+const handlePageChange = (page, pageSize) => {
+  if (filterRequestTimer) clearTimeout(filterRequestTimer)
+  userManagement.currentPage = pageSize === userManagement.pageSize ? page : 1
+  userManagement.pageSize = pageSize
+  fetchUsers()
 }
 
 // 刷新用户和部门信息
@@ -684,6 +684,11 @@ const confirmDeleteUser = (user) => {
 onMounted(async () => {
   await fetchUsers()
   await fetchDepartments()
+})
+
+onUnmounted(() => {
+  if (filterRequestTimer) clearTimeout(filterRequestTimer)
+  latestUserRequest += 1
 })
 </script>
 

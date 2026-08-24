@@ -144,9 +144,9 @@ test('用户 Store 的 422 传播链不泄露认证头、密码或 Pydantic inpu
             ]
           }),
           {
-          status: 422,
-          statusText: 'Unprocessable Entity',
-          headers: { 'content-type': 'application/json' }
+            status: 422,
+            statusText: 'Unprocessable Entity',
+            headers: { 'content-type': 'application/json' }
           }
         )
 
@@ -227,6 +227,52 @@ test('用户 Store 的普通错误传播链不附着或记录服务端任意响�
   })
 })
 
+test('用户管理分页 API 只请求当前页并编码服务端筛选条件', async () => {
+  await withServer(async (server) => {
+    storageValues.set('user_token', 'test-token')
+    const requests = []
+    globalThis.fetch = async (url) => {
+      requests.push(String(url))
+      return new Response(JSON.stringify({ items: [], total: 0, limit: 20, offset: 40 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    }
+
+    setActivePinia(createPinia())
+    const { useUserStore } = await server.ssrLoadModule('/src/stores/user.js')
+    useUserStore().userRole = 'superadmin'
+    const { authApi } = await server.ssrLoadModule('/src/apis/auth_api.js')
+
+    const page = await authApi.getUsersPage({
+      offset: 40,
+      limit: 20,
+      search: '张 三',
+      departmentId: 3,
+      role: 'admin'
+    })
+
+    assert.deepEqual(requests, [
+      '/api/auth/users/page?offset=40&limit=20&search=%E5%BC%A0+%E4%B8%89&department_id=3&role=admin'
+    ])
+    assert.equal(page.total, 0)
+  })
+})
+
+test('用户管理组件不再通过 Store 全量加载用户', async () => {
+  const source = await import('node:fs/promises').then((fs) =>
+    fs.readFile(
+      new URL('../../src/components/UserManagementComponent.vue', import.meta.url),
+      'utf8'
+    )
+  )
+
+  assert.equal(source.includes('authApi.getUsersPage('), true)
+  assert.equal(source.includes('userStore.getUsers()'), false)
+  assert.equal(source.includes('filteredUsers'), false)
+  assert.equal(source.includes('paginatedUsers'), false)
+})
+
 test('知识库 API 单一构造并编码文件上传端点', async () => {
   await withServer(async (server) => {
     const { fileApi } = await server.ssrLoadModule('/src/apis/knowledge_api.js')
@@ -279,7 +325,10 @@ test('Project 与 Workspace API 按 xhome 契约构造请求', async () => {
       requests[2].url,
       '/api/projects/history-candidates?q=%E4%BA%A4%E4%BB%98&limit=10&offset=20'
     )
-    assert.equal(requests[3].url, '/api/workspace/tree?path=%2Fprojects&recursive=false&files_only=false')
+    assert.equal(
+      requests[3].url,
+      '/api/workspace/tree?path=%2Fprojects&recursive=false&files_only=false'
+    )
     assert.equal(
       requests[4].url,
       '/api/workspace/tree?path=%2Fprojects&recursive=false&files_only=false&include_unbound_project_dirs=true'
@@ -297,10 +346,13 @@ test('工具元数据 API 使用普通用户认证且普通用户可正常请求
     storageValues.set('user_token', 'user-token')
     globalThis.fetch = async (url) => {
       assert.equal(url, '/api/system/tools')
-      return new Response(JSON.stringify({ success: true, data: [{ name: '搜索', slug: 'web_search' }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' }
-      })
+      return new Response(
+        JSON.stringify({ success: true, data: [{ name: '搜索', slug: 'web_search' }] }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        }
+      )
     }
 
     setActivePinia(createPinia())

@@ -6,7 +6,7 @@ from datetime import UTC
 from datetime import datetime as dt
 from typing import Annotated, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.storage.postgres.manager import pg_manager
@@ -152,6 +152,44 @@ class UserRepository:
             query = query.order_by(User.id.asc()).offset(skip).limit(limit)
             result = await session.execute(query)
             return list(result.all())
+
+    async def list_page_with_department(
+        self,
+        *,
+        offset: int,
+        limit: int,
+        department_id: int | None = None,
+        role: str | None = None,
+        search: str | None = None,
+    ) -> tuple[list[tuple[User, str | None]], int]:
+        """分页查询有效用户，并返回过滤后的总数。"""
+        async with self._session() as session:
+            from yuxi.storage.postgres.models_business import Department
+
+            filters = [User.is_deleted == 0]
+            if department_id is not None:
+                filters.append(User.department_id == department_id)
+            if role is not None:
+                filters.append(User.role == role)
+            if search:
+                filters.append(
+                    or_(
+                        User.username.icontains(search, autoescape=True),
+                        User.uid.icontains(search, autoescape=True),
+                        User.phone_number.icontains(search, autoescape=True),
+                    )
+                )
+
+            total_result = await session.execute(select(func.count(User.id)).where(*filters))
+            page_result = await session.execute(
+                select(User, Department.name.label("department_name"))
+                .outerjoin(Department, User.department_id == Department.id)
+                .where(*filters)
+                .order_by(User.id.asc())
+                .offset(offset)
+                .limit(limit)
+            )
+            return list(page_result.all()), total_result.scalar() or 0
 
     async def create(self, data: dict[str, Any]) -> User:
         """创建用户"""

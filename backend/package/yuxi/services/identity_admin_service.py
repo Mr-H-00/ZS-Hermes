@@ -32,6 +32,36 @@ class DepartmentAdminCreation:
     admin: User
 
 
+async def list_managed_users_page(
+    db: AsyncSession,
+    *,
+    offset: int,
+    limit: int,
+    is_superadmin: bool,
+    visible_department_id: int | None,
+    department_id: int | None,
+    role: str | None,
+    search: str | None,
+) -> dict:
+    """返回管理员可见范围内的用户分页。"""
+    effective_department_id = department_id if is_superadmin else visible_department_id
+    if not is_superadmin and effective_department_id is None:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    rows, total = await UserRepository(db).list_page_with_department(
+        offset=offset,
+        limit=limit,
+        department_id=effective_department_id,
+        role=role,
+        search=search,
+    )
+    items = []
+    for user, department_name in rows:
+        item = user.to_dict()
+        item["department_name"] = department_name
+        items.append(item)
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
 async def create_department_with_admin(
     db: AsyncSession,
     *,

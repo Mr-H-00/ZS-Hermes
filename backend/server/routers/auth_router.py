@@ -1,6 +1,8 @@
 import re
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile, status
+from typing import Literal
+
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +33,7 @@ from yuxi.services.identity_admin_service import (
     IdentityConflictError,
     SystemAlreadyInitializedError,
     initialize_system_admin,
+    list_managed_users_page,
 )
 from yuxi.services.operation_log_service import log_operation
 from yuxi.services.user_identity_service import generate_unique_uid, is_valid_phone_number, validate_username
@@ -103,6 +106,13 @@ class UserResponse(BaseModel):
     department_name: str | None = None  # 部门名称
     created_at: str
     last_login: str | None = None
+
+
+class UserPageResponse(BaseModel):
+    items: list[UserResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 class UserAccessOption(BaseModel):
@@ -607,6 +617,29 @@ async def create_user(
     await db.commit()
 
     return new_user.to_dict()
+
+
+@auth.get("/users/page", response_model=UserPageResponse)
+async def read_users_page(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    search: str | None = Query(None, max_length=100),
+    department_id: int | None = Query(None, ge=1),
+    role: Literal["superadmin", "admin", "user"] | None = None,
+    current_user: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页查询当前管理员可管理的有效用户。"""
+    return await list_managed_users_page(
+        db,
+        offset=offset,
+        limit=limit,
+        is_superadmin=current_user.role == "superadmin",
+        visible_department_id=current_user.department_id,
+        department_id=department_id,
+        role=role,
+        search=search.strip() if search else None,
+    )
 
 
 # 路由：获取所有用户（管理员权限）
