@@ -69,51 +69,68 @@
       </div>
 
       <div v-else class="timeline-list">
-        <div
-          v-for="item in filteredTimelineItems"
-          :key="item.id"
-          class="timeline-item"
-          :class="`role-${item.role}`"
+        <section
+          v-for="group in filteredTimelineGroups"
+          :key="group.key"
+          class="run-group"
+          :class="{ 'run-group-unassigned': !group.runId }"
+          :aria-label="group.runId ? `Run ${group.runId}` : '未关联 Run'"
         >
-          <!-- 单行：Icon + Role + 摘要，点击整行展开/折叠 -->
-          <div class="item-header" @click="toggleItemExpand(item.id)">
-            <component :is="item.icon" :size="15" class="role-icon" />
-            <span :class="['role-pill', `pill-${item.role}`]">{{ item.roleLabel }}</span>
-            <span class="header-summary" :title="item.summary">{{ item.summary }}</span>
+          <header class="run-group-header">
+            <Workflow :size="14" class="run-group-icon" />
+            <span class="run-group-label">{{ group.runId ? 'Run' : '未关联 Run' }}</span>
+            <code v-if="group.runId" class="run-group-id" :title="group.runId">
+              {{ formatRunId(group.runId) }}
+            </code>
+            <span class="run-group-count">{{ group.items.length }} 条</span>
+          </header>
 
-            <div class="header-right">
-              <span v-if="item.tokenSummary" class="token-badge" :title="item.tokenTooltip">
-                {{ item.tokenSummary }}
-              </span>
-              <button
-                type="button"
-                class="item-icon-btn"
-                title="复制此消息 JSON"
-                @click.stop="copyItemJson(item)"
-              >
-                <Check v-if="copiedItemId === item.id" :size="13" class="copied-icon" />
-                <Copy v-else :size="13" />
-              </button>
-              <button
-                type="button"
-                class="item-icon-btn expand-btn"
-                :title="expandedItemIds.has(item.id) ? '折叠' : '展开'"
-              >
-                <ChevronDown v-if="expandedItemIds.has(item.id)" :size="15" />
-                <ChevronRight v-else :size="15" />
-              </button>
+          <div
+            v-for="item in group.items"
+            :key="item.id"
+            class="timeline-item"
+            :class="`role-${item.role}`"
+          >
+            <!-- 单行：Icon + Role + 摘要，点击整行展开/折叠 -->
+            <div class="item-header" @click="toggleItemExpand(item.id)">
+              <component :is="item.icon" :size="15" class="role-icon" />
+              <span :class="['role-pill', `pill-${item.role}`]">{{ item.roleLabel }}</span>
+              <span class="header-summary" :title="item.summary">{{ item.summary }}</span>
+
+              <div class="header-right">
+                <span v-if="item.tokenSummary" class="token-badge" :title="item.tokenTooltip">
+                  {{ item.tokenSummary }}
+                </span>
+                <button
+                  type="button"
+                  class="item-icon-btn"
+                  title="复制此消息 JSON"
+                  @click.stop="copyItemJson(item)"
+                >
+                  <Check v-if="copiedItemId === item.id" :size="13" class="copied-icon" />
+                  <Copy v-else :size="13" />
+                </button>
+                <button
+                  type="button"
+                  class="item-icon-btn expand-btn"
+                  :title="expandedItemIds.has(item.id) ? '折叠' : '展开'"
+                >
+                  <ChevronDown v-if="expandedItemIds.has(item.id)" :size="15" />
+                  <ChevronRight v-else :size="15" />
+                </button>
+              </div>
+            </div>
+
+            <!-- 展开后的折叠式 JSON 树 -->
+            <div v-if="expandedItemIds.has(item.id)" class="item-body">
+              <JsonTreeViewer
+                :data="item.raw"
+                :default-expanded-depth="1"
+                :show-toolbar="false"
+              />
             </div>
           </div>
-
-          <!-- 展开后的折叠式 JSON 树 -->
-          <div v-if="expandedItemIds.has(item.id)" class="item-body">
-            <JsonTreeViewer
-              :data="item.raw"
-              :default-expanded-depth="1"
-              :show-toolbar="false"
-            />
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   </div>
@@ -135,12 +152,13 @@ import {
   TriangleAlert,
   UnfoldVertical,
   User,
+  Workflow,
   Wrench
 } from 'lucide-vue-next'
 import { message } from 'ant-design-vue'
 import JsonTreeViewer from '@/components/common/JsonTreeViewer.vue'
 import { copyTextToClipboard } from '@/utils/clipboard'
-import { buildMessageDebugEntries } from '@/utils/messageDebug'
+import { buildMessageDebugEntries, groupMessageDebugEntries } from '@/utils/messageDebug'
 
 const props = defineProps({
   messages: {
@@ -175,6 +193,11 @@ const roleIcons = {
   error: TriangleAlert,
   system: Settings2,
   other: Clock
+}
+
+const formatRunId = (runId) => {
+  if (runId.length <= 18) return runId
+  return `${runId.slice(0, 8)}…${runId.slice(-6)}`
 }
 
 // 原始历史数组由后端拥有顺序；这里只补充显示字段，不再按聊天轮次重新分组。
@@ -231,6 +254,8 @@ const filteredTimelineItems = computed(() => {
 
   return list
 })
+
+const filteredTimelineGroups = computed(() => groupMessageDebugEntries(filteredTimelineItems.value))
 
 const isAllExpanded = computed(() => {
   if (filteredTimelineItems.value.length === 0) return false
@@ -482,6 +507,60 @@ const copyAllTimelineJson = async () => {
   flex-direction: column;
 }
 
+.run-group + .run-group {
+  border-top: 4px solid var(--gray-50);
+}
+
+.run-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--gray-150);
+  background: var(--gray-25);
+  color: var(--gray-700);
+}
+
+.run-group-icon {
+  flex-shrink: 0;
+  color: var(--main-color);
+}
+
+.run-group-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.run-group-id {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gray-700);
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-group-count {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--gray-500);
+  font-size: 11px;
+}
+
+.run-group-unassigned {
+  .run-group-icon {
+    color: var(--gray-500);
+  }
+
+  .run-group-label {
+    color: var(--gray-700);
+  }
+}
+
 .timeline-item {
   background: var(--gray-0);
   border-bottom: 1px solid var(--gray-150);
@@ -489,6 +568,10 @@ const copyAllTimelineJson = async () => {
 
   &:hover {
     background: var(--gray-50);
+  }
+
+  &:last-child {
+    border-bottom: none;
   }
 
   &.role-error {

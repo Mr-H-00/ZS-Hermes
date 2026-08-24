@@ -80,33 +80,31 @@ export function buildMessageDebugEntries(messages) {
   const source = Array.isArray(messages) ? messages : []
 
   return source.map((message, index) => {
-    const id = String(message?.id ?? `message-${index}`)
     const type = message?.type || message?.role || 'unknown'
-    const usage = message?.usage || message?.extra_metadata?.usage
-    const model = message?.model || message?.extra_metadata?.model || ''
+    const common = {
+      id: String(message?.id ?? `message-${index}`),
+      runId: messageRunId(message),
+      model: message?.model || message?.extra_metadata?.model || '',
+      usage: message?.usage || message?.extra_metadata?.usage,
+      raw: message
+    }
     const isError = Boolean(message?.error_type || message?.error_message)
 
     if (type === 'human' || type === 'user') {
       return {
-        id,
+        ...common,
         role: 'human',
         roleLabel: 'User',
-        model,
-        usage,
-        summary: summarizeContent(message.content, 200) || '[用户输入/附件]',
-        raw: message
+        summary: summarizeContent(message.content, 200) || '[用户输入/附件]'
       }
     }
 
     if (type === 'system') {
       return {
-        id,
+        ...common,
         role: 'system',
         roleLabel: 'System',
-        model,
-        usage,
-        summary: summarizeContent(message.content, 200) || '[系统消息]',
-        raw: message
+        summary: summarizeContent(message.content, 200) || '[系统消息]'
       }
     }
 
@@ -114,13 +112,10 @@ export function buildMessageDebugEntries(messages) {
       const toolName = message?.name || message?.tool_name || message?.function?.name
       const content = summarizeContent(message.content, 180)
       return {
-        id,
+        ...common,
         role: 'tool',
         roleLabel: 'Tool',
-        model,
-        usage,
-        summary: [toolName ? `工具: ${toolName}` : '', content].filter(Boolean).join(' | ') || '[工具结果]',
-        raw: message
+        summary: [toolName ? `工具: ${toolName}` : '', content].filter(Boolean).join(' | ') || '[工具结果]'
       }
     }
 
@@ -134,24 +129,40 @@ export function buildMessageDebugEntries(messages) {
             .join(' | ') || '[AI 回复]'
 
       return {
-        id,
+        ...common,
         role: isError ? 'error' : 'ai',
         roleLabel: isError ? 'Error' : toolNames.length ? 'AI · Tools' : 'AI',
-        model,
-        usage,
-        summary,
-        raw: message
+        summary
       }
     }
 
     return {
-      id,
+      ...common,
       role: 'other',
       roleLabel: String(type),
-      model,
-      usage,
-      summary: summarizeContent(message?.content, 200) || '[未知消息]',
-      raw: message
+      summary: summarizeContent(message?.content, 200) || '[未知消息]'
     }
   })
+}
+
+/** 按连续 run_id 建立调试分组，不改变消息的事实顺序。 */
+export function groupMessageDebugEntries(entries) {
+  const source = Array.isArray(entries) ? entries : []
+  const groups = []
+
+  source.forEach((item) => {
+    const runId = typeof item?.runId === 'string' && item.runId.trim() ? item.runId.trim() : null
+    let group = groups.at(-1)
+    if (!group || group.runId !== runId) {
+      group = {
+        key: `${runId || 'unassigned'}-${groups.length}`,
+        runId,
+        items: []
+      }
+      groups.push(group)
+    }
+    group.items.push(item)
+  })
+
+  return groups
 }

@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   buildMessageDebugEntries,
   extractMessageToolNames,
+  groupMessageDebugEntries,
   mergeMessageDebugMessages
 } from '../../src/utils/messageDebug.js'
 
@@ -32,6 +33,30 @@ test('消息调试条目保持后端数组顺序并保留独立工具消息', ()
   )
   assert.equal(entries[1].summary, '开始查询 | 工具: search_kb、read_file')
   assert.equal(entries[2].summary, '工具: search_kb | 查询结果')
+})
+
+test('消息调试按连续 Run 分组且不猜测无 run_id 消息的归属', () => {
+  const entries = buildMessageDebugEntries([
+    { id: 'user-a', type: 'human', run_id: 'run-a', content: '问题 A' },
+    { id: 'ai-a', type: 'ai', extra_metadata: { run_id: 'run-a' }, content: '回答 A' },
+    { id: 'system', type: 'system', content: '未关联消息' },
+    { id: 'user-b', type: 'human', run_id: 'run-b', content: '问题 B' }
+  ])
+
+  const groups = groupMessageDebugEntries(entries)
+
+  assert.deepEqual(
+    groups.map((group) => group.runId),
+    ['run-a', null, 'run-b']
+  )
+  assert.deepEqual(
+    groups.map((group) => group.items.map((entry) => entry.id)),
+    [
+      ['user-a', 'ai-a'],
+      ['system'],
+      ['user-b']
+    ]
+  )
 })
 
 test('active run 的流式 AI 在原位置替换且不越过后续工具消息', () => {
