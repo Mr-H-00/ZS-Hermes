@@ -1,104 +1,56 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" class="global-search-overlay" @mousedown.self="close">
-      <section
-        class="global-search-modal"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="activeMode === 'file' ? '搜索文件' : '搜索对话'"
-        @keydown.down.prevent="moveSelection(1)"
-        @keydown.up.prevent="moveSelection(-1)"
-        @keydown.enter.prevent="confirmSelection"
-        @keydown.esc.prevent="close"
-      >
-        <div class="global-search-input-row">
-          <input
-            ref="searchInputRef"
-            v-model="searchText"
-            class="global-search-input"
-            type="text"
-            :placeholder="inputPlaceholder"
-            autocomplete="off"
-            :aria-label="activeMode === 'file' ? '搜索文件' : '搜索对话'"
-          />
-          <button type="button" class="global-search-close" aria-label="关闭" @click="close">
-            <X :size="20" />
-          </button>
-        </div>
-
-        <div v-if="modes.length > 1" class="global-search-mode-bar" role="tablist">
-          <button
-            v-for="mode in modes"
-            :key="mode"
-            type="button"
-            class="global-search-mode-option"
-            :class="{ active: activeMode === mode }"
-            role="tab"
-            :aria-selected="activeMode === mode"
-            @click="switchMode(mode)"
-          >
-            <MessageCircle v-if="mode === 'conversation'" :size="14" class="mode-icon" />
-            <File v-else :size="14" class="mode-icon" />
-            <span>{{ mode === 'file' ? '文件' : '对话' }}</span>
-          </button>
-        </div>
-
-        <div
-          v-if="activeMode === 'file'"
-          ref="resultListRef"
-          class="global-search-body"
-          @scroll="handleFileResultScroll"
+    <Transition name="search-modal" appear>
+      <div v-if="open" class="global-search-overlay" @mousedown.self="close">
+        <section
+          class="global-search-modal"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="activeMode === 'file' ? '搜索文件' : '搜索对话'"
+          @keydown.down.prevent="moveSelection(1)"
+          @keydown.up.prevent="moveSelection(-1)"
+          @keydown.enter.prevent="confirmSelection"
+          @keydown.esc.prevent="close"
         >
-          <div v-if="isSearching && fileResults.length === 0" class="global-search-skeleton">
-            <div v-for="index in 5" :key="index" class="skeleton-row">
-              <span class="skeleton-dot"></span>
-              <span class="skeleton-lines">
-                <i></i>
-                <i></i>
-              </span>
-            </div>
-          </div>
-
-          <div v-else-if="fileResults.length > 0" class="global-search-results">
-            <button
-              v-for="(item, index) in fileResults"
-              :key="item.path"
-              type="button"
-              class="global-search-result"
-              :class="{ selected: selectedIndex === index }"
-              @mouseenter="selectedIndex = index"
-              @click="selectFileResult(item)"
-            >
-              <FileTypeIcon :name="item.name" :size="18" class="result-icon" />
-              <span class="result-main">
-                <span class="result-title">
-                  <template v-for="(part, partIndex) in splitName(item)" :key="partIndex">
-                    <mark v-if="part.match">{{ part.text }}</mark>
-                    <span v-else>{{ part.text }}</span>
-                  </template>
-                </span>
-                <span class="result-path">{{ item.path }}</span>
-              </span>
-              <span class="result-date">{{ formatResultDate(item.modified_at) }}</span>
+          <div class="global-search-input-row">
+            <input
+              ref="searchInputRef"
+              v-model="searchText"
+              class="global-search-input"
+              type="text"
+              :placeholder="inputPlaceholder"
+              autocomplete="off"
+              :aria-label="activeMode === 'file' ? '搜索文件' : '搜索对话'"
+            />
+            <button type="button" class="global-search-close" aria-label="关闭" @click="close">
+              <X :size="20" />
             </button>
           </div>
 
-          <div v-else-if="fileSearchError" class="global-search-error">{{ fileSearchError }}</div>
-
-          <div v-else-if="!isSearching" class="global-search-empty">未找到相关文件</div>
-        </div>
-
-        <div
-          v-else
-          ref="resultListRef"
-          class="global-search-body"
-          @scroll="handleConversationScroll"
-        >
-          <template v-if="isSearchMode">
-            <div
-              v-if="isSearching && conversationResults.length === 0"
-              class="global-search-skeleton"
+          <div v-if="modes.length > 1" class="global-search-mode-bar" role="tablist">
+            <button
+              v-for="mode in modes"
+              :key="mode"
+              type="button"
+              class="global-search-mode-option"
+              :class="{ active: activeMode === mode }"
+              role="tab"
+              :aria-selected="activeMode === mode"
+              @click="switchMode(mode)"
             >
+              <MessageCircle v-if="mode === 'conversation'" :size="14" class="mode-icon" />
+              <File v-else :size="14" class="mode-icon" />
+              <span>{{ mode === 'file' ? '文件' : '对话' }}</span>
+            </button>
+          </div>
+
+          <div
+            v-if="activeMode === 'file'"
+            ref="resultListRef"
+            class="global-search-body"
+            @scroll="handleFileResultScroll"
+          >
+            <div v-if="isSearching && fileResults.length === 0" class="global-search-skeleton">
               <div v-for="index in 5" :key="index" class="skeleton-row">
                 <span class="skeleton-dot"></span>
                 <span class="skeleton-lines">
@@ -108,72 +60,122 @@
               </div>
             </div>
 
-            <div v-else-if="conversationResults.length > 0" class="global-search-results">
+            <div v-else-if="fileResults.length > 0" class="global-search-results">
               <button
-                v-for="(item, index) in conversationResults"
-                :key="item.id"
+                v-for="(item, index) in fileResults"
+                :key="item.path"
                 type="button"
                 class="global-search-result"
                 :class="{ selected: selectedIndex === index }"
                 @mouseenter="selectedIndex = index"
-                @click="selectConversationResult(item)"
+                @click="selectFileResult(item)"
               >
-                <MessageCircle :size="18" class="result-icon" />
+                <FileTypeIcon :name="item.name" :size="18" class="result-icon" />
                 <span class="result-main">
-                  <span class="result-title">{{ item.title || '新的对话' }}</span>
-                  <span class="result-snippet">
-                    <template v-for="(part, partIndex) in splitSnippet(item)" :key="partIndex">
+                  <span class="result-title">
+                    <template v-for="(part, partIndex) in splitName(item)" :key="partIndex">
                       <mark v-if="part.match">{{ part.text }}</mark>
                       <span v-else>{{ part.text }}</span>
                     </template>
                   </span>
+                  <span class="result-path">{{ item.path }}</span>
                 </span>
-                <span class="result-date">{{
-                  formatResultDate(item.latest_match_at || item.updated_at)
-                }}</span>
+                <span class="result-date">{{ formatResultDate(item.modified_at) }}</span>
               </button>
-              <div v-if="isLoadingMore" class="global-search-loading-more">加载中...</div>
             </div>
 
-            <div v-else class="global-search-empty">未找到相关对话</div>
-          </template>
+            <div v-else-if="fileSearchError" class="global-search-error">{{ fileSearchError }}</div>
 
-          <template v-else>
-            <button
-              type="button"
-              class="global-search-default-item"
-              :class="{ selected: selectedIndex === 0 }"
-              @mouseenter="selectedIndex = 0"
-              @click="createThread"
-            >
-              <MessageCirclePlus :size="18" class="default-icon" />
-              <span>新对话</span>
-            </button>
+            <div v-else-if="!isSearching" class="global-search-empty">未找到相关文件</div>
+          </div>
 
-            <template v-for="row in recentRows" :key="row.key">
-              <div v-if="row.type === 'label'" class="global-search-group-label">
-                {{ row.label }}
-              </div>
-              <button
-                v-else
-                type="button"
-                class="global-search-default-item"
-                :class="{ selected: selectedIndex === row.actionIndex }"
-                @mouseenter="selectedIndex = row.actionIndex"
-                @click="selectRecentThread(row.thread)"
+          <div
+            v-else
+            ref="resultListRef"
+            class="global-search-body"
+            @scroll="handleConversationScroll"
+          >
+            <template v-if="isSearchMode">
+              <div
+                v-if="isSearching && conversationResults.length === 0"
+                class="global-search-skeleton"
               >
-                <MessageCircle :size="18" class="default-icon" />
-                <span>{{ row.thread.title || '新的对话' }}</span>
-              </button>
+                <div v-for="index in 5" :key="index" class="skeleton-row">
+                  <span class="skeleton-dot"></span>
+                  <span class="skeleton-lines">
+                    <i></i>
+                    <i></i>
+                  </span>
+                </div>
+              </div>
+
+              <div v-else-if="conversationResults.length > 0" class="global-search-results">
+                <button
+                  v-for="(item, index) in conversationResults"
+                  :key="item.id"
+                  type="button"
+                  class="global-search-result"
+                  :class="{ selected: selectedIndex === index }"
+                  @mouseenter="selectedIndex = index"
+                  @click="selectConversationResult(item)"
+                >
+                  <MessageCircle :size="18" class="result-icon" />
+                  <span class="result-main">
+                    <span class="result-title">{{ item.title || '新的对话' }}</span>
+                    <span class="result-snippet">
+                      <template v-for="(part, partIndex) in splitSnippet(item)" :key="partIndex">
+                        <mark v-if="part.match">{{ part.text }}</mark>
+                        <span v-else>{{ part.text }}</span>
+                      </template>
+                    </span>
+                  </span>
+                  <span class="result-date">{{
+                    formatResultDate(item.latest_match_at || item.updated_at)
+                  }}</span>
+                </button>
+                <div v-if="isLoadingMore" class="global-search-loading-more">加载中...</div>
+              </div>
+
+              <div v-else class="global-search-empty">未找到相关对话</div>
             </template>
 
-            <div v-if="recentRows.length === 0" class="global-search-empty default-empty">
-              暂无对话历史
-            </div>
-          </template>
-        </div>
-      </section>
-    </div>
+            <template v-else>
+              <button
+                type="button"
+                class="global-search-default-item"
+                :class="{ selected: selectedIndex === 0 }"
+                @mouseenter="selectedIndex = 0"
+                @click="createThread"
+              >
+                <MessageCirclePlus :size="18" class="default-icon" />
+                <span>新对话</span>
+              </button>
+
+              <template v-for="row in recentRows" :key="row.key">
+                <div v-if="row.type === 'label'" class="global-search-group-label">
+                  {{ row.label }}
+                </div>
+                <button
+                  v-else
+                  type="button"
+                  class="global-search-default-item"
+                  :class="{ selected: selectedIndex === row.actionIndex }"
+                  @mouseenter="selectedIndex = row.actionIndex"
+                  @click="selectRecentThread(row.thread)"
+                >
+                  <MessageCircle :size="18" class="default-icon" />
+                  <span>{{ row.thread.title || '新的对话' }}</span>
+                </button>
+              </template>
+
+              <div v-if="recentRows.length === 0" class="global-search-empty default-empty">
+                暂无对话历史
+              </div>
+            </template>
+          </div>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -586,6 +588,34 @@ onUnmounted(() => {
   backdrop-filter: blur(2px);
 }
 
+.search-modal-enter-active,
+.search-modal-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.search-modal-enter-active .global-search-modal,
+.search-modal-leave-active .global-search-modal {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.search-modal-enter-from,
+.search-modal-leave-to {
+  opacity: 0;
+}
+
+.search-modal-enter-from .global-search-modal {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.985);
+}
+
+.search-modal-leave-to .global-search-modal {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.99);
+}
+
 .global-search-modal {
   width: min(680px, calc(100vw - 32px));
   max-height: min(620px, 72vh);
@@ -863,6 +893,15 @@ onUnmounted(() => {
 
   .global-search-input {
     font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-modal-enter-active,
+  .search-modal-leave-active,
+  .search-modal-enter-active .global-search-modal,
+  .search-modal-leave-active .global-search-modal {
+    transition-duration: 1ms;
   }
 }
 

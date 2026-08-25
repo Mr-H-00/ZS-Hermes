@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 
 import pytest
 from PIL import Image
+
 from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -140,6 +141,42 @@ async def test_thread_artifact_uses_image_signature_for_content_type(test_client
     assert artifact_response.status_code == 200, artifact_response.text
     assert artifact_response.headers["content-type"].startswith("image/png")
     assert artifact_response.content.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+async def test_thread_artifact_preview_http_preserves_raw_download(test_client, standard_user):
+    headers = standard_user["headers"]
+    thread_id = await _create_thread_for_user(test_client, headers)
+    content = b"# artifact preview\n"
+    artifact_path = await _upload_project_file(
+        test_client,
+        headers,
+        thread_id,
+        f"preview-{uuid.uuid4().hex[:8]}.md",
+        content,
+        artifact_path=True,
+    )
+    artifact_url = f"/api/chat/thread/{thread_id}/artifacts/{artifact_path.lstrip('/')}"
+
+    preview_response = await test_client.get(
+        artifact_url,
+        params={"preview": "true"},
+        headers=headers,
+    )
+    assert preview_response.status_code == 200, preview_response.text
+    assert preview_response.headers["content-type"].startswith("application/json")
+    assert preview_response.json() == {
+        "content": content.decode(),
+        "preview_type": "markdown",
+        "supported": True,
+        "message": None,
+        "truncated": False,
+        "limit": 250_000,
+    }
+
+    raw_response = await test_client.get(artifact_url, headers=headers)
+    assert raw_response.status_code == 200, raw_response.text
+    assert raw_response.content == content
+    assert raw_response.headers["content-type"].startswith("text/markdown")
 
 
 async def _create_thread_for_user(test_client, headers: dict[str, str]) -> str:

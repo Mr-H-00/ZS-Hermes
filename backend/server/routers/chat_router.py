@@ -419,6 +419,7 @@ async def get_thread_artifact(
     thread_id: str,
     path: str,
     download: bool = Query(False),
+    preview: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_required_user),
 ):
@@ -429,6 +430,7 @@ async def get_thread_artifact(
         db=db,
         path=path,
         download=download,
+        preview=preview,
     )
 
 

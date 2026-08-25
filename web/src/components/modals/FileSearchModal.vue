@@ -1,84 +1,86 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" class="file-search-overlay" @mousedown.self="close">
-      <section
-        class="file-search-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="搜索文件"
-        @keydown.esc.prevent="close"
-      >
-        <div class="file-search-input-row">
-          <Search :size="18" class="file-search-input-icon" />
-          <input
-            ref="searchInputRef"
-            v-model="keyword"
-            class="file-search-input"
-            type="text"
-            placeholder="输入文件名搜索（仅匹配文件名，不搜索文件内容）"
-            autocomplete="off"
-            aria-label="搜索文件"
-            @keydown.enter.prevent="handleSearch"
-          />
-          <button type="button" class="file-search-close" aria-label="关闭" @click="close">
-            <X :size="20" />
-          </button>
-        </div>
-
-        <div ref="resultListRef" class="file-search-body">
-          <template v-if="hasSearched">
-            <div v-if="loading && results.length === 0" class="file-search-skeleton">
-              <div v-for="index in 5" :key="index" class="skeleton-row">
-                <span class="skeleton-icon"></span>
-                <span class="skeleton-lines">
-                  <i></i>
-                  <i></i>
-                </span>
-              </div>
-            </div>
-
-            <div v-else-if="results.length > 0" class="file-search-results">
-              <button
-                v-for="item in results"
-                :key="item.file_id"
-                type="button"
-                class="file-search-result"
-                @click="selectResult(item)"
-              >
-                <FileText :size="18" class="result-icon" />
-                <span class="result-main">
-                  <span class="result-title" :title="splitFilename(item.filename).basename">
-                    {{ splitFilename(item.filename).basename }}
-                  </span>
-                  <span class="result-meta">
-                    <span
-                      v-if="splitFilename(item.filename).dirname"
-                      class="result-path"
-                      :title="item.filename"
-                    >
-                      {{ formatDirname(splitFilename(item.filename).dirname) }}
-                    </span>
-                    <span v-if="item.file_size != null" class="result-size">
-                      {{ formatFileSize(item.file_size) }}
-                    </span>
-                    <span class="result-date">{{ formatResultDate(item.updated_at) }}</span>
-                  </span>
-                </span>
-              </button>
-              <div v-if="hasMore" class="file-search-loading-more">
-                仅展示前 {{ results.length }} 条，请细化关键词
-              </div>
-            </div>
-
-            <div v-else class="file-search-empty">未找到匹配的文件</div>
-          </template>
-
-          <div v-else class="file-search-hint">
-            输入文件名关键词进行搜索，仅匹配文件名，不搜索文件内容。
+    <Transition name="search-modal" appear>
+      <div v-if="open" class="file-search-overlay" @mousedown.self="close">
+        <section
+          class="file-search-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="搜索文件"
+          @keydown.esc.prevent="close"
+        >
+          <div class="file-search-input-row">
+            <Search :size="18" class="file-search-input-icon" />
+            <input
+              ref="searchInputRef"
+              v-model="keyword"
+              class="file-search-input"
+              type="text"
+              placeholder="输入文件名搜索（仅匹配文件名，不搜索文件内容）"
+              autocomplete="off"
+              aria-label="搜索文件"
+              @keydown.enter.prevent="handleSearch"
+            />
+            <button type="button" class="file-search-close" aria-label="关闭" @click="close">
+              <X :size="20" />
+            </button>
           </div>
-        </div>
-      </section>
-    </div>
+
+          <div ref="resultListRef" class="file-search-body">
+            <template v-if="hasSearched">
+              <div v-if="loading && results.length === 0" class="file-search-skeleton">
+                <div v-for="index in 5" :key="index" class="skeleton-row">
+                  <span class="skeleton-icon"></span>
+                  <span class="skeleton-lines">
+                    <i></i>
+                    <i></i>
+                  </span>
+                </div>
+              </div>
+
+              <div v-else-if="results.length > 0" class="file-search-results">
+                <button
+                  v-for="item in results"
+                  :key="item.file_id"
+                  type="button"
+                  class="file-search-result"
+                  @click="selectResult(item)"
+                >
+                  <FileText :size="18" class="result-icon" />
+                  <span class="result-main">
+                    <span class="result-title" :title="splitFilename(item.filename).basename">
+                      {{ splitFilename(item.filename).basename }}
+                    </span>
+                    <span class="result-meta">
+                      <span
+                        v-if="splitFilename(item.filename).dirname"
+                        class="result-path"
+                        :title="item.filename"
+                      >
+                        {{ formatDirname(splitFilename(item.filename).dirname) }}
+                      </span>
+                      <span v-if="item.file_size != null" class="result-size">
+                        {{ formatFileSize(item.file_size) }}
+                      </span>
+                      <span class="result-date">{{ formatResultDate(item.updated_at) }}</span>
+                    </span>
+                  </span>
+                </button>
+                <div v-if="hasMore" class="file-search-loading-more">
+                  仅展示前 {{ results.length }} 条，请细化关键词
+                </div>
+              </div>
+
+              <div v-else class="file-search-empty">未找到匹配的文件</div>
+            </template>
+
+            <div v-else class="file-search-hint">
+              输入文件名关键词进行搜索，仅匹配文件名，不搜索文件内容。
+            </div>
+          </div>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -192,6 +194,34 @@ watch(
   padding: 18vh 16px 24px;
   background: color-mix(in srgb, var(--gray-0) 72%, transparent);
   backdrop-filter: blur(2px);
+}
+
+.search-modal-enter-active,
+.search-modal-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.search-modal-enter-active .file-search-modal,
+.search-modal-leave-active .file-search-modal {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.search-modal-enter-from,
+.search-modal-leave-to {
+  opacity: 0;
+}
+
+.search-modal-enter-from .file-search-modal {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.985);
+}
+
+.search-modal-leave-to .file-search-modal {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.99);
 }
 
 .file-search-modal {
@@ -407,6 +437,15 @@ watch(
 
   .file-search-input {
     font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-modal-enter-active,
+  .search-modal-leave-active,
+  .search-modal-enter-active .file-search-modal,
+  .search-modal-leave-active .file-search-modal {
+    transition-duration: 1ms;
   }
 }
 </style>

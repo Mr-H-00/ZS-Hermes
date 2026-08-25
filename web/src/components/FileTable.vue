@@ -119,6 +119,15 @@
 
       <template #toolbar-actions>
         <div class="panel-actions">
+          <button
+            type="button"
+            class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-table-search-button"
+            @click="emit('search')"
+          >
+            <Search :size="14" />
+            <span>搜索文件</span>
+          </button>
+
           <div class="panel-actions-default">
             <a-dropdown trigger="click">
               <a-button
@@ -498,10 +507,13 @@ import {
   Database,
   Filter,
   MoreHorizontal,
-  Pencil
+  Pencil,
+  Search
 } from 'lucide-vue-next'
 
 const store = useDatabaseStore()
+
+const emit = defineEmits(['search'])
 
 const props = defineProps({
   readonly: { type: Boolean, default: false }
@@ -1396,6 +1408,8 @@ import { generatePixelAvatar } from '@/utils/pixelAvatar'
 </script>
 
 <style scoped lang="less">
+@import '@/assets/css/extensions.less';
+
 .file-table-container {
   display: flex;
   flex-grow: 1;
@@ -1412,6 +1426,10 @@ import { generatePixelAvatar } from '@/utils/pixelAvatar'
 .knowledge-file-browser {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.file-table-search-button {
+  font-size: 12px;
 }
 
 .file-breadcrumb-filter {

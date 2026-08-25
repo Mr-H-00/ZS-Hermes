@@ -205,6 +205,18 @@ defineExpose({ save, resetToDefaults, loadQueryParams, hasChanges })
 
 <style lang="less" scoped>
 .search-config-panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+
+  :deep(.ant-row) {
+    margin-inline: 0 !important;
+  }
+
+  :deep(.ant-col) {
+    min-width: 0;
+  }
+
   .config-loading {
     display: flex;
     flex-direction: column;

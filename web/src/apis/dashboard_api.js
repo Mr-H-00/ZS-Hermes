@@ -106,12 +106,14 @@ export const dashboardApi = {
    * @param {Object} params - 查询参数
    * @param {string} [params.timeRange='30days'] - 时间范围 (7days/14days/30days/90days)
    * @param {string} [params.agentId] - 智能体过滤
+   * @param {boolean} [params.includeSubagents=false] - 是否纳入子智能体会话
    * @returns {Promise<Object>} - 会话分析统计数据
    */
   getThreadStats: (params = {}) => {
     const queryParams = new URLSearchParams()
     if (params.timeRange) queryParams.append('time_range', params.timeRange)
     if (params.agentId) queryParams.append('agent_id', params.agentId)
+    if (params.includeSubagents) queryParams.append('include_subagents', 'true')
 
     return apiAdminGet(`/api/dashboard/stats/threads?${queryParams.toString()}`)
   },

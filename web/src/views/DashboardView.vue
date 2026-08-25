@@ -373,14 +373,6 @@ onUnmounted(() => {
     border: none;
     transition: all 0.2s ease;
 
-    &:hover {
-      .conversations-section,
-      .call-stats-section {
-        border-color: var(--gray-200);
-        box-shadow: 0 1px 3px 0 var(--shadow-100);
-      }
-    }
-
     &.call-stats {
       grid-column: 1 / 3;
       grid-row: 1 / 2;

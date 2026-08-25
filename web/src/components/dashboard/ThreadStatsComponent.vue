@@ -1,93 +1,69 @@
 <template>
   <div class="thread-stats-wrapper">
     <div class="thread-filter-header">
-      <div class="scope-note">
-        <Info class="scope-icon" />
-        统计不含已注销用户、已删除会话与已删除智能体；完整历史仍可在下方审计列表中检索。
-      </div>
-
       <div class="header-controls">
         <div class="filter-group">
           <span class="filter-label">统计周期</span>
           <a-segmented
             v-model:value="timeRange"
             :options="timeRangeOptions"
-            size="small"
-            @change="loadData"
+            size="middle"
+            @change="loadData()"
           />
         </div>
 
-        <a-button
-          type="default"
-          size="small"
-          :loading="loading"
-          @click="loadData"
-          class="refresh-btn"
+        <button
+          type="button"
+          class="subagent-toggle"
+          :class="{ active: includeSubagents }"
+          role="switch"
+          :aria-checked="includeSubagents"
+          :disabled="loading"
+          @click="toggleSubagents"
         >
-          <template #icon><RefreshCw class="btn-icon" :class="{ spinning: loading }" /></template>
-          刷新
-        </a-button>
+          <Bot class="control-icon" aria-hidden="true" />
+          <span>子智能体</span>
+          <span class="toggle-state">{{ includeSubagents ? '包含' : '不含' }}</span>
+        </button>
+
+        <button type="button" class="refresh-btn" @click="loadData()">
+          <RefreshCw class="control-icon" aria-hidden="true" />
+          <span>刷新</span>
+        </button>
       </div>
     </div>
 
     <!-- 顶部核心指标 -->
-    <div class="stats-overview-grid">
-      <div class="stat-card primary">
-        <div class="stat-icon">
-          <MessageSquare class="icon" />
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">
-            {{ (threadData?.summary?.total_threads || 0).toLocaleString() }}
-          </div>
-          <div class="stat-label">累计会话总量</div>
-          <div class="stat-subtag" v-if="threadData?.summary?.pinned_threads">
-            置顶 {{ threadData.summary.pinned_threads }} 个
-          </div>
-        </div>
-      </div>
+    <DashboardMetricGrid class="thread-summary-grid">
+      <DashboardMetricCard
+        :icon="MessageSquare"
+        :value="formatNumber(threadData?.summary?.total_threads)"
+        label="累计会话"
+        tone="primary"
+      />
 
-      <div class="stat-card success">
-        <div class="stat-icon">
-          <Activity class="icon" />
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">
-            {{ (threadData?.summary?.active_threads || 0).toLocaleString() }}
-          </div>
-          <div class="stat-label">活跃会话数</div>
-          <div class="stat-subtag">周期内有更新</div>
-        </div>
-      </div>
+      <DashboardMetricCard
+        :icon="Activity"
+        :value="formatNumber(threadData?.summary?.active_threads)"
+        label="活跃会话"
+        tone="success"
+      />
 
-      <div class="stat-card info">
-        <div class="stat-icon">
-          <Layers class="icon" />
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ threadData?.summary?.avg_messages_per_thread || 0 }}</div>
-          <div class="stat-label">平均对话轮数 / 会话</div>
-          <div class="stat-subtag">
-            总计 {{ (threadData?.summary?.total_messages || 0).toLocaleString() }} 条消息
-          </div>
-        </div>
-      </div>
+      <DashboardMetricCard
+        :icon="Layers"
+        :value="threadData?.summary?.avg_messages_per_thread || 0"
+        label="平均轮数 / 会话"
+        tone="info"
+      />
 
-      <div class="stat-card warning">
-        <div class="stat-icon">
-          <Cpu class="icon" />
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">
-            {{ formatTokenNumber(threadData?.summary?.avg_tokens_per_thread || 0) }}
-          </div>
-          <div class="stat-label">平均 Token 消耗 / 会话</div>
-          <div class="stat-subtag">
-            总消耗 {{ formatTokenNumber(threadData?.summary?.total_tokens || 0) }}
-          </div>
-        </div>
-      </div>
-    </div>
+      <DashboardMetricCard
+        :icon="Mail"
+        :value="formatNumber(threadData?.summary?.total_messages)"
+        label="消息总数"
+        tone="accent"
+      />
+
+    </DashboardMetricGrid>
 
     <!-- 2x2 可视化图表区域 -->
     <div class="charts-2x2-grid">
@@ -155,6 +131,7 @@
                 <div class="user-cell">
                   <FallbackAvatar
                     :src="record.avatar"
+                    :default-src="generatePixelAvatar(record.uid)"
                     :name="record.username"
                     :seed="record.uid"
                     kind="user"
@@ -185,7 +162,7 @@
       <div class="explorer-header">
         <div class="explorer-title-group">
           <span class="explorer-title">全平台会话审计</span>
-          <span class="explorer-subtitle">保留已删除会话、已注销用户与已删除智能体的历史记录</span>
+          <span class="explorer-subtitle">默认排除已删除记录，可切换筛选查看完整历史</span>
         </div>
 
         <div class="explorer-actions">
@@ -208,7 +185,7 @@
             class="filter-select status-filter"
             @change="handleSearch"
           >
-            <a-select-option value="all">全部状态</a-select-option>
+            <a-select-option value="all">全部（不含已删除）</a-select-option>
             <a-select-option value="active">进行中</a-select-option>
             <a-select-option value="archived">已归档</a-select-option>
             <a-select-option value="deleted">已删除</a-select-option>
@@ -305,6 +282,7 @@
               <div class="entity-cell">
                 <FallbackAvatar
                   :src="record.agent_avatar"
+                  :default-src="generatePixelAvatar(record.agent_id)"
                   :name="record.agent_name || record.agent_id"
                   :seed="record.agent_id"
                   kind="agent"
@@ -328,6 +306,7 @@
               <div class="entity-cell">
                 <FallbackAvatar
                   :src="record.user_avatar"
+                  :default-src="generatePixelAvatar(record.uid)"
                   :name="record.user_deleted ? '已注销用户' : record.username || record.uid"
                   :seed="record.uid"
                   kind="user"
@@ -385,13 +364,17 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { MessageSquare, Activity, Layers, Cpu, RefreshCw, Search, Info } from 'lucide-vue-next'
+import { Activity, Bot, Layers, Mail, MessageSquare, RefreshCw, Search } from 'lucide-vue-next'
 import { message } from 'ant-design-vue'
 import { dashboardApi } from '@/apis/dashboard_api'
 import { getColorByIndex } from '@/utils/chartColors'
+import { formatNumber } from '@/utils/dashboard'
 import { formatFullDateTime } from '@/utils/time'
+import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import { useThemeStore } from '@/stores/theme'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
+import DashboardMetricCard from './DashboardMetricCard.vue'
+import DashboardMetricGrid from './DashboardMetricGrid.vue'
 import ThreadDetailDrawer from './ThreadDetailDrawer.vue'
 
 function getCSSVariable(variableName, element = document.documentElement) {
@@ -403,6 +386,7 @@ const themeStore = useThemeStore()
 const loading = ref(false)
 const tableLoading = ref(false)
 const timeRange = ref('30days')
+const includeSubagents = ref(false)
 const searchKeyword = ref('')
 const selectedStatus = ref('all')
 const selectedAgentId = ref(undefined)
@@ -453,6 +437,8 @@ const agentChartRef = ref(null)
 let trendChart = null
 let depthChart = null
 let agentChart = null
+let latestStatsRequest = 0
+let latestConversationRequest = 0
 
 const truncateIdentifier = (value, startLength = 8, endLength = 4) => {
   const text = String(value || '')
@@ -460,26 +446,31 @@ const truncateIdentifier = (value, startLength = 8, endLength = 4) => {
   return `${text.slice(0, startLength)}…${text.slice(-endLength)}`
 }
 
-const formatTokenNumber = (val) => {
-  if (!val) return '0'
-  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}M`
-  if (val >= 1_000) return `${(val / 1_000).toFixed(1)}K`
-  return Number(val).toLocaleString()
-}
-
-const loadData = async () => {
+const loadData = async (requestedIncludeSubagents = includeSubagents.value) => {
+  const requestId = ++latestStatsRequest
   loading.value = true
   try {
-    const res = await dashboardApi.getThreadStats({ timeRange: timeRange.value })
+    const res = await dashboardApi.getThreadStats({
+      timeRange: timeRange.value,
+      includeSubagents: requestedIncludeSubagents
+    })
+    if (requestId !== latestStatsRequest) return
+
+    includeSubagents.value = requestedIncludeSubagents
     threadData.value = res
     await nextTick()
-    renderAllCharts()
+    if (requestId === latestStatsRequest) renderAllCharts()
   } catch (err) {
+    if (requestId !== latestStatsRequest) return
     console.error('加载会话统计数据失败:', err)
     message.error('加载会话统计数据失败')
   } finally {
-    loading.value = false
+    if (requestId === latestStatsRequest) loading.value = false
   }
+}
+
+const toggleSubagents = () => {
+  void loadData(!includeSubagents.value)
 }
 
 const loadFilterOptions = async () => {
@@ -491,6 +482,7 @@ const loadFilterOptions = async () => {
 }
 
 const loadConversations = async () => {
+  const requestId = ++latestConversationRequest
   tableLoading.value = true
   try {
     const offset = (tablePagination.value.current - 1) * tablePagination.value.pageSize
@@ -502,12 +494,15 @@ const loadConversations = async () => {
       limit: tablePagination.value.pageSize,
       offset
     })
+    if (requestId !== latestConversationRequest) return
+
     conversationList.value = res?.items || []
     tablePagination.value.total = res?.total || 0
   } catch (err) {
+    if (requestId !== latestConversationRequest) return
     console.error('加载会话明细列表失败:', err)
   } finally {
-    tableLoading.value = false
+    if (requestId === latestConversationRequest) tableLoading.value = false
   }
 }
 
@@ -719,7 +714,7 @@ const renderAgentChart = () => {
         type: 'bar',
         data: threadCounts,
         itemStyle: {
-          color: getColorByIndex(2),
+          color: (params) => getColorByIndex(params.dataIndex),
           borderRadius: [0, 4, 4, 0]
         },
         label: {
@@ -792,32 +787,16 @@ watch(
 
 .thread-filter-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--gray-150);
-  background: var(--gray-0);
-
-  .scope-note {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--gray-500);
-    font-size: 12px;
-    line-height: 20px;
-
-    .scope-icon {
-      width: 14px;
-      height: 14px;
-      flex: 0 0 14px;
-    }
-  }
 
   .header-controls {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 16px;
 
     .filter-group {
@@ -832,115 +811,93 @@ watch(
       }
     }
 
-    .refresh-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-
-      .btn-icon {
-        width: 14px;
-        height: 14px;
-
-        &.spinning {
-          animation: spin 1s linear infinite;
-        }
-      }
+    :deep(.ant-segmented) {
+      font-size: 13px;
     }
   }
-}
 
-@keyframes spin {
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.stats-overview-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  overflow: hidden;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--gray-0);
-
-  .stat-card {
-    background: var(--gray-0);
-    padding: 14px 16px;
-    border-right: 1px solid var(--gray-150);
-    display: flex;
+  .refresh-btn,
+  .subagent-toggle {
+    display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
-    gap: 16px;
-    transition: background-color 0.2s ease;
-
-    &:last-child {
-      border-right: none;
-    }
+    justify-content: center;
+    height: 36px;
+    gap: 7px;
+    padding: 0 12px;
+    border: 1px solid var(--gray-200);
+    border-radius: 9px;
+    background: var(--gray-0);
+    color: var(--gray-700);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      color 0.18s ease,
+      border-color 0.18s ease,
+      background-color 0.18s ease,
+      transform 0.18s ease;
 
     &:hover {
-      background: var(--gray-10);
-    }
-
-    .stat-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-
-      .icon {
-        width: 22px;
-        height: 22px;
-      }
-    }
-
-    &.primary .stat-icon {
-      background: var(--color-primary-50);
+      border-color: var(--main-100);
+      background: var(--main-10);
       color: var(--main-color);
     }
 
-    &.success .stat-icon {
-      background: var(--color-success-50);
-      color: var(--color-success-700);
+    &:active {
+      transform: translateY(1px);
     }
 
-    &.info .stat-icon {
-      background: var(--color-info-50);
-      color: var(--color-info-700);
+    &:focus-visible {
+      outline: 2px solid var(--main-color);
+      outline-offset: 2px;
     }
 
-    &.warning .stat-icon {
-      background: var(--color-warning-50);
-      color: var(--color-warning-700);
+    .control-icon {
+      width: 15px;
+      height: 15px;
+      stroke-width: 2;
+    }
+  }
+
+  .refresh-btn {
+    padding-inline: 14px;
+  }
+
+  .subagent-toggle {
+    background: var(--gray-50);
+
+    .toggle-state {
+      min-width: 28px;
+      padding: 3px 6px;
+      border-radius: 5px;
+      background: var(--gray-150);
+      color: var(--gray-500);
+      font-size: 11px;
+      line-height: 1;
+      text-align: center;
+      transition:
+        color 0.18s ease,
+        background-color 0.18s ease;
     }
 
-    .stat-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
+    &.active {
+      border-color: var(--main-100);
+      background: var(--main-20);
+      color: var(--main-color);
 
-      .stat-value {
-        font-size: 24px;
-        font-weight: 700;
-        color: var(--gray-1000);
-        line-height: 1.1;
-        margin-bottom: 4px;
-      }
-
-      .stat-label {
-        font-size: 13px;
-        color: var(--gray-600);
-        font-weight: 500;
-      }
-
-      .stat-subtag {
-        font-size: 11px;
-        color: var(--gray-500);
-        margin-top: 4px;
+      .toggle-state {
+        background: var(--main-color);
+        color: var(--gray-0);
       }
     }
   }
+}
+
+.thread-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .charts-2x2-grid {
@@ -976,6 +933,10 @@ watch(
     }
 
     .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
       margin-bottom: 12px;
 
       .card-title-group {
@@ -1232,8 +1193,8 @@ watch(
 }
 
 @media (max-width: 1200px) {
-  .stats-overview-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .thread-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .charts-2x2-grid {
@@ -1270,19 +1231,6 @@ watch(
     }
   }
 
-  .stats-overview-grid {
-    grid-template-columns: 1fr;
-
-    .stat-card {
-      border-right: none;
-      border-bottom: 1px solid var(--gray-150);
-
-      &:last-child {
-        border-bottom: none;
-      }
-    }
-  }
-
   .explorer-card {
     padding: 14px;
 
@@ -1299,6 +1247,12 @@ watch(
         }
       }
     }
+  }
+}
+
+@media (max-width: 480px) {
+  .thread-summary-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -1,32 +1,28 @@
 <template>
   <a-card title="知识库使用情况" :loading="loading" class="dashboard-card">
     <!-- 知识库概览 -->
-    <div class="stats-overview">
-      <a-row :gutter="16">
-        <a-col :span="8">
-          <a-statistic
-            title="知识库总数"
-            :value="knowledgeStats?.total_databases || 0"
-            :value-style="{ color: 'var(--color-info-500)' }"
-            suffix="个"
-          />
-        </a-col>
-        <a-col :span="8">
-          <a-statistic
-            title="文件总数"
-            :value="knowledgeStats?.total_files || 0"
-            :value-style="{ color: 'var(--color-success-500)' }"
-            suffix="个"
-          />
-        </a-col>
-        <a-col :span="8">
-          <a-statistic
-            title="存储容量"
-            :value="formattedStorageSize"
-            :value-style="{ color: 'var(--color-warning-500)' }"
-          />
-        </a-col>
-      </a-row>
+    <div class="dashboard-card-metric-grid">
+      <DashboardMetricCard
+        :icon="Database"
+        :value="formatNumber(knowledgeStats?.total_databases)"
+        label="知识库总数"
+        tone="info"
+        compact
+      />
+      <DashboardMetricCard
+        :icon="FileText"
+        :value="formatNumber(knowledgeStats?.total_files)"
+        label="文件总数"
+        tone="success"
+        compact
+      />
+      <DashboardMetricCard
+        :icon="HardDrive"
+        :value="formattedStorage.value"
+        :label="`存储容量 (${formattedStorage.unit})`"
+        tone="warning"
+        compact
+      />
     </div>
 
     <a-divider />
@@ -57,34 +53,6 @@
       </a-col>
     </a-row>
 
-    <!-- 详细统计信息 -->
-    <!-- <a-divider />
-    <a-row :gutter="16">
-      <a-col :span="8">
-        <a-statistic
-          title="平均每库文件数"
-          :value="averageFilesPerDatabase"
-          suffix="个"
-          :precision="1"
-        />
-      </a-col>
-      <a-col :span="8">
-        <a-statistic
-          title="平均每文件节点数"
-          :value="averageNodesPerFile"
-          suffix="个"
-          :precision="1"
-        />
-      </a-col>
-      <a-col :span="8">
-        <a-statistic
-          title="平均节点大小"
-          :value="averageNodeSize"
-          suffix="KB"
-          :precision="2"
-        />
-      </a-col>
-    </a-row> -->
   </a-card>
 </template>
 
@@ -93,6 +61,9 @@ import { ref, onMounted, watch, nextTick, computed } from 'vue'
 import * as echarts from 'echarts'
 import { getColorPalette } from '@/utils/chartColors'
 import { useThemeStore } from '@/stores/theme'
+import { formatNumber, formatStorageSize } from '@/utils/dashboard'
+import { Database, FileText, HardDrive } from 'lucide-vue-next'
+import DashboardMetricCard from './DashboardMetricCard.vue'
 
 // CSS 变量解析工具函数
 function getCSSVariable(variableName, element = document.documentElement) {
@@ -125,13 +96,7 @@ const currentCarouselIndex = ref(0)
 let carouselTimer = null
 
 // 计算属性
-const formattedStorageSize = computed(() => {
-  const size = props.knowledgeStats?.total_storage_size || 0
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`
-  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`
-  return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`
-})
+const formattedStorage = computed(() => formatStorageSize(props.knowledgeStats?.total_storage_size))
 
 // const averageFilesPerDatabase = computed(() => {
 //   const databases = props.knowledgeStats?.total_databases || 0
@@ -414,4 +379,5 @@ defineExpose({
     }
   }
 }
+
 </style>

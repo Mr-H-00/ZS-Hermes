@@ -9,7 +9,7 @@ import tempfile
 from pathlib import PurePosixPath
 
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from yuxi.agents.backends.paths import (
     VIRTUAL_PATH_PREFIX,
@@ -19,8 +19,14 @@ from yuxi.agents.backends.paths import (
 )
 from yuxi.agents.skills.service import ResolvedSkill, list_accessible_skills
 from yuxi.repositories.user_repository import UserRepository
+from yuxi.services.file_preview import render_file_preview
 from yuxi.services.workdir_service import resolve_authorized_workdir
-from yuxi.utils.filepreview import detect_media_type
+from yuxi.utils.filepreview import (
+    MAX_BINARY_PREVIEW_SIZE_BYTES,
+    OfficePreviewConversionError,
+    detect_media_type,
+    preview_too_large,
+)
 from yuxi.utils.paths import open_regular_file_fd
 from yuxi.workspace.errors import FileTransferLimitError
 
@@ -85,7 +91,13 @@ def _copy_skill_file_to_path(skill: ResolvedSkill, relative_path: str, target_pa
                 os.close(target_fd)
 
 
-async def _copy_artifact_to_path(access, normalized_path: str, skill_source, target_path: str) -> None:
+async def _copy_artifact_to_path(
+    access,
+    normalized_path: str,
+    skill_source,
+    target_path: str,
+    max_bytes: int = MAX_ARTIFACT_DOWNLOAD_BYTES,
+) -> None:
     """把已授权的 Workspace 或 Skill artifact 有界复制到临时文件。"""
     try:
         if skill_source is None:
@@ -93,7 +105,7 @@ async def _copy_artifact_to_path(access, normalized_path: str, skill_source, tar
                 access.workdir.workspace.download_authorized_file_to_path,
                 workspace_scope_from_runtime_path(normalized_path),
                 target_path,
-                MAX_ARTIFACT_DOWNLOAD_BYTES,
+                max_bytes,
             )
             return
         await asyncio.to_thread(
@@ -101,7 +113,7 @@ async def _copy_artifact_to_path(access, normalized_path: str, skill_source, tar
             skill_source[0],
             skill_source[1],
             target_path,
-            MAX_ARTIFACT_DOWNLOAD_BYTES,
+            max_bytes,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="artifact access denied") from exc
@@ -120,20 +132,49 @@ async def resolve_thread_artifact_view(
     db,
     path: str,
     download: bool = False,
-) -> FileResponse:
+    preview: bool = False,
+) -> FileResponse | StreamingResponse | dict:
     """把实时授权文件导出为自动清理的 HTTP 文件响应。"""
     access = await resolve_authorized_workdir(thread_id=thread_id, uid=current_uid, db=db)
     normalized = _normalize_artifact_path(runtime_user_data_path(access.workdir.root_path), path)
     skill_source = await _require_skill_artifact_access(normalized_path=normalized, current_uid=current_uid, db=db)
+    is_preview = preview and not download
     descriptor, temp_path = tempfile.mkstemp(prefix="yuxi-artifact-", suffix=PurePosixPath(normalized).suffix)
     os.close(descriptor)
     try:
-        await _copy_artifact_to_path(access, normalized, skill_source, temp_path)
+        await _copy_artifact_to_path(
+            access,
+            normalized,
+            skill_source,
+            temp_path,
+            MAX_BINARY_PREVIEW_SIZE_BYTES if is_preview else MAX_ARTIFACT_DOWNLOAD_BYTES,
+        )
+    except HTTPException as exc:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temp_path)
+        if is_preview and exc.status_code == 413:
+            return preview_too_large().payload()
+        raise
     except Exception:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(temp_path)
         raise
     file_name = PurePosixPath(normalized).name or "artifact"
+    if is_preview:
+        try:
+            with open(temp_path, "rb") as artifact_file:
+                raw_content = artifact_file.read()
+            return await render_file_preview(
+                normalized,
+                raw_content,
+                office_cache_key=f"artifact:{current_uid}:{normalized}",
+            )
+        except OfficePreviewConversionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temp_path)
+
     with open(temp_path, "rb") as artifact_file:
         media_type = detect_media_type(file_name, artifact_file.read(16 * 1024))
     return FileResponse(

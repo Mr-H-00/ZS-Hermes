@@ -78,9 +78,7 @@ def live_files(monkeypatch, tmp_path):
     monkeypatch.setattr(
         svc,
         "list_accessible_skills",
-        lambda _db, _user: _async_value(
-            [type("Skill", (), {"slug": "reporter", "source_dir": backend.skill_root})()]
-        ),
+        lambda _db, _user: _async_value([type("Skill", (), {"slug": "reporter", "source_dir": backend.skill_root})()]),
     )
     return backend
 
@@ -101,6 +99,64 @@ async def test_artifact_allows_project_user_data_and_authorized_skills(live_file
         )
         assert Path(response.path).read_bytes() == live_files.expected_bytes(path)
         await response.background()
+
+
+@pytest.mark.asyncio
+async def test_artifact_preview_uses_shared_file_renderer(live_files, monkeypatch):
+    path = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.docx"
+    live_files.add_runtime_file(path, b"docx bytes")
+    captured = {}
+    sentinel = {"preview_type": "pdf", "supported": True}
+
+    async def render_preview(file_path, raw_content, *, office_cache_key):
+        captured.update(
+            path=file_path,
+            raw_content=raw_content,
+            office_cache_key=office_cache_key,
+        )
+        return sentinel
+
+    monkeypatch.setattr(svc, "render_file_preview", render_preview)
+
+    response = await svc.resolve_thread_artifact_view(
+        thread_id="thread-1",
+        current_uid="user-1",
+        db=object(),
+        path=path,
+        preview=True,
+    )
+
+    assert response is sentinel
+    assert captured == {
+        "path": path,
+        "raw_content": b"docx bytes",
+        "office_cache_key": f"artifact:user-1:{path}",
+    }
+
+
+@pytest.mark.asyncio
+async def test_artifact_preview_reports_oversized_file_without_rendering(live_files, monkeypatch):
+    path = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.docx"
+
+    def reject_large_file(_path, _target, max_bytes):
+        assert max_bytes == svc.MAX_BINARY_PREVIEW_SIZE_BYTES
+        raise FileTransferLimitError("file exceeds transfer limit")
+
+    async def reject_render(*_args, **_kwargs):
+        raise AssertionError("oversized preview must not reach the renderer")
+
+    monkeypatch.setattr(live_files, "download_authorized_file_to_path", reject_large_file)
+    monkeypatch.setattr(svc, "render_file_preview", reject_render)
+
+    response = await svc.resolve_thread_artifact_view(
+        thread_id="thread-1",
+        current_uid="user-1",
+        db=object(),
+        path=path,
+        preview=True,
+    )
+
+    assert response == svc.preview_too_large().payload()
 
 
 @pytest.mark.asyncio

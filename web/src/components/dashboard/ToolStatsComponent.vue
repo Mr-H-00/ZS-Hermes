@@ -1,39 +1,28 @@
 <template>
   <a-card title="工具调用监控" :loading="loading" class="dashboard-card">
     <!-- 工具调用概览 -->
-    <div class="stats-overview">
-      <a-row :gutter="16">
-        <a-col :span="8">
-          <a-statistic
-            title="总调用次数"
-            :value="toolStats?.total_calls || 0"
-            :value-style="{ color: 'var(--color-info-500)' }"
-          />
-        </a-col>
-        <a-col :span="8">
-          <a-statistic
-            title="失败调用"
-            :value="toolStats?.failed_calls || 0"
-            :value-style="{ color: 'var(--color-error-500)' }"
-            suffix="次"
-          />
-        </a-col>
-        <a-col :span="8">
-          <a-statistic
-            title="成功率"
-            :value="toolStats?.success_rate || 0"
-            suffix="%"
-            :value-style="{
-              color:
-                (toolStats?.success_rate || 0) >= 90
-                  ? 'var(--color-success-500)'
-                  : (toolStats?.success_rate || 0) >= 70
-                    ? 'var(--color-warning-500)'
-                    : 'var(--color-error-500)'
-            }"
-          />
-        </a-col>
-      </a-row>
+    <div class="dashboard-card-metric-grid">
+      <DashboardMetricCard
+        :icon="Activity"
+        :value="formatNumber(toolStats?.total_calls)"
+        label="总调用次数"
+        tone="info"
+        compact
+      />
+      <DashboardMetricCard
+        :icon="CircleAlert"
+        :value="formatNumber(toolStats?.failed_calls)"
+        label="失败调用"
+        tone="warning"
+        compact
+      />
+      <DashboardMetricCard
+        :icon="BadgeCheck"
+        :value="`${toolStats?.success_rate || 0}%`"
+        label="成功率"
+        :tone="getSuccessTone()"
+        compact
+      />
     </div>
 
     <!-- 最常用工具 -->
@@ -83,7 +72,10 @@
 import { ref, onMounted, watch, nextTick, computed } from 'vue'
 import * as echarts from 'echarts'
 import { getColorByIndex, getColorPalette } from '@/utils/chartColors'
+import { formatNumber } from '@/utils/dashboard'
 import { useThemeStore } from '@/stores/theme'
+import { Activity, BadgeCheck, CircleAlert } from 'lucide-vue-next'
+import DashboardMetricCard from './DashboardMetricCard.vue'
 
 // CSS 变量解析工具函数
 function getCSSVariable(variableName, element = document.documentElement) {
@@ -142,6 +134,13 @@ const errorData = computed(() => {
     .map(([tool_name, error_count]) => ({ tool_name, error_count }))
     .sort((a, b) => b.error_count - a.error_count)
 })
+
+const getSuccessTone = () => {
+  const rate = Number(props.toolStats?.success_rate || 0)
+  if (rate >= 90) return 'success'
+  if (rate >= 70) return 'warning'
+  return 'neutral'
+}
 
 // 初始化最常用工具图表
 const initToolsChart = () => {

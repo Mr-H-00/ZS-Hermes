@@ -1,33 +1,28 @@
 <template>
   <a-card title="AI智能体分析" :loading="loading" class="dashboard-card">
     <!-- 智能体概览 -->
-    <div class="stats-overview">
-      <a-row :gutter="16">
-        <a-col :span="8">
-          <a-statistic
-            title="智能体总数"
-            :value="agentStats?.total_agents || 0"
-            :value-style="{ color: 'var(--color-info-500)' }"
-            suffix="个"
-          />
-        </a-col>
-        <a-col :span="8">
-          <a-statistic
-            title="总对话数"
-            :value="totalConversations"
-            :value-style="{ color: 'var(--color-accent-500)' }"
-            suffix="次"
-          />
-        </a-col>
-        <a-col :span="8">
-          <a-statistic
-            title="工具调用总数"
-            :value="totalToolUsage"
-            :value-style="{ color: 'var(--color-warning-500)' }"
-            suffix="次"
-          />
-        </a-col>
-      </a-row>
+    <div class="dashboard-card-metric-grid">
+      <DashboardMetricCard
+        :icon="Bot"
+        :value="formatNumber(agentStats?.total_agents)"
+        label="智能体总数"
+        tone="info"
+        compact
+      />
+      <DashboardMetricCard
+        :icon="MessageSquare"
+        :value="formatNumber(totalConversations)"
+        label="总对话数"
+        tone="accent"
+        compact
+      />
+      <DashboardMetricCard
+        :icon="Wrench"
+        :value="formatNumber(totalToolUsage)"
+        label="工具调用总数"
+        tone="warning"
+        compact
+      />
     </div>
 
     <a-divider />
@@ -60,24 +55,26 @@
             </div>
           </template>
           <template v-if="column.key === 'agent_id'">
-            <span class="agent-name" :title="resolveAgentName(record.agent_id)">
-              {{ resolveAgentName(record.agent_id) }}
-            </span>
+            <div class="agent-cell">
+              <FallbackAvatar
+                :src="record.agent_avatar"
+                :default-src="generatePixelAvatar(record.agent_id)"
+                :name="resolveAgentName(record.agent_id)"
+                :seed="record.agent_id"
+                kind="agent"
+                :size="24"
+                shape="rounded"
+                decorative
+              />
+              <span class="agent-name" :title="resolveAgentName(record.agent_id)">
+                {{ resolveAgentName(record.agent_id) }}
+              </span>
+            </div>
           </template>
           <template v-if="column.key === 'satisfaction_rate'">
-            <a-statistic
-              :value="record.satisfaction_rate"
-              suffix="%"
-              :value-style="{
-                color:
-                  record.satisfaction_rate >= 80
-                    ? 'var(--color-success-500)'
-                    : record.satisfaction_rate >= 60
-                      ? 'var(--color-warning-500)'
-                      : 'var(--color-error-500)',
-                fontSize: '14px'
-              }"
-            />
+            <span class="satisfaction-value" :class="getSatisfactionTone(record.satisfaction_rate)">
+              {{ record.satisfaction_rate }}%
+            </span>
           </template>
           <template v-if="column.key === 'conversation_count'">
             <span class="metric-value">{{ record.conversation_count }}</span>
@@ -93,6 +90,11 @@ import { ref, onMounted, watch, nextTick, computed } from 'vue'
 import * as echarts from 'echarts'
 import { getColorByIndex } from '@/utils/chartColors'
 import { useThemeStore } from '@/stores/theme'
+import { formatNumber } from '@/utils/dashboard'
+import { generatePixelAvatar } from '@/utils/pixelAvatar'
+import { Bot, MessageSquare, Wrench } from 'lucide-vue-next'
+import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
+import DashboardMetricCard from './DashboardMetricCard.vue'
 
 // CSS 变量解析工具函数
 function getCSSVariable(variableName, element = document.documentElement) {
@@ -163,6 +165,12 @@ const topPerformers = computed(() => {
 const agentNames = computed(() => props.agentStats?.agent_names || {})
 
 const resolveAgentName = (agentId) => agentNames.value[agentId] || agentId
+
+const getSatisfactionTone = (value) => {
+  if (value >= 80) return 'success'
+  if (value >= 60) return 'warning'
+  return 'error'
+}
 
 // 初始化对话数和工具调用数合并图表
 const initConversationToolChart = () => {
@@ -365,7 +373,31 @@ defineExpose({
 </script>
 
 <style scoped lang="less">
-/* 指标值样式 */
+.agent-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.satisfaction-value {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+
+  &.success {
+    color: var(--color-success-700);
+  }
+
+  &.warning {
+    color: var(--color-warning-700);
+  }
+
+  &.error {
+    color: var(--color-error-700);
+  }
+}
+
 .metric-value {
   font-weight: 500;
   color: var(--gray-1000);
@@ -436,7 +468,4 @@ defineExpose({
   transition: all 0.3s ease;
 }
 
-:deep(.ant-statistic-content-value) {
-  font-weight: bold !important;
-}
 </style>

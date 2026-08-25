@@ -142,13 +142,21 @@ export const expandMentionDeletionRange = (
   text = '',
   start = 0,
   end = start,
-  direction = 'backward'
+  direction = 'backward',
+  knownMentionRanges = []
 ) => {
   const value = String(text || '')
   const safeStart = Math.max(0, Math.min(start, value.length))
   const safeEnd = Math.max(safeStart, Math.min(end, value.length))
-  const mentions = parseMentionText(value).filter((segment) => segment.kind === 'mention')
+  const cursor = safeStart
+  if (safeStart === safeEnd && direction === 'backward') {
+    const knownMention = knownMentionRanges.find(
+      (mention) => mention && cursor === mention.end && mention.start < mention.end
+    )
+    if (knownMention) return { start: knownMention.start, end: knownMention.end }
+  }
 
+  const mentions = parseMentionText(value).filter((segment) => segment.kind === 'mention')
   if (safeStart !== safeEnd) {
     const touchedMentions = mentions.filter(
       (segment) => segment.start < safeEnd && segment.end > safeStart
@@ -161,7 +169,6 @@ export const expandMentionDeletionRange = (
     }
   }
 
-  const cursor = safeStart
   if (direction === 'forward') {
     const mention = mentions.find((segment) => cursor >= segment.start && cursor < segment.end)
     if (!mention) return null

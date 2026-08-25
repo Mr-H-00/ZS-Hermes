@@ -63,8 +63,7 @@
   flex-direction: column;
 
   &:hover {
-    border-color: var(--gray-200);
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+    border-color: var(--gray-100);
   }
 }
 
@@ -96,25 +95,15 @@
   padding-top: 0px !important;
 }
 
-/* 统计概览样式 */
-.stats-overview {
-  margin-bottom: 16px;
+.dashboard-card-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
 
-  .ant-statistic {
-    .ant-statistic-title {
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--gray-600);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 8px;
-    }
-
-    .ant-statistic-content {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--gray-1000);
-    }
+@media (max-width: 560px) {
+  .dashboard-card-metric-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -158,21 +147,6 @@
     height: 180px;
     width: 100%;
   }
-}
-
-/* Ant Design 组件样式覆盖 */
-.dashboard-card .ant-statistic-title {
-  color: var(--gray-600) !important;
-  font-weight: 500 !important;
-}
-
-.dashboard-card .ant-statistic-content {
-  color: var(--gray-1000);
-}
-
-/* 强制设置所有统计卡片数字为粗体 */
-.dashboard-card .ant-statistic-content-value {
-  font-weight: 700 !important;
 }
 
 .dashboard-card .ant-table {

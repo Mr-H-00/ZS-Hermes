@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+
+function readSource(relativePath) {
+  return readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+}
+
+test('工作区上传菜单暴露展开状态和菜单语义', () => {
+  const source = readSource('../../src/components/workspace/WorkspaceSidebar.vue')
+  const trigger = source.slice(source.indexOf('<button'), source.indexOf('</button>'))
+  const menu = source.slice(source.indexOf('<Transition name="file-action-menu">'), source.indexOf('</Transition>'))
+
+  assert.match(trigger, /aria-haspopup="menu"/)
+  assert.match(trigger, /:aria-expanded="uploadActionMenuOpen"/)
+  assert.match(menu, /class="file-action-menu" role="menu"/)
+  assert.equal((menu.match(/role="menuitem"/g) || []).length, 2)
+})
+
+test('项目创建目录选择器包含尚未绑定的项目目录', () => {
+  const source = readSource('../../src/components/ProjectSelectionSection.vue')
+  const pickerStart = source.indexOf('<WorkspacePathPicker')
+  const picker = source.slice(pickerStart, source.indexOf('/>', pickerStart) + 2)
+
+  assert.match(picker, /include-unbound-project-dirs/)
+})
+
+test('知识库文件大小使用静态摘要而不是无行为按钮', () => {
+  const source = readSource('../../src/views/DataBaseInfoView.vue')
+  const sizeSummaryStart = source.indexOf('v-if="fileStats.sizeText"')
+  const sizeSummary = source.slice(source.lastIndexOf('<', sizeSummaryStart), source.indexOf('>', sizeSummaryStart) + 1)
+
+  assert.match(sizeSummary, /^<div\b/)
+  assert.doesNotMatch(sizeSummary, /^<button\b/)
+})

@@ -483,6 +483,62 @@ const serializeEditorNode = (node) => {
 const serializeEditorContent = () => serializeEditorNode(inputRef.value)
 const getEditorRawValue = () => (inputRef.value ? serializeEditorContent() : inputValue.value)
 
+const getRawOffsetBeforeNode = (node) => {
+  const editor = inputRef.value
+  if (!editor || !node || !isNodeInEditor(node)) return null
+
+  let rawOffset = 0
+  let current = node
+  while (current && current !== editor) {
+    let sibling = current.previousSibling
+    while (sibling) {
+      rawOffset += getRawNodeLength(sibling)
+      sibling = sibling.previousSibling
+    }
+    current = current.parentNode
+  }
+
+  return current === editor ? rawOffset : null
+}
+
+const getMentionNodeImmediatelyBeforeCaret = () => {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return null
+  if (!isNodeInEditor(selection.anchorNode)) return null
+
+  let current = selection.anchorNode
+  let offset = selection.anchorOffset
+  while (current && current !== inputRef.value) {
+    if (isTextNode(current)) {
+      if (offset !== 0) return null
+    } else if (offset > 0) {
+      const candidate = current.childNodes[offset - 1]
+      if (isMentionNode(candidate)) return candidate
+      return null
+    }
+
+    const parent = current.parentNode
+    if (!parent) return null
+    offset = childIndex(current)
+    current = parent
+  }
+
+  if (current === inputRef.value && offset > 0) {
+    const candidate = current.childNodes[offset - 1]
+    return isMentionNode(candidate) ? candidate : null
+  }
+  return null
+}
+
+const getDomMentionDeletionRange = () => {
+  const mentionNode = getMentionNodeImmediatelyBeforeCaret()
+  if (!mentionNode) return null
+
+  const start = getRawOffsetBeforeNode(mentionNode)
+  if (start === null) return null
+  return { start, end: start + getRawNodeLength(mentionNode) }
+}
+
 const unmountEditorMentionIcons = () => {
   inputRef.value
     ?.querySelectorAll('.mention-ref-icon[data-vue-icon]')
@@ -1032,11 +1088,14 @@ const handleMentionDeletion = (e) => {
 
   const currentValue = getEditorRawValue()
   const selectionRange = getRawSelectionRange()
+  const isCollapsedBackspace = e.key === 'Backspace' && selectionRange.collapsed
+  const domMentionRange = isCollapsedBackspace ? getDomMentionDeletionRange() : null
   const expandedRange = expandMentionDeletionRange(
     currentValue,
     selectionRange.start,
     selectionRange.end,
-    e.key === 'Delete' ? 'forward' : 'backward'
+    isCollapsedBackspace ? 'backward' : 'forward',
+    domMentionRange ? [domMentionRange] : []
   )
 
   if (!expandedRange) return false

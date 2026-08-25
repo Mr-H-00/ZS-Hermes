@@ -155,46 +155,38 @@
                       </div>
                     </Transition>
                   </div>
-                  <button
-                    type="button"
-                    class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
-                    @click="fileSearchModalVisible = true"
-                  >
-                    <Search :size="14" />
-                    <span>搜索文件</span>
-                  </button>
                 </div>
               </div>
               <div class="file-panel-status">
                 <button
                   v-if="canManageDatabase && pendingParseCount > 0"
                   type="button"
-                  class="file-stat-card file-stat-action file-stat-summary"
+                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-warning file-stat-summary"
                   :disabled="store.state.chunkLoading"
                   @click="confirmBatchParse"
                 >
                   <FileText :size="16" />
                   <div class="file-stat-inline">
-                    <strong>{{ pendingParseCount }}</strong>
-                    <span>待解析</span>
+                    <span class="file-stat-value">{{ pendingParseCount }}</span>
+                    <span class="file-stat-label">待解析</span>
                   </div>
                 </button>
                 <button
                   v-if="canManageDatabase && pendingIndexCount > 0"
                   type="button"
-                  class="file-stat-card file-stat-action file-stat-summary"
+                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-warning file-stat-summary"
                   :disabled="store.state.chunkLoading"
                   @click="confirmBatchIndex"
                 >
                   <DatabaseIcon :size="16" />
                   <div class="file-stat-inline">
-                    <strong>{{ pendingIndexCount }}</strong>
-                    <span>待入库</span>
+                    <span class="file-stat-value">{{ pendingIndexCount }}</span>
+                    <span class="file-stat-label">待入库</span>
                   </div>
                 </button>
                 <button
                   type="button"
-                  class="file-stat-card file-stat-summary"
+                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary"
                   :class="{ 'file-stat-warning': virtualFolderStatus.has_virtual_folders }"
                   :disabled="!virtualFolderStatus.has_virtual_folders || !canManageDatabase"
                   :title="
@@ -205,21 +197,24 @@
                   <CircleAlert v-if="virtualFolderStatus.has_virtual_folders" :size="16" />
                   <FileText v-else :size="16" />
                   <div class="file-stat-inline">
-                    <strong>{{ fileStats.count }}</strong>
-                    <span>文件</span>
+                    <span class="file-stat-value">{{ fileStats.count }}</span>
+                    <span class="file-stat-label">文件</span>
                   </div>
                 </button>
-                <div v-if="fileStats.sizeText" class="file-stat-card file-stat-summary">
-                  <DatabaseIcon :size="16" />
+                <div
+                  v-if="fileStats.sizeText"
+                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary"
+                  :title="`文件大小 ${fileStats.sizeText}`"
+                >
+                  <DatabaseIcon :size="16" aria-hidden="true" />
                   <div class="file-stat-inline">
-                    <strong>{{ fileStats.sizeText }}</strong>
-                    <span>总大小</span>
+                    <span class="file-stat-value">{{ fileStats.sizeText }}</span>
                   </div>
                 </div>
                 <button
                   v-if="canManageDatabase"
                   type="button"
-                  class="file-stat-card file-stat-summary file-stat-repair"
+                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary file-stat-repair"
                   :disabled="statsRepairing"
                   :aria-busy="statsRepairing"
                   aria-label="修复缺失的 Chunk/Token 统计"
@@ -229,14 +224,14 @@
                   <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
                   <DatabaseIcon v-else :size="16" />
                   <div class="file-stat-inline">
-                    <strong>{{ fileStats.chunkText }}</strong>
-                    <span>Chunks</span>
+                    <span class="file-stat-value">{{ fileStats.chunkText }}</span>
+                    <span class="file-stat-label">Chunks</span>
                   </div>
                 </button>
                 <button
                   v-if="canManageDatabase"
                   type="button"
-                  class="file-stat-card file-stat-summary file-stat-repair"
+                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary file-stat-repair"
                   :disabled="statsRepairing"
                   :aria-busy="statsRepairing"
                   aria-label="修复缺失的 Chunk/Token 统计"
@@ -246,13 +241,17 @@
                   <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
                   <Hash v-else :size="16" />
                   <div class="file-stat-inline">
-                    <strong>{{ fileStats.tokenText }}</strong>
-                    <span>Tokens</span>
+                    <span class="file-stat-value">{{ fileStats.tokenText }}</span>
+                    <span class="file-stat-label">Tokens</span>
                   </div>
                 </button>
               </div>
             </div>
-            <FileTable ref="fileTableRef" :readonly="!canManageDatabase" />
+            <FileTable
+              ref="fileTableRef"
+              :readonly="!canManageDatabase"
+              @search="fileSearchModalVisible = true"
+            />
           </div>
 
           <div v-show="activeTab === 'query'" class="tab-panel query-config-panel">
@@ -329,6 +328,15 @@
                   action-placement="header"
                   :rows="4"
                 />
+              </a-form-item>
+
+              <a-form-item v-if="database?.embedding_model_spec" label="Embedding 模型">
+                <div class="readonly-model-field">
+                  <span class="readonly-model-value" :title="database.embedding_model_spec">
+                    {{ database.embedding_model_spec }}
+                  </span>
+                  <span class="readonly-model-hint">创建后不可修改</span>
+                </div>
               </a-form-item>
 
               <a-form-item v-if="!isConnector" name="chunk_preset_id">
@@ -466,7 +474,6 @@ import { departmentApi } from '@/apis/department_api'
 import { authApi } from '@/apis/auth_api'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
-import { formatFileSize } from '@/utils/file_utils'
 import { getKbTypeIcon, getKbTypeLabel, kbUtils } from '@/utils/kb_utils'
 
 const route = useRoute()
@@ -553,6 +560,22 @@ const formatStatNumber = (value) => {
   return Number.isFinite(number) ? number.toLocaleString('zh-CN') : '0'
 }
 
+const formatCompactFileSize = (bytes) => {
+  const number = Number(bytes)
+  if (!Number.isFinite(number) || number <= 0) return ''
+
+  const units = ['b', 'kb', 'mb', 'gb', 'tb', 'pb']
+  let unitIndex = 0
+  let value = number
+  while (value >= 1000 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+
+  const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
+  return `${Number(value.toFixed(decimals))}${units[unitIndex]}`
+}
+
 const formatTokenStatNumber = (value) => {
   const number = Number(value ?? 0)
   if (!Number.isFinite(number)) return '0'
@@ -579,7 +602,7 @@ const fileStats = computed(() => {
 
   return {
     count: Number.isFinite(statsFileCount) ? statsFileCount : 0,
-    sizeText: totalSize > 0 ? formatFileSize(totalSize) : '',
+    sizeText: totalSize > 0 ? formatCompactFileSize(totalSize) : '',
     chunkText: formatStatNumber(stats.chunk_count),
     tokenText: formatTokenStatNumber(stats.token_count)
   }
@@ -1362,17 +1385,28 @@ onUnmounted(() => {
 
 .file-stat-card {
   min-width: 60px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 16px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--main-0);
-  border: 1px solid var(--gray-100);
-  color: var(--main-color);
-  font: inherit;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  box-shadow: none;
+  color: var(--gray-700);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
   appearance: none;
-  text-align: left;
+  text-align: center;
+  cursor: default;
+  justify-content: center;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
 
   div {
     display: flex;
@@ -1380,25 +1414,40 @@ onUnmounted(() => {
     gap: 1px;
   }
 
-  strong {
-    font-size: 14px;
-    line-height: 1.2;
-    color: var(--gray-900);
+  svg {
+    flex: 0 0 auto;
+  }
+
+  .file-stat-value,
+  .file-stat-label {
     white-space: nowrap;
   }
 
-  span {
-    font-size: 11px;
+  .file-stat-value {
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--gray-900);
+  }
+
+  .file-stat-label {
+    font-size: 10px;
+    font-weight: 400;
     color: var(--gray-500);
-    white-space: nowrap;
+  }
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    border-color: var(--gray-300);
+    background: var(--gray-0);
+    color: var(--gray-900);
+    outline: none;
   }
 }
 
 .file-stat-summary {
   min-width: 87px;
-  min-height: 36px;
-  gap: 8px;
-  padding: 5px 10px;
+  min-height: 30px;
 
   .file-stat-inline {
     flex-direction: row;
@@ -1410,40 +1459,29 @@ onUnmounted(() => {
 .file-stat-warning {
   cursor: pointer;
   color: var(--color-warning-700);
-  border-color: var(--color-warning-200);
+  border-color: var(--color-warning-100);
   background: var(--color-warning-50);
 
-  &:hover:not(:disabled) {
-    border-color: var(--color-warning-700);
+  .file-stat-value {
+    color: var(--color-warning-900);
   }
 
-  &:disabled {
-    cursor: not-allowed;
-  }
-}
-
-.virtual-folder-migration-message {
-  margin-top: 8px;
-  color: var(--gray-600);
-}
-
-.file-stat-action {
-  cursor: pointer;
-  color: var(--color-warning-500);
-  border: 1px solid var(--color-warning-100);
-  background-color: var(--color-warning-50);
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-
-  &:hover {
-    border-color: var(--color-warning-700);
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    border-color: var(--color-warning-500);
+    background: var(--color-warning-50);
+    color: var(--color-warning-900);
   }
 
   &:disabled {
     cursor: not-allowed;
     opacity: 0.6;
   }
+}
+
+.virtual-folder-migration-message {
+  margin-top: 8px;
+  color: var(--gray-600);
 }
 
 .file-stat-repair {
@@ -1489,7 +1527,9 @@ onUnmounted(() => {
 }
 
 .retrieval-config-content {
-  padding: 0 2px;
+  min-width: 0;
+  padding: 0;
+  overflow-x: hidden;
 }
 
 :global(.database-edit-modal .ant-modal-body) {
@@ -1523,6 +1563,34 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.readonly-model-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 11px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  background: var(--gray-25);
+}
+
+.readonly-model-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gray-800);
+  font-family: var(--mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.readonly-model-hint {
+  flex: 0 0 auto;
+  color: var(--gray-500);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .chunk-preset-help-icon {

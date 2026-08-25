@@ -896,16 +896,13 @@ const loadActivePreview = async ({ baseFileOverride = null } = {}) => {
   }
 
   const loadPromise = (async () => {
-    // 路径统一为 runtime 身份：用户目录走 workspace 视图，当前 Workdir 文件走 Viewer 渲染，其余走 artifact 原始字节。
+    // 路径统一为 runtime 身份：用户目录走 workspace，当前 Workdir 走 Viewer，其余走 artifact 预览。
     const res = isWorkspaceFile
       ? await getWorkspaceFileContent(filePath)
       : baseFile.workdir
         ? await getViewerFileContent(requestedThreadId, filePath)
         : await threadApi.previewThreadArtifact(requestedThreadId, filePath)
-    return normalizePreviewResponse(res, {
-      ...baseFile,
-      artifact: !isWorkspaceFile && baseFile.workdir !== true
-    })
+    return normalizePreviewResponse(res, baseFile)
   })()
   const loadingEntry = { status: 'loading', promise: loadPromise }
   props.previewCache.set(cacheKey, loadingEntry)

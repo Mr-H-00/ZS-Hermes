@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -54,14 +55,20 @@ test('normalizePreviewResponse 正确解析 JSON 预览结构而不把 raw paylo
   assert.equal(parsed.status, 'ready')
 })
 
-test('normalizePreviewResponse 保留 JSON artifact 的原始正文', async () => {
-  const jsonResponse = new Response(JSON.stringify({ result: 42 }), {
-    headers: { 'content-type': 'application/json' }
-  })
+test('normalizePreviewResponse 解包 JSON artifact 的统一预览结构', async () => {
+  const jsonResponse = new Response(
+    JSON.stringify({
+      content: '{"result":42}',
+      preview_type: 'text',
+      supported: true
+    }),
+    {
+      headers: { 'content-type': 'application/json' }
+    }
+  )
 
   const parsed = await normalizePreviewResponse(jsonResponse, {
-    path: '/home/gem/user-data/projects/demo/outputs/result.json',
-    artifact: true
+    path: '/home/gem/user-data/projects/demo/outputs/result.json'
   })
 
   assert.equal(parsed.content, '{"result":42}')
@@ -83,6 +90,20 @@ test('normalizePreviewResponse 不支持格式时标记 status 为 unsupported',
 
   assert.equal(parsed.status, 'unsupported')
   assert.equal(parsed.supported, false)
+})
+
+test('状态面板保留 cancelled 待办的已取消语义', () => {
+  const source = readFileSync(
+    new URL('../../src/components/AgentChatComponent.vue', import.meta.url),
+    'utf8'
+  )
+  const statusLabel = source.slice(
+    source.indexOf('const getTodoStatusLabel'),
+    source.indexOf('const currentTodos')
+  )
+
+  assert.match(statusLabel, /status === 'cancelled'\) return '已取消'/)
+  assert.match(source, /&\.is-cancelled\s*{[^}]*border-style:\s*dashed;/s)
 })
 
 test('文件树仅在页面可见的运行期文件视图中轮询', () => {

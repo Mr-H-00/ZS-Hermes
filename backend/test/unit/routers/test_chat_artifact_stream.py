@@ -21,6 +21,7 @@ async def test_artifact_route_returns_realtime_workdir_response(monkeypatch):
         thread_id="thread-1",
         path="home/gem/projects/project-workdir-1/report.txt",
         download=False,
+        preview=True,
         db=db,
         current_user=user,
     )
@@ -32,4 +33,5 @@ async def test_artifact_route_returns_realtime_workdir_response(monkeypatch):
         "db": db,
         "path": "home/gem/projects/project-workdir-1/report.txt",
         "download": False,
+        "preview": True,
     }

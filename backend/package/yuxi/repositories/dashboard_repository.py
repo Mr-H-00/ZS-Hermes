@@ -60,6 +60,8 @@ class DashboardRepository:
             filters.append(Conversation.agent_id == agent_id)
         if status and status != "all":
             filters.append(Conversation.status == status)
+        else:
+            filters.append(Conversation.status != "deleted")
         if search:
             search_term = f"%{search.strip()}%"
             filters.append(
@@ -215,31 +217,32 @@ class DashboardRepository:
             )
         )
 
+        active_date = self._shanghai_date_group(Conversation.updated_at)
+        daily_active_result = await self.db_session.execute(
+            select(active_date.label("date"), func.count(distinct(User.id)).label("active_users"))
+            .select_from(Conversation)
+            .join(User, Conversation.uid == User.uid)
+            .join(Agent, Conversation.agent_id == Agent.slug)
+            .where(
+                Conversation.updated_at >= query_now - timedelta(days=120),
+                Conversation.updated_at < query_now,
+                Conversation.status.notin_(("deleted", "subagent")),
+                User.is_deleted == 0,
+            )
+            .group_by(active_date)
+        )
+        daily_active_by_date = {str(row.date): int(row.active_users or 0) for row in daily_active_result.all()}
+        local_today = (query_now + timedelta(hours=8)).date()
         daily_active_users = []
-        for day_offset in range(7):
-            day_start = query_now - timedelta(days=day_offset + 1)
-            day_end = query_now - timedelta(days=day_offset)
-            active_result = await self.db_session.execute(
-                select(func.count(distinct(User.id)))
-                .select_from(Conversation)
-                .join(User, Conversation.uid == User.uid)
-                .join(Agent, Conversation.agent_id == Agent.slug)
-                .where(
-                    Conversation.updated_at >= day_start,
-                    Conversation.updated_at < day_end,
-                    Conversation.status.notin_(("deleted", "subagent")),
-                    User.is_deleted == 0,
-                )
-            )
-            daily_active_users.append(
-                {"date": day_start.strftime("%Y-%m-%d"), "active_users": active_result.scalar() or 0}
-            )
+        for day_offset in range(119, -1, -1):
+            date = (local_today - timedelta(days=day_offset)).strftime("%Y-%m-%d")
+            daily_active_users.append({"date": date, "active_users": daily_active_by_date.get(date, 0)})
 
         return {
             "total_users": total_result.scalar() or 0,
             "active_users_24h": active_24h_result.scalar() or 0,
             "active_users_30d": active_30d_result.scalar() or 0,
-            "daily_active_users": list(reversed(daily_active_users)),
+            "daily_active_users": daily_active_users,
         }
 
     async def get_tool_call_stats(self, *, now: datetime | None = None) -> dict[str, Any]:
@@ -380,6 +383,7 @@ class DashboardRepository:
             top_agents.append(
                 {
                     "agent_id": agent.slug,
+                    "agent_avatar": normalize_public_minio_url(agent.icon) if agent.icon else None,
                     "conversation_count": conversation_count,
                     "satisfaction_rate": satisfaction_rate,
                 }
@@ -667,6 +671,7 @@ class DashboardRepository:
         *,
         time_range: str = "30days",
         agent_id: str | None = None,
+        include_subagents: bool = False,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         """统计会话（Thread）汇总、每日趋势、消息深度、Agent 与用户分布。"""
@@ -677,9 +682,14 @@ class DashboardRepository:
         local_start_day -= timedelta(days=days - 1)
         query_start_time = local_start_day - timedelta(hours=8)
 
+        status_filter = (
+            Conversation.status != "deleted"
+            if include_subagents
+            else Conversation.status.notin_(("deleted", "subagent"))
+        )
         conversation_filters = [
             Conversation.created_at.isnot(None),
-            Conversation.status.notin_(("deleted", "subagent")),
+            status_filter,
             User.is_deleted == 0,
         ]
         if agent_id:
@@ -859,14 +869,17 @@ class DashboardRepository:
         agent_rows = (await self.db_session.execute(agent_group_query)).all()
         agent_slugs = [row.agent_id for row in agent_rows if row.agent_id]
         agent_names_map = {}
+        agent_avatars_map = {}
         if agent_slugs:
             agents = await AgentRepository(self.db_session).list_by_slugs(agent_slugs)
             agent_names_map = {a.slug: a.name for a in agents}
+            agent_avatars_map = {a.slug: normalize_public_minio_url(a.icon) if a.icon else None for a in agents}
 
         agent_distribution = [
             {
                 "agent_id": row.agent_id,
                 "agent_name": agent_names_map.get(row.agent_id, row.agent_id),
+                "agent_avatar": agent_avatars_map.get(row.agent_id),
                 "thread_count": int(row.thread_count or 0),
                 "message_count": int(row.message_count or 0),
                 "token_count": int(row.token_count or 0),

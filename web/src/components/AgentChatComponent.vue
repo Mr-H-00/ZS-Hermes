@@ -144,7 +144,11 @@
               </div>
             </div>
           </div>
-          <div class="bottom" :class="{ 'start-screen': !conversations.length }">
+          <div
+            ref="messageInputDockRef"
+            class="bottom"
+            :class="{ 'start-screen': !conversations.length }"
+          >
             <div class="message-input-wrapper">
               <!-- 加载状态：加载消息 -->
               <div v-if="isLoadingMessages" class="chat-loading">
@@ -334,7 +338,12 @@
             flexBasis: statePanelDocked ? `${statePanelDockWidth}px` : '0px'
           }"
         >
-          <div class="state-panel">
+          <div
+            class="state-panel"
+            :style="{
+              maxHeight: statePanelMaxHeightStyle
+            }"
+          >
             <div class="side-panel__header state-panel-header">
               <span class="state-panel-title">状态</span>
               <div class="state-panel-header-actions">
@@ -342,6 +351,7 @@
                   type="button"
                   class="state-refresh-btn"
                   title="刷新状态"
+                  aria-label="刷新状态"
                   :disabled="isRefreshingState"
                   @click.stop="handleAgentStateRefresh()"
                 >
@@ -525,13 +535,17 @@
                           class="todo-item"
                           :class="{ completed: todo.status === 'completed' }"
                         >
-                          <div class="todo-item-icon" :class="todo.status || 'unknown'">
-                            <CheckCircleOutlined v-if="todo.status === 'completed'" />
-                            <SyncOutlined v-else-if="todo.status === 'in_progress'" spin />
-                            <ClockCircleOutlined v-else-if="todo.status === 'pending'" />
-                            <CloseCircleOutlined v-else-if="todo.status === 'cancelled'" />
-                            <QuestionCircleOutlined v-else />
-                          </div>
+                          <span
+                            class="todo-status-indicator"
+                            :class="`is-${todo.status || 'pending'}`"
+                            role="img"
+                            :aria-label="getTodoStatusLabel(todo.status)"
+                          >
+                            <span
+                              v-if="todo.status === 'in_progress'"
+                              class="todo-status-indicator__pulse"
+                            ></span>
+                          </span>
                           <div class="todo-item-body">
                             <span class="todo-item-text" :title="todo.fullContent">
                               {{ todo.displayContent }}
@@ -577,18 +591,17 @@
                           v-for="file in currentStateFiles"
                           :key="file.key"
                           type="button"
-                          class="state-list-item state-list-item--button"
+                          class="state-list-item state-list-item--button state-list-item--file"
                           :title="`打开 ${file.name}`"
                           @click="openPanelPreview(file)"
                         >
                           <FileTypeIcon
                             :name="file.name || file.path"
-                            :size="18"
+                            :size="15"
                             class="state-list-item-icon"
                           />
                           <div class="state-list-item-body">
                             <div class="state-list-item-title">{{ file.name }}</div>
-                            <div class="state-list-item-meta">{{ file.meta || file.path }}</div>
                           </div>
                         </button>
                       </div>
@@ -630,18 +643,17 @@
                           v-for="file in currentArtifactFiles"
                           :key="file.path"
                           type="button"
-                          class="state-list-item state-list-item--button"
+                          class="state-list-item state-list-item--button state-list-item--artifact"
                           :title="`打开 ${file.name}`"
                           @click="openPanelPreview(file)"
                         >
                           <FileTypeIcon
                             :name="file.name || file.path"
-                            :size="18"
+                            :size="15"
                             class="state-list-item-icon"
                           />
                           <div class="state-list-item-body">
                             <div class="state-list-item-title">{{ file.name }}</div>
-                            <div class="state-list-item-meta">{{ file.meta }}</div>
                           </div>
                         </button>
                       </div>
@@ -681,7 +693,7 @@
                       <div class="state-list">
                         <div
                           v-for="(run, index) in displaySubagentRuns"
-                          :key="run.id || `${run.subagent_slug || 'subagent'}-${index}`"
+                          :key="run.child_thread_id || run.id || `${run.subagent_slug || 'subagent'}-${index}`"
                           class="state-list-item"
                           :class="{ 'is-clickable': run.child_thread_id }"
                           @click="run.child_thread_id && openSubagentThread(run)"
@@ -714,9 +726,7 @@
                                 class="state-subagent-status-icon state-subagent-running-icon"
                               />
                             </div>
-                            <div class="state-list-item-meta">
-                              {{ run.description || getSubagentRunMeta(run) }}
-                            </div>
+                            <div class="state-list-item-meta">{{ run.description }}</div>
                           </div>
                         </div>
                       </div>
@@ -800,14 +810,11 @@ import {
   RefreshCw,
   Trash2
 } from 'lucide-vue-next'
-import { formatFileSize } from '@/utils/file_utils'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import {
   CheckCircleOutlined,
-  ClockCircleOutlined,
   CloseCircleOutlined,
-  QuestionCircleOutlined,
   SyncOutlined
 } from '@ant-design/icons-vue'
 import AgentInputArea from '@/components/AgentInputArea.vue'
@@ -852,6 +859,11 @@ import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import { enrichTaskToolCalls, parseToolCallArgs } from '@/components/ToolCallingResult/toolRegistry'
 import { getConversationDisplayItems } from '@/utils/messageGrouping'
 import { makeChildThreadId } from '@/utils/subagentThread'
+import { isSubagentLaunchToolName, mergeSubagentRunsForDisplay } from '@/utils/subagentRuns'
+import {
+  getDockedStatePanelMaxHeight,
+  getFloatingStatePanelMaxHeight
+} from '@/utils/statePanelLayout'
 import { AUTO_PROJECT_ID } from '@/utils/projectSelection'
 import { createSingleFlight } from '@/utils/singleFlight'
 import { createThreadForContext } from '@/utils/threadCreation'
@@ -971,7 +983,9 @@ const configNoticeScrollVersion = ref(0)
 // 本地 UI 状态（仅在本组件使用）
 const localUIState = reactive({
   chatMainWidth: typeof window !== 'undefined' ? window.innerWidth : 0,
-  chatContentWidth: typeof window !== 'undefined' ? window.innerWidth : 0
+  chatContentWidth: typeof window !== 'undefined' ? window.innerWidth : 0,
+  statePanelDockedMaxHeight: null,
+  statePanelFloatingMaxHeight: null
 })
 
 // Agent Panel State
@@ -1069,6 +1083,13 @@ const statePanelCanDock = computed(() => {
 })
 const statePanelDocked = computed(() => statePanelOpen.value && statePanelCanDock.value)
 const statePanelFloating = computed(() => statePanelOpen.value && !statePanelDocked.value)
+const statePanelMaxHeightStyle = computed(() => {
+  if (!statePanelFloating.value && !statePanelDocked.value) return undefined
+  const maxHeight = statePanelFloating.value
+    ? localUIState.statePanelFloatingMaxHeight
+    : localUIState.statePanelDockedMaxHeight
+  return maxHeight === null ? undefined : `${maxHeight}px`
+})
 
 const setPanelRatioForViewMode = () => {
   const hasPreview = Boolean(agentPanelActivePreviewPath.value)
@@ -1098,13 +1119,6 @@ const getPanelFileName = (file) => {
   return '未知文件'
 }
 
-const getArtifactMetaLabel = (path) => {
-  const filename = getPanelFileName({ path })
-  if (!filename.includes('.')) return '交付文件'
-  const extension = filename.split('.').pop()
-  return extension ? `交付文件 · ${extension.toUpperCase()}` : '交付文件'
-}
-
 const getSubagentRunName = (run) => {
   const subagentSlug = run?.subagent_slug ? String(run.subagent_slug) : ''
   return (
@@ -1125,11 +1139,6 @@ const getSubagentIconSrc = (run) => {
 
 const getSubagentDefaultIconSrc = (run) =>
   run?.subagent_slug ? generatePixelAvatar(run.subagent_slug) : ''
-
-const getSubagentRunMeta = (run) => {
-  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts.length : 0
-  return artifacts ? `${artifacts} 个产物` : run?.id || ''
-}
 
 const normalizePanelPath = (path) => String(path || '').replace(/\/+$/, '')
 
@@ -1674,10 +1683,16 @@ const currentArtifactFiles = computed(() =>
     .filter(Boolean)
     .map((path) => ({
       path,
-      name: getPanelFileName({ path }),
-      meta: getArtifactMetaLabel(path)
+      name: getPanelFileName({ path })
     }))
 )
+/** 返回待办状态的无障碍文案。 */
+const getTodoStatusLabel = (status) => {
+  if (status === 'completed') return '已完成'
+  if (status === 'in_progress') return '进行中'
+  if (status === 'cancelled') return '已取消'
+  return '未完成'
+}
 const currentTodos = computed(() => {
   const todos = currentAgentState.value?.todos
   if (!Array.isArray(todos)) return []
@@ -1793,13 +1808,10 @@ const currentStateFiles = computed(() => {
     if (!path || seenPaths.has(path)) return
     seenPaths.add(path)
     const name = entry?.file_name || entry?.name || getPanelFileName({ path }) || fallbackName
-    const sizeLabel = formatFileSize(entry?.file_size ?? entry?.size)
-    const status = entry?.status || ''
     files.push({
       key: path,
       path,
-      name,
-      meta: [status, sizeLabel === '-' ? '' : sizeLabel, path].filter(Boolean).join(' · ')
+      name
     })
   }
 
@@ -1914,16 +1926,16 @@ const currentDebugMessages = computed(() =>
 provide('getThreadOngoingMessages', getThreadOngoingMessages)
 provide('getSubagentThreadIdByToolCall', getSubagentThreadIdByToolCall)
 
-// 解析父级 ongoing 里的全部 task 工具调用（按消息顺序），统一供面板与状态判定使用。
-// 注意：ongoing 期间 task 的工具结果不流式（只有 message_delta/tool_call 事件），因此这里的
-// hasResult 在流式阶段恒为 false，状态判定不能依赖它。
-const ongoingTaskCalls = computed(() => {
+// 解析父级 ongoing 里的全部子智能体启动调用（按消息顺序），统一供面板与状态判定使用。
+// 注意：ongoing 期间工具结果不流式（只有 message_delta/tool_call 事件），因此这里的 hasResult
+// 在流式阶段恒为 false，状态判定不能依赖它。
+const ongoingSubagentLaunchCalls = computed(() => {
   const calls = []
   onGoingConvMessages.value.forEach((message, messageIndex) => {
     if (message?.type !== 'ai' || !Array.isArray(message.tool_calls)) return
     message.tool_calls.forEach((toolCall) => {
       const name = toolCall?.name || toolCall?.function?.name
-      if (name !== 'task') return
+      if (!isSubagentLaunchToolName(name)) return
       const id = toolCall?.id ? String(toolCall.id) : ''
       if (!id) return
       const args = parseToolCallArgs(toolCall)
@@ -1940,11 +1952,11 @@ const ongoingTaskCalls = computed(() => {
   return calls
 })
 
-// 当前活跃（真正在执行）的 task 调用 = 最后一条「含未完成 task 调用」的 AI 消息中的那些调用。
+// 当前活跃（真正在执行）的子智能体启动调用 = 最后一条含未完成启动调用的 AI 消息中的调用。
 // steer 顺序进行 → 只有最后一条消息的调用在执行；并行 → 同一条消息的多个调用都在执行。
 // 用消息顺序判定，不依赖异步推算的 child_thread_id，避免首次运行哈希未就绪导致的状态错乱。
 const activeSubagentToolCallIds = computed(() => {
-  const pending = ongoingTaskCalls.value.filter((call) => !call.hasResult)
+  const pending = ongoingSubagentLaunchCalls.value.filter((call) => !call.hasResult)
   if (!pending.length) return new Set()
   const lastMessageIndex = pending[pending.length - 1].messageIndex
   return new Set(
@@ -1953,11 +1965,10 @@ const activeSubagentToolCallIds = computed(() => {
 })
 provide('activeSubagentToolCallIds', activeSubagentToolCallIds)
 
-// agent_state.subagent_runs 仅在 task 返回（完成态）时写入；面板的运行中条目只取「活跃」调用，
-// 避免已完成的 steer 历史调用在面板里重复成额外条目。
+// 面板的流式运行中条目只取活跃调用，避免已完成的 steer 历史调用重复成额外条目。
 const runningSubagentRunsFromStream = computed(() => {
   const activeIds = activeSubagentToolCallIds.value
-  return ongoingTaskCalls.value
+  return ongoingSubagentLaunchCalls.value
     .filter((call) => activeIds.has(call.id))
     .map((call) => {
       const option = call.subagentSlug
@@ -1974,9 +1985,9 @@ const runningSubagentRunsFromStream = computed(() => {
     })
 })
 
-// task 工具调用入参里携带的任务描述（tool_call_id -> description），覆盖历史与进行中消息。
+// 子智能体启动调用入参里携带的任务描述（tool_call_id -> description），覆盖历史与进行中消息。
 // 后端 subagent_runs 不再冗余存储 description，面板据此为已完成的 run 回填展示文案。
-const taskDescriptionByToolCallId = computed(() => {
+const subagentDescriptionByToolCallId = computed(() => {
   const map = new Map()
   const collect = (messages) => {
     if (!Array.isArray(messages)) return
@@ -1984,7 +1995,7 @@ const taskDescriptionByToolCallId = computed(() => {
       if (message?.type !== 'ai' || !Array.isArray(message.tool_calls)) return
       message.tool_calls.forEach((toolCall) => {
         const name = toolCall?.name || toolCall?.function?.name
-        if (name !== 'task') return
+        if (!isSubagentLaunchToolName(name)) return
         const id = toolCall?.id ? String(toolCall.id) : ''
         if (!id || map.has(id)) return
         const desc = String(parseToolCallArgs(toolCall).description || '').trim()
@@ -1992,23 +2003,15 @@ const taskDescriptionByToolCallId = computed(() => {
       })
     })
   }
-  collect(historyConversations.value)
+  historyConversations.value.forEach((conversation) => collect(conversation?.messages))
   collect(onGoingConvMessages.value)
   return map
 })
 
-// 后端按 run_id 合并持久化状态；流式期的临时 task 条目还没有 run_id，仅用工具调用 id 合并占位。
+// 先按真实 run / 工具调用合并流式占位，最后按 child_thread_id 收敛为每个子线程一项。
 const displaySubagentRuns = computed(() => {
-  const descByToolCall = taskDescriptionByToolCallId.value
-  const merged = currentSubagentRuns.value.map((run) => {
-    const copy = { ...run }
-    // 持久化条目不带 description，按 tool_call_id（即 run.id）从 task 调用入参回填。
-    if (!copy.description && copy.id) {
-      const desc = descByToolCall.get(String(copy.id))
-      if (desc) copy.description = desc
-    }
-    return copy
-  })
+  const descByToolCall = subagentDescriptionByToolCallId.value
+  const merged = [...currentSubagentRuns.value]
   const runIdIndex = new Map()
   const transientIdIndex = new Map()
   merged.forEach((run, index) => {
@@ -2034,7 +2037,7 @@ const displaySubagentRuns = computed(() => {
     if (run.run_id) runIdIndex.set(String(run.run_id), position)
     else if (run.id) transientIdIndex.set(String(run.id), position)
   })
-  return merged
+  return mergeSubagentRunsForDisplay(merged, descByToolCall)
 })
 
 // 首次运行的子智能体：前端按后端同样的哈希推算 child_thread_id，缓存到映射里供面板/轨迹定位。
@@ -2047,7 +2050,7 @@ watch(
       if (message?.type !== 'ai' || !Array.isArray(message.tool_calls)) return
       message.tool_calls.forEach((toolCall) => {
         const name = toolCall?.name || toolCall?.function?.name
-        if (name !== 'task') return
+        if (!isSubagentLaunchToolName(name)) return
         if (toolCall.tool_call_result || toolCall.result) return
         const id = toolCall?.id ? String(toolCall.id) : ''
         if (!id || chatState.subagentThreadByToolCall[id]) return
@@ -2559,12 +2562,13 @@ const maybeInsertThreadConfigNotice = () => {
 // ==================== SCROLL & RESIZE HANDLING ====================
 const scrollController = new ScrollController('.chat-main')
 const chatMainRef = ref(null)
+const messageInputDockRef = ref(null)
 let chatMainResizeObserver = null
 // 初始化延迟标志，避免首次挂载时 ResizeObserver 立即触发导致侧边栏意外关闭
 let isResizeObserverReady = false
 let resizeObserverReadyTimer = null
 
-const armResizeObserver = () => {
+const armResizeObserver = (onReady) => {
   if (resizeObserverReadyTimer) {
     clearTimeout(resizeObserverReadyTimer)
   }
@@ -2573,6 +2577,7 @@ const armResizeObserver = () => {
   // keep-alive 切页回来时等布局稳定后再恢复宽度判断，避免隐藏态宽度污染侧边栏状态。
   resizeObserverReadyTimer = setTimeout(() => {
     isResizeObserverReady = true
+    onReady?.()
   }, 50)
 }
 
@@ -2606,29 +2611,42 @@ const startStreamingStateRefresh = () => {
 }
 
 const startChatMainResizeObserver = () => {
-  if (!window.ResizeObserver || !chatMainRef.value || chatMainResizeObserver) {
+  if (!chatMainRef.value || chatMainResizeObserver) {
     return
   }
 
-  const syncLayoutWidths = () => {
+  const syncLayoutMetrics = () => {
     localUIState.chatMainWidth = chatMainRef.value?.clientWidth || window.innerWidth
     localUIState.chatContentWidth =
       chatContentContainerRef.value?.clientWidth || localUIState.chatMainWidth
+
+    const containerRect = chatContentContainerRef.value?.getBoundingClientRect()
+    const inputDockRect = messageInputDockRef.value?.getBoundingClientRect()
+    localUIState.statePanelDockedMaxHeight = getDockedStatePanelMaxHeight(containerRect)
+    localUIState.statePanelFloatingMaxHeight = getFloatingStatePanelMaxHeight(
+      containerRect,
+      inputDockRect
+    )
   }
 
-  syncLayoutWidths()
+  syncLayoutMetrics()
+  if (!window.ResizeObserver) return
+
   chatMainResizeObserver = new ResizeObserver((entries) => {
     // 初始化期间跳过检查，等待 layout 稳定
     if (!isResizeObserverReady) return
 
     if (!entries.length) return
-    syncLayoutWidths()
+    syncLayoutMetrics()
   })
   chatMainResizeObserver.observe(chatMainRef.value)
   if (chatContentContainerRef.value) {
     chatMainResizeObserver.observe(chatContentContainerRef.value)
   }
-  armResizeObserver()
+  if (messageInputDockRef.value) {
+    chatMainResizeObserver.observe(messageInputDockRef.value)
+  }
+  armResizeObserver(syncLayoutMetrics)
 }
 
 onMounted(() => {
@@ -3949,7 +3967,6 @@ watch(currentChatId, (threadId, oldThreadId) => {
 
 .side-panel--state {
   height: auto;
-  max-height: calc(100% - 8px);
   max-width: min(340px, calc(100vw - 24px));
   min-width: 0;
   box-shadow: 0 4px 16px var(--shadow-0);
@@ -3959,7 +3976,6 @@ watch(currentChatId, (threadId, oldThreadId) => {
 .side-panel--state.is-docked {
   align-self: flex-start;
   margin: 8px 0;
-  max-height: calc(100% - 16px);
   border-width: 0;
   box-shadow: none;
   transition:
@@ -3984,12 +4000,17 @@ watch(currentChatId, (threadId, oldThreadId) => {
   right: calc(var(--file-panel-width) + 8px);
   width: min(340px, calc(100% - var(--file-panel-width) - 24px));
   min-width: 0;
-  max-height: calc(100% - 16px);
   margin: 0;
   z-index: 26;
   box-shadow:
     0 12px 28px var(--shadow-1),
     0 2px 8px var(--shadow-0);
+}
+
+.side-panel--state.is-docked .state-panel,
+.side-panel--state.is-floating .state-panel {
+  height: auto;
+  max-height: calc(100vh - 16px);
 }
 
 .state-panel {
@@ -4670,6 +4691,12 @@ watch(currentChatId, (threadId, oldThreadId) => {
   color: var(--gray-500);
   background: transparent;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease,
+    background-color 0.16s ease;
 
   &:hover:not(:disabled) {
     color: var(--main-700);
@@ -4678,11 +4705,24 @@ watch(currentChatId, (threadId, oldThreadId) => {
 
   &:disabled {
     cursor: not-allowed;
-    opacity: 0.6;
   }
 
   .is-spinning {
     animation: spin 1s linear infinite;
+  }
+}
+
+.state-panel:hover .state-refresh-btn,
+.state-panel:focus-within .state-refresh-btn,
+.state-refresh-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .state-refresh-btn {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 
@@ -5203,6 +5243,10 @@ watch(currentChatId, (threadId, oldThreadId) => {
   .state-collapse-inner {
     transition: none;
   }
+
+  .todo-status-indicator__pulse {
+    animation: none;
+  }
 }
 
 .todo-panel-list {
@@ -5222,35 +5266,47 @@ watch(currentChatId, (threadId, oldThreadId) => {
   border-bottom: none;
 }
 
-.todo-item-icon {
-  width: 20px;
-  height: 20px;
+.todo-status-indicator {
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: var(--gray-50);
-  color: var(--gray-500);
+  box-sizing: border-box;
+  border: 1.5px solid var(--gray-400);
+  background: transparent;
 
-  &.completed {
-    background: var(--color-success-10);
-    color: var(--color-success-700);
+  &.is-completed {
+    border-color: var(--gray-400);
+    background: var(--gray-100);
   }
 
-  &.in_progress {
-    background: var(--color-info-10);
-    color: var(--color-info-700);
+  &.is-cancelled {
+    border-color: var(--gray-400);
+    border-style: dashed;
+    background: var(--gray-50);
   }
+}
 
-  &.pending {
-    background: var(--color-warning-10);
-    color: var(--color-warning-700);
+.todo-status-indicator__pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--second-500);
+  animation: todoStatusPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes todoStatusPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.78);
   }
-
-  &.cancelled {
-    background: var(--color-error-10);
-    color: var(--color-error-700);
+  50% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -5303,9 +5359,17 @@ watch(currentChatId, (threadId, oldThreadId) => {
   cursor: pointer;
 }
 
+.state-list-item--file,
+.state-list-item--artifact {
+  min-height: 32px;
+  padding: 5px 8px;
+}
+
 .state-list-item-icon {
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
-  font-size: 17px;
+  font-size: 15px;
 }
 
 .state-list-item-body {

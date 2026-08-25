@@ -233,6 +233,10 @@ async def test_dashboard_service_basic_stats(dashboard_db):
     tool_stats = await service.get_tool_call_stats()
     assert tool_stats["total_calls"] == 1
 
+    user_stats = await service.get_user_activity_stats()
+    assert len(user_stats["daily_active_users"]) == 120
+    assert user_stats["daily_active_users"][0]["date"] < user_stats["daily_active_users"][-1]["date"]
+
     feedbacks = await service.get_feedbacks()
     assert len(feedbacks) == 1
 
@@ -262,6 +266,13 @@ async def test_dashboard_service_thread_analytics(dashboard_db):
     coder_stat = next(a for a in agents if a["agent_id"] == "agent-coder")
     assert coder_stat["thread_count"] == 2
     assert coder_stat["agent_name"] == "Coder Agent"
+
+    with_subagents = await service.get_thread_analytics(time_range="7days", include_subagents=True)
+    assert with_subagents["summary"]["total_threads"] == 4
+    helper_with_subagent = next(
+        item for item in with_subagents["agent_distribution"] if item["agent_id"] == "agent-helper"
+    )
+    assert helper_with_subagent["thread_count"] == 2
 
     top_users = analytics["top_users"]
     assert len(top_users) >= 2
@@ -341,8 +352,12 @@ async def test_dashboard_service_list_conversations_search(dashboard_db):
     service = DashboardService(dashboard_db)
 
     all_convs = await service.list_conversations(limit=20)
-    assert all_convs["total"] == 7
-    assert len(all_convs["items"]) == 7
+    assert all_convs["total"] == 6
+    assert len(all_convs["items"]) == 6
+    assert all(item["status"] != "deleted" for item in all_convs["items"])
+    deleted_convs = await service.list_conversations(status="deleted", limit=20)
+    assert deleted_convs["total"] == 1
+    assert deleted_convs["items"][0]["thread_id"] == "thread-deleted"
     deleted_item = next(item for item in all_convs["items"] if item["thread_id"] == "thread-deleted-user")
     missing_agent_item = next(item for item in all_convs["items"] if item["thread_id"] == "thread-missing-agent")
     assert deleted_item["user_deleted"] is True

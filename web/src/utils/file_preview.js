@@ -158,7 +158,7 @@ export const getPreviewTypeByContentType = (contentType) => {
 export const normalizePreviewResponse = async (response, baseFile = {}) => {
   const contentType = response?.headers?.get?.('content-type') || ''
 
-  if (contentType.includes('application/json') && !baseFile.artifact) {
+  if (contentType.includes('application/json')) {
     const payload = await response.json()
     const pathPreviewType = getPreviewTypeByPath(baseFile.path)
     const previewType =

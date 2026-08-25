@@ -1,27 +1,48 @@
 <template>
   <aside class="workspace-sidebar">
     <div class="sidebar-actions">
-      <button
-        type="button"
-        class="sidebar-action-btn"
-        :disabled="disabled || uploading"
-        :title="disabled ? '当前目录不支持上传文件' : '上传文件'"
-        @click="$emit('upload-file')"
-      >
-        <Loader2 v-if="uploading" class="action-spinner" :size="16" />
-        <Upload v-else :size="16" />
-        <span>{{ uploading ? '上传中...' : '上传文件' }}</span>
-      </button>
-      <button
-        type="button"
-        class="sidebar-action-btn"
-        :disabled="disabled || uploading"
-        :title="disabled ? '当前目录不支持新建文件夹' : '新建文件夹'"
-        @click="$emit('create-directory')"
-      >
-        <FolderPlus :size="16" />
-        <span>新建文件夹</span>
-      </button>
+      <div ref="uploadActionMenuRef" class="file-action-dropdown">
+        <button
+          type="button"
+          class="sidebar-action-btn"
+          :disabled="disabled || uploading"
+          :title="disabled ? '当前目录不支持上传文件' : '上传文件'"
+          aria-haspopup="menu"
+          :aria-expanded="uploadActionMenuOpen"
+          @click="toggleUploadActionMenu"
+        >
+          <Loader2 v-if="uploading" class="action-spinner" :size="16" />
+          <Upload v-else :size="16" />
+          <span>{{ uploading ? '上传中...' : '上传文件' }}</span>
+          <ChevronDown
+            :size="14"
+            class="file-action-chevron"
+            :class="{ 'is-open': uploadActionMenuOpen }"
+          />
+        </button>
+        <Transition name="file-action-menu">
+          <div v-if="uploadActionMenuOpen" class="file-action-menu" role="menu">
+            <button
+              type="button"
+              class="file-action-menu-item"
+              role="menuitem"
+              @click="onUploadAction"
+            >
+              <Upload :size="14" />
+              <span>上传文件</span>
+            </button>
+            <button
+              type="button"
+              class="file-action-menu-item"
+              role="menuitem"
+              @click="onCreateFolderAction"
+            >
+              <FolderPlus :size="14" />
+              <span>新建文件夹</span>
+            </button>
+          </div>
+        </Transition>
+      </div>
     </div>
 
     <section class="sidebar-section">
@@ -100,9 +121,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { FolderPlus, Loader2, Upload } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { ChevronDown, FolderPlus, Loader2, Upload } from 'lucide-vue-next'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
+import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'
 
 const savedArtifactsPath = '/saved_artifacts'
 const agentsPath = '/agents/'
@@ -129,13 +151,33 @@ const props = defineProps({
   uploading: { type: Boolean, default: false }
 })
 
-defineEmits([
+const emit = defineEmits([
   'select-personal',
   'select-database',
   'select-path',
   'upload-file',
   'create-directory'
 ])
+
+const uploadActionMenuOpen = ref(false)
+const uploadActionMenuRef = ref(null)
+
+const toggleUploadActionMenu = () => {
+  if (props.disabled || props.uploading) return
+  uploadActionMenuOpen.value = !uploadActionMenuOpen.value
+}
+
+const onUploadAction = () => {
+  uploadActionMenuOpen.value = false
+  emit('upload-file')
+}
+
+const onCreateFolderAction = () => {
+  uploadActionMenuOpen.value = false
+  emit('create-directory')
+}
+
+useOutsidePointerdown(uploadActionMenuOpen, [uploadActionMenuRef])
 
 const myDatabases = computed(() =>
   props.databases.filter((db) => db.created_by === props.currentUid)
@@ -161,8 +203,12 @@ const sharedDatabases = computed(() =>
 .sidebar-actions {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   padding-bottom: 2px;
+}
+
+.file-action-dropdown {
+  position: relative;
+  width: 100%;
 }
 
 .sidebar-action-btn {
@@ -204,6 +250,76 @@ const sharedDatabases = computed(() =>
     cursor: not-allowed;
     box-shadow: none;
   }
+}
+
+.file-action-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  transition: transform 0.15s ease;
+
+  &.is-open {
+    transform: rotate(180deg);
+  }
+}
+
+.file-action-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 130px;
+  padding: 4px;
+  background: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.file-action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gray-700);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--gray-50);
+    color: var(--gray-900);
+    outline: none;
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+.file-action-menu-enter-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.file-action-menu-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.16s ease;
+}
+
+.file-action-menu-enter-from,
+.file-action-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
 }
 
 .action-spinner {

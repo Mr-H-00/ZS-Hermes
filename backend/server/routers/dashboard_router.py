@@ -172,6 +172,7 @@ class ThreadAgentStat(BaseModel):
     message_count: int
     token_count: int
     avg_messages: float
+    agent_avatar: str | None = None
 
 
 class ThreadUserStat(BaseModel):
@@ -251,6 +252,7 @@ async def get_call_timeseries_stats(
 async def get_thread_analytics_stats(
     time_range: Literal["7days", "14days", "30days", "90days"] = "30days",
     agent_id: str | None = None,
+    include_subagents: bool = Query(False, description="是否将子智能体会话纳入统计"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_superadmin_user),
 ):
@@ -258,6 +260,7 @@ async def get_thread_analytics_stats(
     data = await DashboardService(db).get_thread_analytics(
         time_range=time_range,
         agent_id=agent_id,
+        include_subagents=include_subagents,
     )
     return ThreadAnalyticsResponse(**data)
 

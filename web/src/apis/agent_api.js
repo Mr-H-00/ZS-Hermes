@@ -370,7 +370,7 @@ export const threadApi = {
 
   /** 读取允许跨 Project/User Data/Skills 的 artifact 预览字节。 */
   previewThreadArtifact: (threadId, path) =>
-    apiGet(threadApi.getThreadArtifactUrl(threadId, path, false), {}, true, 'blob'),
+    apiGet(`${threadApi.getThreadArtifactUrl(threadId, path, false)}?preview=true`, {}, true, 'blob'),
 
   /**
    * 保存交付物到 workspace/saved_artifacts
