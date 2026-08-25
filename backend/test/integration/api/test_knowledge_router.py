@@ -107,6 +107,17 @@ async def _create_test_database(test_client, admin_headers, share_config=None):
     return response.json()
 
 
+async def _wait_for_task(test_client, headers, task_id):
+    for _ in range(100):
+        response = await test_client.get(f"/api/tasks/{task_id}", headers=headers)
+        assert response.status_code == 200, response.text
+        task = response.json()["task"]
+        if task["status"] in {"success", "failed", "cancelled"}:
+            return task
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"Task {task_id} did not finish")
+
+
 async def _accessible_kb_ids(test_client, headers):
     response = await test_client.get("/api/knowledge/databases/accessible", headers=headers)
     assert response.status_code == 200, response.text
@@ -231,6 +242,141 @@ async def test_folder_rename_and_move_persist_tree_changes(test_client, admin_he
         headers=admin_headers,
     )
     assert missing_target_response.status_code == 422, missing_target_response.text
+
+
+async def test_knowledge_virtual_folder_migration_runs_without_sse_and_is_resumable(
+    test_client, admin_headers, knowledge_database
+):
+    kb_id = knowledge_database["kb_id"]
+    prefix = uuid.uuid4().hex[:6]
+    engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO knowledge_files "
+                    "(file_id, kb_id, parent_id, filename, file_type, status, is_folder) VALUES "
+                    "(:id1, :kb, NULL, :name1, 'txt', 'uploaded', FALSE), "
+                    "(:id2, :kb, NULL, :name2, 'txt', 'uploaded', FALSE), "
+                    "(:id3, :kb, NULL, :name3, 'txt', 'uploaded', FALSE)"
+                ),
+                {
+                    "id1": f"file_{prefix}_1",
+                    "id2": f"file_{prefix}_2",
+                    "id3": f"file_{prefix}_3",
+                    "kb": kb_id,
+                    "name1": f"history-{prefix}/shared/a.txt",
+                    "name2": f"history-{prefix}/shared/b.txt",
+                    "name3": f"history-{prefix}/other/c.txt",
+                },
+            )
+
+        detection = await test_client.get(
+            f"/api/knowledge/databases/{kb_id}/virtual-folders/detect", headers=admin_headers
+        )
+        assert detection.status_code == 200, detection.text
+        assert detection.json()["remaining_steps"] == 6
+
+        start = await test_client.post(
+            f"/api/knowledge/databases/{kb_id}/virtual-folders/migrate", headers=admin_headers
+        )
+        assert start.status_code == 200, start.text
+        task_id = start.json()["task_id"]
+
+        task = await _wait_for_task(test_client, admin_headers, task_id)
+        assert task["status"] == "success"
+        assert task["result"]["processed_steps"] == 6
+        assert task["result"]["remaining_files"] == 0
+
+        events = await test_client.get(
+            f"/api/knowledge/databases/{kb_id}/virtual-folders/migrations/{task_id}/events",
+            headers=admin_headers,
+        )
+        assert events.status_code == 200, events.text
+        assert '"status": "success"' in events.text
+
+        final_detection = await test_client.get(
+            f"/api/knowledge/databases/{kb_id}/virtual-folders/detect", headers=admin_headers
+        )
+        assert final_detection.json()["has_virtual_folders"] is False
+        async with engine.connect() as connection:
+            folder_creators = (
+                await connection.execute(
+                    text(
+                        "SELECT created_by FROM knowledge_files WHERE kb_id = :kb "
+                        "AND is_folder IS TRUE AND filename IN (:root, 'shared', 'other')"
+                    ),
+                    {"kb": kb_id, "root": f"history-{prefix}"},
+                )
+            ).scalars().all()
+        assert len(folder_creators) == 3
+        assert all(folder_creators)
+    finally:
+        await engine.dispose()
+
+
+async def test_virtual_folder_migration_keeps_conflicts_and_commits_other_paths(
+    test_client, admin_headers, knowledge_database
+):
+    kb_id = knowledge_database["kb_id"]
+    suffix = uuid.uuid4().hex[:6]
+    blocked = f"blocked-{suffix}"
+    movable = f"movable-{suffix}"
+    engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO knowledge_files "
+                    "(file_id, kb_id, parent_id, filename, file_type, status, is_folder) VALUES "
+                    "(:plain, :kb, NULL, :blocked, 'txt', 'uploaded', FALSE), "
+                    "(:blocked_file, :kb, NULL, :blocked_path, 'txt', 'uploaded', FALSE), "
+                    "(:movable_file, :kb, NULL, :movable_path, 'txt', 'uploaded', FALSE)"
+                ),
+                {
+                    "plain": f"file_{suffix}_plain",
+                    "blocked_file": f"file_{suffix}_blocked",
+                    "movable_file": f"file_{suffix}_movable",
+                    "kb": kb_id,
+                    "blocked": blocked,
+                    "blocked_path": f"{blocked}/a.txt",
+                    "movable_path": f"{movable}/b.txt",
+                },
+            )
+
+        start = await test_client.post(
+            f"/api/knowledge/databases/{kb_id}/virtual-folders/migrate", headers=admin_headers
+        )
+        task = await _wait_for_task(test_client, admin_headers, start.json()["task_id"])
+        assert task["status"] == "success"
+        assert task["result"]["processed_steps"] == 1
+        assert task["result"]["remaining_files"] == 1
+        assert task["result"]["conflict_files"] == 1
+
+        retry = await test_client.post(
+            f"/api/knowledge/databases/{kb_id}/virtual-folders/migrate", headers=admin_headers
+        )
+        retry_task = await _wait_for_task(test_client, admin_headers, retry.json()["task_id"])
+        assert retry_task["result"]["processed_steps"] == 0
+        assert retry_task["result"]["remaining_files"] == 1
+
+        async with engine.connect() as connection:
+            rows = (
+                await connection.execute(
+                    text(
+                        "SELECT filename, parent_id FROM knowledge_files WHERE file_id IN "
+                        "(:blocked_file, :movable_file) ORDER BY file_id"
+                    ),
+                    {
+                        "blocked_file": f"file_{suffix}_blocked",
+                        "movable_file": f"file_{suffix}_movable",
+                    },
+                )
+            ).mappings().all()
+        assert {row["filename"] for row in rows} == {f"{blocked}/a.txt", "b.txt"}
+        assert sum(row["parent_id"] is not None for row in rows) == 1
+    finally:
+        await engine.dispose()
 
 
 async def test_folder_mutations_reject_invalid_name_and_directory_cycle(

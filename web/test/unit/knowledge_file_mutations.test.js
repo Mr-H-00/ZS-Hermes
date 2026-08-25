@@ -57,7 +57,11 @@ test('知识库文件夹移动与重命名 API 使用管理端 PUT 契约', asyn
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' })
   const requests = []
   globalThis.fetch = async (url, options = {}) => {
-    requests.push({ url, method: options.method, body: JSON.parse(options.body) })
+    requests.push({
+      url,
+      method: options.method,
+      body: options.body ? JSON.parse(options.body) : undefined
+    })
     return new Response(JSON.stringify({ file_id: 'folder-1' }), {
       status: 200,
       headers: { 'content-type': 'application/json' }
@@ -68,11 +72,29 @@ test('知识库文件夹移动与重命名 API 使用管理端 PUT 契约', asyn
     setActivePinia(createPinia())
     const { useUserStore } = await server.ssrLoadModule('/src/stores/user.js')
     useUserStore().userRole = 'superadmin'
-    const { documentApi } = await server.ssrLoadModule('/src/apis/knowledge_api.js')
+    const { databaseApi, documentApi } = await server.ssrLoadModule('/src/apis/knowledge_api.js')
+    await databaseApi.detectVirtualFolders('kb-1')
+    await databaseApi.startVirtualFolderMigration('kb-1')
+    await databaseApi.streamVirtualFolderMigration('kb-1', 'task-1')
     await documentApi.renameFolder('kb-1', 'folder-1', '新名称')
     await documentApi.moveDocument('kb-1', 'file-1', 'folder-2')
 
     assert.deepEqual(requests, [
+      {
+        url: '/api/knowledge/databases/kb-1/virtual-folders/detect',
+        method: 'GET',
+        body: undefined
+      },
+      {
+        url: '/api/knowledge/databases/kb-1/virtual-folders/migrate',
+        method: 'POST',
+        body: {}
+      },
+      {
+        url: '/api/knowledge/databases/kb-1/virtual-folders/migrations/task-1/events',
+        method: 'GET',
+        body: undefined
+      },
       {
         url: '/api/knowledge/databases/kb-1/folders/folder-1/rename',
         method: 'PUT',

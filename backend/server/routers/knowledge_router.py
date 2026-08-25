@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import textwrap
 import time
@@ -35,6 +36,7 @@ from yuxi.permissions import (
     ResourcePermission,
     resolve_knowledge_base_permission,
 )
+from yuxi.services.knowledge_folder_service import knowledge_folder_service
 from yuxi.services.ocr_service import parse_document
 from yuxi.services.task_service import TaskContext, tasker
 from yuxi.services.workspace_service import read_workspace_file_bytes
@@ -61,6 +63,7 @@ DOCUMENT_ACTION_RESULT_ITEM_LIMIT = 200
 MAX_DIRECT_DOCUMENT_ACTION_FILE_IDS = 1000
 PENDING_PARSE_STATUSES = ["uploaded"]
 PENDING_INDEX_STATUSES = ["parsed", "error_indexing"]
+VIRTUAL_FOLDER_MIGRATION_TASK_TYPE = "knowledge_virtual_folder_migration"
 
 
 class UpdateDatabaseRequest(BaseModel):
@@ -1861,6 +1864,71 @@ async def create_folder(
     except Exception as e:
         logger.error(f"创建文件夹失败 {e}, {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@knowledge.get("/databases/{kb_id}/virtual-folders/detect")
+async def detect_virtual_folders(
+    kb_id: str,
+    current_user: User = Depends(require_knowledge_base_read),
+):
+    """检测知识库中的历史路径型虚拟文件夹。"""
+    await _ensure_database_supports_documents(kb_id, "虚拟文件夹检测")
+    return await knowledge_folder_service.detect_virtual_folder_data(kb_id)
+
+
+@knowledge.post("/databases/{kb_id}/virtual-folders/migrate")
+async def start_virtual_folder_migration(
+    kb_id: str,
+    current_user: User = Depends(require_knowledge_base_manage),
+):
+    """创建与 SSE 连接生命周期无关的历史目录迁移任务。"""
+    await _ensure_database_supports_documents(kb_id, "虚拟文件夹转换")
+
+    async def run_migration(context: TaskContext):
+        return await knowledge_folder_service.migrate_virtual_folder_data(
+            context,
+            kb_id=kb_id,
+            operator_id=current_user.uid,
+        )
+
+    task, created = await tasker.enqueue_unique_by_payload(
+        name="转换知识库历史虚拟文件夹",
+        task_type=VIRTUAL_FOLDER_MIGRATION_TASK_TYPE,
+        payload={"kb_id": kb_id, "operator_id": current_user.uid},
+        payload_match={"kb_id": kb_id},
+        statuses={"pending", "running"},
+        coroutine=run_migration,
+    )
+    return {"task_id": task.id, "created": created}
+
+
+@knowledge.get("/databases/{kb_id}/virtual-folders/migrations/{task_id}/events")
+async def stream_virtual_folder_migration(
+    kb_id: str,
+    task_id: str,
+    current_user: User = Depends(require_knowledge_base_manage),
+):
+    """流式返回迁移任务快照，断开连接不取消任务。"""
+    task = await tasker.get_task(task_id)
+    if (
+        not task
+        or task.get("type") != VIRTUAL_FOLDER_MIGRATION_TASK_TYPE
+        or task.get("payload", {}).get("kb_id") != kb_id
+    ):
+        raise HTTPException(status_code=404, detail="Migration task not found")
+
+    async def event_stream():
+        while True:
+            snapshot = await tasker.get_task(task_id)
+            if snapshot is None:
+                break
+            public_snapshot = {key: value for key, value in snapshot.items() if key != "payload"}
+            yield f"data: {json.dumps(public_snapshot, ensure_ascii=False)}\n\n"
+            if snapshot.get("status") in {"success", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @knowledge.put("/databases/{kb_id}/folders/{folder_id}/rename")

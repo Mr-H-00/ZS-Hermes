@@ -45,6 +45,22 @@ export const databaseApi = {
     return apiAdminPost(`/api/knowledge/databases/${kbId}/stats/repair`, {})
   },
 
+  detectVirtualFolders: async (kbId) => {
+    return apiAdminGet(`/api/knowledge/databases/${kbId}/virtual-folders/detect`)
+  },
+
+  startVirtualFolderMigration: async (kbId) => {
+    return apiAdminPost(`/api/knowledge/databases/${kbId}/virtual-folders/migrate`, {})
+  },
+
+  streamVirtualFolderMigration: async (kbId, taskId, signal) => {
+    return apiAdminGet(
+      `/api/knowledge/databases/${kbId}/virtual-folders/migrations/${taskId}/events`,
+      { signal },
+      'response'
+    )
+  },
+
   /**
    * 更新知识库信息
    * @param {string} kbId - 知识库ID
