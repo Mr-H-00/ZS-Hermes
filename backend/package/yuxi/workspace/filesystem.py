@@ -241,12 +241,13 @@ class Workspace:
         source_path: str,
         *,
         overwrite: bool = True,
+        create_parents: bool = True,
     ) -> dict:
         """从受信任服务临时文件原子写入 UserWorkspace。"""
         base, parts = self._resolve_path(path)
         if not parts:
             raise IsADirectoryError(path)
-        parent_fd = self._open_directory(base, parts[:-1], create=True)
+        parent_fd = self._open_directory(base, parts[:-1], create=create_parents)
         source_fd = target_fd = None
         temp_name = f".yuxi-write-{uuid.uuid4().hex}"
         try:

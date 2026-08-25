@@ -230,6 +230,7 @@ class TmpAttachmentConfirmResponse(BaseModel):
 
 class SaveThreadArtifactRequest(BaseModel):
     path: str
+    destination_path: str | None = None
 
 
 class SaveThreadArtifactResponse(BaseModel):
@@ -441,12 +442,13 @@ async def save_thread_artifact_to_workspace(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_required_user),
 ):
-    """保存交付物到共享 workspace/saved_artifacts 目录。"""
+    """保存交付物到用户工作区中指定的目录。"""
     return await save_thread_artifact_to_workspace_view(
         thread_id=thread_id,
         current_uid=str(current_user.uid),
         db=db,
         path=request.path,
+        destination_path=request.destination_path,
     )
 
 

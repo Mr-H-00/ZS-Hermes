@@ -25,6 +25,16 @@ test('项目创建目录选择器包含尚未绑定的项目目录', () => {
   assert.match(picker, /include-unbound-project-dirs/)
 })
 
+test('交付物保存使用工作区路径选择器并传递目标目录', () => {
+  const component = readSource('../../src/components/AgentArtifactsCard.vue')
+  const api = readSource('../../src/apis/agent_api.js')
+
+  assert.match(component, /<WorkspacePathPicker/)
+  assert.match(component, /selectedDestination = ref\('\/saved_artifacts'\)/)
+  assert.match(component, /v-model="selectedDestination"/)
+  assert.match(api, /destination_path: destinationPath/)
+})
+
 test('知识库文件大小使用静态摘要而不是无行为按钮', () => {
   const source = readSource('../../src/views/DataBaseInfoView.vue')
   const sizeSummaryStart = source.indexOf('v-if="fileStats.sizeText"')

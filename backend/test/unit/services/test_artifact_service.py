@@ -21,6 +21,7 @@ class _Workspace:
             "/projects/11111111-1111-4111-8111-111111111111/report.md": b"one\ntwo\n",
             "/notes.txt": b"private",
         }
+        self.directories = {"/", "/exports", "/exports/reports"}
         self.skill_root = skill_root
         skill_root.mkdir()
         (skill_root / "SKILL.md").write_bytes(b"skill")
@@ -33,7 +34,22 @@ class _Workspace:
         Path(target).write_bytes(content)
         return len(content)
 
-    def upload_authorized_file_from_path(self, path, source, *, overwrite=True):
+    def stat_authorized_path(self, path, *, root):
+        assert root == "/"
+        if path in self.directories:
+            return {"is_dir": True}
+        if path in self.files:
+            return {"is_dir": False}
+        if any(path.startswith(f"{file_path}/") for file_path in self.files):
+            raise NotADirectoryError(path)
+        raise FileNotFoundError(path)
+
+    def upload_authorized_file_from_path(self, path, source, *, overwrite=True, create_parents=True):
+        parent = str(Path(path).parent)
+        if parent not in self.directories:
+            if not create_parents:
+                raise FileNotFoundError(parent)
+            self.directories.add(parent)
         content = Path(source).read_bytes()
         with self._write_lock:
             if not overwrite and path in self.files:
@@ -246,6 +262,97 @@ async def test_save_artifact_copies_live_bytes_to_user_data(live_files):
     )
     assert result["saved_path"] == "/home/gem/user-data/saved_artifacts/report.md"
     assert live_files.expected_bytes(result["saved_path"]) == b"one\ntwo\n"
+
+
+@pytest.mark.asyncio
+async def test_save_artifact_uses_selected_workspace_destination(live_files):
+    result = await svc.save_thread_artifact_to_workspace_view(
+        thread_id="thread-1",
+        current_uid="user-1",
+        db=object(),
+        path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.md",
+        destination_path="/exports/reports",
+    )
+    assert result["saved_path"] == "/home/gem/user-data/exports/reports/report.md"
+    assert live_files.expected_bytes(result["saved_path"]) == b"one\ntwo\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "destination",
+    ["../exports", "/exports/../reports", "/home/gem/user-data/exports", "/home/gem/skills/reporter"],
+)
+async def test_save_artifact_rejects_unsafe_destination(live_files, destination):
+    with pytest.raises(HTTPException) as exc:
+        await svc.save_thread_artifact_to_workspace_view(
+            thread_id="thread-1",
+            current_uid="user-1",
+            db=object(),
+            path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.md",
+            destination_path=destination,
+        )
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_save_artifact_accepts_explicit_default_destination(live_files):
+    result = await svc.save_thread_artifact_to_workspace_view(
+        thread_id="thread-1",
+        current_uid="user-1",
+        db=object(),
+        path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.md",
+        destination_path="/saved_artifacts",
+    )
+    assert result["saved_path"] == "/home/gem/user-data/saved_artifacts/report.md"
+    assert live_files.expected_bytes(result["saved_path"]) == b"one\ntwo\n"
+
+
+@pytest.mark.asyncio
+async def test_save_artifact_rejects_missing_destination(live_files):
+    with pytest.raises(HTTPException) as exc:
+        await svc.save_thread_artifact_to_workspace_view(
+            thread_id="thread-1",
+            current_uid="user-1",
+            db=object(),
+            path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.md",
+            destination_path="/missing",
+        )
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_save_artifact_does_not_recreate_selected_directory_after_validation(live_files, monkeypatch):
+    original_stat = live_files.stat_authorized_path
+
+    def remove_after_stat(path, *, root):
+        result = original_stat(path, root=root)
+        live_files.directories.remove(path)
+        return result
+
+    monkeypatch.setattr(live_files, "stat_authorized_path", remove_after_stat)
+    with pytest.raises(HTTPException) as exc:
+        await svc.save_thread_artifact_to_workspace_view(
+            thread_id="thread-1",
+            current_uid="user-1",
+            db=object(),
+            path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.md",
+            destination_path="/exports/reports",
+        )
+    assert exc.value.status_code == 404
+    assert "/exports/reports" not in live_files.directories
+
+
+@pytest.mark.asyncio
+async def test_save_artifact_rejects_file_in_destination_path(live_files):
+    with pytest.raises(HTTPException) as exc:
+        await svc.save_thread_artifact_to_workspace_view(
+            thread_id="thread-1",
+            current_uid="user-1",
+            db=object(),
+            path="/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/report.md",
+            destination_path="/notes.txt/child",
+        )
+    assert exc.value.status_code == 400
 
 
 @pytest.mark.asyncio

@@ -347,7 +347,7 @@ async def test_save_thread_artifact_to_workspace_copies_output_file(test_client,
 
     response = await test_client.post(
         f"/api/chat/thread/{thread_id}/artifacts/save",
-        json={"path": source_path},
+        json={"path": source_path, "destination_path": "/saved_artifacts"},
         headers=headers,
     )
     assert response.status_code == 200, response.text
@@ -360,6 +360,40 @@ async def test_save_thread_artifact_to_workspace_copies_output_file(test_client,
     download_response = await test_client.get(payload["saved_artifact_url"], headers=headers)
     assert download_response.status_code == 200, download_response.text
     assert download_response.text == "# artifact\n"
+
+
+async def test_save_thread_artifact_to_selected_workspace_directory(test_client, standard_user):
+    headers = standard_user["headers"]
+    thread_id = await _create_thread_for_user(test_client, headers)
+    filename = f"artifact-{uuid.uuid4().hex[:8]}.md"
+    source_path = await _upload_project_file(
+        test_client,
+        headers,
+        thread_id,
+        filename,
+        b"# selected destination\n",
+        artifact_path=True,
+    )
+    destination_name = f"exports-{uuid.uuid4().hex[:8]}"
+    directory = await test_client.post(
+        "/api/workspace/directory",
+        json={"parent_path": "/", "name": destination_name},
+        headers=headers,
+    )
+    assert directory.status_code == 200, directory.text
+
+    response = await test_client.post(
+        f"/api/chat/thread/{thread_id}/artifacts/save",
+        json={"path": source_path, "destination_path": f"/{destination_name}"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["saved_path"] == f"/home/gem/user-data/{destination_name}/{filename}"
+
+    download_response = await test_client.get(payload["saved_artifact_url"], headers=headers)
+    assert download_response.status_code == 200, download_response.text
+    assert download_response.text == "# selected destination\n"
 
 
 async def test_save_thread_artifact_to_workspace_auto_renames_conflicts(test_client, standard_user):
