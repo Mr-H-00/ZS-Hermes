@@ -85,7 +85,10 @@
           <component :is="getKbTypeIcon(database.kb_type || 'milvus')" :size="20" />
         </template>
         <template #card-more-action-corner>
-          <a-menu @click="({ key }) => handleDatabaseAction(key, database)">
+          <a-menu
+            class="database-action-menu"
+            @click="({ key }) => handleDatabaseAction(key, database)"
+          >
             <a-menu-item key="copy">
               <span class="lucide-menu-item">
                 <Copy :size="15" />
@@ -339,5 +342,15 @@ defineExpose({
   align-items: center;
   height: 300px;
   gap: 16px;
+}
+
+</style>
+
+<style lang="less">
+/* 下拉层 teleport 到 body，需使用菜单命名空间修正 Ant 默认的 inline 行盒高度。 */
+.database-action-menu .ant-dropdown-menu-title-content {
+  display: flex;
+  align-items: center;
+  width: 100%;
 }
 </style>

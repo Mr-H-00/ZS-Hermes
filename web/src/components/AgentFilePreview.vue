@@ -172,8 +172,7 @@
         contentClass,
         {
           'is-editing': canEdit && editMode === 'edit',
-          'is-iframe-preview':
-            file?.previewType === 'pdf' || (isHtmlFile && htmlPreviewMode === 'render')
+          'is-iframe-preview': isHtmlFile && htmlPreviewMode === 'render'
         }
       ]"
     >
@@ -208,7 +207,7 @@
         </div>
       </template>
       <template v-else-if="file?.previewType === 'pdf' && file?.previewUrl">
-        <iframe :src="file.previewUrl" class="pdf-preview" :title="filePath" />
+        <PdfPreview :url="file.previewUrl" class="pdf-preview" />
       </template>
       <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
         <iframe
@@ -323,10 +322,9 @@
               </div>
             </template>
             <template v-else-if="file?.previewType === 'pdf' && file?.previewUrl">
-              <iframe
-                :src="file.previewUrl"
+              <PdfPreview
+                :url="file.previewUrl"
                 class="pdf-preview fullscreen-embed-preview"
-                :title="filePath"
               />
             </template>
             <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
@@ -379,6 +377,7 @@ import {
 } from 'lucide-vue-next'
 import hljs from 'highlight.js/lib/common'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
+import PdfPreview from '@/components/common/PdfPreview.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { useThemeStore } from '@/stores/theme'
 import { escapeHtml } from '@/utils/html'
@@ -1009,9 +1008,9 @@ onUnmounted(() => {
 }
 
 .pdf-preview {
+  display: block;
   width: 100%;
-  height: 100%;
-  min-height: 0;
+  min-height: 100%;
   border: none;
   border-radius: 6px;
   background: var(--gray-25);

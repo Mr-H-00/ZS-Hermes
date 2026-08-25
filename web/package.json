@@ -38,6 +38,7 @@
     "markdown-it-task-lists": "^2.1.1",
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
+    "pdfjs-dist": "^6.2.108",
     "pinia": "^4.0.3",
     "pinia-plugin-persistedstate": "^4.7.1",
     "shiki": "^4.4.3",
