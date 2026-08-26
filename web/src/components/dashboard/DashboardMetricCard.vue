@@ -39,7 +39,8 @@ defineProps({
   tone: {
     type: String,
     default: 'neutral',
-    validator: (value) => ['primary', 'success', 'info', 'warning', 'accent', 'neutral'].includes(value)
+    validator: (value) =>
+      ['primary', 'success', 'info', 'warning', 'accent', 'neutral'].includes(value)
   },
   compact: {
     type: Boolean,

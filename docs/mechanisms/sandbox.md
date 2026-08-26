@@ -1,101 +1,96 @@
 # 沙盒与文件系统机制
 
-本文说明 Agent 文件与命令操作如何进入 execution Sandbox，以及 UserWorkspace、当前 Workdir、Skills、Viewer 和 provisioner 之间的边界。部署参数与排障见[沙盒配置与运维](../agents/sandbox-architecture.md)。
+本页解释 Agent 的文件和命令如何进入动态沙盒，以及 UserWorkspace、Project Workdir、Skills、Viewer 和 provisioner 的关系。部署参数见[沙盒配置与运维](../agents/sandbox-architecture.md)。
 
-## 体系分层
+## 一句话理解
 
-Yuxi 沙盒由三个协作层组成：
+Yuxi 让多个访问入口看到同一份持久文件，但给它们不同的访问能力：
 
-1. Agent backend 控制模型可读写的虚拟路径，并为每次操作获取沙盒客户端。
-2. `sandbox-provisioner` 以 execution runtime identity 创建、发现、代理和回收实际实例。
-3. provisioner backend 由本机 Docker、Kubernetes Pod/Service 或仅供测试的 memory 记录承载。
+- Agent 通过带认证的 provisioner 代理访问动态 Sandbox；
+- Viewer、附件和 artifact API 直接访问 UserWorkspace 的持久文件；
+- 知识库通过知识库工具访问，不挂载为沙盒目录。
 
-模型和产品接口只使用虚拟路径。宿主机路径、容器虚拟路径和对象 URL 不可混用；路径解析必须在所属文件系统边界内拒绝 `..`、symlink 和跨 uid 访问。
+模型和产品接口只使用虚拟路径。宿主机路径、容器路径和对象存储 URL 不能混用；每个文件入口都在所属文件系统边界内校验路径、用户和权限。
 
 ## 运行链路
 
 ```mermaid
 flowchart LR
-    Model["模型 / 文件工具 / shell"] --> Backend["ProvisionerSandboxBackend"]
-    Backend --> Provider["ProvisionerSandboxProvider\nruntime identity / cache / keepalive"]
+    Model["模型 / 文件工具 / shell"] --> Backend["Agent Sandbox backend"]
+    Backend --> Provider["Sandbox provider\nidentity / cache / keepalive"]
     Provider --> Provisioner["sandbox-provisioner\ncreate / discover / proxy / delete"]
     Provisioner --> Runtime["Docker container 或 Kubernetes Pod"]
-    Runtime --> Workspace["UserWorkspace -> /home/gem/user-data rw"]
-    Runtime --> Skills["共享 Skill projection -> /home/gem/skills ro"]
-    Viewer["Viewer / artifact / attachment API"] --> HostFS["Workspace + Workdir\npersistent no-follow"]
-    HostFS --> Workspace
+    Runtime --> UserData["UserWorkspace\n/home/gem/user-data rw"]
+    Runtime --> Skills["Skill projection\n/home/gem/skills ro"]
+    Viewer["Viewer / artifact / attachment API"] --> Workspace["Workspace + Workdir\n持久 no-follow 访问"]
+    Workspace --> UserData
 ```
 
-Graph 构建时，文件系统中间件用 `runtime_scope_id`、`uid` 和 `workdir_path` 创建 `ProvisionerSandboxBackend`。真实实例惰性创建；API/worker 只访问带 Bearer 认证的 provisioner 代理，不直接访问容器或 NodePort 地址。
+Graph 创建时，Agent backend 取得 `uid`、根运行 scope 和 `workdir_path`。实际沙盒惰性创建；API/worker 只持有 provisioner 代理地址，不直接访问动态容器或 NodePort。
 
-Viewer、artifact 和附件服务不创建 file-bridge Sandbox。它们在鉴权后通过 `Workspace` 与持久化 `Workdir` 直接访问同一 UserWorkspace 字节，并把 Thread 操作限制在 Conversation 绑定的 Workdir 内。Viewer scope `/foo` 不经过 `/home/gem`；只有面向 Agent/artifact 协议的 Service 才调用 Backend 路径映射。
+## Identity、Workdir 和生命周期
 
-## identity、Workdir 与生命周期
+`runtime_scope_id` 是一次顶层执行树的沙盒分组键，当前使用根 Conversation 的 thread ID。根 Agent 和子 Agent 共享这个 scope，因此可以共享同一个运行时、`/tmp`、环境和文件挂载；子 Agent 的 child thread 只隔离 LangGraph checkpoint。
 
-`runtime_scope_id` 是 execution tree 的 Sandbox 分组键，当前等于根 Conversation 的 thread ID。根 Run 与子 Run 共享该值，因此共享进程、`/tmp`、依赖和环境；child `thread_id` 只属于子 Agent 的 LangGraph checkpoint。根执行树终态后，worker 通过既有 cleanup fence 删除 runtime，但不删除 UserWorkspace 文件。
-
-Conversation 的 `workdir_path` 是 UserWorkspace 相对路径，例如 `projects/<uuid>`。它只选择 cwd 和 Thread 文件视图，不定义 runtime identity，也不是同一用户不同 Project 之间的文件授权边界。两个顶层 Conversation 即使绑定同一 Workdir，仍拥有不同 runtime。
+Conversation 通过 `project_id` 绑定 Project；Project 拥有这项绑定和 `workdir_path`，UserWorkspace 拥有该路径下的实际文件字节。`workdir_path` 是当前用户 UserWorkspace 下的合法相对 POSIX 路径，例如 `projects/<uuid>`，不能包含 `..`、反斜杠或符号链接。`linked` Project 只能引用已经存在的目录，目标不存在时请求失败；`managed` Project 使用服务分配并物化的 `projects/<uuid>` 目录，目录创建失败时请求失败。Workdir 决定当前工作目录和 Viewer 文件范围，但不决定 sandbox identity，也不把同一用户的其他 Project 变成安全隔离边界。两个顶层 Conversation 即使绑定同一 Workdir，也会创建不同 runtime。
 
 | 运行类型 | checkpoint | runtime scope | Workdir |
-|---|---|---|---|
-| 普通 Agent | 当前 thread | 根 thread | 当前 Conversation 的 `workdir_path` |
-| 子智能体 | child thread | 继承根 Run | 继承根 Conversation |
-| 远程 Skill 拉取 | 临时 thread | 临时 thread | 无；`inherit_env=False` 且不挂持久卷 |
+| --- | --- | --- | --- |
+| 普通 Agent | 当前 thread | 根 thread | 当前 Project 的 Workdir |
+| 子 Agent | child thread | 根 thread | 继承根 Conversation |
+| 远程 Skill 安装 | 临时 thread | 临时 thread | 无持久用户目录，`inherit_env=False` |
 
-provider 的稳定 `sandbox_id` 只由 `uid + runtime_scope_id` 派生；同一 runtime 不能在存活期间重绑到另一个 `workdir_path`。独立的 `sandbox_instance_id` 和 `workdir-files-*` file bridge 已移除。
+`uid + runtime_scope_id` 派生稳定 `sandbox_id`。同一 runtime 存活期间不能改绑到另一个 Workdir。根执行树终态后，worker 清理 runtime，但保留 UserWorkspace 文件。
 
-## 虚拟命名空间与文件 Owner
+## 挂载和文件 Owner
 
-Sandbox 的持久挂载只有两个：
+| 虚拟路径 | 内容 | Agent 权限 |
+| --- | --- | --- |
+| `/home/gem/user-data` | 当前用户的整个 UserWorkspace | 读写 |
+| `/home/gem/skills` | 当前用户已授权的共享/内置 Skill 投影 | 只读 |
+| `/home/gem/user-data/<workdir_path>` | 当前 Project 的工作目录 | 默认 cwd |
 
-| 虚拟路径 | 宿主机或共享卷 Owner | 权限 | 用途 |
-|---|---|---|---|
-| `/home/gem/user-data` | `user-data/shared/<safe_uid>/workspace` | 读写 | 当前用户的整个 UserWorkspace |
-| `/home/gem/skills` | `skill-projections/<safe_uid>` | 只读 | 当前用户获授权的共享与内置 Skill |
+`uploads/` 和 `outputs/` 在首次使用时创建。个人 Skill 位于 `/home/gem/user-data/agents/skills/<slug>`，不会复制到共享 projection。
 
-API、worker 与 Sandbox 内实际执行文件操作的服务统一使用数值身份 `1000:1000`。Sandbox 镜像仍以 root 完成受信任 bootstrap，再由 supervisor 把文件 API、shell、Jupyter 等数据面服务降权到 `gem:1000`；用户环境不能覆盖 `USER_UID/USER_GID`。storage migrator 是唯一保留 root 的持久文件写入入口，只在停机证明成立后一次性迁移旧所有权和权限，普通运行时不再用 world-writable mode 补偿跨 UID。
+同一用户的 Sandbox 能看到整个 UserWorkspace，所以 Project A 可以读取 Project B。系统提示词要求 Agent 未经用户明确要求不要在当前 Workdir 外写入，但这只是行为约束，不是安全隔离；真正的边界由用户挂载、Workdir ownership 查询和工具路径校验提供。
 
-默认 Workdir 是 `/home/gem/user-data/projects/<uuid>`；`uploads/` 和 `outputs/` 是 Workdir 内按首次使用创建的目录约定，provisioner 不预建它们。个人 Skill 位于 `/home/gem/user-data/agents/skills/<slug>`，不复制到共享 projection。
+文件访问使用相对路径和 no-follow 原语，拒绝 `..`、符号链接、特殊文件和跨用户根目录。普通运行服务以 `1000:1000` 访问数据；storage migrator 只在停机迁移中承担一次性 root 文件操作。
 
-整个 UserWorkspace 对同一 uid 的 Sandbox 可见，因而 Project A 可以读取 Project B。Prompt 要求 Agent 未经用户明确要求不得写入当前 Workdir 之外，但这只是默认行为约束，不是安全隔离。真正的授权边界是 uid 挂载、后端 ownership 查询和具体工具的文件根限制。
+## Docker 和 Kubernetes
 
-普通安全 UID 原样用作目录名；含不安全字符的身份只在文件系统边界转换为 `uid-<sha256>`。显式 `workdir_path` 必须是已存在的相对 POSIX 目录，不能指向保留的 `agents/`，所有组件按 root-to-leaf `O_NOFOLLOW` 打开。
+Docker backend 为每个 runtime 创建独立 bridge 网络，不发布沙盒端口，也不加入应用 `app-network`。网络只连接 provisioner 和对应沙盒，因此沙盒不能互访，也不能直接访问 PostgreSQL、Redis、MinIO、Milvus 或 Neo4j。provisioner 复用实例前会检查 uid、Workdir、挂载和网络身份。
 
-知识库没有沙盒目录映射。Agent 通过 `query_kb`、`open_kb_document` 等工具访问；需要交付的文件写入当前 Workdir 后再展示。
+Kubernetes backend 创建 Pod 和 NodePort Service。Pod 从 User Data PVC 的 `shared/<uid>/workspace` 挂载 `/home/gem/user-data`，从 Skill PVC 的 `skill-projections/<uid>` 只读挂载 `/home/gem/skills`。Pod 默认不自动挂载 ServiceAccount token；具体安全性仍取决于 namespace、PVC、NetworkPolicy 和 ServiceAccount 配置。
 
-## Docker 与 Kubernetes 承载
+`memory` backend 只记录 ID 到 URL 的映射，不创建隔离环境或准备持久目录，不能作为生产隔离承诺。
 
-Docker backend 为每个 Sandbox 创建独立 bridge 网络，不发布容器端口，也不加入应用网络。`/home/gem` 使用临时 tmpfs；provisioner 只 bind mount 当前 uid 的 UserWorkspace 和只读 Skill projection。已发现实例必须精确匹配 uid、runtime thread、Workdir、网络和这两个持久挂载；存在旧 `/home/gem/projects`、嵌套 user-data 子挂载或可写 Skills 挂载时会拒绝复用。
+## 环境变量和信任边界
 
-Kubernetes backend 创建 Pod 与 NodePort Service。Pod 从 `USER_DATA_PVC` 的 `shared/<uid>/workspace` subPath 挂载 `/home/gem/user-data`，从 `SKILLS_PVC` 的 `skill-projections/<uid>` subPath 只读挂载 `/home/gem/skills`。远程 PVC 不经过 Compose storage migrator，因此 root init container 只对当前 uid 子树执行带 marker、dirfd 与 `O_NOFOLLOW` 的一次性 `1000:1000` 迁移，并创建必要的 subPath 根、验证权威 Workdir 已存在；它不创建 Workdir，也不预建 `uploads/outputs`。Docker backend 只验证 storage migrator/API 已创建的目录，不修改权限。User Data PVC 在跨节点部署时必须支持实际所需的共享读写语义。
+API/worker 使用 `SANDBOX_PROVISIONER_TOKEN` 调用 provisioner。动态沙盒会收到全局 `sandbox.env` 与当前用户 Agent 环境的合并值，用户值覆盖同名全局值；这些值都可能被沙盒内代码读取和外传。provisioner token、数据库凭据、对象存储管理凭据和云平台管理员密钥不能进入这两类环境。
 
-Pod 设置 `automount_service_account_token=False`。Memory backend 只登记 URL，不创建隔离环境或准备目录，不能作为生产隔离承诺。
+远程 Skill 安装使用不继承环境变量的一次性 Sandbox，也不挂载持久用户根。Skill 文件是只读的，但其中脚本仍可能被执行；脚本如需写文件，应写入当前 Project Workdir 或 User Data。
 
-## 环境变量与信任边界
+## 失败、恢复和观察边界
 
-API/worker 使用 `SANDBOX_PROVISIONER_TOKEN` 调用 provisioner。该 token 至少 32 个字符，不能进入 `sandbox.env`、用户 Agent 环境或模型上下文。动态 Sandbox 默认获得全局 sandbox 环境和当前 uid 的 Agent 环境；远程 Skill 拉取传入 `inherit_env=False`，不注入这些环境，也不创建持久 uid 根。
-
-provisioner 只需要 User Data 与 Skill projection 的显式宿主路径；旧 `DOCKER_PROJECTS_HOST_PATH` 与 `PROJECT_DATA_PVC` 已移除。`storage-migrator` 额外挂载 v0.7.1 的 `saves` 根，只用于停机迁移，不属于 shipping runtime。
-
-## 失败、恢复与观察边界
-
-| 现象 | 可以证明 | 不能证明 |
-|---|---|---|
-| provisioner `/health` 正常 | 进程与 backend 已初始化 | 某个 runtime 已创建或文件正确 |
+| 现象 | 能证明什么 | 不能证明什么 |
+| --- | --- | --- |
+| provisioner `/health` 正常 | 进程和 backend 已初始化 | 某个 runtime 已创建、挂载或权限正确 |
 | create/discover 返回代理 URL | 找到 identity 匹配的实例 | Workdir 内容和 Viewer 权限正确 |
-| Viewer 能列出文件 | ownership 与宿主 no-follow 访问成功 | execution Sandbox 当前可用 |
-| runtime 被 idle/终态回收 | 进程生命周期已结束 | UserWorkspace 文件被删除 |
-| 迁移器成功 | schema、目标目录与路径改写通过回读 | 任意未来 Agent 行为正确 |
+| Viewer 读到文件 | API 完成 ownership 和 no-follow 访问 | Agent runtime 当前可用 |
+| runtime 被回收 | 动态进程生命周期结束 | 持久文件被删除或内容正确 |
+| 迁移器成功 | 迁移目标和路径约束通过回读 | 未来 Agent 行为都正确 |
 
-v0.7.1 的 `base.toml`、共享 Skill 与 thread `uploads/outputs` 只由 `storage-migrator` 在停机证明后导入。迁移先保留旧源完成目标复制，再切换 `workdir_path` 并回读数据库与最终目录，提交后才清理旧源；中断重试继续校验同一确定性目标。检测到未发布的 Workdir 中间 schema 时迁移明确失败。
+Viewer 和 Agent 看到不同内容时，先核对同一 `uid`、Conversation 绑定的 `project_id`、Project 的 `workdir_path`、runtime scope、宿主 bind/PVC subPath 和 generation。不要用对象 URL 推断文件系统权限，也不要用相邻 Run 的路径猜测当前结果。
 
 ## 源码定位与验证
 
-- runtime identity 与生命周期：`backend/package/yuxi/agents/backends/sandbox/provider.py`
-- Workdir/UserWorkspace 路径：`backend/package/yuxi/agents/backends/sandbox/paths.py`
-- 受信任宿主文件访问：`backend/package/yuxi/services/workspace_filesystem.py`
-- Thread 到 Workdir 授权：`backend/package/yuxi/services/workdir_service.py`
-- Docker/Kubernetes provisioner：`docker/sandbox_provisioner/app.py`
-- 一次性旧布局迁移：`backend/package/yuxi/storage_migration.py`
+- [Sandbox provider](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/agents/backends/sandbox/provider.py)：runtime identity、缓存和 keepalive
+- [Workspace 路径](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/workspace/paths.py)：uid 与 Workdir 映射
+- [Workspace 文件系统](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/workspace/filesystem.py)：宿主 no-follow 文件原语
+- [provisioner](https://github.com/xerrors/Yuxi/blob/main/docker/sandbox_provisioner/app.py)：Docker/Kubernetes 创建、代理和回收
+- [storage migration](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/storage_migration.py)：历史布局迁移
+- [Sandbox backend unit tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/backends)
+- [Workspace/Workdir unit tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/workspace)
+- [Project Workdir provisioner integration](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/services/test_project_workdir_provisioner.py)
 
-最小证据位于 sandbox、Workdir、Viewer、迁移相关 unit/integration，以及 Compose 工程契约。路径、挂载、identity 或清理语义变化时，还要验证真实 Docker/PVC 挂载和最终 POSIX 字节。
+修改 identity、挂载、路径或清理语义时，除了相关 unit，还要验证真实 Docker/PVC 挂载和最终 POSIX 文件字节。

@@ -115,5 +115,4 @@ const getSatisfactionTone = () => {
     color: var(--color-error-700);
   }
 }
-
 </style>

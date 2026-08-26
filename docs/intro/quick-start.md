@@ -1,189 +1,158 @@
-# 快速开始指南
+# 快速开始
 
-欢迎使用 Yuxi（语析），这是一个智能知识库和知识图谱 Agent 开发平台。
-本指南将帮助你在几分钟内启动并运行系统，使你能够利用 LangGraph、RAG 技术和知识图谱构建 AI 驱动的知识应用。
+这份教程带你在本机启动一套 Yuxi，并完成第一次登录。走完流程后，你会有一个可以打开的 Web 界面和 API 文档；模型配置、知识库和生产部署分别在后续页面说明。
 
-![系统架构图](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/arch.png)
+## 你需要准备什么
 
+- 已安装 [Docker Engine](https://docs.docker.com/get-docker/) 和 Docker Compose v2。
+- 一个可用的大模型 API。下面的初始化脚本以 SiliconFlow 为例；也可以先复制 `.env.template`，改用其他受支持的供应商。
+- 能够访问 Docker 镜像仓库和模型服务的网络。完整模式会启动知识库和图谱依赖，但 OCR 服务只在需要时通过 `all` profile 启动。
 
-::: tip 提示
-除了此文档网站外，你还可以访问 [Zread](https://zread.ai/xerrors/Yuxi) 或 [DeepWiki](https://deepwiki.com/xerrors/Yuxi) 查看自动生成的详细项目文档。
-:::
+默认开发拓扑不要求 GPU。MinerU 和 PP-Structure-V3 等本地 OCR 服务需要 GPU，配置方法见[文档处理与 OCR](../advanced/document-processing.md)。
 
-## 环境要求
+## 1. 获取代码
 
-项目采用微服务架构设计，默认服务无需 GPU 支持。如果需要使用 OCR 功能，可以通过环境变量配置外部服务。
-
-## 快速安装
-
-### 步骤一：获取项目代码
+仓库当前默认配置对应 `v0.7.2.beta1`。这个版本仍处于 Beta 阶段；用于重要数据前，请先阅读[生产部署与升级](../advanced/deployment.md)中的备份和迁移说明。
 
 ```bash
-# 克隆最新版本
 git clone --branch v0.7.2.beta1 --depth 1 https://github.com/xerrors/Yuxi.git
 cd Yuxi
 ```
 
-`--depth 1` 标志会创建一个浅克隆，仅包含最新的提交，从而显著减少下载时间和磁盘使用量。下表提供了版本选择的指导。
+如果你要参与开发，可以改为克隆 `main`；开发分支的行为可能先于发布版本变化。
 
-| 版本 | 适用场景 |
-|------|----------|
-| v0.7.1 | 当前稳定版本，推荐生产使用 |
-| main | 开发版本，包含最新特性（可能不稳定） |
+## 2. 初始化环境
 
-### 步骤二：配置环境变量
-
-**方式一：使用初始化脚本（推荐）**
-
-我们提供了自动化脚本，帮你完成环境配置和 Docker 镜像拉取：
+Linux/macOS：
 
 ```bash
-# Linux/macOS
 ./scripts/init.sh
+```
 
-# Windows PowerShell
+Windows PowerShell：
+
+```powershell
 .\scripts\init.ps1
 ```
 
-脚本会引导你完成以下配置：
-- 创建 `.env` 配置文件
-- 设置 `SILICONFLOW_API_KEY`（必需，用于调用大模型）
-- 独立生成并持久保存 `JWT_SECRET_KEY`、`API_KEY_DERIVATION_SECRET` 和 `SANDBOX_PROVISIONER_TOKEN`
-- 拒绝短于 32 字符或彼此复用的安全密钥，并将 Linux/macOS `.env` 权限收紧为 `600`
-- 设置 `TAVILY_API_KEY`（可选，用于搜索服务）
-- 自动拉取必需的 Docker 镜像
+脚本会交互式读取或生成以下内容，并写入项目根目录的 `.env`：
 
-::: tip API Key 获取
-- **硅基流动**：访问 [cloud.siliconflow.cn](https://cloud.siliconflow.cn/i/Eo5yTHGJ)，注册认证即送 16 元额度
-- **Tavily**：访问 [app.tavily.com](https://app.tavily.com/) 获取搜索 API Key（可选）
-:::
+- 必填的 `SILICONFLOW_API_KEY`。
+- 可选的网页搜索供应商和对应密钥（豆包或 Tavily）。
+- `JWT_SECRET_KEY`、`API_KEY_DERIVATION_SECRET` 和 `SANDBOX_PROVISIONER_TOKEN` 三个相互独立的随机密钥，每个至少 32 个字符。
+- `YUXI_INSTANCE_ID`，用于标识这套部署。
 
-**方式二：手动配置**
+脚本还会拉取开发环境需要的基础镜像。它不会把密钥打印到终端，Linux/macOS 下会把 `.env` 权限设为 `600`。已有 `.env` 时，脚本只补齐缺失项；升级时请保留原有密钥，尤其是 `JWT_SECRET_KEY` 和 `API_KEY_DERIVATION_SECRET`。
 
-如果偏好手动配置：
+不使用初始化脚本时，可以手动开始：
 
 ```bash
-# 复制环境变量模板
 cp .env.template .env
-
-# 编辑 .env 文件，填入模型 API Key，并为下列三项分别生成不同的随机值
-# JWT_SECRET_KEY=$(openssl rand -hex 32)
-# API_KEY_DERIVATION_SECRET=$(openssl rand -hex 32)
-# SANDBOX_PROVISIONER_TOKEN=$(openssl rand -hex 32)
 ```
 
-也可以在复制模板后运行初始化脚本；脚本会检测已有 `.env`，只补齐缺失的 required 配置。三个安全密钥不能复用，后续重建与升级必须保留原值。
+然后在 `.env` 中填入模型 API Key 和三个独立的安全密钥。开发 Compose 会为部分基础服务提供默认值；生产部署不要沿用这些默认值。
 
-### 步骤三：启动服务
+## 3. 启动服务
 
 ```bash
-# 构建并启动所有服务
 docker compose up --build -d
 ```
 
-从旧文件布局升级到 v0.7.2 时不能直接 `up`；请严格执行
-[生产部署与升级](../advanced/deployment.md#2-启动服务) 中唯一维护的停机迁移流程。
-
-服务首次启动需要等待镜像拉取和编译，请耐心等待 2-3 分钟。
-
-::: tip 轻量模式（Lite Mode）
-如果你不需要知识库和知识图谱功能，可以使用轻量模式启动，跳过 Milvus、Neo4j、etcd 等服务，节省系统资源：
+第一次启动需要下载镜像并构建应用，耗时取决于网络和机器性能。用下面的命令查看状态和 API 日志：
 
 ```bash
-make up-lite  # macOS or Linux
+docker compose ps
+docker compose logs -f api
 ```
 
-轻量模式仅启动核心服务（前端、后端、PostgreSQL、Redis、MinIO），前端侧边栏会自动隐藏知识库和图谱入口。切换回完整模式只需运行 `make up`。
-:::
-
-### 步骤四：访问系统
-
-服务启动后，访问以下地址：
-
-| 服务 | 地址 |
-|------|------|
-| Web 界面 | http://localhost:5173 |
-| API 文档 | http://localhost:5050/docs |
-
-首次访问时，系统会要求你设置超级管理员账号和密码，请妥善保存。
-
-## 故障排除
-
-### 查看服务状态
+等 API 的健康检查完成后，可直接检查就绪接口：
 
 ```bash
-# 查看所有容器状态
-docker ps
-
-# 实时查看后端日志
-docker logs api-dev -f
-
-# 实时查看前端日志
-docker logs web-dev -f
+curl --fail http://localhost:5050/api/system/ready
 ```
 
-### 部署故障排查
+返回 JSON 且 `status` 为 `ready`，表示 API、PostgreSQL、Redis 和兼容 worker 已达到接流量条件。它只证明启动条件满足，不代替一次真实登录或对话验证。
 
-<details>
-<summary><strong>Docker 镜像拉取失败</strong></summary>
+## 4. 打开 Yuxi
 
-如果网络原因导致镜像拉取失败，可以尝试：
+| 入口 | 地址 |
+| --- | --- |
+| Web 界面 | <http://localhost:5173> |
+| API 文档 | <http://localhost:5050/docs> |
+| API 存活检查 | <http://localhost:5050/api/system/health> |
+| API 就绪检查 | <http://localhost:5050/api/system/ready> |
+
+首次打开 Web 界面时，按页面提示初始化超级管理员账号。登录成功后，可以从“智能体”页面配置模型，从“知识库”页面创建文档知识库。
+
+## 可选：使用 LITE 模式
+
+如果当前只想体验聊天、工作区、Skills 或 MCP，不需要知识库、知识图谱和评估，可以启动 LITE 模式：
 
 ```bash
-# 手动拉取基础镜像
+make up-lite
+```
+
+LITE 模式由 `LITE_MODE=true` 启动。后端不会注册知识库、图谱和评估路由，也不会初始化这些重运行时；前端会根据能力发现结果隐藏对应入口。切回完整模式前先停止当前环境，再执行：
+
+```bash
+make down
+make up
+```
+
+## 常见问题
+
+### 容器没有变成 healthy
+
+先确认迁移器、API、worker 和 provisioner 的日志：
+
+```bash
+docker compose ps
+docker compose logs --tail=100 storage-migrator api worker sandbox-provisioner
+```
+
+`storage-migrator` 是一次性服务，成功后会退出，这是正常状态。API 和 worker 必须在它成功后才能启动。
+
+### 镜像拉取失败
+
+先确认 Docker 能访问镜像仓库。也可以单独拉取某个镜像：
+
+```bash
 bash scripts/pull_image.sh python:3.13-slim
 ```
 
-**离线环境部署方案**：
+离线环境可以在有网络的机器上导出镜像，再将压缩包复制到目标机器并执行 `docker load`。仓库提供的导出脚本是 `docker/save_docker_images.sh`；导出前请核对脚本实际包含的镜像列表。
+
+### 需要代理才能构建
+
+在启动 Docker Compose 前设置 Docker daemon 或构建环境所需的代理。示例：
 
 ```bash
-# 在有网络的环境导出镜像，注意检查镜像列表，不一定是最新的。
-bash docker/save_docker_images.sh
-
-# 传输到目标机器
-scp docker_images_xxx.tar user@host:/path/
-
-# 导入镜像
-docker load -i docker_images_xxx.tar
+export HTTP_PROXY=http://<proxy-host>:<port>
+export HTTPS_PROXY=http://<proxy-host>:<port>
+docker compose up --build -d
 ```
-</details>
 
-<details>
-<summary><strong>构建失败</strong></summary>
+代理地址只使用你自己的环境值，不要把账号或密码提交到 `.env`、文档或日志中。
 
-多数构建失败是由于网络问题。尝试配置代理：
+### 知识库依赖启动失败
+
+完整模式需要 Milvus、etcd、MinIO 和 Neo4j。先查看对应服务的日志和健康状态：
 
 ```bash
-# Linux/macOS
-export HTTP_PROXY=http://IP:PORT
-export HTTPS_PROXY=http://IP:PORT
-
-# Windows PowerShell
-$env:HTTP_PROXY="http://IP:PORT"
-$env:HTTPS_PROXY="http://IP:PORT"
+docker compose ps milvus etcd minio graph
+docker compose logs --tail=100 milvus etcd minio graph
 ```
 
-如果配置代理后反而失败，尝试移除代理后重试。
-</details>
+如果当前不需要知识库，使用 LITE 模式可以避开这些服务；不要用一个“看起来启动成功”的空结果代替依赖故障排查。
 
-<details>
-<summary><strong>Milvus 服务启动失败</strong></summary>
+### 需要查看详细对话事件
 
-```bash
-# 重启 Milvus 服务
-docker compose up milvus -d
-docker restart api-dev
-```
-</details>
-
-::: tip 调试面板
-前端提供了调试面板（在头像菜单中可找到），可以查看详细的请求和响应信息。生产环境建议关闭此特性。
-:::
+超级管理员可以从头像菜单打开“调试面板”，开启对话 Debug 后查看消息时序和运行元数据。这个面板会展示内部信息，生产环境只在确有排障需要时开启。
 
 ## 下一步
 
-- 了解如何配置模型：阅读 [模型配置](./model-config.md)
-- 探索知识库功能：阅读 [知识库与知识图谱](./knowledge-base.md)
-- 学习智能体开发：阅读 [智能体开发](../agents/agents-config.md)
-- 深入了解配置系统：阅读 [配置系统详解](../advanced/configuration.md)
-- 理解运行时状态与边界：按顺序阅读 [机制详解](../mechanisms/index.md)
+- [模型配置](./model-config.md)：接入聊天、嵌入和重排模型。
+- [知识库与知识图谱](./knowledge-base.md)：上传文档并验证检索。
+- [命令行工具](./cli.md)：用 CLI 管理实例和运行任务。
+- [生产部署](../advanced/deployment.md)：配置生产环境、升级和备份。
+- [机制详解](../mechanisms/index.md)：理解运行、文件和存储边界。

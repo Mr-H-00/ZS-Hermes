@@ -18,14 +18,14 @@ const capabilities = [
   {
     icon: 'box', span: true,
     title: '沙盒文件系统',
-    desc: '每个会话拥有独立的虚拟文件系统（workspace / uploads / outputs），智能体产物自动落盘，支持文本、图片、PDF、HTML 在线预览与下载。',
+    desc: 'Agent 在当前 Project Workdir 中读写文件，产物自动落盘；Viewer 与交付物入口可以读取同一份持久文件，并支持文本、图片、PDF、HTML 预览与下载。',
     tags: ['预览', '下载', 'Artifacts 产物'],
     shot: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260604203704426.png'
   },
   {
     icon: 'sparkles',
     title: 'Skills 技能系统',
-    desc: '内置图像生成、深度报告、数据报表等技能，支持上传与远程安装，「解析草稿 → 确认安装」。',
+    desc: '把图像生成、深度研究、数据报表等工作方式封装成可复用技能，支持上传与远程安装，并在确认前预览内容。',
     tags: ['内置', '上传', '远程']
   },
   {
@@ -43,7 +43,7 @@ const capabilities = [
   {
     icon: 'fork',
     title: '子智能体 SubAgents',
-    desc: '主智能体可编排隔离的子智能体，独立 child thread 执行复杂子任务并回传产物。',
+    desc: '主智能体可以把复杂任务交给子智能体；子智能体使用独立 child thread，和父智能体共享授权的 Workdir 并回传结果。',
     tags: ['隔离编排']
   },
   {
@@ -84,7 +84,7 @@ const engineTabs = [
   },
   {
     key: 'sources', icon: 'plug', title: '多知识源接入',
-    desc: '支持 Dify、Notion、飞书（规划中）等外部知识源接入，统一检索与引用。',
+    desc: '支持 Dify、Notion 等外部只读知识源接入，统一检索与引用。',
     shot: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260604205611168.png'
   }
 ]
@@ -173,7 +173,7 @@ const credits = [
   { name: 'LightRAG', url: 'https://github.com/HKUDS/LightRAG' },
   { name: 'DeepAgents', url: 'https://github.com/langchain-ai/deepagents' },
   { name: 'DeerFlow', url: 'https://github.com/bytedance/deer-flow' },
-  { name: 'RAGflow', url: 'https://github.com/infiniflow/ragflow' },
+  { name: 'RAGFlow', url: 'https://github.com/infiniflow/ragflow' },
   { name: 'LangGraph', url: 'https://github.com/langchain-ai/langgraph' },
   { name: 'QwenPaw', url: 'https://github.com/agentscope-ai/QwenPaw' }
 ]

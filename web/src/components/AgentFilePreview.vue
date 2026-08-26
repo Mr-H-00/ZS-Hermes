@@ -322,10 +322,7 @@
               </div>
             </template>
             <template v-else-if="file?.previewType === 'pdf' && file?.previewUrl">
-              <PdfPreview
-                :url="file.previewUrl"
-                class="pdf-preview fullscreen-embed-preview"
-              />
+              <PdfPreview :url="file.previewUrl" class="pdf-preview fullscreen-embed-preview" />
             </template>
             <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
               <iframe

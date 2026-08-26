@@ -52,7 +52,6 @@
         </div>
       </a-col>
     </a-row>
-
   </a-card>
 </template>
 
@@ -379,5 +378,4 @@ defineExpose({
     }
   }
 }
-
 </style>

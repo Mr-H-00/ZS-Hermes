@@ -1,77 +1,88 @@
-# 项目简介
+# 认识 Yuxi
 
-Yuxi（语析）是一个知识库、知识图谱与 Agent 开发平台，基于 LangGraph、Vue 3、FastAPI、Milvus 和 Neo4j 构建。平台提供智能体编排、知识检索、图谱检索、工具调用和文件系统能力。
+Yuxi（语析）是一个可私有部署的多租户知识智能体平台。它把知识库检索、知识图谱、智能体编排、工具调用和文件产物放在同一个工作区里，适合需要自己管理数据、模型和权限的团队。
 
-## 设计理念
+## Yuxi 适合什么场景
 
-项目遵循以下设计原则：
+Yuxi 适合下面几类工作：
 
-- **技术栈简洁**：选择主流且成熟的技术，降低学习和维护成本
-- **MIT 开源协议**：完全开源，允许自由使用和二次开发
-- **容器化部署**：通过 Docker Compose 管理，简化部署流程
+- 用企业内部资料搭建带来源的问答和检索应用。
+- 让智能体调用搜索、MCP、Skills、子智能体和沙盒工具，完成多步骤任务。
+- 对知识库的检索质量和智能体的任务表现进行评估。
+- 在用户、部门和管理员之间划分知识库、智能体和扩展能力的访问范围。
 
-## 技术架构
+如果只需要一个不带权限和文件操作的单文档聊天页面，Yuxi 的能力会偏多。
 
-| 层级 | 技术 | 用途 |
-|------|------|------|
-| 前端 | Vue.js 3, Vite, Ant Design Vue | 前端应用构建、路由与组件库 |
-| 状态管理 | Pinia | 前端集中式状态管理 |
-| 后端 API | FastAPI, Uvicorn | 异步 HTTP API 与 ASGI 服务 |
-| Agent 框架 | LangGraph | Agent 编排、状态管理与 checkpoint |
-| 知识库 | Milvus（可建库入库）、Dify / Notion（只读连接器） | 向量知识库 RAG 与外部只读数据源检索 |
-| 图数据库 | Neo4j | Milvus 知识库内知识图谱存储与查询 |
-| 文档处理 | MinerU, PaddleX, RapidOCR | 多格式文档解析与 OCR |
-| 任务队列 | Redis, PostgreSQL Workers | 异步任务处理 |
-| 对象存储 | MinIO | 文件与文档存储 |
-| 关系型数据库 | PostgreSQL | 元数据与用户数据持久化 |
-| 部署 | Docker, Docker Compose | 容器化部署与编排 |
+## 三个核心概念
 
+- **智能体（Agent）**：由模型、提示词、工具、知识库、Skills、MCP 和子智能体共同组成的运行单元。
+- **知识库**：保存文档并提供解析、分块、向量检索和来源信息。Milvus 知识库还可以构建和查询知识图谱；Dify、Notion 是只读连接器。
+- **Workdir**：一个 Project 在用户工作区中的持久目录。智能体、文件查看器和交付物接口可以从不同入口访问同一份文件字节。
 
-## 核心能力
+## 能力概览
 
-Yuxi 在同一运行时中组合智能体开发、知识库/RAG 和知识图谱能力。
+### 智能体与任务执行
 
-### 1. 可配置的智能体开发
+Yuxi 使用 LangGraph 组织智能体运行。管理员可以配置模型、系统提示词、工具、MCP、Skills、子智能体和上下文压缩策略。运行时间较长的任务由独立 worker 执行，事件通过 SSE 发送到前端，结果和运行状态保存到 PostgreSQL。
 
-Yuxi 基于 LangGraph 运行 Agent。开发者可以为同一个 Agent 配置模型、提示词、工具、MCP、Skills、子智能体与中间件，并将模型调用编排为业务流程。
+工具可以读取和修改 Workdir 中的文件、执行沙盒命令、搜索网页、请求用户审批或调用子智能体。完成的文件可以在界面中预览和下载。
 
-Agent 配置决定模型调用工具、访问知识、接入文件系统和调用子智能体的方式。
+### 知识库与 RAG
 
-### 2. 知识库与 RAG 一体化能力
+知识库支持把文档依次经过上传、解析、分块和索引，检索结果包含命中文本和文件来源。管理员可以使用 Milvus、Dify 或 Notion；其中只有 Milvus 支持在 Yuxi 中上传、解析和索引文档。
 
-Yuxi 提供覆盖上传、解析、分块、向量化、检索配置和评估的知识入库链路。处理完成的文档成为 Agent 可直接调用的知识来源。
+### 知识图谱
 
-知识库支持 PDF、Office、Markdown 和图片等文档。检索结果包含命中文本及来源标识，Agent 可以按 `file_id` 继续打开或定位原文。
+Milvus 知识库可以从已索引的文档块中抽取实体和关系，并将图谱信息写入 Neo4j。检索时，系统可以把图谱结果与文本块结果融合；知识库详情页提供图谱构建、查询和展示入口。
 
+### 团队治理
 
-### 3. 知识图谱检索与展示
+Yuxi 提供用户、部门、共享范围、模型供应商和 API Key 管理。后端会在接口和数据查询处执行最终权限检查，前端隐藏入口只改善使用体验，不代替授权。
 
-知识图谱与 Milvus 知识库入库链路联动。系统从已入库 chunks 中抽取实体和关系，将图数据写入 Neo4j 与 PostgreSQL，并为唯一实体和三元组建立 Milvus 语义索引。检索阶段召回图谱实体与三元组，通过 RRF 与 chunk 命中结果融合；知识库详情页同时提供子图展示与检索。
+## 系统如何协作
 
-### 4. 文档处理与平台管理
+一次普通的智能体请求大致经过这条链路：
 
-Yuxi 集成 MinerU、PP-Structure-V3、RapidOCR、DeepSeek OCR 等解析能力，处理 PDF、Office、Markdown 和图片等常见格式。
+```text
+Web / CLI / 外部 API
+        ↓
+FastAPI 接收请求并保存 Message、Request
+        ↓  PostgreSQL 提交后
+Redis / ARQ 投递 AgentRun
+        ↓
+Worker 执行 LangGraph，写入事件和最终结果
+        ↓
+PostgreSQL 保存状态，前端通过 SSE 获取过程
+```
 
-平台同时提供以下管理能力：
+PostgreSQL 保存请求、运行、消息、知识库元数据和 LangGraph checkpoint；Redis 负责任务投递、短期事件、取消信号和缓存；MinIO 保存对象文件；Milvus 负责向量检索；Neo4j 保存可选知识图谱。
 
-- 部门与权限管理
-- 内容审查与守卫能力
-- 文件管理与任务管理
-- Docker Compose 部署与热重载开发
+## 部署模式
 
+- **完整模式**：包含知识库、图谱和评估所需的依赖，适合完整体验。
+- **LITE 模式**：保留认证、智能体、聊天、Skills、MCP、模型和工作区，跳过知识库、图谱和评估的重运行时。相关入口不会注册，前端也会根据能力发现结果隐藏。
+- **沙盒承载**：应用通过 `sandbox-provisioner` 访问动态沙盒，底层可以使用 Docker 或 Kubernetes。`memory` 仅用于测试，不提供真实隔离。
 
-## 适用场景
+开发环境和默认服务拓扑以仓库根目录的 [ARCHITECTURE.md](https://github.com/xerrors/Yuxi/blob/main/ARCHITECTURE.md) 与 [docker-compose.yml](https://github.com/xerrors/Yuxi/blob/main/docker-compose.yml) 为准。
 
-Yuxi 适用于以下场景：
+## 技术栈
 
-- **企业知识库**：构建私有知识问答系统
-- **智能客服**：基于文档的自动问答
-- **知识管理**：文档自动解析、分类、构建图谱
-- **AI 应用开发**：组合模型、工具和知识库，验证大模型应用流程
+| 层 | 技术 | 主要职责 |
+| --- | --- | --- |
+| 前端 | Vue 3、Vite、Pinia | 工作区、配置界面和实时运行展示 |
+| API 与运行时 | FastAPI、LangGraph、ARQ | 请求接入、智能体编排和后台执行 |
+| 持久化 | PostgreSQL | 业务状态、知识库元数据和 checkpoint |
+| 缓存与事件 | Redis | 投递、短期事件、取消和缓存 |
+| 对象与检索 | MinIO、Milvus、Neo4j | 文件对象、向量索引和知识图谱 |
+| 文档处理 | MinerU、PaddleX、RapidOCR 等 | 文档解析、版面分析和 OCR |
+| 部署 | Docker Compose | 开发与单机部署拓扑 |
 
-## 下一步
+Yuxi 本体使用 MIT License；Compose 引入的第三方组件遵循各自许可证，生产部署和再分发边界见[生产部署指南](../advanced/deployment.md)。
 
-- 快速开始：阅读 [快速开始指南](./quick-start.md)
-- 模型配置：阅读 [模型配置](./model-config.md)
-- 知识库使用：阅读 [知识库与知识图谱](./knowledge-base.md)
-- 智能体开发：阅读 [智能体开发](../agents/agents-config.md)
+## 从这里开始
+
+- [快速开始](./quick-start.md)：启动一套可用的开发环境。
+- [模型配置](./model-config.md)：接入聊天、嵌入和重排模型。
+- [知识库与知识图谱](./knowledge-base.md)：创建知识库并让智能体检索文档。
+- [智能体配置](../agents/agents-config.md)：了解配置字段如何进入运行时。
+- [机制详解](../mechanisms/index.md)：深入查看沙盒、上下文压缩和知识库链路。

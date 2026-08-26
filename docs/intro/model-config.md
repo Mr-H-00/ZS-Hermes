@@ -1,109 +1,107 @@
-# 模型配置
+# 配置模型
 
-## 概述
+Yuxi 在“智能体 → 模型供应商”中统一管理聊天、嵌入和重排模型。只有管理员可以新增或修改供应商；普通用户可以在有权限的地方选择已经启用的模型。
 
-系统统一通过 **智能体管理 → 模型供应商** 页面管理所有模型（对话模型、嵌入模型、重排模型），无需修改配置文件。
+## 配置顺序
 
-## 配置路径
+1. 打开“智能体 → 模型供应商”。
+2. 新增供应商，或打开一个内置供应商。
+3. 填写 API 地址和凭证，选择供应商能力。
+4. 在供应商的“模型配置”中获取远程模型，或手动添加模型。
+5. 对模型执行连接测试，再把它选为智能体或知识库使用的模型。
 
+供应商停用后，其模型不会进入运行时模型缓存。Web 管理页面会在系统默认模型仍引用某个供应商或模型时阻止删除或停用，先切换默认模型再修改；直接调用管理 API 时也应先检查并替换默认引用，不能依赖页面保护。
+
+## 凭证怎么保存
+
+供应商支持两种凭证来源：
+
+| 来源 | 配置位置 | 适用场景 |
+| --- | --- | --- |
+| 环境变量 | 供应商的“API Key Env”填写变量名，密钥放在 API/worker 环境中 | 生产环境，推荐 |
+| 直接填写 | 供应商的“API Key”字段 | 本地测试或明确接受数据库保存凭证的环境 |
+
+使用环境变量时，字段里填写变量名，例如 `SILICONFLOW_API_KEY`，不要把密钥本身写进文档。修改容器环境变量后需要重新创建读取它的 API 和 worker；供应商页面的保存不会替你更新容器：
+
+```bash
+docker compose up -d --force-recreate api worker
 ```
-智能体管理 → 模型供应商
-```
 
-模型供应商页签仅管理员可见。如果当前账号不是管理员，只能看到普通的智能体管理和个人设置入口。
+## 内置供应商
 
-## API 凭证配置
+系统启动时会同步内置供应商模板。模板提供供应商 ID、API 地址、凭证变量名和模型发现地址；是否可用取决于凭证、供应商状态和已启用模型。页面列出的内容是当前实例的实际配置，完整模板由 [`builtin.py`](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/models/providers/builtin.py) 维护。
 
-支持两种凭证配置方式：
+内置供应商模板的完整映射如下。表中类型是模板预置或当前常见用途；模型仍需在供应商中启用，实际可用性以当前实例配置和供应商接口为准。
 
-| 方式 | 适用场景 |
-|------|----------|
-| 环境变量 | 生产环境或不愿在界面暴露 Key 的场景 |
-| 直接填写 | 开发调试，追求配置便利性 |
-
-**环境变量方式**：在供应商配置中填写变量名（如 `SILICONFLOW_API_KEY`），确保运行时环境已配置对应变量。
-
-**直接填写方式**：在供应商配置中直接填入 API Key。
-
-## 供应商管理
-
-### 内置供应商模板
-
-系统启动时会同步一组内置 provider 模板。模板只提供 Provider ID、Base URL、凭证环境变量和远端模型发现地址；实际是否可用仍取决于你是否配置凭证、启用供应商并添加模型。
-
-| 供应商 | Provider ID | 支持类型 | 凭证环境变量 |
-|--------|-------------|----------|--------------|
+| 展示名称 | Provider ID | 常见类型 | 凭证环境变量 |
+| --- | --- | --- | --- |
 | OpenAI | `openai` | chat | `OPENAI_API_KEY` |
 | DeepSeek | `deepseek` | chat | `DEEPSEEK_API_KEY` |
-| DashScope | `alibaba` | chat, embedding, rerank | `DASHSCOPE_API_KEY` |
-| Aliyun Coding Plan | `alibaba-coding-plan-cn` | chat | `DASHSCOPE_API_KEY` |
-| Aliyun Coding Plan International | `alibaba-coding-plan` | chat | `DASHSCOPE_API_KEY` |
-| Zhipu BigModel | `zhipuai` | chat | `ZHIPUAI_API_KEY` |
-| Zhipu BigModel Coding Plan | `zhipuai-coding-plan` | chat | `ZHIPUAI_API_KEY` |
-| Z.AI | `zai` | chat | `ZAI_API_KEY` |
-| Z.AI Coding Plan | `zai-coding-plan` | chat | `ZAI_API_KEY` |
+| DashScope（中国站） | `alibaba-cn` | chat、embedding、rerank | `DASHSCOPE_API_KEY` |
+| DashScope（国际站） | `alibaba` | chat | `DASHSCOPE_API_KEY` |
+| Aliyun Coding Plan（中国站） | `alibaba-coding-plan-cn` | chat | `DASHSCOPE_API_KEY` |
+| Aliyun Coding Plan（国际站） | `alibaba-coding-plan` | chat | `DASHSCOPE_API_KEY` |
+| Zhipu（BigModel） | `zhipuai` | chat | `ZHIPUAI_API_KEY` |
+| Zhipu Coding Plan（BigModel） | `zhipuai-coding-plan` | chat | `ZHIPUAI_API_KEY` |
+| Zhipu（Z.AI） | `zai` | chat | `ZAI_API_KEY` |
+| Zhipu Coding Plan（Z.AI） | `zai-coding-plan` | chat | `ZAI_API_KEY` |
 | XiaomiMiMo Token Plan | `xiaomi-token-plan-cn` | chat | `XIAOMI_MIMO_TOKEN_PLAN_API_KEY` |
 | XiaomiMiMo | `xiaomi` | chat | `XIAOMI_MIMO_API_KEY` |
 | Kimi Code | `kimi-for-coding` | chat | `KIMI_CODE_API_KEY` |
-| Moonshot | `moonshotai-cn` | chat | `MOONSHOT_API_KEY` |
-| Moonshot International | `moonshotai` | chat | `MOONSHOT_API_KEY` |
-| MiniMax | `minimax-cn` | chat | `MINIMAX_API_KEY` |
-| MiniMax International | `minimax` | chat | `MINIMAX_API_KEY` |
-| OpenRouter | `openrouter` | chat, embedding | `OPENROUTER_API_KEY` |
+| Moonshot（中国站） | `moonshotai-cn` | chat | `MOONSHOT_API_KEY` |
+| Moonshot（国际站） | `moonshotai` | chat | `MOONSHOT_API_KEY` |
+| MiniMax（中国站） | `minimax-cn` | chat | `MINIMAX_API_KEY` |
+| MiniMax（国际站） | `minimax` | chat | `MINIMAX_API_KEY` |
+| OpenRouter | `openrouter` | chat、embedding | `OPENROUTER_API_KEY` |
 | ModelScope | `modelscope` | chat | `MODELSCOPE_ACCESS_TOKEN` |
 | OpenCode | `opencode` | chat | 无默认环境变量 |
 | OpenCode Go | `opencode-go` | chat | 无默认环境变量 |
-| SiliconFlow | `siliconflow-cn` | chat, embedding, rerank | `SILICONFLOW_API_KEY` |
-| SiliconFlow International | `siliconflow` | chat, embedding, rerank | `SILICONFLOW_GLOBAL_API_KEY` |
+| SiliconFlow（中国站） | `siliconflow-cn` | chat、embedding、rerank | `SILICONFLOW_API_KEY` |
+| SiliconFlow（国际站） | `siliconflow` | chat、embedding、rerank | `SILICONFLOW_GLOBAL_API_KEY` |
 
-其中 `alibaba`、`siliconflow-cn` 预置了部分 embedding / rerank 模型；其他供应商通常需要进入详情页通过「获取远程模型」或「手动添加」补充模型。
+其中 `alibaba-cn`、`openrouter`、`siliconflow-cn` 和 `siliconflow` 的模板明确包含嵌入或重排能力；其他供应商是否能添加某类模型，取决于当前供应商配置的能力和接口。不要把 `alibaba` 和 `alibaba-cn` 混用：前者是 DashScope 国际站模板，后者带有内置的嵌入和重排配置。
 
-### 操作流程
+## 添加和启用模型
 
-1. **新增供应商**：点击「新增供应商」，填写基本信息（Provider ID、Base URL 等）
-2. **配置凭证**：填写 API Key 或环境变量名
-3. **启用供应商**：开启供应商状态开关
-4. **获取模型**：进入供应商详情，点击「获取远程模型」从 API 拉取可用模型列表
+### 从远程列表添加
 
-## 模型管理
+打开供应商的模型配置，点击“获取远程模型”，从返回列表中选择模型。远程列表只用于发现候选项，不会自动启用模型；确认添加后，模型才会进入运行时。
 
-### 添加模型
+### 手动添加
 
-**方式一：从远端拉取**
+点击“手动添加”，填写模型 ID 和类型：
 
-进入供应商详情 → 点击「获取远程模型」→ 从候选列表中选择添加
+- `chat`：聊天和智能体运行。
+- `embedding`：知识库向量化，需要填写供应商规格中的向量维度。
+- `rerank`：对检索候选结果重排。
 
-**方式二：手动添加**
+知识库创建后，嵌入模型和向量维度属于索引的一部分。更换嵌入模型或维度后，需要按知识库流程重建索引，不能把不同向量空间的结果混在一起。
 
-进入供应商详情 → 点击「手动添加」→ 填写模型 ID 和类型
+### 模型标识
 
-### 配置参数
+运行时使用 `provider_id:model_id`，只按第一个冒号分隔供应商和模型 ID。模型 ID 可以包含斜杠，例如：
 
-嵌入模型（embedding）需配置向量维度，请参考模型提供商的规格说明。
-
-OpenAI 兼容供应商的对话模型可在「模型请求参数 JSON」中配置思考模式。这里填写的 JSON 会作为 OpenAI SDK 的 `extra_body` 传入；SDK 会将其中字段合并到最终 HTTP 请求体顶层。
-
-出于安全考虑，该配置采用白名单机制，仅允许以下顶层字段：
-
-| 字段 | 常见供应商或用途 |
-|------|------------------|
-| `enable_thinking` | DashScope、SiliconFlow 等供应商的思考开关 |
-| `thinking_budget` | DashScope、SiliconFlow 等供应商的思考 Token 预算 |
-| `thinking` | DeepSeek、智谱、Kimi、火山方舟等供应商的思考配置对象 |
-| `reasoning` | OpenRouter 等供应商的推理配置对象 |
-| `reasoning_effort` | OpenAI 风格的推理强度 |
-
-白名单只校验顶层字段，`thinking`、`reasoning` 等对象的内部结构由对应供应商校验。不同模型支持的取值和预算范围可能不同，应以供应商的当前文档为准。项目维护者如需支持新的顶层字段，可修改 `backend/package/yuxi/models/providers/service.py` 中的 `ALLOWED_EXTRA_BODY_FIELDS`，并补充相应测试和本文档。
-
-例如，关闭思考：
-
-```json
-{
-  "enable_thinking": false
-}
+```text
+siliconflow-cn:Pro/BAAI/bge-m3
 ```
 
-限制思考预算：
+页面中的模型选择器会显示供应商名称和模型名称；在 API、日志或配置快照中排查问题时，使用完整 spec。
+
+## 配置聊天模型的请求参数
+
+OpenAI Completions API 兼容供应商的 `chat` 模型可以配置“模型请求参数 JSON”。Yuxi 会把它作为 OpenAI SDK 的 `extra_body` 合并到请求体顶层，用于支持不同供应商的思考或推理参数。
+
+当前允许的顶层字段是：
+
+| 字段 | 常见用途 |
+| --- | --- |
+| `enable_thinking` | 开关式思考配置 |
+| `thinking_budget` | 思考 Token 预算 |
+| `thinking` | 供应商的思考配置对象 |
+| `reasoning` | 推理配置对象 |
+| `reasoning_effort` | OpenAI 风格的推理强度 |
+
+示例：
 
 ```json
 {
@@ -112,16 +110,26 @@ OpenAI 兼容供应商的对话模型可在「模型请求参数 JSON」中配�
 }
 ```
 
-### 移除模型
+白名单只限制顶层字段，字段内部结构和可用取值由供应商校验。参数是否生效取决于模型和供应商接口，Yuxi 不会把不支持的字段转换成另一种格式。Anthropic、Gemini 等非 OpenAI 兼容供应商不能使用这组 `extra_body` 覆盖。
 
-在供应商详情的已启用模型列表中移除不需要的模型。
+## 移除旧模型配置
 
-## 模型标识格式
+在供应商的已启用模型列表中移除模型。Web 页面不会让当前默认模型直接移除，先在系统配置中换用其他模型再操作；直接调用管理 API 时需要自行保证默认引用仍然有效。知识库的嵌入模型变更后，按知识库页面重新建立索引。
 
-运行时模型统一使用 `provider_id:model_id` 格式，例如 `siliconflow-cn:Pro/BAAI/bge-m3`。`model_id` 可以包含 `/`，系统只按第一个 `:` 区分供应商与模型 ID。
+旧版 `provider/model`、旧知识库 JSON 模型字段以及配置文件中的 `model_names`、`embed_model_names`、`reranker_names` 不属于当前运行时来源。升级后如果历史 Agent 或知识库仍保存旧格式，请在界面重新选择模型并保存；知识库嵌入模型变更后还要重建索引。
 
-旧版 `provider/model`、旧版知识库 JSON 模型字段、配置文件中的 `model_names` / `embed_model_names` / `reranker_names` 不再作为运行时模型来源。历史知识库或 Agent 配置如果仍保存旧格式，需要在界面中重新选择新版模型后保存。
+## Ollama
 
-## Ollama 支持
+当前版本没有 Ollama provider 类型，也没有 Ollama embedding 运行时适配。已有 Ollama embedding 知识库需要选择新的嵌入模型并重建索引。
 
-当前版本不再内置 Ollama provider type，也不再提供 Ollama embedding 运行时适配。已有 Ollama embedding 知识库需要管理员选择新的 embedding 模型并重建索引，避免不同向量空间混用。
+## 排查模型不可用
+
+按下面顺序检查：
+
+1. 供应商是否启用，模型是否位于“已启用模型”列表。
+2. API 地址是否能从 API/worker 容器访问。
+3. API Key Env 对应的变量是否存在，或直接凭证是否正确。
+4. 模型类型、嵌入维度和供应商能力是否匹配。
+5. 在供应商详情中执行连接测试，并查看 API/worker 日志中的错误。
+
+模型连接测试能证明该次请求得到响应，不能证明所有模型参数、工具调用或知识库索引都适配；这些行为仍需在实际 Agent 或知识库链路中验证。

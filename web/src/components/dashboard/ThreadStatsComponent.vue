@@ -62,7 +62,6 @@
         label="消息总数"
         tone="accent"
       />
-
     </DashboardMetricGrid>
 
     <!-- 2x2 可视化图表区域 -->

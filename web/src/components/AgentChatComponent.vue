@@ -693,7 +693,11 @@
                       <div class="state-list">
                         <div
                           v-for="(run, index) in displaySubagentRuns"
-                          :key="run.child_thread_id || run.id || `${run.subagent_slug || 'subagent'}-${index}`"
+                          :key="
+                            run.child_thread_id ||
+                            run.id ||
+                            `${run.subagent_slug || 'subagent'}-${index}`
+                          "
                           class="state-list-item"
                           :class="{ 'is-clickable': run.child_thread_id }"
                           @click="run.child_thread_id && openSubagentThread(run)"
@@ -812,11 +816,7 @@ import {
 } from 'lucide-vue-next'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  SyncOutlined
-} from '@ant-design/icons-vue'
+import { CheckCircleOutlined, CloseCircleOutlined, SyncOutlined } from '@ant-design/icons-vue'
 import AgentInputArea from '@/components/AgentInputArea.vue'
 import ContextUsageRing from '@/components/ContextUsageRing.vue'
 import ToolApprovalModeSelector from '@/components/ToolApprovalModeSelector.vue'

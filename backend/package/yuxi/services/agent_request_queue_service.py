@@ -192,9 +192,7 @@ async def intake_request(
         delivery_status = DELIVERY_STATUS_QUEUED
         conversation_model_spec = (conversation.extra_metadata or {}).get("model_spec")
         requested_model_spec = (
-            model_spec
-            if isinstance(model_spec, str) and model_spec.strip()
-            else conversation_model_spec
+            model_spec if isinstance(model_spec, str) and model_spec.strip() else conversation_model_spec
         )
         resolved_model_spec, resolved_tool_approval_mode = await resolve_agent_run_config(
             requested_model_spec, tool_approval_mode, agent_item, agent_backend, db

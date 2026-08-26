@@ -134,8 +134,7 @@ const renderSinglePage = async (pdfDoc, pageNum) => {
     canvas.style.width = `${Math.floor(viewport.width)}px`
     canvas.style.height = `${Math.floor(viewport.height)}px`
 
-    const transform =
-      outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
+    const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
 
     // 取消同一页之前未完成的渲染
     if (renderTasks.has(pageNum)) {
@@ -327,14 +326,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   max-width: 100%;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.07),
+    0 1px 3px rgba(0, 0, 0, 0.03);
   background: #ffffff;
   border-radius: 4px;
   transition: box-shadow 0.2s ease;
 }
 
 .pdf-page-card:hover {
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1), 0 2px 5px rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.1),
+    0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
 .pdf-canvas {

@@ -467,5 +467,4 @@ defineExpose({
 :deep(.ant-progress-bg) {
   transition: all 0.3s ease;
 }
-
 </style>

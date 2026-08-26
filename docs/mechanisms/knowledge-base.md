@@ -1,126 +1,136 @@
-# 知识库机制详解
+# 知识库机制
 
-本页供开发者和运维人员查询知识库内部状态、存储边界、权限及 Agent 检索链路，重点说明文档从写入到可检索状态的运行机制。用户操作见[知识库教程](../intro/knowledge-base.md)，OCR、解析器与版面模型配置见[文档处理](../advanced/document-processing.md)。
+本页说明文档怎样从上传走到可检索状态，以及 PostgreSQL、MinIO、Milvus、Neo4j、Tasker 和 Agent 工具各自负责什么。第一次操作知识库请看[创建并使用知识库](../intro/knowledge-base.md)，解析器配置见[文档处理与 OCR](../advanced/document-processing.md)。
 
-## 知识库类型与能力边界
+## 能力边界
 
-Yuxi 用 `KnowledgeBaseManager` 统一读取知识库元数据、解析权限并选择对应 executor，但不同 executor 的能力并不相同：
+Yuxi 通过 `KnowledgeBaseManager` 读取知识库配置、解析权限并选择 executor：
 
-- `milvus` 是文档型知识库：支持上传、解析、分块、向量索引、内容预览与检索；可选知识图谱链路会把图数据写入 Neo4j。
-- `dify`、`notion` 继承只读连接器基类：保存外部连接参数并执行 Query，不承载 Yuxi 的文档上传、解析、索引、文件树和全文预览流程。
+- `milvus` 是文档型知识库，支持上传、解析、分块、向量索引、预览和检索，也可以构建知识图谱；
+- `dify` 和 `notion` 是只读连接器，只保存外部连接信息并执行 Query，不承载 Yuxi 的上传、解析、索引、文件树和全文预览。
 
-知识库类型的工厂元数据和 executor 方法定义当前能力。前端按钮只投影这些能力，不参与最终判断。只读连接器收到文档操作时会显式抛错，调用方需要保留该失败结果。
+前端按钮只反映 executor 的能力，最终判断由后端完成。只读连接器收到不支持的操作时会明确报错。
 
-## 两条主链路
+## 两条链路
 
-管理链路负责改变知识库事实，Agent 链路只消费当前用户和当前 Agent 可见的知识库：
+管理链路改变知识库事实，Agent 链路消费当前用户和当前 Agent 可见的知识库：
 
 ```mermaid
 flowchart LR
-    subgraph Manage["文档管理链路"]
-        UI["Web / API 调用"] --> Route["knowledge_router\n鉴权与输入校验"]
-        Route --> Tasker["Tasker\n进程内执行队列"]
-        Tasker --> Manager["KnowledgeBaseManager\n配置与 executor 选择"]
-        Manager --> MilvusKB["MilvusKB\n文档型 executor"]
-        Manager --> Connector["DifyKB / NotionKB\n只读 connector"]
-        MilvusKB --> PG[("PostgreSQL")]
-        MilvusKB --> Object[("MinIO")]
-        MilvusKB --> Vector[("Milvus")]
-        MilvusKB --> Graph[("Neo4j，可选")]
-        Connector --> External["外部检索 API"]
-    end
-    subgraph Agent["Agent 检索链路"]
-        Context["Agent Context\nknowledges"] --> Visible["可见知识库交集"]
-        Visible --> Skill["knowledge-base Skill"]
-        Skill --> Tools["知识库工具"]
-        Tools --> Manager
-    end
+    UI["Web / API"] --> Router["路由：认证和输入校验"]
+    Router --> Tasker["Tasker：后台编排"]
+    Tasker --> Manager["KnowledgeBaseManager"]
+    Manager --> MilvusKB["Milvus executor"]
+    Manager --> Connector["Dify / Notion 只读 executor"]
+    MilvusKB --> PG[("PostgreSQL")]
+    MilvusKB --> Object[("MinIO")]
+    MilvusKB --> Vector[("Milvus")]
+    MilvusKB --> Graph[("Neo4j，可选")]
+    Connector --> External["外部检索 API"]
+
+    Context["Agent Context.knowledges"] --> Visible["用户权限 ∩ Agent 选择"]
+    Visible --> Skill["knowledge-base Skill"]
+    Skill --> Tools["知识库工具"]
+    Tools --> Manager
 ```
 
-HTTP 路由只负责授权、请求编排和任务提交；知识库类型选择、配置回源和 executor 调用属于 `KnowledgeBaseManager`，具体解析、索引与检索属于 executor。知识库配置的业务事实来自 PostgreSQL；Redis 只缓存最小运行配置，缓存未命中必须回源 PostgreSQL。
+路由只接收请求并提交任务；Manager 负责配置和 executor 选择；具体 executor 负责解析、索引和检索。知识库配置的最终值在 PostgreSQL，Redis 只缓存最小运行配置，未命中或异常时回源数据库。
 
 ## 文档状态机
 
-文档上传与入库是三个可分别观察的动作。上传接口先把原文件写入 MinIO；`add_file_record` 再在 PostgreSQL 创建 `uploaded` 文件记录。解析和索引使用条件更新抢占状态，只有允许的前置状态可以成为当前动作 Owner：
+上传、解析和索引是三个可以分别观察的动作：
 
 ```mermaid
 stateDiagram-v2
-    [*] --> uploaded: 原文件已写 MinIO\n文件记录已创建
+    [*] --> uploaded: 原文件已保存，文件记录已创建
     uploaded --> parsing: 条件抢占
     error_parsing --> parsing: 重试解析
-    failed --> parsing: 兼容旧状态
-    parsing --> parsed: Markdown 已写 MinIO
-    parsing --> error_parsing: 解析失败或取消
     parsed --> indexing: 条件抢占
     error_indexing --> indexing: 重试索引
     indexed --> indexing: 重新索引
-    done --> indexing: 兼容旧状态
-    indexing --> indexed: chunk 与向量写入完成
+    parsing --> parsed: Markdown 已保存
+    parsing --> error_parsing: 解析失败或取消
+    indexing --> indexed: chunk 和向量完成
     indexing --> error_indexing: 索引失败或取消
-    indexing --> uploaded: 缺少 markdown_file
+    indexing --> uploaded: 缺少 Markdown 产物
 ```
 
-`parsing` 和 `indexing` 声明当前动作的执行所有权，并参与并发控制。没有抢到允许状态的并发调用会显式失败，同一文件只能由一个调用继续处理。`parsed` 表示解析后的 Markdown 路径已写入文件记录；`indexed` 表示 executor 已完成当次分块、向量写入和统计更新。最终验证需要重新读取文件状态及对应存储产物，API 任务响应只提供调度结果。
+历史 `failed`、`done` 状态只作为兼容输入。`parsing` 和 `indexing` 表示当前动作已经抢到执行权；没有抢到允许状态的并发请求会失败，同一文件不会由两个动作同时推进。
 
-## 存储 Owner 与一致性边界
+- `uploaded`：原文件和文件记录存在，尚未完成解析；
+- `parsed`：解析后的 Markdown 路径已写入文件记录；
+- `indexed`：本次分块、向量写入和统计更新已完成；
+- `error_parsing`、`error_indexing`：对应阶段失败或取消，并保存错误信息。
+
+任务接口的响应和 Tasker 状态只表示编排结果。验收时重新读取文件状态，并按需核对 Markdown、chunk、向量和图谱数据。
+
+## 各存储负责什么
 
 | 存储 | 拥有的事实 | 不拥有的事实 |
 | --- | --- | --- |
-| PostgreSQL | 知识库配置、共享与归属、文件元数据和状态、chunk 正文与图谱处理状态、Tasker 任务摘要 | 原文件字节、解析图片、向量相似度索引 |
-| MinIO | 上传原件、解析后的 Markdown、解析图片 | 文件当前业务状态、用户是否有权读取 |
-| Milvus | chunk 向量、BM25/混合检索所需字段、图实体与关系的向量索引 | 知识库权限、文件处理状态 |
-| Neo4j | 可选知识图谱中的实体、关系和 chunk 关联 | 文档原件、向量检索结果、知识库授权 |
-| Redis | 知识库最小运行配置缓存 | 配置最终值和任何持久化文档状态 |
-| Tasker 内存队列 | 当前 API 进程尚可执行的 coroutine 与调度顺序 | 可跨进程恢复的任务执行权 |
+| PostgreSQL | 知识库配置、权限、文件元数据和状态、chunk 正文、图谱处理状态、Tasker 摘要 | 原文件字节、向量索引 |
+| MinIO | 上传原件、解析 Markdown、解析图片 | 文件当前状态、用户权限 |
+| Milvus | chunk 向量、BM25/混合检索字段、图实体和关系向量 | 权限、文件状态 |
+| Neo4j | 可选的实体、关系和 chunk 关联 | 原文件、权限和检索排序 |
+| Redis | 知识库最小运行配置缓存 | 配置最终值、文件状态 |
+| Tasker 内存队列 | 当前 API 进程内的 coroutine 和顺序 | 跨进程可恢复的执行权 |
 
-Milvus 文档索引会把同一批 chunk 并发写入 PostgreSQL 与 Milvus；任一侧失败时，实现尝试清理两侧数据并抛错，文件最终进入 `error_indexing`。该链路采用补偿式双写，不提供跨存储事务。故障排查需要同时核对 PostgreSQL chunk、Milvus chunk 和文件状态。
+Milvus 索引会把 chunk 写入 PostgreSQL 和 Milvus。它不是跨存储事务：任一侧失败时会尝试补偿并把文件置为 `error_indexing`，排查时需要同时查看两侧。
 
-## Tasker 编排与恢复语义
+## Tasker 和恢复
 
-上传文件本身是同步对象存储动作；批量添加、解析、索引和图谱构建可以提交给进程内 `Tasker`。Tasker 把任务元数据、进度、结果与错误写入 PostgreSQL，但真正可执行的 coroutine 只存在于当前 API 进程的 `asyncio.Queue`，没有独立 worker 的可恢复投递语义。
+上传原文件是同步对象存储操作；批量添加、解析、索引和图谱构建可以交给进程内 Tasker。任务元数据、进度、结果和错误保存到 PostgreSQL，但真正执行的 coroutine 只存在当前 API 进程的 `asyncio.Queue`。
 
-服务重启时，Tasker 会重新读取任务记录，并把所有非终态任务标记为 `failed`：原来 `running` 的任务记为“服务重启时任务中断”，尚未运行的任务记为“服务重启时任务未继续执行”。它不会仅凭持久化 payload 自动重建 coroutine。取消操作也只是先持久化 `cancel_requested`，执行中的任务需要在约定检查点观察并退出。
+API 重启时，Tasker 会把非终态任务标记为 `failed`，不会仅凭持久化 payload 自动重建 coroutine。取消也是协作式的：先保存 `cancel_requested`，任务在检查点退出。任务失败不等于文件状态已经回滚，外部存储可能已经写入部分结果。
 
-批量“处理待解析/待入库文档”和图谱任务会按 payload 查找活跃任务，避免同一范围重复入队；这项去重只对当前 Tasker 所加载的任务集合负责。任务终态描述调度结果，文件记录状态才是每个文档解析或索引的业务结局。
+批量“待解析”和“待入库”入口按状态筛选文件，并对活跃任务去重。重试前保留故障现场，检查文件记录、MinIO、chunk、Milvus 和 Neo4j，再选择重新解析、重新索引或图谱修复。
 
-## Agent 可见性与工具激活
+## Agent 如何看到知识库
 
-Agent 构建 runtime context 时按 `uid` 查询用户可访问知识库，再与 Agent Context 的 `knowledges` 列表取交集，结果作为运行期快照保存在 `_visible_knowledge_bases`。知识库工具优先复用该快照，仅在字段缺失时重新解析；传入的 `kb_id`、`file_id` 或名称必须属于快照。运行中途发生的权限撤销不会立即刷新现有 context，需要在新的运行时准备阶段生效。
+运行时准备阶段先按用户权限读取知识库，再与 Agent 的 `Context.knowledges` 求交集，结果保存为 `_visible_knowledge_bases`。工具的 `kb_id`、`file_id` 和文件名必须属于这份运行时快照；新的 Run 会重新计算权限，正在运行的 Context 不会因中途撤权而自动刷新。
 
-知识库能力通过内置 `knowledge-base` Skill 暴露。模型读取该 Skill 的 `SKILL.md` 后，Skills middleware 才会开放七个依赖工具：`list_kbs`、`query_kb`、`find_kb_document`、`open_kb_document`、`get_mindmap`、`search_file` 和 `download_kb_file`。Skill 未激活时，这些工具会从模型可见列表中移除。ToolNode 注册只提供可执行实现，授权仍由可见集合和工具目标解析完成。
+知识库工具由内置 `knowledge-base` Skill 提供。模型读取该 Skill 的 `SKILL.md` 后，才会看到：
 
-推荐调用顺序是“列出可见库 → 检索候选片段 → 按 `file_id` 打开或定位原文”。`download_kb_file` 只把有权访问的原始二进制写入当前线程 `outputs`，供代码工具进一步处理；知识库不会整体挂载到 `/home/gem/kbs`。外部只读连接器通常只能完成 Query，全文打开、文件搜索和下载应以 executor 的实际错误为准。
+```text
+list_kbs、query_kb、find_kb_document、open_kb_document、
+get_mindmap、search_file、download_kb_file
+```
 
-## 权限、共享与 LITE 边界
+推荐顺序是：列出可见知识库 → 检索候选片段 → 用 `file_id` 打开或定位原文。`download_kb_file` 会把有权访问的原始二进制写入当前 Project 的 `outputs`，供后续工具处理。知识库不会映射为 `/home/gem/kbs` 沙盒目录。
 
-知识库的最终授权发生在后端依赖、manager 可见性查询和工具目标解析处。读取接口要求当前用户至少拥有 read 权限；更新配置、添加记录、解析、索引、删除和图谱管理要求对应 manage 权限。原文件上传入口还要求管理员身份，并在携带 `kb_id` 时继续校验该库的 manage 权限。共享规则由知识库记录与用户角色、部门等主体共同解析。前端路由守卫、按钮隐藏、prompt 提示和 schema omission 只控制呈现或缩小范围，不授予权限。
+## 权限和 LITE
 
-Agent 的 `knowledges` 配置只能缩小用户已经拥有的集合，不能扩大权限。SubAgent 沿用发起任务的用户身份，但从子 Agent 自己的 `config_json.context` 加载 `knowledges`，其配置集合可以与父 Agent 不同。工具按各自 runtime context 中的可见快照校验目标；新的 SubAgent 运行会在构建 context 时重新查询该用户权限。下载原件和读取私有解析图片也经后端鉴权代理，不能把 MinIO 对象 URL 当作公开授权凭证。
+知识库的最终授权由后端依赖、Manager 可见性查询和具体工具目标校验共同完成：
 
-LITE 模式下 `knowledge_capability_enabled()` 返回关闭：知识库 Skill 不注册，Context 的知识库选项被禁用，可见集合解析为空，知识库工具包也不应进入发布启动路径。关闭状态定义产品能力边界；普通服务故障必须显式失败，不能返回空检索结果掩盖异常。
+- 读取、检索、打开和下载需要 read 权限；
+- 创建、更新、添加文件、解析、索引、删除和图谱写操作需要 manage 权限；
+- 原文件上传入口要求管理员，并在传入 `kb_id` 时继续检查该知识库的 manage 权限；
+- 前端守卫、按钮隐藏、Agent 配置和提示词只控制呈现或缩小范围，不能授予权限。
 
-## 失败、重试与观察边界
+Agent 的 `knowledges` 只能缩小用户已有权限。子智能体使用自己的配置，但仍沿用发起用户的身份。私有解析图片通过带知识库权限校验的 API 读取，MinIO 对象 URL 不是授权凭证。
 
-- 解析失败或取消会把文件置为 `error_parsing` 并保存错误；再次解析允许从该状态重新抢占。批量“待解析”入口当前只扫描 `uploaded`，重试错误文件应明确选择文件。
-- 索引失败或取消会置为 `error_indexing`；批量“待入库”会扫描 `parsed` 和 `error_indexing`。重新索引也允许从 `indexed` 与旧 `done` 状态开始。
-- 索引发现 `markdown_file` 缺失时会把文件恢复为 `uploaded`，随后要求重新解析；该路径不会生成空索引。
-- Tasker 超时、取消或服务重启产生的任务 `failed` 不能直接推导文件状态；动作可能在写入部分外部存储后被中断，必须重新读取文件、chunk、向量和图谱状态。
-- Redis 配置缓存异常时 manager 应回源 PostgreSQL；不支持的知识库类型或已使用 executor 初始化失败会显式阻止初始化，不能静默换成其他持久化语义。
+LITE 模式不注册知识库、图谱和评估重运行时，也不注册 `knowledge-base` Skill。此时知识库资源为空；服务故障也不能用“空检索结果”伪装成 LITE 行为。
 
-恢复操作从 PostgreSQL 文件状态和错误信息开始，再按状态检查 MinIO、PostgreSQL chunk、Milvus 与 Neo4j。重新提交任务前，先保留故障现场并确认同一文件没有活跃执行 Owner，再选择重新解析、重新索引或图谱修复入口。
+## 失败和重试
+
+- 解析失败或取消：文件进入 `error_parsing`，查看错误并重新提交解析；批量待解析入口只扫描 `uploaded`。
+- 索引失败或取消：文件进入 `error_indexing`，检查分块、嵌入和存储后重新入库；批量待入库入口扫描 `parsed` 和 `error_indexing`。
+- 索引缺少 Markdown：文件回到 `uploaded`，必须重新解析，不会生成空索引。
+- Tasker 失败、超时或重启：只能说明后台动作未完成，不能推断外部存储没有部分写入。
+- Redis 缓存异常：Manager 回源 PostgreSQL；不支持的知识库类型或 executor 初始化失败会明确阻止操作。
 
 ## 源码定位与验证
 
-| 要确认的事实 | 语义 Owner |
-| --- | --- |
-| 路由权限、上传、批量任务与状态筛选 | [knowledge_router.py](https://github.com/xerrors/Yuxi/blob/main/backend/server/routers/knowledge_router.py) |
-| 配置回源、可见性与 executor 调度 | [knowledge/manager.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/manager.py) |
-| 通用文件状态与解析流程 | [knowledge/base.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/base.py) |
-| 分块、双写、Milvus 检索与重索引 | [implementations/milvus.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/implementations/milvus.py) |
-| 外部只读能力边界 | [read_only_connectors.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/implementations/read_only_connectors.py) |
-| Tasker 持久化与重启结局 | [task_service.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/services/task_service.py) |
-| Agent 可见集合 | [knowledge_base_backend.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/agents/backends/knowledge_base_backend.py) |
-| Skill 工具门控与七个工具实现 | [middlewares/skills.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/agents/middlewares/skills.py)、[kbs/tools.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/agents/toolkits/kbs/tools.py) |
-| 知识图谱状态与 Neo4j 写入 | [milvus_graph_service.py](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/graphs/milvus_graph_service.py) |
+- [知识库路由](https://github.com/xerrors/Yuxi/blob/main/backend/server/routers/knowledge_router.py)：权限、上传、任务和状态筛选
+- [KnowledgeBaseManager](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/manager.py)：配置回源、可见性和 executor 调度
+- [知识库基类](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/base.py)：文件状态和解析流程
+- [Milvus executor](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/implementations/milvus.py)：分块、双写、检索和重索引
+- [只读连接器](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/knowledge/implementations/read_only_connectors.py)：Dify/Notion 能力边界
+- [Tasker](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/services/task_service.py)：任务持久化和重启结局
+- [知识库工具](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/agents/toolkits/kbs/tools.py)：Agent 目标校验和工具实现
+- [知识库 unit tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/knowledge)
+- [权限与路由 tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/routers)
+- [知识库 HTTP integration](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_knowledge_router.py)
+- [外部知识库 integration](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_knowledge_external_router.py)
 
-纯解析或配置变化先运行对应 knowledge unit；权限、上传、状态迁移和真实存储副作用至少运行 `backend/test/integration/api/test_knowledge_router.py`，外部连接器运行 `test_knowledge_external_router.py`。Tasker 语义用 `test_tasker_behavior.py` 验证，LITE import 边界用 `test_lite_import_boundary.py` 验证。新增 guard 必须包含能恢复目标缺陷的负向案例，并从 PostgreSQL、MinIO、Milvus 或协议结果读取最终事实。
+修改状态、权限、存储或 Agent 工具链路时，至少运行对应 unit 和真实 HTTP integration；涉及外部存储时，从 PostgreSQL、MinIO、Milvus 或 Neo4j 回读最终结果。

@@ -1,93 +1,107 @@
 # 工具系统
 
-Yuxi 的工具系统基于注册机制，支持多种工具类型的动态组装。
+Yuxi 的工具分成三层：内置工具、知识库工具和 MCP 工具。Graph 创建时准备可执行工具，运行时再根据用户权限、Agent 配置和 Skill 激活状态决定模型能看到什么。
 
-## 工具注册机制
+## 注册一个内置工具
 
-Yuxi 的工具系统采用 `@tool` 装饰器注册机制，核心位于 `backend/package/yuxi/agents/toolkits/registry.py`。
-
-### @tool 装饰器
+普通内置工具使用 `@tool` 注册：
 
 ```python
 from yuxi.agents.toolkits.registry import tool
 
+
 @tool(category="buildin", tags=["示例"], display_name="示例工具")
 def example_tool(text: str) -> str:
-    """示例工具：返回处理后的文本"""
-    ...
+    """返回处理后的文本。"""
+    return text
 ```
 
-装饰器参数：
-- **category**: 工具分类，用于分组，例如 `buildin`、`knowledge`、`debug`
-- **tags**: 标签列表，用于前端展示
-- **display_name**: 显示名称（给人看的名字）
-- **icon**: 图标名称（可选）
+- `category` 用于前端分组，常见值是 `buildin`、`knowledge` 和 `debug`；
+- `tags` 用于展示和筛选；
+- `display_name` 是给用户看的名称，工具 ID 是给代码和模型协议使用的稳定名称；
+- 工具模块需要被 `toolkits` 包导入，装饰器才会执行注册。
 
-### 自动发现
+工具的注册不等于授权。产生文件、网络或数据库副作用的工具必须在执行边界再次校验当前用户和目标资源。
 
-导入 `toolkits` 包时会自动触发注册：
+## 当前内置能力
 
-```python
-from yuxi.agents.toolkits import buildin, debug  # 触发模块内 @tool 装饰器执行
-```
+常用内置工具包括：
 
-`toolkits/__init__.py` 会导入 `buildin` 与 `debug` 模块。知识库工具通过内置 `knowledge-base` Skill 的依赖显式注册，默认工具列表不包含这些工具。
+| 工具 | 作用 |
+| --- | --- |
+| `ask_user_question` | 等待用户回答交互式问题 |
+| `ocr_parse_file` | 把工作区中受支持的 PDF、Office 或图片转换为 Markdown |
+| `present_artifacts` | 展示当前用户可见的文件产物 |
+| `install_skill` | 从允许的沙盒路径或 Git 来源安装个人 Skill；子智能体不可用 |
+| `web_search` | 使用已配置的豆包或 Tavily 搜索网页 |
 
-## 工具分类
+文件读写和命令执行由 Agent 的 Sandbox backend 提供。`present_artifacts` 推荐展示当前 Project 的 `outputs/` 文件；`large_tool_results` 和会话摘要等内部文件不会作为交付物展示。
 
-### 内置工具 (buildin)
+图片生成能力由内置 `image-gen` Skill 提供，不再作为独立的 Python 工具注册。具体依赖和文件位置由该 Skill 说明。
 
-| 工具 | 说明 |
-|------|------|
-| `ask_user_question` | 向用户发起交互式提问 |
-| `ocr_parse_file` | 将 Project Workdir、User Data 或授权 Skill 中的 PDF、Office 或图片文件转换为 Markdown |
-| `present_artifacts` | 展示当前用户可见范围内的任意普通文件，推荐使用 Project `outputs/` |
-| `install_skill` | 从沙盒路径或 Git 来源安装当前用户私有 Skill，并返回 `SKILL.md` 路径供当前主智能体读取；子智能体禁用 |
-| `tavily_search` | Tavily 网页搜索（需配置 `TAVILY_API_KEY`） |
+## 知识库工具
 
-Qwen-Image 生成能力已迁移为内置 Skill `image-gen`。模型调用与图片下载在 Agent 沙盒中完成，生成后的图片保存到当前 Project Workdir 的 `outputs/`，再通过 `present_artifacts` 展示。
+知识库工具以 `@tool(category="knowledge")` 注册，但不默认出现在模型工具列表。Agent 激活内置 `knowledge-base` Skill 后，Skills middleware 才会向模型开放：
 
-### 知识库工具 (kbs)
+| 工具 | 作用 |
+| --- | --- |
+| `list_kbs` | 列出当前运行可见的知识库 |
+| `query_kb` | 按 `kb_id` 检索片段，返回 `kb_id`、`file_id` 和内容 |
+| `find_kb_document` | 在指定文件中按关键词或正则定位内容 |
+| `open_kb_document` | 按 `file_id` 分段读取解析后的文档 |
+| `get_mindmap` | 读取知识导图 |
+| `search_file` | 按文件名搜索可见知识库中的文件 |
+| `download_kb_file` | 把有权限的原始文件下载到当前 Project 的 `outputs/` |
 
-知识库工具使用 `@tool(category="knowledge")` 注册，并通过内置 `knowledge-base` Skill 的 `tool_dependencies` 按需加载。`get_common_kb_tools()` 仍可用于直接获取完整工具列表：
+工具参数中的 `kb_id`、`file_id` 和文件名都会在工具执行处重新检查，不能用模型提示词或 Agent 配置绕过知识库权限。知识库不会挂载为沙盒目录，读取方式见[知识库机制详解](../mechanisms/knowledge-base.md)。
+
+需要在 Python 中直接取得知识库工具时：
 
 ```python
 from yuxi.agents.toolkits.kbs import get_common_kb_tools
 
 kb_tools = get_common_kb_tools()
-# 返回 7 个工具；具体顺序以 get_common_kb_tools() 为准
 ```
 
-| 工具 | 说明 |
-|------|------|
-| `list_kbs` | 列出用户可访问的知识库 |
-| `get_mindmap` | 获取知识库的思维导图结构 |
-| `query_kb` | 按 `kb_id` 检索内容，返回结构化的 `kb_id`、`file_id` 与命中片段 |
-| `find_kb_document` | 在已知文件内按关键词或正则定位内容 |
-| `open_kb_document` | 按 `file_id` 分段打开知识库文档（默认窗口 1800 行） |
-| `search_file` | 按文件名在指定或全部可见知识库中搜索文件 |
-| `download_kb_file` | 把有权访问的原始文件下载到当前线程沙盒 `outputs` |
+返回的具体顺序由函数实现维护，不要把顺序当作协议。
 
-工具注册提供可执行实现。模型可见性由 Skills middleware 激活控制，目标访问范围由工具侧校验控制。完整边界见[知识库机制详解](../mechanisms/knowledge-base.md)。
+## 工具组装流程
 
-## 工具组装
+内置 Agent 创建 Graph 时执行：
 
-工具组装在 Graph 创建阶段完成。内置 Agent 会先调用 `prepare_agent_runtime_context` 过滤当前用户可用资源，再调用 `resolve_configured_runtime_tools(context)` 加载已配置工具：
+1. `prepare_agent_runtime_context` 按当前用户权限过滤工具、知识库、MCP、Skills 和子智能体。
+2. `resolve_configured_runtime_tools(context)` 注册 Agent 配置和可见 Skill 依赖的可执行本地工具，并加载配置的 MCP 工具。
+3. `SkillsMiddleware` 根据当前已预加载或已激活的 Skill，向模型请求开放相应工具 schema。
+4. 工具执行器再次检查具体文件、知识库、MCP 和用户身份。
 
-1. **基础工具**：从 `context.tools` 中按名称筛选
-2. **MCP 工具**：根据 `context.mcps` 加载 MCP 服务器工具
-3. **Skill 依赖工具**：本地依赖在创建 Graph 时注册，`SkillsMiddleware` 在 Skill 被预加载或动态激活后向模型开放对应本地与 MCP 工具，包括 `knowledge-base` 绑定的知识库工具
-
-```python
-from yuxi.agents.context import prepare_agent_runtime_context
-from yuxi.agents.toolkits.service import resolve_configured_runtime_tools
-
-context = await prepare_agent_runtime_context(context, user=current_user, db=db)
-tools = await resolve_configured_runtime_tools(context)
+```text
+Agent 配置 + 用户权限
+        ↓
+运行时资源快照
+        ↓
+可执行工具注册 ──→ Skill 激活门控 ──→ 模型可见工具
+        ↓
+执行处的目标授权
 ```
 
-## Skills 集成
+“可执行”与“模型可见”是两件事：工具可以先注册到 ToolNode，等 Skill 激活后才对模型开放；模型看见某个工具也不代表它可以访问任意资源。
 
-Skills 与工具是两种不同的扩展机制。工具是具体的功能实现，而 Skills 是包含提示词、工具依赖和元数据的完整技能包。当前用户授权的共享与内置 Skill 从 `/home/gem/skills/<slug>/...` 只读投影读取；个人 Skill 从 `/home/gem/user-data/agents/skills/<slug>/...` 读取。`context.skills` 只决定哪些 Skill 进入 Prompt 并可激活工具。
+## MCP 和 Skills
 
-关于 Skills 的详细机制，请参阅 [Skills 管理](./skills-management.md)。
+MCP 工具由已启用的 MCP 服务器提供，服务器配置和工具禁用列表由 MCP 管理链路读取。Skills 可以声明本地工具、MCP 和其他 Skill 依赖：预加载 Skill 从首轮开放依赖，普通 Skill 在读取 `SKILL.md` 激活后开放依赖。
+
+- 工具实现放在 `toolkits`；
+- Skill 的使用说明和依赖放在 Skill 目录；
+- MCP 的连接和工具发现由 MCP 服务负责；
+- Agent 配置只选择资源范围，不直接复制工具实现。
+
+详细规则见 [Skills 管理](./skills-management.md) 和 [MCP 集成](./mcp-integration.md)。
+
+## 新增工具时检查
+
+- 工具是否属于内置工具、知识库工具、MCP 还是 Skill；
+- 是否需要在 `ToolNode` 注册，是否需要 Skill 激活后才让模型看见；
+- 产生副作用时，执行处是否有用户、路径和资源权限校验；
+- 错误是否以结构化结果返回，并保留可排查信息；
+- 前端展示名称是否来自稳定元数据；
+- 是否补充纯逻辑和真实 HTTP/文件链路的相应测试。
