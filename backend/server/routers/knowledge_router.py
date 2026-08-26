@@ -795,7 +795,10 @@ async def add_documents(
 
                 try:
                     file_meta = await knowledge_base.add_file_record(
-                        kb_id, item, params=params, operator_id=current_user.uid
+                        kb_id,
+                        item,
+                        params=_params_for_uploaded_document_item(item, params),
+                        operator_id=current_user.uid,
                     )
                     added_files.append(
                         {

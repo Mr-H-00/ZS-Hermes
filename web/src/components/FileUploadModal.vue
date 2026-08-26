@@ -429,6 +429,25 @@ const isSupportedExtension = (fileName) => {
   return supportedFileTypes.value.includes(ext) || ext === '.zip'
 }
 
+const isHiddenPath = (name, relativePath) => {
+  if (name && name.startsWith('.')) return true
+  if (relativePath) {
+    const parts = relativePath.split('/')
+    if (parts.some((part) => part.startsWith('.'))) return true
+  }
+  return false
+}
+
+const isSupportedUploadFile = (file) => {
+  if (!file) return false
+  const name = file.name || ''
+  const relativePath = file.webkitRelativePath || file.originFileObj?.webkitRelativePath || ''
+  if (isHiddenPath(name, relativePath)) {
+    return false
+  }
+  return isSupportedExtension(name)
+}
+
 const loadSupportedFileTypes = async () => {
   try {
     const data = await fileApi.getSupportedFileTypes()
@@ -457,6 +476,9 @@ const MAX_UPLOAD_CONCURRENCY = 10
 
 // 文件列表
 const fileList = ref([])
+const validFileList = computed(() => {
+  return fileList.value.filter((file) => isSupportedUploadFile(file))
+})
 
 const uploadQueue = ref([])
 const activeUploadCount = ref(0)
@@ -464,18 +486,33 @@ const uploadTaskStatus = ref({})
 const uploadTaskProgress = ref({})
 const progressExpanded = ref(false)
 
-const totalUploadCount = computed(() => fileList.value.length)
+const totalUploadCount = computed(() => validFileList.value.length)
+const validUidSet = computed(
+  () => new Set(validFileList.value.map((file) => file.uid).filter(Boolean))
+)
 const queuedUploadCount = computed(
-  () => Object.values(uploadTaskStatus.value).filter((status) => status === 'queued').length
+  () =>
+    Object.entries(uploadTaskStatus.value).filter(
+      ([uid, status]) => validUidSet.value.has(uid) && status === 'queued'
+    ).length
 )
 const uploadingUploadCount = computed(
-  () => Object.values(uploadTaskStatus.value).filter((status) => status === 'uploading').length
+  () =>
+    Object.entries(uploadTaskStatus.value).filter(
+      ([uid, status]) => validUidSet.value.has(uid) && status === 'uploading'
+    ).length
 )
 const successUploadCount = computed(
-  () => Object.values(uploadTaskStatus.value).filter((status) => status === 'done').length
+  () =>
+    Object.entries(uploadTaskStatus.value).filter(
+      ([uid, status]) => validUidSet.value.has(uid) && status === 'done'
+    ).length
 )
 const failedUploadCount = computed(
-  () => Object.values(uploadTaskStatus.value).filter((status) => status === 'error').length
+  () =>
+    Object.entries(uploadTaskStatus.value).filter(
+      ([uid, status]) => validUidSet.value.has(uid) && status === 'error'
+    ).length
 )
 const hasPendingUploads = computed(() => queuedUploadCount.value + uploadingUploadCount.value > 0)
 
@@ -484,9 +521,8 @@ const overallUploadProgress = computed(() => {
   if (!total) {
     return 0
   }
-  const validUidSet = new Set(fileList.value.map((file) => file.uid).filter(Boolean))
   let sum = 0
-  for (const uid of validUidSet) {
+  for (const uid of validUidSet.value) {
     sum += uploadTaskProgress.value[uid] || 0
   }
   return Math.round(sum / total)
@@ -495,14 +531,15 @@ const overallUploadProgress = computed(() => {
 const showAggregateProgress = computed(() => totalUploadCount.value >= MAX_UPLOAD_CONCURRENCY)
 
 const failedDetailItems = computed(() => {
-  return fileList.value
+  return validFileList.value
     .map((file) => {
       const uid = file.uid
       const rawStatus = uploadTaskStatus.value[uid] || file.status || 'unknown'
       const detail = file?.response?.detail || file?.error?.message || ''
+      const relativePath = file?.webkitRelativePath || file?.originFileObj?.webkitRelativePath
       return {
         uid,
-        name: file.name || '未命名文件',
+        name: relativePath || file.name || '未命名文件',
         status: rawStatus,
         errorText: detail || '上传失败'
       }
@@ -717,7 +754,7 @@ const isOcrEnabled = computed(() => {
 
 // 计算属性：是否有PDF或图片文件
 const hasPdfOrImageFiles = computed(() => {
-  if (fileList.value.length === 0) {
+  if (validFileList.value.length === 0) {
     return false
   }
 
@@ -725,7 +762,7 @@ const hasPdfOrImageFiles = computed(() => {
   const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp']
   const ocrExtensions = [...pdfExtensions, ...imageExtensions]
 
-  return fileList.value.some((file) => {
+  return validFileList.value.some((file) => {
     if (file.status !== 'done') {
       return false
     }
@@ -742,11 +779,11 @@ const hasPdfOrImageFiles = computed(() => {
 
 // 计算属性：是否有ZIP文件
 const hasZipFiles = computed(() => {
-  if (fileList.value.length === 0) {
+  if (validFileList.value.length === 0) {
     return false
   }
 
-  return fileList.value.some((file) => {
+  return validFileList.value.some((file) => {
     if (file.status !== 'done') {
       return false
     }
@@ -814,8 +851,14 @@ const handleCancel = () => {
 }
 
 const beforeUpload = (file) => {
+  const relativePath = file?.webkitRelativePath || file?.originFileObj?.webkitRelativePath
+  if (isHiddenPath(file?.name, relativePath)) {
+    return Upload.LIST_IGNORE
+  }
   if (!isSupportedExtension(file?.name)) {
-    message.error(`不支持的文件类型：${file?.name || '未知文件'}`)
+    if (!isFolderUpload.value) {
+      message.error(`不支持的文件类型：${file?.name || '未知文件'}`)
+    }
     return Upload.LIST_IGNORE
   }
   return true
@@ -1258,7 +1301,8 @@ const chunkData = async () => {
   const items = []
   const content_hashes = {}
   const file_sizes = {}
-  for (const file of fileList.value) {
+  const source_paths = {}
+  for (const file of validFileList.value) {
     if (file.status !== 'done') continue
     const file_path = file.response?.file_path
     const content_hash = file.response?.content_hash
@@ -1267,6 +1311,11 @@ const chunkData = async () => {
     items.push(file_path)
     if (content_hash) content_hashes[file_path] = content_hash
     if (Number.isFinite(file.response?.size)) file_sizes[file_path] = file.response.size
+
+    const relativePath = file.webkitRelativePath || file.originFileObj?.webkitRelativePath
+    if (relativePath) {
+      source_paths[file_path] = relativePath
+    }
 
     // 检查是否需要OCR
     const ext = file_path.substring(file_path.lastIndexOf('.')).toLowerCase()
@@ -1287,6 +1336,9 @@ const chunkData = async () => {
   try {
     store.state.chunkLoading = true
     const params = { ...processingParams.value, content_hashes, file_sizes }
+    if (Object.keys(source_paths).length > 0) {
+      params.source_paths = source_paths
+    }
     if (autoIndex.value) {
       params.auto_index = true
       Object.assign(params, buildAutoIndexParams())
