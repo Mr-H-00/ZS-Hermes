@@ -51,8 +51,10 @@ def verify_policy(root: Path) -> list[str]:
         '"packages/yuxi-cli/uv.lock"',
         '"web/package.json"',
         '"web/pnpm-lock.yaml"',
+        '"web/pnpm-workspace.yaml"',
         '"docs/package.json"',
         '"docs/pnpm-lock.yaml"',
+        '"docs/pnpm-workspace.yaml"',
         '"scripts/dependency-audit-fixtures/**"',
     )
     pull_request_paths = workflow.split("  pull_request:\n", 1)[-1].split(

@@ -68,7 +68,7 @@ verify-trust:
 	python3 -m unittest scripts.test_verify_engineering_contracts
 
 audit-dependencies:
-	cd backend && uv audit --locked --no-dev --ignore GHSA-h35f-9h28-mq5c --ignore GHSA-rrmf-rvhw-rf47
+	cd backend && uv audit --locked --no-dev
 	cd packages/yuxi-cli && uv audit --locked --no-dev
 	cd web && pnpm audit --audit-level=high --prod
 	cd docs && pnpm audit --audit-level=high --prod
