@@ -8,6 +8,7 @@ from yuxi.agents.backends import (
     create_agent_filesystem_middleware,
     sync_agent_context_skills,
 )
+from yuxi.agents.backends.paths import runtime_workdir_path
 from yuxi.agents.context import (
     DEFAULT_SUMMARY_KEEP_MESSAGES,
     DEFAULT_SUMMARY_L2_TRIGGER_RATIO,
@@ -84,7 +85,8 @@ async def _build_middlewares(context, backend):
         ]
     )
     approval_middleware = create_tool_approval_middleware(
-        normalize_tool_approval_mode(getattr(context, "tool_approval_mode", "default"))
+        normalize_tool_approval_mode(getattr(context, "tool_approval_mode", "default")),
+        current_project_path=runtime_workdir_path(context.workdir_relative_path),
     )
     if approval_middleware:
         middlewares.append(approval_middleware)
