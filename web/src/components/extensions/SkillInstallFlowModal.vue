@@ -232,7 +232,7 @@ import {
   PackageOpen,
   X as XIcon,
   XCircle
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import { skillApi } from '@/apis/skill_api'
 import { useUserStore } from '@/stores/user'

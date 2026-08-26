@@ -69,7 +69,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { Eye, EyeOff, Plus, Trash2 } from 'lucide-vue-next'
+import { Eye, EyeOff, Plus, Trash2 } from '@lucide/vue'
 
 const props = defineProps({
   modelValue: {

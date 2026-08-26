@@ -93,7 +93,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { Loader, ChevronsUpDown, ChevronsDownUp, XCircle, CheckCircle } from 'lucide-vue-next'
+import { Loader, ChevronsUpDown, ChevronsDownUp, XCircle, CheckCircle } from '@lucide/vue'
 import { useAgentStore } from '@/stores/agent'
 import { storeToRefs } from 'pinia'
 import CollapseTransition from '@/components/common/CollapseTransition.vue'

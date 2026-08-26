@@ -59,7 +59,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { Pencil } from 'lucide-vue-next'
+import { Pencil } from '@lucide/vue'
 import { configOptionsApi } from '@/apis/system_api'
 
 const SOURCE_OPTION_KEY = 'remote_skill_source_policy'

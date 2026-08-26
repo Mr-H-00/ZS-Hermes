@@ -23,7 +23,7 @@ Web、docs、backend 与 CLI 锁文件按当前 manifest 约束刷新。后端�
 
 ## 后果
 
-pnpm 11 frozen install 在本地、CI 和 Web Docker build 中读取同一 workspace 安全配置。后端与 CLI 使用 uv 0.12.6 生成的锁文件，API Docker build 从同版本镜像复制 uv。Web 没有可更新的正常依赖；`lucide-vue-next` 1.0.0 仍被上游标记 deprecated，但不存在更高版本，替换为另一个包属于独立迁移而不是版本更新。docs 和直接 Python 依赖没有剩余 outdated 项。
+pnpm 11 frozen install 在本地、CI 和 Web Docker build 中读取同一 workspace 安全配置。后端与 CLI 使用 uv 0.12.6 生成的锁文件，API Docker build 从同版本镜像复制 uv。工具链刷新时 Web 没有可更新的正常依赖；当时 deprecated 的 `lucide-vue-next` 不存在更高版本，替换包被留给后续独立迁移，现已由[迁移 Lucide Vue 官方包](2026-08-26-lucide-vue-package-migration.md)完成。docs 和直接 Python 依赖没有剩余 outdated 项。
 
 版本查询与 Dependabot 状态是本次更新时间点的证据，之后会随上游漂移。真实 PostgreSQL integration、完整 E2E、外部 provider 和 Windows PowerShell 7 初始化脚本未由本次验证覆盖。
 
@@ -38,5 +38,5 @@ pnpm 11 frozen install 在本地、CI 和 Web Docker build 中读取同一 works
 - `make audit-dependencies`：四个生产依赖集合无已知漏洞，Python/Node 漏洞 fixture 负控均按预期失败并命中目标 advisory。
 - `make audit-licenses`：backend 与 CLI 许可证清单成功生成。
 - `python3 scripts/verify_engineering_contracts.py && python3 -m unittest scripts.test_verify_engineering_contracts scripts.test_dependency_update_policy`：通过，66 tests passed。
-- `uv lock --check`（backend、CLI）、npm/uv outdated 检查和 `git diff --check`：通过；Web 仅报告无更新版本的 deprecated `lucide-vue-next`。
+- `uv lock --check`（backend、CLI）、npm/uv outdated 检查和 `git diff --check`：通过；工具链刷新时 Web 仅报告无更新版本的 deprecated `lucide-vue-next`，随后已独立迁移。
 - 独立 Reviewer：No blocking findings；未审查工作区同时存在的文件夹上传并发变更。

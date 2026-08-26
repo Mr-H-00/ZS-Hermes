@@ -92,7 +92,7 @@ import { getColorByIndex } from '@/utils/chartColors'
 import { useThemeStore } from '@/stores/theme'
 import { formatNumber } from '@/utils/dashboard'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import { Bot, MessageSquare, Wrench } from 'lucide-vue-next'
+import { Bot, MessageSquare, Wrench } from '@lucide/vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import DashboardMetricCard from './DashboardMetricCard.vue'
 

@@ -266,7 +266,7 @@ import {
   UserStar,
   RefreshCw,
   Search
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { formatDateTime } from '@/utils/time'
 import { isPasswordLongEnough, MIN_PASSWORD_LENGTH } from '@/utils/passwordValidation'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'

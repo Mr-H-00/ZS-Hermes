@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { Search } from 'lucide-vue-next'
+import { Search } from '@lucide/vue'
 
 const searchModel = defineModel('search', { type: String, default: '' })
 

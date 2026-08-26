@@ -463,7 +463,7 @@ import {
   Pencil,
   Search,
   Upload
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import FileTable from '@/components/FileTable.vue'

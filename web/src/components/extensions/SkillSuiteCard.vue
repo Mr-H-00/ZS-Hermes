@@ -22,7 +22,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Boxes, ChevronRight } from 'lucide-vue-next'
+import { Boxes, ChevronRight } from '@lucide/vue'
 
 const props = defineProps({
   suite: { type: Object, required: true },

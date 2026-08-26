@@ -89,7 +89,7 @@
 <script setup>
 import { computed, h, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { ChevronDown, Loader2, MoreVertical, Pin, PinOff, SquarePen, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, Loader2, MoreVertical, Pin, PinOff, SquarePen, Trash2 } from '@lucide/vue'
 import { parseToShanghai } from '@/utils/time'
 
 const props = defineProps({

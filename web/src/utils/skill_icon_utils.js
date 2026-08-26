@@ -9,7 +9,7 @@ import {
   Paintbrush,
   Sheet,
   WandSparkles
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 
 const SKILL_ICON_RULES = [
   { keywords: ['design'], icon: Paintbrush },

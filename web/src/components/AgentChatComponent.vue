@@ -813,7 +813,7 @@ import {
   Play,
   RefreshCw,
   Trash2
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import { CheckCircleOutlined, CloseCircleOutlined, SyncOutlined } from '@ant-design/icons-vue'

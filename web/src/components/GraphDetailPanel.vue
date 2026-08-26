@@ -77,7 +77,7 @@
 
 <script setup>
 import { computed, reactive, watch, defineComponent, h } from 'vue'
-import { X } from 'lucide-vue-next'
+import { X } from '@lucide/vue'
 
 const STACK_THRESHOLD = 50
 const TRUNCATE_LIMIT = 100

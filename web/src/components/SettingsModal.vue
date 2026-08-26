@@ -228,7 +228,7 @@ import {
   User,
   Users,
   X
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import AccountSettingsComponent from '@/components/AccountSettingsComponent.vue'
 import AgentEnvSettingsCard from '@/components/AgentEnvSettingsCard.vue'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'

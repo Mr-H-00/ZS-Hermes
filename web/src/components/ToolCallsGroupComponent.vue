@@ -55,7 +55,7 @@
 
 <script setup>
 import { computed, ref, watch, inject } from 'vue'
-import { ChevronDown, Atom } from 'lucide-vue-next'
+import { ChevronDown, Atom } from '@lucide/vue'
 import { storeToRefs } from 'pinia'
 import { useAgentStore } from '@/stores/agent'
 import { ToolCallRenderer } from '@/components/ToolCallingResult'

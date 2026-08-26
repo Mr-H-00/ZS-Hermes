@@ -36,7 +36,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { Check, Copy, FoldVertical, UnfoldVertical } from 'lucide-vue-next'
+import { Check, Copy, FoldVertical, UnfoldVertical } from '@lucide/vue'
 import { message } from 'ant-design-vue'
 import JsonTreeNode from '@/components/common/JsonTreeNode.vue'
 import { copyTextToClipboard } from '@/utils/clipboard'

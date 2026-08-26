@@ -88,7 +88,7 @@
 <script setup>
 import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { RefreshCw, Map as MapIcon, Sparkles, Maximize2, Plus } from 'lucide-vue-next'
+import { RefreshCw, Map as MapIcon, Sparkles, Maximize2, Plus } from '@lucide/vue'
 import { mindmapApi } from '@/apis/knowledge_api'
 import { Markmap } from 'markmap-view'
 import { Transformer } from 'markmap-lib'

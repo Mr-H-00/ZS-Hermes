@@ -61,7 +61,7 @@ import * as echarts from 'echarts'
 import { getColorPalette } from '@/utils/chartColors'
 import { useThemeStore } from '@/stores/theme'
 import { formatNumber, formatStorageSize } from '@/utils/dashboard'
-import { Database, FileText, HardDrive } from 'lucide-vue-next'
+import { Database, FileText, HardDrive } from '@lucide/vue'
 import DashboardMetricCard from './DashboardMetricCard.vue'
 
 // CSS 变量解析工具函数

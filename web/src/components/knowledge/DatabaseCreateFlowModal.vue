@@ -220,7 +220,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { DatabaseZap, X } from 'lucide-vue-next'
+import { DatabaseZap, X } from '@lucide/vue'
 import AiTextarea from '@/components/AiTextarea.vue'
 import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
 import ShareConfigForm from '@/components/ShareConfigForm.vue'

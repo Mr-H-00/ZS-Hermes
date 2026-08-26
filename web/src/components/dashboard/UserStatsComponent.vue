@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { Activity, CalendarDays, Users } from 'lucide-vue-next'
+import { Activity, CalendarDays, Users } from '@lucide/vue'
 import { formatNumber } from '@/utils/dashboard'
 import DashboardActivityHeatmap from './DashboardActivityHeatmap.vue'
 import DashboardMetricCard from './DashboardMetricCard.vue'

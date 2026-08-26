@@ -62,7 +62,7 @@ import {
   Heart,
   TrendingUp,
   TrendingDown
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { formatNumber } from '@/utils/dashboard'
 import DashboardMetricCard from './DashboardMetricCard.vue'
 import DashboardMetricGrid from './DashboardMetricGrid.vue'

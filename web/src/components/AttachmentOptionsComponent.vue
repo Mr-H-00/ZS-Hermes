@@ -94,7 +94,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { ArrowLeft, ChevronRight, Database, FileText, Image, WandSparkles } from 'lucide-vue-next'
+import { ArrowLeft, ChevronRight, Database, FileText, Image, WandSparkles } from '@lucide/vue'
 import { message } from 'ant-design-vue'
 import { uploadMultimodalImage } from '@/utils/multimodal_image_upload'
 import { getMentionIconComponent } from '@/utils/mention_icon_utils'

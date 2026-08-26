@@ -17,7 +17,7 @@ import {
   Network,
   RefreshCw,
   SquareTerminal
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 
 export const TOOL_ICON_MAP = {
   ask_user_question: HelpCircle,

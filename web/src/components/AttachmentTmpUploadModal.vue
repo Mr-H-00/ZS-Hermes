@@ -88,7 +88,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { X } from 'lucide-vue-next'
+import { X } from '@lucide/vue'
 import { threadApi } from '@/apis'
 import { useConfigStore } from '@/stores/config'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'

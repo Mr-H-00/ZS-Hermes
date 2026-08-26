@@ -1,5 +1,5 @@
 import { h } from 'vue'
-import { Database, DatabaseZap } from 'lucide-vue-next'
+import { Database, DatabaseZap } from '@lucide/vue'
 
 const ICON_BASE = 'https://registry.npmmirror.com/@lobehub/icons-static-svg/latest/files/icons'
 

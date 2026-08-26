@@ -292,7 +292,7 @@ import {
   Lock as LockIcon,
   Key as KeyIcon,
   AlertCircle as ExclamationCircleIcon
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { tryAutoStartOIDC, sanitizeRedirect } from '@/utils/oidcAutoStart'
 import { MIN_PASSWORD_LENGTH } from '@/utils/passwordValidation'
 

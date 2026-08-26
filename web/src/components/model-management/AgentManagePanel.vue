@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { Plus, RefreshCw, Trash2, SquarePen, Bot, ChevronRight } from 'lucide-vue-next'
+import { Plus, RefreshCw, Trash2, SquarePen, Bot, ChevronRight } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 
 import { agentApi } from '@/apis/agent_api'

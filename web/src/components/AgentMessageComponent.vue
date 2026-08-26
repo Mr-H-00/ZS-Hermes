@@ -158,7 +158,7 @@
 <script setup>
 import { computed, ref, onUnmounted } from 'vue'
 import RefsComponent from '@/components/RefsComponent.vue'
-import { Brain, Check, ChevronDown, ChevronRight, Copy, LoaderCircle, X } from 'lucide-vue-next'
+import { Brain, Check, ChevronDown, ChevronRight, Copy, LoaderCircle, X } from '@lucide/vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import CollapseTransition from '@/components/common/CollapseTransition.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
