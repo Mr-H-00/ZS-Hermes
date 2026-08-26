@@ -220,6 +220,12 @@ class ConversationRepository:
         conversation.updated_at = utc_now_naive()
         await self.db.flush()
 
+    async def set_model_spec(self, conversation: Conversation, model_spec: str) -> None:
+        """在请求事务内更新对话绑定模型。"""
+        metadata = dict(conversation.extra_metadata or {})
+        metadata["model_spec"] = model_spec
+        await self._save_metadata(conversation, metadata)
+
     async def _lock_conversation_by_id(self, conversation_id: int) -> Conversation | None:
         """锁定会话元数据，串行化同一线程的附件更新。"""
         result = await self.db.execute(select(Conversation).where(Conversation.id == conversation_id).with_for_update())

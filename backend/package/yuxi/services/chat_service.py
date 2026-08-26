@@ -1621,10 +1621,14 @@ async def get_agent_state_view(
             uid=current_uid,
         )
         latest_run = await run_repo.get_latest_run_by_thread_for_user(thread_id, current_uid)
-        if latest_run and isinstance(latest_run.input_payload, dict):
+        conversation_model_spec = (getattr(conversation, "extra_metadata", None) or {}).get("model_spec")
+        if isinstance(conversation_model_spec, str) and conversation_model_spec.strip():
+            input_context["model"] = conversation_model_spec.strip()
+        elif conversation.status == "subagent" and latest_run and isinstance(latest_run.input_payload, dict):
             model_spec = latest_run.input_payload.get("model_spec")
             if isinstance(model_spec, str) and model_spec.strip():
                 input_context["model"] = model_spec.strip()
+        if latest_run and isinstance(latest_run.input_payload, dict):
             tool_approval_mode = latest_run.input_payload.get("tool_approval_mode")
             if tool_approval_mode:
                 input_context["tool_approval_mode"] = tool_approval_mode

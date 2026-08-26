@@ -1314,7 +1314,7 @@ const currentAgent = computed(() => {
 const currentChatId = computed(() => currentThreadId.value)
 
 // ==================== 对话级模型覆盖 ====================
-// 按线程记忆用户选择的模型；未选择时回退到智能体配置的模型。
+// 当前选择优先；否则依次使用 Conversation、智能体和系统默认模型。
 const DRAFT_MODEL_KEY = '__draft__'
 const selectedModelByThread = reactive({})
 const savedToolApprovalMode = ref(readToolApprovalModePreference())
@@ -1326,7 +1326,10 @@ const agentDefaultModel = computed(
     ''
 )
 const currentModelSpec = computed(
-  () => selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] || agentDefaultModel.value
+  () =>
+    selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] ||
+    currentThread.value?.metadata?.model_spec ||
+    agentDefaultModel.value
 )
 const handleModelSelect = (spec) => {
   if (typeof spec === 'string') {
@@ -2747,7 +2750,6 @@ const fetchThreadMessages = async ({ agentId, threadId, delay = 0 }) => {
     const response = await agentApi.getAgentHistory(threadId)
     const history = response.history || []
     threadMessages.value[threadId] = history
-    restoreThreadModelSelection(threadId, history)
   } catch (error) {
     handleChatError(error, 'load')
     throw error
@@ -2760,23 +2762,6 @@ const promoteDraftSelection = (selectionByThread, threadId) => {
   if (!draft) return
   if (!selectionByThread[threadId]) selectionByThread[threadId] = draft
   delete selectionByThread[DRAFT_MODEL_KEY]
-}
-
-// 跨会话还原：从最近一条显式携带覆盖值的用户消息恢复线程级选择。
-const restoreThreadModelSelection = (threadId, history) => {
-  const restoreField = (target, accept, key) => {
-    if (target[key]) return
-    for (let i = history.length - 1; i >= 0; i -= 1) {
-      const msg = history[i]
-      if (msg?.type !== 'human') continue
-      const value = msg?.extra_metadata?.[key]
-      if (accept(value)) {
-        target[key] = value
-        return
-      }
-    }
-  }
-  restoreField(selectedModelByThread, (spec) => spec, 'model_spec')
 }
 
 const fetchThreadAttachments = async (threadId) => {
@@ -3225,8 +3210,8 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
     // 该线程由草稿发送创建，清理新建对话草稿，避免已发送文本再次还原
     threadDraftSession.clearDraftThread()
   }
-  // 仅当用户显式选择过模型才下发覆盖；否则传 null，由后端使用智能体配置的模型
-  const modelSpec = selectedModelByThread[threadId] || null
+  // 每次请求都下发输入框展示的模型，后端在同一事务内绑定到 Conversation。
+  const modelSpec = currentModelSpec.value || null
   const toolApprovalMode = currentToolApprovalMode.value
 
   userInput.value = ''
@@ -3302,6 +3287,13 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
     })
     const status = runResp?.status
     const runId = runResp?.run_id
+    if (status !== 'rejected' && modelSpec) {
+      const thread = threads.value.find((item) => item.id === threadId)
+      if (thread) {
+        thread.metadata = { ...(thread.metadata || {}), model_spec: modelSpec }
+        delete selectedModelByThread[threadId]
+      }
+    }
     if (status === 'queued' || (!runId && status !== 'rejected')) {
       threadState.queuedRequests = threadState.queuedRequests || []
       threadState.queuedRequests.push({

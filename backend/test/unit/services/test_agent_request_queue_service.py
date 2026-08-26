@@ -311,6 +311,108 @@ async def test_channel_steer_is_accepted_for_active_message_run(
 
 
 @pytest.mark.asyncio
+async def test_intake_request_binds_resolved_model_to_conversation(session, monkeypatch: pytest.MonkeyPatch):
+    from yuxi.services import agent_request_queue_service
+    from yuxi.services.input_message_service import build_chat_input_message
+    from yuxi.storage.postgres.models_business import Conversation
+
+    resolved_requests = []
+
+    async def resolve_config(model_spec, *_args):
+        resolved_requests.append(model_spec)
+        return model_spec or "provider:agent-default", "default"
+
+    monkeypatch.setattr(agent_request_queue_service, "resolve_agent_run_config", resolve_config)
+    await _seed_thread(session)
+
+    first = await intake_request(
+        db=session,
+        request_id="request-model-a",
+        uid="user-1",
+        agent_slug="main",
+        thread_id="t1",
+        input_message=build_chat_input_message("first"),
+        agent_item=MagicMock(),
+        agent_backend=MagicMock(),
+        model_spec="provider:conversation-model",
+    )
+
+    conversation = await session.get(Conversation, 10)
+    await session.refresh(conversation)
+    assert first.status == "dispatched"
+    assert conversation.extra_metadata["model_spec"] == "provider:conversation-model"
+
+    second = await intake_request(
+        db=session,
+        request_id="request-model-b",
+        uid="user-1",
+        agent_slug="main",
+        thread_id="t1",
+        input_message=build_chat_input_message("second"),
+        agent_item=MagicMock(),
+        agent_backend=MagicMock(),
+    )
+    assert second.status == "queued"
+    assert resolved_requests == ["provider:conversation-model", "provider:conversation-model"]
+
+    rejected = await intake_request(
+        db=session,
+        request_id="request-model-rejected",
+        uid="user-1",
+        agent_slug="main",
+        thread_id="t1",
+        queue_policy="reject",
+        input_message=build_chat_input_message("rejected"),
+        agent_item=MagicMock(),
+        agent_backend=MagicMock(),
+        model_spec="provider:rejected-model",
+    )
+
+    await session.refresh(conversation)
+    assert rejected.status == "rejected"
+    assert conversation.extra_metadata["model_spec"] == "provider:conversation-model"
+
+
+@pytest.mark.asyncio
+async def test_reject_dispatch_conflict_does_not_change_conversation_model(
+    session, monkeypatch: pytest.MonkeyPatch
+):
+    from yuxi.services import agent_request_queue_service
+    from yuxi.services.input_message_service import build_chat_input_message
+    from yuxi.storage.postgres.models_business import Conversation
+
+    async def resolve_config(model_spec, *_args):
+        return model_spec, "default"
+
+    async def lose_dispatch_race(**_kwargs):
+        return None
+
+    monkeypatch.setattr(agent_request_queue_service, "resolve_agent_run_config", resolve_config)
+    monkeypatch.setattr(agent_request_queue_service, "_dispatch_ready_head", lose_dispatch_race)
+    await _seed_thread(session)
+    conversation = await session.get(Conversation, 10)
+    conversation.extra_metadata = {"model_spec": "provider:existing-model"}
+    await session.commit()
+
+    result = await intake_request(
+        db=session,
+        request_id="request-reject-race",
+        uid="user-1",
+        agent_slug="main",
+        thread_id="t1",
+        queue_policy="reject",
+        input_message=build_chat_input_message("reject race"),
+        agent_item=MagicMock(),
+        agent_backend=MagicMock(),
+        model_spec="provider:rejected-model",
+    )
+
+    await session.refresh(conversation)
+    assert result.status == "rejected"
+    assert conversation.extra_metadata["model_spec"] == "provider:existing-model"
+
+
+@pytest.mark.asyncio
 async def test_intake_request_binds_attachments_in_request_transaction(session, monkeypatch: pytest.MonkeyPatch):
     from yuxi.services import agent_request_queue_service
     from yuxi.services.input_message_service import build_chat_input_message

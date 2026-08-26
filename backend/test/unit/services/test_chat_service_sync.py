@@ -536,6 +536,7 @@ async def test_get_agent_state_view_returns_interrupted_checkpoint_payload(monke
                 agent_id="main",
                 status="active",
                 project_id="11111111-1111-4111-8111-111111111111",
+                extra_metadata={"model_spec": "provider:conversation-model"},
             )
 
     class AgentRepo:
@@ -562,7 +563,11 @@ async def test_get_agent_state_view_returns_interrupted_checkpoint_payload(monke
         async def get_latest_run_by_thread_for_user(self, requested_thread_id: str, uid: str):
             assert requested_thread_id == thread_id
             assert uid == "user-1"
-            return SimpleNamespace(id="run-1", status="interrupted", input_payload={})
+            return SimpleNamespace(
+                id="run-1",
+                status="interrupted",
+                input_payload={"model_spec": "provider:stale-run-model"},
+            )
 
     class Context:
         def __init__(self, *, thread_id="", uid=""):
@@ -600,6 +605,7 @@ async def test_get_agent_state_view_returns_interrupted_checkpoint_payload(monke
 
     async def read_checkpoint_state(*_args, context, **_kwargs):
         assert context.runtime_scope_id == thread_id
+        assert context.model == "provider:conversation-model"
         assert context.workdir_relative_path == "projects/11111111-1111-4111-8111-111111111111"
         assert context.workdir_path == "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
         return checkpoint_state
