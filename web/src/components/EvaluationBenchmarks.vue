@@ -305,7 +305,7 @@ import {
   Trash2,
   Upload,
   X
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { evaluationApi } from '@/apis/knowledge_api'
 import { useTaskerStore } from '@/stores/tasker'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'

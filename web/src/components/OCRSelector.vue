@@ -85,7 +85,7 @@
 
 <script setup>
 import { computed, inject, onMounted, ref } from 'vue'
-import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/vue'
 import { ocrApi } from '@/apis/system_api'
 import { useUserStore } from '@/stores/user'
 

@@ -469,6 +469,58 @@ async def test_add_documents_auto_index_returns_one_final_result_per_item(monkey
     assert context.result["items"] == [{"file_id": "file_1", "status": "indexed", "error": None}]
 
 
+async def test_add_documents_passes_source_path_to_file_record(monkeypatch):
+    """验证包含 source_paths 的批量上传会将单文件 source_path 传递给 add_file_record。"""
+    context = FakeTaskContext()
+    item1 = "minio://knowledgebases/kb_1/upload/doc1.txt"
+    item2 = "minio://knowledgebases/kb_1/upload/doc2.txt"
+    captured_records = []
+
+    async def fake_ensure_database_supports_documents(kb_id: str, operation: str) -> None:
+        return None
+
+    async def fake_get_database_info(kb_id: str) -> KnowledgeBaseDetail:
+        return _database_detail()
+
+    async def fake_add_file_record(kb_id: str, item_path: str, params: dict, operator_id: str | None = None):
+        captured_records.append({"kb_id": kb_id, "item": item_path, "params": params, "operator_id": operator_id})
+        return {"file_id": f"file_{len(captured_records)}", "status": "uploaded"}
+
+    async def fake_parse_file(kb_id: str, file_id: str, operator_id: str | None = None):
+        return {"file_id": file_id, "status": "parsed", "error": None}
+
+    async def fake_enqueue(name: str, task_type: str, payload: dict, coroutine):
+        await coroutine(context)
+        return SimpleNamespace(id="task_1")
+
+    monkeypatch.setattr(
+        knowledge_router,
+        "_ensure_database_supports_documents",
+        fake_ensure_database_supports_documents,
+    )
+    monkeypatch.setattr(knowledge_router.knowledge_base, "get_database_info", fake_get_database_info)
+    monkeypatch.setattr(knowledge_router.knowledge_base, "add_file_record", fake_add_file_record)
+    monkeypatch.setattr(knowledge_router.knowledge_base, "parse_file", fake_parse_file)
+    monkeypatch.setattr(knowledge_router.tasker, "enqueue", fake_enqueue)
+
+    await knowledge_router.add_documents(
+        "kb_1",
+        [item1, item2],
+        params={
+            "content_type": "file",
+            "content_hashes": {item1: "hash_1", item2: "hash_2"},
+            "source_paths": {item1: "folder_a/sub/doc1.txt", item2: "folder_a/doc2.txt"},
+        },
+        current_user=SimpleNamespace(uid="uid-user"),
+    )
+
+    assert len(captured_records) == 2
+    assert captured_records[0]["params"]["source_path"] == "folder_a/sub/doc1.txt"
+    assert "source_paths" not in captured_records[0]["params"]
+    assert captured_records[1]["params"]["source_path"] == "folder_a/doc2.txt"
+    assert "source_paths" not in captured_records[1]["params"]
+
+
 @pytest.mark.parametrize(
     ("payload", "error_detail"),
     [

@@ -356,7 +356,7 @@ import {
   X,
   Plus,
   ChevronDown
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { skillApi } from '@/apis/skill_api'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
 import FileTreeComponent from '@/components/FileTreeComponent.vue'

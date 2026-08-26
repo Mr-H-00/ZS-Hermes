@@ -149,8 +149,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { Plus, RefreshCw, Trash2, Copy } from 'lucide-vue-next'
-import { Key as KeyIcon } from 'lucide-vue-next'
+import { Plus, RefreshCw, Trash2, Copy } from '@lucide/vue'
+import { Key as KeyIcon } from '@lucide/vue'
 import { apikeyApi } from '@/apis/apikey_api'
 
 const loading = ref(false)

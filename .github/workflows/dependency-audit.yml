@@ -12,8 +12,10 @@ on:
       - "packages/yuxi-cli/uv.lock"
       - "web/package.json"
       - "web/pnpm-lock.yaml"
+      - "web/pnpm-workspace.yaml"
       - "docs/package.json"
       - "docs/pnpm-lock.yaml"
+      - "docs/pnpm-workspace.yaml"
       - "scripts/dependency-audit-fixtures/**"
   push:
     branches: [main]
@@ -27,8 +29,10 @@ on:
       - "packages/yuxi-cli/uv.lock"
       - "web/package.json"
       - "web/pnpm-lock.yaml"
+      - "web/pnpm-workspace.yaml"
       - "docs/package.json"
       - "docs/pnpm-lock.yaml"
+      - "docs/pnpm-workspace.yaml"
       - "scripts/dependency-audit-fixtures/**"
   workflow_dispatch:
 
@@ -48,14 +52,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.11.7"
+          version: "0.12.6"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Audit locked Python vulnerabilities
         working-directory: backend
-        # The locked PyTorch 2.12.1 wheels require setuptools<82 and no compatible 2.13 CPU pair is available yet.
-        run: uv audit --locked --no-dev --ignore GHSA-h35f-9h28-mq5c --ignore GHSA-rrmf-rvhw-rf47
+        run: uv audit --locked --no-dev
       - name: Exercise Python audit negative control
         run: |
           if uv audit --script scripts/dependency-audit-fixtures/vulnerable.py >python-audit-negative.log 2>&1; then
@@ -86,7 +89,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
-          version: 10.11.0
+          version: 11.24.0
       - uses: actions/setup-node@v7
         with:
           node-version: 22

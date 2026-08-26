@@ -119,7 +119,7 @@ import UserConfigSettingsCard from '@/components/UserConfigSettingsCard.vue'
 
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { Building2, RefreshCw, ShieldCheck, Upload } from 'lucide-vue-next'
+import { Building2, RefreshCw, ShieldCheck, Upload } from '@lucide/vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import { useUserStore } from '@/stores/user'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'

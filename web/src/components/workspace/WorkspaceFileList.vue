@@ -95,7 +95,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Download, ListChecks, MoreHorizontal, Trash2 } from 'lucide-vue-next'
+import { Download, ListChecks, MoreHorizontal, Trash2 } from '@lucide/vue'
 import FileBrowserTable from '@/components/common/FileBrowserTable.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { formatFileSize, formatRelativeTime } from '@/utils/file_utils'

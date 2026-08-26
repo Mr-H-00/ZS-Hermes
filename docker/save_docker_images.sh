@@ -12,7 +12,7 @@ echo "开始导出 Docker 镜像到 $OUTPUT_FILE..."
 # 从各个文件中提取的基础镜像列表
 IMAGES=(
     "python:3.13-slim",
-    "ghcr.io/astral-sh/uv:0.11.26",
+    "ghcr.io/astral-sh/uv:0.12.6",
     "node:24-alpine",
     "node:24-slim",
     "nginx:alpine",

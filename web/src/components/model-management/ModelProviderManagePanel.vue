@@ -17,7 +17,7 @@ import {
   LayersPlus,
   LoaderCircle,
   Zap
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 
 import { modelProviderApi } from '@/apis/system_api'
 import { useConfigStore } from '@/stores/config'

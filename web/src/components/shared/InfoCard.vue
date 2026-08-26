@@ -140,7 +140,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { MoreHorizontal, Plug } from 'lucide-vue-next'
+import { MoreHorizontal, Plug } from '@lucide/vue'
 
 const props = defineProps({
   title: { type: String, required: true },

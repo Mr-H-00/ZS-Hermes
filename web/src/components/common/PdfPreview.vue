@@ -29,7 +29,7 @@
 
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CircleAlert, LoaderCircle } from 'lucide-vue-next'
+import { CircleAlert, LoaderCircle } from '@lucide/vue'
 
 const props = defineProps({
   url: {

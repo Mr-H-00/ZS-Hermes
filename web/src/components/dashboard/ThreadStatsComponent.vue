@@ -363,7 +363,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { Activity, Bot, Layers, Mail, MessageSquare, RefreshCw, Search } from 'lucide-vue-next'
+import { Activity, Bot, Layers, Mail, MessageSquare, RefreshCw, Search } from '@lucide/vue'
 import { message } from 'ant-design-vue'
 import { dashboardApi } from '@/apis/dashboard_api'
 import { getColorByIndex } from '@/utils/chartColors'

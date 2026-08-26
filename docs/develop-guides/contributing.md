@@ -79,7 +79,7 @@ LITE 模式不会注册知识库、图谱和评估能力。需要完整链路时
 前端代码位于 `web/`，使用 `pnpm` 和 LESS：
 
 - API 封装放在 `web/src/apis`；
-- 图标优先使用 `lucide-vue-next`；
+- 图标优先使用 `@lucide/vue`；
 - 颜色优先使用 `base.css` 和 `base.dark.css` 的变量；
 - 浅色、暗色、loading、empty、error、focus 和响应式状态都要检查；
 - UI 改动遵循[产品体验与界面设计规范](./design.md)。

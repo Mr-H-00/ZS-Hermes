@@ -181,7 +181,7 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { CircleHelp, Database, Network } from 'lucide-vue-next'
+import { CircleHelp, Database, Network } from '@lucide/vue'
 import { evaluationApi, graphBuildApi } from '@/apis/knowledge_api'
 import { useConfigStore } from '@/stores/config'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'

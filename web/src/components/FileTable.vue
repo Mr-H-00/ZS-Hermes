@@ -509,7 +509,7 @@ import {
   MoreHorizontal,
   Pencil,
   Search
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 
 const store = useDatabaseStore()
 

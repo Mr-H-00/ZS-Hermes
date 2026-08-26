@@ -176,7 +176,7 @@ import {
   User,
   Workflow,
   Wrench
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { message } from 'ant-design-vue'
 import JsonTreeViewer from '@/components/common/JsonTreeViewer.vue'
 import { agentApi } from '@/apis/agent_api'

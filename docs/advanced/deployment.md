@@ -1,6 +1,6 @@
 # 生产部署
 
-本页说明如何用 Docker Compose 部署 Yuxi、验证服务状态，以及从 v0.7.1 升级到当前 `v0.7.2.beta1`。当前版本仍是 Beta，重要数据上线前请先在备份环境演练恢复。
+本页说明如何用 Docker Compose 部署 Yuxi、验证服务状态，以及从 v0.7.1 升级到当前 `v0.7.2.beta2`。当前版本仍是 Beta，重要数据上线前请先在备份环境演练恢复。
 
 ## 前置条件
 
@@ -76,7 +76,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml --profile all up 
 检出目标版本后，先停止 API、worker 和 provisioner，再运行仓库提供的迁移入口：
 
 ```bash
-git checkout v0.7.2.beta1
+git checkout v0.7.2.beta2
 bash scripts/migrate-storage.sh \
   --env-file .env.prod \
   -f docker-compose.prod.yml

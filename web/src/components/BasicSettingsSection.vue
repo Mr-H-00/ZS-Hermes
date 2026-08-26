@@ -163,7 +163,7 @@
 import { computed, h } from 'vue'
 import { useConfigStore } from '@/stores/config'
 import { useUserStore } from '@/stores/user'
-import { Globe } from 'lucide-vue-next'
+import { Globe } from '@lucide/vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
 import RerankModelSelector from '@/components/RerankModelSelector.vue'

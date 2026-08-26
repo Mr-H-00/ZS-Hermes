@@ -9,7 +9,7 @@ import {
   SlidersHorizontal,
   Upload,
   Wrench
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 
 import { userApi } from '@/apis/user_api'
 import AgentRuntimeConfigForm from '@/components/AgentRuntimeConfigForm.vue'

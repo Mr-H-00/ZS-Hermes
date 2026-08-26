@@ -54,7 +54,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { Download, LoaderCircle, Save } from 'lucide-vue-next'
+import { Download, LoaderCircle, Save } from '@lucide/vue'
 import { threadApi } from '@/apis/agent_api'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import WorkspacePathPicker from '@/components/WorkspacePathPicker.vue'

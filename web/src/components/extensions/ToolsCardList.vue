@@ -113,7 +113,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { Wrench, RefreshCw, FileText, Tag, Tags, List } from 'lucide-vue-next'
+import { Wrench, RefreshCw, FileText, Tag, Tags, List } from '@lucide/vue'
 import { toolApi } from '@/apis/tool_api'
 import { getToolIcon } from '@/components/ToolCallingResult/toolRegistry'
 import ExtensionCardGrid from './ExtensionCardGrid.vue'

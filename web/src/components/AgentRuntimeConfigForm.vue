@@ -387,7 +387,7 @@
 import { ref, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRouter } from 'vue-router'
-import { AlertTriangle, Check, Plus, Search, RotateCw, RotateCcw, Settings } from 'lucide-vue-next'
+import { AlertTriangle, Check, Plus, Search, RotateCw, RotateCcw, Settings } from '@lucide/vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { useAgentStore } from '@/stores/agent'
 import {

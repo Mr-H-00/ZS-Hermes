@@ -112,7 +112,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { Check, ChevronRight, Folder, FolderPlus, RotateCw, X } from 'lucide-vue-next'
+import { Check, ChevronRight, Folder, FolderPlus, RotateCw, X } from '@lucide/vue'
 import { createWorkspaceDirectory, getWorkspaceTree } from '@/apis/workspace_api'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 

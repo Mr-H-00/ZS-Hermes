@@ -71,7 +71,7 @@
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
 import { useInfoStore } from '@/stores/info'
 import { useUserStore } from '@/stores/user'
-import { Clock, User, ClipboardList, Settings, Sun, Moon } from 'lucide-vue-next'
+import { Clock, User, ClipboardList, Settings, Sun, Moon } from '@lucide/vue'
 import { useTaskerStore } from '@/stores/tasker'
 import { useThemeStore } from '@/stores/theme'
 import { storeToRefs } from 'pinia'

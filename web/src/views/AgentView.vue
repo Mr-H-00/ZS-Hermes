@@ -115,7 +115,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { Settings2, ChevronDown, Check, Plus } from 'lucide-vue-next'
+import { Settings2, ChevronDown, Check, Plus } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
 import { agentApi } from '@/apis/agent_api'
 import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'

@@ -105,7 +105,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { ListRestart } from 'lucide-vue-next'
+import { ListRestart } from '@lucide/vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { canDropOnFileBreadcrumb } from '@/utils/knowledgeFileMutations'
 

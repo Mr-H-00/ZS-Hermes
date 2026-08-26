@@ -19,7 +19,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Inbox } from 'lucide-vue-next'
+import { Inbox } from '@lucide/vue'
 
 const props = defineProps({
   title: { type: String, required: true },

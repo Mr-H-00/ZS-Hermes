@@ -133,7 +133,7 @@ import {
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
-import { Download, ChevronDown, FileSearch, FileText, Rows3, X } from 'lucide-vue-next'
+import { Download, ChevronDown, FileSearch, FileText, Rows3, X } from '@lucide/vue'
 
 const props = defineProps({
   open: {
