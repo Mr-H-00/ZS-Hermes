@@ -65,7 +65,7 @@ test:
 
 verify-trust:
 	python3 scripts/verify_engineering_contracts.py
-	python3 -m unittest scripts.test_verify_engineering_contracts
+	python3 -m unittest scripts.test_verify_engineering_contracts scripts.test_bump_version
 
 audit-dependencies:
 	cd backend && uv audit --locked --no-dev

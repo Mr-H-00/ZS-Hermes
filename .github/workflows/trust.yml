@@ -25,3 +25,5 @@ jobs:
         run: python3 -m unittest scripts.test_verify_engineering_contracts
       - name: Verify dependency update policy
         run: python3 -m unittest scripts.test_dependency_update_policy
+      - name: Verify release version synchronization
+        run: python3 -m unittest scripts.test_bump_version

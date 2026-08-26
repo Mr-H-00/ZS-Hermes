@@ -225,14 +225,7 @@
 
 <script setup>
 import { computed, defineComponent, h, nextTick, ref, watch } from 'vue'
-import {
-  CheckCircle2,
-  Circle,
-  LoaderCircle,
-  PackageOpen,
-  X as XIcon,
-  XCircle
-} from '@lucide/vue'
+import { CheckCircle2, Circle, LoaderCircle, PackageOpen, X as XIcon, XCircle } from '@lucide/vue'
 import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import { skillApi } from '@/apis/skill_api'
 import { useUserStore } from '@/stores/user'

@@ -257,16 +257,7 @@ import { reactive, onMounted, onUnmounted, watch, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
 import { authApi, departmentApi } from '@/apis'
-import {
-  Plus,
-  SquarePen,
-  Trash2,
-  User,
-  UserLock,
-  UserStar,
-  RefreshCw,
-  Search
-} from '@lucide/vue'
+import { Plus, SquarePen, Trash2, User, UserLock, UserStar, RefreshCw, Search } from '@lucide/vue'
 import { formatDateTime } from '@/utils/time'
 import { isPasswordLongEnough, MIN_PASSWORD_LENGTH } from '@/utils/passwordValidation'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
