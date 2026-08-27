@@ -121,6 +121,18 @@ def _md_question_level(line: str) -> tuple[int, str]:
     return len(match.group(0)), line.lstrip("#").lstrip()
 
 
+def _update_fence_state(line: str, fence: str) -> str:
+    """按行更新代码围栏状态：``` 与 ~~~ 各自成对开关，异类围栏行不关闭当前块。"""
+    stripped = line.strip()
+    if stripped.startswith("```") or stripped.startswith("~~~"):
+        marker = stripped[:3]
+        if not fence:
+            return marker
+        if marker == fence:
+            return ""
+    return fence
+
+
 def _extract_pairs_from_markdown_headings(markdown_content: str) -> list[tuple[str, str]]:
     """标题提取：按 Markdown 标题层级提取问答对，标题下的内容作为答案，标题本身作为问题。"""
     lines = (markdown_content or "").splitlines()
@@ -131,15 +143,14 @@ def _extract_pairs_from_markdown_headings(markdown_content: str) -> list[tuple[s
     last_answer = ""
     question_stack: list[str] = []
     level_stack: list[int] = []
-    code_block = False
+    fence = ""
 
     for line in lines:
-        if line.strip().startswith("```"):
-            code_block = not code_block
+        fence = _update_fence_state(line, fence)
 
         question_level = 0
         question = ""
-        if not code_block:
+        if not fence:
             question_level, question = _md_question_level(line)
 
         if not question_level or question_level > 6:
@@ -176,7 +187,7 @@ def _extract_pairs_by_prefix(markdown_content: str) -> list[tuple[str, str]]:
     heading_re = re.compile(r"^#{1,6}\s*")
     question_re = re.compile(r"^(?:Q|Question|问|问题)\s*[:：]\s*(.*)$", flags=re.IGNORECASE)
     answer_re = re.compile(r"^(?:A|Answer|答|回答)\s*[:：]\s*(.*)$", flags=re.IGNORECASE)
-    code_block = False
+    fence = ""
 
     def flush_pair() -> None:
         nonlocal question, answer_lines
@@ -186,13 +197,11 @@ def _extract_pairs_by_prefix(markdown_content: str) -> list[tuple[str, str]]:
             answer_lines = []
 
     for line in (markdown_content or "").splitlines():
-        # 代码块内容（含围栏行）只可能是答案正文，不参与问答边界判断
-        if line.strip().startswith("```"):
-            code_block = not code_block
-            if question:
-                answer_lines.append(line)
-            continue
-        if code_block:
+        stripped = line.strip()
+        is_fence_line = stripped.startswith("```") or stripped.startswith("~~~")
+        fence = _update_fence_state(line, fence)
+        # 围栏行与代码块内容行只可能是答案正文，不参与问答边界判断
+        if is_fence_line or fence:
             if question:
                 answer_lines.append(line)
             continue
@@ -208,7 +217,10 @@ def _extract_pairs_by_prefix(markdown_content: str) -> list[tuple[str, str]]:
 
         a_match = answer_re.match(text)
         if a_match:
-            answer_lines.append(a_match.group(1).strip())
+            # 答案必须归属活跃问题：问题尚未出现时的前言 A: 行直接忽略，
+            # 避免孤儿文本被拼进后续真实问答对
+            if question:
+                answer_lines.append(a_match.group(1).strip())
             continue
 
         if heading_match:
@@ -288,7 +300,8 @@ def _split_answer_by_paragraphs(answer: str, max_chars: int) -> list[str]:
 
 def _split_answer_by_lines(answer: str, max_chars: int) -> list[str]:
     """按行切分答案，单行仍超长则硬切。"""
-    lines = [line.strip() for line in answer.splitlines() if line.strip()]
+    # 仅 strip 用于判空，保留原始行：缩进对围栏代码块与嵌套列表有语义
+    lines = [line for line in answer.splitlines() if line.strip()]
     if not lines:
         return [answer] if answer.strip() else []
 
@@ -325,13 +338,18 @@ def _split_long_qa_chunks(chunks: list[str], max_chars: int = _QA_CHUNK_MAX_CHAR
             result.append(text)
             continue
 
-        parts = text.split("\t", 1)
-        if len(parts) != 2:
+        # 结构分隔符是紧邻已知答案前缀的 tab：问题本身可能含 tab，按首个任意 tab 切会截断问题
+        sep_pos = -1
+        for marker in ("\t回答：", "\tAnswer: "):
+            sep_pos = text.find(marker)
+            if sep_pos != -1:
+                break
+        if sep_pos == -1:
             # 非标准 QA 格式，直接硬切兜底
             result.extend(_hard_split_text(text, max_chars))
             continue
 
-        q_part, a_part = parts
+        q_part, a_part = text[:sep_pos], text[sep_pos + 1 :]
         q_prefix, q_body = _split_qa_prefix(q_part, _QA_QUESTION_PREFIXES)
         a_prefix, a_body = _split_qa_prefix(a_part, _QA_ANSWER_PREFIXES)
         if not q_body or not a_body:
@@ -356,7 +374,8 @@ def chunk_markdown(filename: str, markdown_content: str, parser_config: dict[str
 
     提取器全集（按优先级编号；各后缀只走其中子集，见分支行内注释）：
     1. 行首 Q/A 前缀：按行首 Q/A 前缀切问答边界，标题行先剥 # 再匹配；`# Q:`/`# 问题:` 这类带前缀的标题被识别为问题，
-       纯 `# 标题`（无 Q/问题 前缀）仅作分节符结束当前问答对、不进答案也不作问题。
+       纯 `# 标题`（无 Q/问题 前缀）仅作分节符结束当前问答对、不进答案也不作问题；``` 与 ~~~ 围栏（同标记成对）
+       圈出的代码块整体只作答案正文，块内形似 Q:/A:/标题的行不切边界。
     2. Markdown 标题：标题作问题、标题下内容作答案；仅当 1. 整轮未命中时兜底（用于纯 `# 标题` 风格的 FAQ 文档）。
     3. Markdown 表格：按 | 分隔两列表格作 Q/A 对；md/markdown/mdx/docx/csv/无后缀与 1./2. 叠加，
        xlsx 在 1./2. 落空后才尝试，txt 不走表格。

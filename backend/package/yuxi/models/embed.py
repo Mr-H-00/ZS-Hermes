@@ -177,13 +177,12 @@ class OtherEmbedding(BaseEmbeddingModel):
 
     @staticmethod
     def _log_long_inputs(message: list[str] | str, threshold: int = 4000) -> None:
-        """调试辅助：打印超过字符阈值的 embedding 输入内容。"""
+        """调试辅助：记录超过字符阈值的 embedding 输入位置与长度，不输出内容以免泄露用户数据。"""
         messages = [message] if isinstance(message, str) else message
         for idx, text in enumerate(messages):
             if text and len(text) > threshold:
                 logger.warning(
-                    f"超长 embedding 输入 index={idx}, len={len(text)}, "
-                    f"content_head={text[:200]!r}, content_tail={text[-200:]!r}"
+                    f"超长 embedding 输入 index={idx}, len={len(text)}"
                 )
 
     def encode(self, message: list[str] | str) -> list[list[float]]:
