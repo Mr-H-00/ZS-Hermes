@@ -112,6 +112,14 @@ class YuxiClient:
     def list_external_databases(self) -> dict:
         return self._request("GET", "/knowledge/databases/external")
 
+    def list_agents(self) -> dict:
+        """读取当前用户可调用的主 Agent。"""
+        return self._request("GET", "/agent")
+
+    def get_agent(self, agent_slug: str) -> dict:
+        """按 slug 读取当前用户可见的 Agent 配置。"""
+        return self._request("GET", f"/agent/{agent_slug}")
+
     def list_external_files(
         self,
         kb_id: str,

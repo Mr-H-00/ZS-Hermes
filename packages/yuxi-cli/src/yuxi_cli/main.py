@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 
 from yuxi_cli import __version__
+from yuxi_cli.agent import AgentError, run_agent_list, run_agent_show
 from yuxi_cli.agent_eval import AgentEvalError, AgentEvalOptions, run_langfuse_agent_experiment
 from yuxi_cli.chat_web import ChatWebError, run_web_chat
 from yuxi_cli.client import ClientError
@@ -369,4 +370,35 @@ def eval_agent(
         _print_remote_context(store, remote)
         run_langfuse_agent_experiment(store, remote, options, console)
     except (ConfigError, ClientError, AgentEvalError) as exc:
+        _handle_error(exc)
+
+
+@agent_app.command("list")
+def list_agents(
+    remote: str | None = typer.Option(None, "--remote", help="Remote name."),
+    as_json: bool = typer.Option(False, "--json", help="Output raw JSON."),
+):
+    """List agents visible to the current user."""
+    store = _store()
+    try:
+        if not as_json:
+            _print_remote_context(store, remote)
+        run_agent_list(store, remote, console, as_json=as_json)
+    except (ConfigError, ClientError, AgentError) as exc:
+        _handle_error(exc)
+
+
+@agent_app.command("show")
+def show_agent(
+    agent_slug: str = typer.Argument(..., help="Yuxi agent slug."),
+    remote: str | None = typer.Option(None, "--remote", help="Remote name."),
+    as_json: bool = typer.Option(False, "--json", help="Output raw JSON."),
+):
+    """Show one visible agent and its configuration."""
+    store = _store()
+    try:
+        if not as_json:
+            _print_remote_context(store, remote)
+        run_agent_show(store, remote, agent_slug, console, as_json=as_json)
+    except (ConfigError, ClientError, AgentError) as exc:
         _handle_error(exc)

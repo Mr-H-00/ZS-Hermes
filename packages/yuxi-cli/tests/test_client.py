@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
-from yuxi_cli.client import YuxiClient, _iter_sse_events
+from yuxi_cli.client import ClientError, YuxiClient, _iter_sse_events
 from yuxi_cli.config import Remote
 
 
 def _patched_client(monkeypatch):
-    client = YuxiClient(Remote(name="local", url="http://localhost:5173", api_key="yxkey_test"))
+    client = YuxiClient(
+        Remote(name="local", url="http://localhost:5173", api_key="yxkey_test")
+    )
     calls: list[dict] = []
 
     def fake_request(method, path, **kwargs):
@@ -124,10 +127,52 @@ def test_list_external_databases_uses_external_path(monkeypatch):
     assert calls[-1]["path"] == "/knowledge/databases/external"
 
 
+def test_list_agents_uses_visible_agent_path(monkeypatch):
+    client, calls = _patched_client(monkeypatch)
+    try:
+        client.list_agents()
+    finally:
+        client.close()
+    assert calls[-1]["method"] == "GET"
+    assert calls[-1]["path"] == "/agent"
+
+
+def test_get_agent_uses_slug_path(monkeypatch):
+    client, calls = _patched_client(monkeypatch)
+    try:
+        client.get_agent("research-agent")
+    finally:
+        client.close()
+    assert calls[-1]["method"] == "GET"
+    assert calls[-1]["path"] == "/agent/research-agent"
+
+
+def test_get_agent_preserves_server_not_found_response():
+    remote = Remote(name="local", url="http://localhost:5173", api_key="yxkey_test")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/agent/hidden-agent"
+        assert request.headers["Authorization"] == "Bearer yxkey_test"
+        return httpx.Response(404, json={"detail": "智能体不存在"})
+
+    client = YuxiClient(remote)
+    client.client.close()
+    client.client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ClientError, match="智能体不存在") as exc_info:
+            client.get_agent("hidden-agent")
+    finally:
+        client.close()
+
+    assert exc_info.value.status_code == 404
+
+
 def test_list_external_files_passes_query_params(monkeypatch):
     client, calls = _patched_client(monkeypatch)
     try:
-        client.list_external_files("kb_1", query="report", offset=10, limit=50, status="indexed")
+        client.list_external_files(
+            "kb_1", query="report", offset=10, limit=50, status="indexed"
+        )
     finally:
         client.close()
     call = calls[-1]
@@ -143,13 +188,19 @@ def test_list_external_files_passes_query_params(monkeypatch):
 def test_retrieve_external_posts_json_body(monkeypatch):
     client, calls = _patched_client(monkeypatch)
     try:
-        client.retrieve_external("kb_1", query="hello", file_name="a.md", options={"final_top_k": 5})
+        client.retrieve_external(
+            "kb_1", query="hello", file_name="a.md", options={"final_top_k": 5}
+        )
     finally:
         client.close()
     call = calls[-1]
     assert call["method"] == "POST"
     assert call["path"] == "/knowledge/databases/external/kb_1/retrieve"
-    assert call["json"] == {"query": "hello", "file_name": "a.md", "options": {"final_top_k": 5}}
+    assert call["json"] == {
+        "query": "hello",
+        "file_name": "a.md",
+        "options": {"final_top_k": 5},
+    }
 
 
 def test_open_external_file_passes_offset_limit(monkeypatch):
