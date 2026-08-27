@@ -497,11 +497,12 @@ async def test_add_documents_passes_source_path_to_file_record(monkeypatch):
         captured_records.append({"kb_id": kb_id, "item": item_path, "params": params, "operator_id": operator_id})
         return {"file_id": f"file_{len(captured_records)}", "status": "uploaded"}
 
-    async def fake_parse_file(kb_id: str, file_id: str, operator_id: str | None = None):
+    async def fake_parse_file(kb_id: str, file_id: str, operator_id: str | None = None, **_kwargs):
         return {"file_id": file_id, "status": "parsed", "error": None}
 
-    async def fake_enqueue(name: str, task_type: str, payload: dict, coroutine):
-        await coroutine(context)
+    async def fake_enqueue(name: str, task_type: str, payload: dict):
+        context.payload = payload
+        await knowledge_task_service.run_knowledge_ingest(context)
         return SimpleNamespace(id="task_1")
 
     monkeypatch.setattr(

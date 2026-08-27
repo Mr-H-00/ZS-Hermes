@@ -17,7 +17,7 @@ from yuxi.knowledge.graphs.milvus_graph_service import GRAPH_TASK_TYPE, MilvusGr
 from yuxi.knowledge.read_models import KnowledgeBaseDetail
 from yuxi.knowledge.parser.unified import SUPPORTED_FILE_EXTENSIONS, is_supported_file_extension
 from yuxi.knowledge.runtime import knowledge_base
-from yuxi.knowledge.utils import calculate_content_hash, is_minio_url, parse_minio_url
+from yuxi.knowledge.utils import calculate_content_hash, is_minio_url, params_for_uploaded_document, parse_minio_url
 from yuxi.knowledge.utils.mindmap_utils import (
     batch_remove_files_from_mindmap,
     generate_database_mindmap,
@@ -206,15 +206,6 @@ def _validate_uploaded_document_items(items: list[str], params: dict) -> None:
         has_preprocessed_hash = isinstance(preprocessed, dict) and bool(preprocessed.get("content_hash"))
         if not has_content_hash and not has_preprocessed_hash:
             raise HTTPException(status_code=400, detail=f"Missing content_hash for file: {item}")
-
-
-def _params_for_uploaded_document_item(item: str, params: dict) -> dict:
-    source_paths = params.get("source_paths")
-    item_params = dict(params)
-    item_params.pop("source_paths", None)
-    if isinstance(source_paths, dict) and source_paths.get(item):
-        item_params["source_path"] = source_paths[item]
-    return item_params
 
 
 async def _has_running_graph_build_task(kb_id: str) -> bool:
@@ -786,7 +777,7 @@ async def add_uploaded_documents(
             file_meta = await knowledge_base.add_file_record(
                 kb_id,
                 item,
-                params=_params_for_uploaded_document_item(item, params),
+                params=params_for_uploaded_document(item, params),
                 operator_id=current_user.uid,
             )
             added_items.append(

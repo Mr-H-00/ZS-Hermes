@@ -159,6 +159,29 @@ async def test_restart_policy_requeues_expired_task(durable_task_schema) -> None
     assert persisted.worker_id is None
 
 
+async def test_unknown_expired_task_does_not_rollback_other_reconciliation(durable_task_schema) -> None:
+    repo = TaskRepository()
+    now = utc_now_naive()
+    unknown_id = uuid.uuid4().hex
+    known_id = uuid.uuid4().hex
+    await repo.create(unknown_id, {**_task_data(), "type": "removed_task_type"})
+    await repo.create(known_id, {**_task_data(), "type": "knowledge_graph_index"})
+    await repo.claim(unknown_id, worker_id="owner-a", lease_seconds=5, now=now)
+    await repo.claim(known_id, worker_id="owner-b", lease_seconds=5, now=now)
+
+    reconciled = await repo.reconcile_expired_leases(
+        before_fail=finalize_task_failure,
+        now=now + timedelta(seconds=6),
+    )
+
+    assert {item[:2] for item in reconciled} == {
+        (unknown_id, "failed"),
+        (known_id, "failed"),
+    }
+    assert (await repo.get_by_id(unknown_id)).status == "failed"
+    assert (await repo.get_by_id(known_id)).status == "failed"
+
+
 async def test_lock_wait_cannot_reuse_time_from_before_lease_expiry(durable_task_schema) -> None:
     task_id = uuid.uuid4().hex
     repo = TaskRepository()

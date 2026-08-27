@@ -27,7 +27,15 @@ async def finalize_task_failure(session, record, error: str) -> None:
     try:
         definition = get_task_definition(record.type, handler_version)
     except ValueError:
-        definition = get_task_definition(record.type)
+        try:
+            definition = get_task_definition(record.type)
+        except ValueError:
+            logger.error(
+                "Cannot finalize unknown durable task: task_id=%s, type=%s",
+                record.id,
+                record.type,
+            )
+            return
     if lite_mode_enabled() and definition.requires_knowledge:
         return
     handler = definition.load_failure_handler()

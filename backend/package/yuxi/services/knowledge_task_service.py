@@ -4,6 +4,7 @@ import asyncio
 
 from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 from yuxi.knowledge.runtime import knowledge_base
+from yuxi.knowledge.utils import params_for_uploaded_document
 from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
 from yuxi.services.knowledge_folder_service import knowledge_folder_service
 from yuxi.services.task_service import TaskContext
@@ -59,7 +60,12 @@ async def run_knowledge_ingest(context: TaskContext) -> dict:
             await context.raise_if_cancelled()
             await context.set_progress(5.0 + (index / total) * 25.0, f"[1/3] 添加记录 {index}/{total}")
             try:
-                file_meta = await knowledge_base.add_file_record(kb_id, item, params=params, operator_id=operator_id)
+                file_meta = await knowledge_base.add_file_record(
+                    kb_id,
+                    item,
+                    params=params_for_uploaded_document(item, params),
+                    operator_id=operator_id,
+                )
                 added_files.append(
                     {
                         "index": index - 1,
