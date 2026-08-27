@@ -55,8 +55,10 @@ watch(
 )
 
 function canChangeTab(nextTab) {
-  return canLeaveScheduledTab(activeTab.value, nextTab, () =>
-    schedulePanelRef.value?.beforeLeave?.() ?? true
+  return canLeaveScheduledTab(
+    activeTab.value,
+    nextTab,
+    () => schedulePanelRef.value?.beforeLeave?.() ?? true
   )
 }
 
@@ -96,16 +98,6 @@ onBeforeRouteUpdate((to) => canChangeTab(normalizeTab(to.query.tab)))
           <span>{{ activeStats.models || 0 }} 个模型</span>
         </div>
       </template>
-      <template #actions>
-        <button
-          v-if="activeTab === 'schedules'"
-          type="button"
-          class="schedule-create-button"
-          @click="schedulePanelRef?.openCreate()"
-        >
-          新建任务
-        </button>
-      </template>
     </PageHeader>
 
     <div class="agent-manage-content">
@@ -143,7 +135,7 @@ onBeforeRouteUpdate((to) => canChangeTab(normalizeTab(to.query.tab)))
   }
 
   .schedule-tab-panel {
-    overflow-y: auto;
+    overflow: hidden;
   }
 }
 
@@ -165,28 +157,6 @@ onBeforeRouteUpdate((to) => canChangeTab(normalizeTab(to.query.tab)))
     background: var(--color-warning-50);
     border-color: var(--color-warning-100);
     color: var(--color-warning-700);
-  }
-}
-
-.schedule-create-button {
-  height: 30px;
-  padding: 0 11px;
-  border: 1px solid var(--gray-1000);
-  border-radius: 5px;
-  background: var(--gray-1000);
-  color: var(--gray-0);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--gray-800);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--main-color);
-    outline-offset: 2px;
   }
 }
 </style>

@@ -60,6 +60,16 @@ export const buildCronExpression = (schedule) => {
   return `${minute} ${hour} * * *`
 }
 
+/** 切换频率，并在进入自定义模式前保存当前结构化计划。 */
+export const applyFrequencyChange = (schedule, frequency) => ({
+  ...schedule,
+  cronExpression:
+    frequency === 'custom' && schedule.frequency !== 'custom'
+      ? buildCronExpression(schedule)
+      : schedule.cronExpression,
+  frequency
+})
+
 export const parseCronExpression = (expression) => {
   const cronExpression = String(expression || '').trim()
   const parts = cronExpression.split(/\s+/)
@@ -73,32 +83,36 @@ export const parseCronExpression = (expression) => {
   const simpleDay = /^([1-9]|[12]\d|3[01])$/.test(day)
   const simpleMonth = /^([1-9]|1[0-2])$/.test(month)
   const simpleWeekday = /^(?:[0-7](?:-[0-7])?)(?:,[0-7](?:-[0-7])?)*$/.test(weekday)
+  const result = { cronExpression, time, weekdays: [1], dayOfMonth: 1, month: 1 }
 
   if (parts.length !== 5 || !timeSupported) {
-    return { frequency: 'custom', cronExpression, time, weekdays: [1], dayOfMonth: 1, month: 1 }
+    return { ...result, frequency: 'custom' }
   }
   if (day === '*' && month === '*' && simpleWeekday) {
     const weekdays = expandWeekdays(weekday)
     if (weekdays.length) {
-      return { frequency: 'weekly', time, weekdays, dayOfMonth: 1, month: 1 }
+      return { ...result, frequency: 'weekly', weekdays }
     }
   }
   if (simpleDay && simpleMonth && weekday === '*') {
     return {
+      ...result,
       frequency: 'yearly',
-      time,
-      weekdays: [1],
       dayOfMonth: Number(day) || 1,
       month: Number(month) || 1
     }
   }
   if (simpleDay && month === '*' && weekday === '*') {
-    return { frequency: 'monthly', time, weekdays: [1], dayOfMonth: Number(day) || 1, month: 1 }
+    return {
+      ...result,
+      frequency: 'monthly',
+      dayOfMonth: Number(day) || 1
+    }
   }
   if (day === '*' && month === '*' && weekday === '*') {
-    return { frequency: 'daily', time, weekdays: [1], dayOfMonth: 1, month: 1 }
+    return { ...result, frequency: 'daily' }
   }
-  return { frequency: 'custom', cronExpression, time, weekdays: [1], dayOfMonth: 1, month: 1 }
+  return { ...result, frequency: 'custom' }
 }
 
 export const describeSchedule = (schedule) => {

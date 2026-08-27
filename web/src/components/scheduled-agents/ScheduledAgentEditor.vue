@@ -1,11 +1,14 @@
 <script setup>
 import { computed, nextTick, reactive, watch } from 'vue'
 
+import AgentSelectionSection from '@/components/AgentSelectionSection.vue'
+import SimpleDropdownSelect from '@/components/scheduled-agents/SimpleDropdownSelect.vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import ProjectSelectionSection from '@/components/ProjectSelectionSection.vue'
 import ToolApprovalModeSelector from '@/components/ToolApprovalModeSelector.vue'
 import { AUTO_PROJECT_ID } from '@/utils/projectSelection'
 import {
+  applyFrequencyChange,
   buildCronExpression,
   dayOptions,
   monthOptions,
@@ -32,20 +35,20 @@ const defaultSchedule = {
   cronExpression: '0 9 * * *'
 }
 
-const agentOptions = computed(() =>
-  props.agents.map((agent) => ({
-    value: agent.slug || agent.id,
-    label: agent.name || agent.slug || agent.id
-  }))
+const agentValues = computed(() =>
+  props.agents.map((agent) => agent.slug || agent.id).filter(Boolean)
 )
 
 function initialForm(job) {
+  const schedule = job ? parseCronExpression(job.cron_expression) : defaultSchedule
   return {
     name: job?.name || '',
     prompt: job?.prompt || '',
     project_id: job?.project_id || '',
-    agent_slug: job?.agent_slug || agentOptions.value[0]?.value || '',
-    ...(job ? parseCronExpression(job.cron_expression) : defaultSchedule),
+    agent_slug: job?.agent_slug || agentValues.value[0] || '',
+    ...schedule,
+    cronExpression:
+      schedule?.cronExpression || buildCronExpression(schedule) || defaultSchedule.cronExpression,
     model_spec: job?.model_spec || '',
     timezone: job?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai',
     tool_approval_mode: job?.tool_approval_mode || 'default'
@@ -81,7 +84,7 @@ function validationMessage() {
   if (form.frequency !== 'custom' && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(form.time)) {
     return '请选择执行时间'
   }
-  if (form.frequency === 'custom' && form.cronExpression.trim().split(/\s+/).length !== 5) {
+  if (form.frequency === 'custom' && (form.cronExpression || '').trim().split(/\s+/).length !== 5) {
     return '请输入有效的五段 Cron 表达式'
   }
   return ''
@@ -112,8 +115,8 @@ function toggleWeekday(day) {
   form.weekdays = [...selected].sort((left, right) => left - right)
 }
 
-watch(agentOptions, (agents) => {
-  if (!form.agent_slug && agents.length) form.agent_slug = agents[0].value
+watch(agentValues, (values) => {
+  if (!form.agent_slug && values.length) form.agent_slug = values[0]
 })
 
 watch(daysInSelectedMonth, (days) => {
@@ -138,6 +141,11 @@ watch(
   },
   { deep: true }
 )
+
+/** 切换频率并保留切换前的结构化 Cron。 */
+function changeFrequency(frequency) {
+  Object.assign(form, applyFrequencyChange(form, frequency))
+}
 </script>
 
 <template>
@@ -167,103 +175,118 @@ watch(
 
     <section class="settings-section" aria-labelledby="context-settings-heading">
       <h3 id="context-settings-heading">详情</h3>
-      <label class="setting-row">
-        <span>运行于</span>
-        <select v-model="form.agent_slug" aria-label="执行智能体">
-          <option value="" disabled>选择智能体</option>
-          <option v-for="agent in agentOptions" :key="agent.value" :value="agent.value">
-            {{ agent.label }}
-          </option>
-        </select>
-      </label>
-      <div class="setting-row">
-        <span>Project</span>
-        <ProjectSelectionSection
-          v-model="form.project_id"
-          :disabled="saving"
-          :allow-auto="false"
-          eager-load
-          aria-label="任务 Project"
-        />
-      </div>
-      <div class="setting-row">
-        <span>模型</span>
-        <ModelSelectorComponent
-          :model_spec="form.model_spec"
-          clearable
-          size="nano"
-          display-name="mini"
-          placeholder="跟随智能体模型"
-          @select-model="(spec) => (form.model_spec = spec)"
-        />
-      </div>
-      <div class="setting-row">
-        <span>工具审批</span>
-        <ToolApprovalModeSelector v-model="form.tool_approval_mode" />
+      <div class="settings-card">
+        <div class="setting-row">
+          <span>运行于</span>
+          <div class="setting-control">
+            <AgentSelectionSection
+              v-model="form.agent_slug"
+              :agents="agents"
+              placement="bottomRight"
+              aria-label="执行智能体"
+            />
+          </div>
+        </div>
+        <div class="setting-row">
+          <span>Project</span>
+          <div class="setting-control">
+            <ProjectSelectionSection
+              v-model="form.project_id"
+              :disabled="saving"
+              :allow-auto="false"
+              eager-load
+              aria-label="任务 Project"
+            />
+          </div>
+        </div>
+        <div class="setting-row">
+          <span>模型</span>
+          <div class="setting-control">
+            <ModelSelectorComponent
+              :model_spec="form.model_spec"
+              clearable
+              size="nano"
+              display-name="mini"
+              placeholder="跟随智能体模型"
+              @select-model="(spec) => (form.model_spec = spec)"
+            />
+          </div>
+        </div>
+        <div class="setting-row">
+          <span>工具审批</span>
+          <div class="setting-control">
+            <ToolApprovalModeSelector v-model="form.tool_approval_mode" placement="bottomRight" />
+          </div>
+        </div>
       </div>
       <p v-if="form.tool_approval_mode === 'always_trust'" class="trust-warning">
-        完全信任允许敏感工具无人值守执行，请只绑定可信的智能体和 Project。
+        允许敏感工具无人值守执行，仅用于可信的智能体和 Project。
       </p>
     </section>
 
     <section class="settings-section" aria-labelledby="schedule-settings-heading">
       <h3 id="schedule-settings-heading">频率</h3>
-      <label class="setting-row">
-        <span>重复</span>
-        <select v-model="form.frequency" aria-label="重复频率">
-          <option
-            v-for="frequency in scheduleFrequencies"
-            :key="frequency.value"
-            :value="frequency.value"
-          >
-            {{ frequency.label }}
-          </option>
-        </select>
-      </label>
-      <div v-if="form.frequency === 'weekly'" class="setting-row weekday-row">
-        <span>执行日</span>
-        <div class="weekday-options" aria-label="每周执行日">
-          <button
-            v-for="weekday in weekdayOptions"
-            :key="weekday.value"
-            type="button"
-            :class="{ selected: form.weekdays.includes(weekday.value) }"
-            :aria-pressed="form.weekdays.includes(weekday.value)"
-            @click="toggleWeekday(weekday.value)"
-          >
-            {{ weekday.label }}
-          </button>
+      <div class="settings-card">
+        <div class="setting-row">
+          <span>重复</span>
+          <div class="setting-control">
+            <SimpleDropdownSelect
+              :model-value="form.frequency"
+              :options="scheduleFrequencies"
+              aria-label="重复频率"
+              @update:model-value="changeFrequency"
+            />
+          </div>
         </div>
-      </div>
-      <label v-if="form.frequency === 'yearly'" class="setting-row">
-        <span>月份</span>
-        <select v-model="form.month" aria-label="执行月份">
-          <option v-for="month in monthOptions" :key="month.value" :value="month.value">
-            {{ month.label }}
-          </option>
-        </select>
-      </label>
-      <label v-if="['monthly', 'yearly'].includes(form.frequency)" class="setting-row">
-        <span>日期</span>
-        <select v-model="form.dayOfMonth" aria-label="执行日期">
-          <option v-for="day in availableDayOptions" :key="day.value" :value="day.value">
-            {{ day.label }}
-          </option>
-        </select>
-      </label>
-      <label class="setting-row">
-        <span>{{ form.frequency === 'custom' ? 'Cron' : '时间' }}</span>
-        <input
-          v-if="form.frequency === 'custom'"
-          v-model="form.cronExpression"
-          aria-label="Cron 表达式"
-          placeholder="0 9 * * *"
-        />
-        <input v-else v-model="form.time" type="time" aria-label="执行时间" />
-      </label>
-      <div class="setting-row static-row">
-        <span>时区</span>
-        <output>{{ form.timezone }}</output>
+        <div v-if="form.frequency === 'weekly'" class="setting-row weekday-row">
+          <span>执行日</span>
+          <div class="weekday-options" aria-label="每周执行日">
+            <button
+              v-for="weekday in weekdayOptions"
+              :key="weekday.value"
+              type="button"
+              :class="{ selected: form.weekdays.includes(weekday.value) }"
+              :aria-pressed="form.weekdays.includes(weekday.value)"
+              @click="toggleWeekday(weekday.value)"
+            >
+              {{ weekday.label }}
+            </button>
+          </div>
+        </div>
+        <div v-if="form.frequency === 'yearly'" class="setting-row">
+          <span>月份</span>
+          <div class="setting-control">
+            <SimpleDropdownSelect
+              v-model="form.month"
+              :options="monthOptions"
+              aria-label="执行月份"
+            />
+          </div>
+        </div>
+        <div v-if="['monthly', 'yearly'].includes(form.frequency)" class="setting-row">
+          <span>日期</span>
+          <div class="setting-control">
+            <SimpleDropdownSelect
+              v-model="form.dayOfMonth"
+              :options="availableDayOptions"
+              aria-label="执行日期"
+            />
+          </div>
+        </div>
+        <label class="setting-row">
+          <span>{{ form.frequency === 'custom' ? 'Cron' : '时间' }}</span>
+          <input
+            v-if="form.frequency === 'custom'"
+            v-model="form.cronExpression"
+            aria-label="Cron 表达式"
+            placeholder="0 9 * * *"
+          />
+          <input v-else v-model="form.time" type="time" aria-label="执行时间" />
+        </label>
+        <div class="setting-row static-row">
+          <span>时区</span>
+          <output>{{ form.timezone }}</output>
+        </div>
       </div>
     </section>
   </section>
@@ -278,8 +301,8 @@ watch(
 .title-line {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 26px 28px 10px;
+  gap: 12px;
+  padding: 6px 22px 6px;
 }
 
 .name-input {
@@ -291,10 +314,10 @@ watch(
   background: transparent;
   color: var(--gray-1000);
   font: inherit;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 28px;
+  letter-spacing: -0.01em;
+  line-height: 24px;
 
   &:focus {
     box-shadow: 0 1px 0 var(--main-color);
@@ -323,64 +346,81 @@ watch(
 
 .prompt-field {
   display: block;
-  padding: 0 28px 24px;
+  padding: 10px 14px;
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  margin: 8px 22px 18px;
+  background: var(--gray-25);
 
   textarea {
     width: 100%;
-    min-height: 108px;
-    padding: 12px 0;
+    min-height: 72px;
+    padding: 0;
     border: 0;
-    border-top: 1px solid var(--gray-100);
-    border-bottom: 1px solid var(--gray-100);
     outline: 0;
     background: transparent;
     color: var(--gray-800);
     font: inherit;
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 13px;
+    line-height: 1.6;
     resize: vertical;
 
     &:focus {
-      border-color: var(--gray-300);
+      box-shadow: none;
     }
+  }
+
+  &:focus-within {
+    border-color: var(--gray-300);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--main-color) 8%, transparent);
   }
 }
 
-.save-error,
-.trust-warning {
-  margin: 0 28px 12px;
+.save-error {
+  margin: 0 22px 8px;
   font-size: 12px;
   line-height: 18px;
-}
-
-.save-error {
   color: var(--color-error-700);
 }
 
 .trust-warning {
-  padding: 6px 0 6px 28%;
+  padding: 0 2px;
+  margin: 6px 0 0;
   color: var(--color-warning-800);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
 }
 
 .settings-section {
-  padding: 0 28px 22px;
+  padding: 0 22px 18px;
 
   h3 {
-    margin: 0;
-    padding: 12px 0 8px;
-    border-bottom: 1px solid var(--gray-150);
+    margin: 0 0 6px;
     color: var(--gray-500);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
+  }
+}
+
+.settings-card {
+  overflow: hidden;
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  background: var(--gray-0);
+
+  > .setting-row:last-child {
+    border-bottom: 0;
   }
 }
 
 .setting-row {
   display: grid;
-  min-height: 50px;
+  min-height: 40px;
   margin: 0;
+  padding: 0 14px;
   border-bottom: 1px solid var(--gray-100);
-  grid-template-columns: minmax(110px, 28%) minmax(0, 1fr);
+  grid-template-columns: 110px minmax(0, 1fr);
   align-items: center;
 
   > span {
@@ -390,9 +430,9 @@ watch(
 
   input,
   select {
-    width: 100%;
-    height: 34px;
-    padding: 0 9px;
+    width: min(240px, 100%);
+    height: 30px;
+    padding: 0 8px;
     border: 1px solid transparent;
     border-radius: 5px;
     outline: none;
@@ -400,10 +440,11 @@ watch(
     color: var(--gray-900);
     font: inherit;
     font-size: 13px;
+    justify-self: end;
     text-align: right;
 
     &:hover {
-      background: var(--gray-25);
+      background: var(--gray-50);
     }
 
     &:focus {
@@ -415,12 +456,26 @@ watch(
 
   select {
     cursor: pointer;
+    text-align-last: right;
+  }
+
+  input[type='time'] {
+    width: min(130px, 100%);
   }
 }
 
+.setting-control {
+  width: min(240px, 100%);
+  min-width: 0;
+  justify-self: end;
+}
+
 .static-row output {
+  width: min(240px, 100%);
   color: var(--gray-800);
   font-size: 13px;
+  line-height: 30px;
+  justify-self: end;
   text-align: right;
 }
 
@@ -430,13 +485,15 @@ watch(
   gap: 4px;
 
   button {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: 1px solid transparent;
     border-radius: 5px;
     background: transparent;
     color: var(--gray-500);
+    font: inherit;
+    font-size: 12px;
     cursor: pointer;
 
     &:hover {
@@ -454,35 +511,61 @@ watch(
 
 .inline-editor :deep(.project-selection) {
   display: block;
+  width: 100%;
 }
 
+.inline-editor :deep(.agent-selection-trigger),
 .inline-editor :deep(.project-trigger),
-.inline-editor :deep(.input-action-btn),
-.inline-editor :deep(.model-select--nano) {
+.inline-editor :deep(.model-select--nano),
+.inline-editor :deep(.config-dropdown-trigger),
+.inline-editor :deep(.simple-dropdown-trigger) {
   width: 100%;
   max-width: none;
-  height: 34px;
-  padding: 0 9px;
+  height: 30px;
+  padding: 0 8px;
   border: 1px solid transparent;
   border-radius: 5px;
   background: transparent;
   color: var(--gray-900);
+  font: inherit;
+  font-size: 13px;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.inline-editor :deep(.agent-selection-trigger-label),
+.inline-editor :deep(.project-trigger-label),
+.inline-editor :deep(.model-info),
+.inline-editor :deep(.model-text),
+.inline-editor :deep(.config-dropdown-text),
+.inline-editor :deep(.simple-dropdown-text) {
+  flex: 0 1 auto;
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+}
+
+.inline-editor :deep(.agent-selection-trigger-icon) {
+  display: none;
+}
+
+.inline-editor :deep(.agent-selection-chevron),
+.inline-editor :deep(.config-dropdown-chevron),
+.inline-editor :deep(.simple-dropdown-chevron) {
+  margin-left: 2px;
+}
+
+.inline-editor :deep(.model-select-content) {
   justify-content: flex-end;
 }
 
+.inline-editor :deep(.agent-selection-trigger:hover:not(:disabled)),
 .inline-editor :deep(.project-trigger:hover:not(:disabled)),
-.inline-editor :deep(.input-action-btn:hover),
-.inline-editor :deep(.model-select--nano:hover) {
+.inline-editor :deep(.model-select--nano:hover),
+.inline-editor :deep(.config-dropdown-trigger:hover:not(:disabled)),
+.inline-editor :deep(.simple-dropdown-trigger:hover:not(:disabled)) {
   border-color: transparent;
-  background: var(--gray-25);
-}
-
-.inline-editor :deep(.config-dropdown-trigger) {
-  justify-content: flex-end;
-}
-
-.inline-editor :deep(.config-dropdown-chevron) {
-  margin-left: 6px;
+  background: var(--gray-50);
 }
 
 .sr-only {
@@ -499,18 +582,16 @@ watch(
 
 @media (max-width: 720px) {
   .title-line,
-  .prompt-field,
   .settings-section {
-    padding-inline: 18px;
+    padding-inline: 14px;
   }
 
-  .save-error,
-  .trust-warning {
-    margin-inline: 18px;
+  .prompt-field {
+    margin-inline: 14px;
   }
 
-  .trust-warning {
-    padding-left: 0;
+  .save-error {
+    margin-inline: 14px;
   }
 
   .title-line {
@@ -524,7 +605,7 @@ watch(
   }
 
   .setting-row {
-    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-columns: 80px minmax(0, 1fr);
   }
 
   .weekday-options {

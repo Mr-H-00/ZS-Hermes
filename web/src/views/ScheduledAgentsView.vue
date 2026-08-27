@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { ExternalLink, Pause, Play, RefreshCw, Search, Trash2, X, Zap } from '@lucide/vue'
+import { ExternalLink, Pause, Play, Plus, RefreshCw, Trash2, X, Zap } from '@lucide/vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 
 import { scheduledAgentApi } from '@/apis/scheduled_agent_api'
 import ScheduledAgentEditor from '@/components/scheduled-agents/ScheduledAgentEditor.vue'
 import { createScheduledAgentAutosave } from '@/components/scheduled-agents/scheduledAgentAutosave'
+import PageShoulder from '@/components/shared/PageShoulder.vue'
 import { useAgentStore } from '@/stores/agent'
 import { describeSchedule, parseCronExpression } from '@/utils/scheduleFrequency'
 
@@ -23,13 +24,25 @@ const creatingDraft = ref(false)
 const activeActionId = ref('')
 const searchQuery = ref('')
 const statusFilter = ref('all')
+const RUN_STATUS_LABELS = {
+  dispatching: '提交中',
+  submitted: '已提交',
+  queued: '排队中',
+  dispatched: '已派发',
+  pending: '等待中',
+  running: '运行中',
+  completed: '已完成',
+  skipped: '已跳过',
+  failed: '失败',
+  rejected: '已拒绝',
+  cancelled: '已取消',
+  interrupted: '已中断'
+}
 
 const availableAgents = computed(() =>
   (agentStore.agents || []).filter((agent) => !agent.is_subagent)
 )
-const selectedJob = computed(
-  () => jobs.value.find((job) => job.id === selectedJobId.value) || null
-)
+const selectedJob = computed(() => jobs.value.find((job) => job.id === selectedJobId.value) || null)
 const detailOpen = computed(() => creatingDraft.value || Boolean(selectedJob.value))
 const detailStatusLabel = computed(() => {
   if (creatingDraft.value) return '新任务'
@@ -175,7 +188,11 @@ function remove(job) {
     cancelText: '取消',
     okType: 'danger',
     async onOk() {
-      const removed = await runAction(job, () => scheduledAgentApi.remove(job.id), '删除定时任务失败')
+      const removed = await runAction(
+        job,
+        () => scheduledAgentApi.remove(job.id),
+        '删除定时任务失败'
+      )
       if (removed !== null) await closeDetail()
     }
   })
@@ -194,21 +211,7 @@ function formatRunTime(value) {
 }
 
 function runStatusLabel(run) {
-  const labels = {
-    dispatching: '提交中',
-    submitted: '已提交',
-    queued: '排队中',
-    dispatched: '已派发',
-    pending: '等待中',
-    running: '运行中',
-    completed: '已完成',
-    skipped: '已跳过',
-    failed: '失败',
-    rejected: '已拒绝',
-    cancelled: '已取消',
-    interrupted: '已中断'
-  }
-  return labels[run.status] || run.status
+  return RUN_STATUS_LABELS[run.status] || run.status
 }
 
 function runStatusTone(run) {
@@ -246,230 +249,256 @@ onMounted(async () => {
 
 onBeforeRouteLeave(() => flushAutoSave())
 
-defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
+defineExpose({ beforeLeave: flushAutoSave, loading, saving })
 </script>
 
 <template>
-  <section class="scheduled-shell" :class="{ open: detailOpen }">
-    <a-alert v-if="listError" class="list-alert" type="error" show-icon :message="listError">
-      <template #action><a-button size="small" @click="load()">重新加载</a-button></template>
-    </a-alert>
-
-    <aside v-else class="list-pane" aria-label="定时任务列表">
-      <div class="list-tools">
-        <label class="search-field">
-          <Search :size="16" aria-hidden="true" />
-          <input v-model="searchQuery" type="search" placeholder="搜索已安排任务" aria-label="搜索已安排任务" />
-        </label>
-        <div class="filter-row" aria-label="任务状态筛选">
-          <button
-            v-for="option in filterOptions"
-            :key="option.value"
-            type="button"
-            :class="{ active: statusFilter === option.value }"
-            :aria-pressed="statusFilter === option.value"
-            @click="statusFilter = option.value"
-          >
-            {{ option.label }} <span>{{ option.count }}</span>
-          </button>
-          <button
-            type="button"
-            class="refresh-button"
-            :disabled="loading"
-            aria-label="刷新定时任务"
-            @click="load()"
-          >
-            <RefreshCw :size="15" aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
-      <div v-if="loading" class="task-skeleton" aria-label="正在加载定时任务">
-        <span v-for="index in 3" :key="index"></span>
-      </div>
-
-      <div v-else-if="filteredJobs.length" class="task-list">
-        <button
-          v-for="job in filteredJobs"
-          :key="job.id"
-          type="button"
-          class="task-row"
-          :class="{ selected: selectedJobId === job.id }"
-          :aria-current="selectedJobId === job.id ? 'true' : undefined"
-          @click="selectJob(job)"
+  <div class="scheduled-view">
+    <section class="scheduled-shell" :class="{ open: detailOpen }">
+      <aside class="list-pane" aria-label="定时任务列表">
+        <PageShoulder
+          v-model:search="searchQuery"
+          class="schedule-shoulder"
+          search-placeholder="搜索已安排任务"
         >
-          <span class="status-dot" :class="{ paused: !job.enabled }" aria-hidden="true"></span>
-          <span class="task-copy">
-            <strong>{{ job.name }}</strong>
-            <small>{{ scheduleLabel(job) }}</small>
-          </span>
-          <span class="task-state">{{ job.enabled ? '开启' : '暂停' }}</span>
-        </button>
-      </div>
-
-      <div v-else class="list-empty">
-        <strong>{{ jobs.length ? '没有匹配的任务' : '还没有定时任务' }}</strong>
-        <span>{{ jobs.length ? '调整搜索或筛选条件。' : '使用右上角的新建任务开始。' }}</span>
-      </div>
-    </aside>
-
-    <main v-if="detailOpen" class="detail-pane">
-      <header class="detail-toolbar">
-        <span class="task-status" :class="{ paused: selectedJob && !selectedJob.enabled }">
-          {{ detailStatusLabel }}
-        </span>
-        <div class="detail-actions">
-          <template v-if="selectedJob">
-            <button
-              type="button"
-              :disabled="Boolean(activeActionId)"
-              @click="runNow(selectedJob)"
+          <template #actions>
+            <a-button type="primary" class="lucide-icon-btn" @click="openCreate">
+              <Plus :size="14" />
+              新建任务
+            </a-button>
+            <a-button
+              class="lucide-icon-btn"
+              :loading="loading"
+              aria-label="刷新定时任务"
+              @click="load()"
             >
-              <Zap :size="15" aria-hidden="true" />
-              立即运行
-            </button>
-            <button
-              type="button"
-              :disabled="Boolean(activeActionId)"
-              @click="toggle(selectedJob)"
-            >
-              <Pause v-if="selectedJob.enabled" :size="15" aria-hidden="true" />
-              <Play v-else :size="15" aria-hidden="true" />
-              {{ selectedJob.enabled ? '暂停' : '恢复' }}
-            </button>
-            <button
-              type="button"
-              class="icon-button danger"
-              aria-label="删除任务"
-              :disabled="Boolean(activeActionId)"
-              @click="remove(selectedJob)"
-            >
-              <Trash2 :size="15" aria-hidden="true" />
-            </button>
+              <RefreshCw :size="14" />
+            </a-button>
           </template>
-          <button type="button" class="icon-button" aria-label="关闭任务详情" @click="closeDetail">
-            <X :size="17" aria-hidden="true" />
-          </button>
-        </div>
-      </header>
+        </PageShoulder>
 
-      <ScheduledAgentEditor
-        :job="selectedJob"
-        :agents="availableAgents"
-        :saving="saving"
-        :save-state="saveState"
-        :error="editorError"
-        @change="queueAutoSave"
-      />
+        <a-alert v-if="listError" class="list-alert" type="error" show-icon :message="listError">
+          <template #action><a-button size="small" @click="load()">重新加载</a-button></template>
+        </a-alert>
 
-      <section v-if="selectedJob" class="history-section" aria-labelledby="runs-heading">
-        <header>
-          <div>
-            <h3 id="runs-heading">运行历史记录</h3>
-            <p>点击记录进入本次运行创建的对话。</p>
+        <template v-else>
+          <div class="filter-row" aria-label="任务状态筛选">
+            <button
+              v-for="option in filterOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: statusFilter === option.value }"
+              :aria-pressed="statusFilter === option.value"
+              @click="statusFilter = option.value"
+            >
+              {{ option.label }} <span>{{ option.count }}</span>
+            </button>
           </div>
-          <span>{{ selectedJob.runs?.length || 0 }} 条</span>
-        </header>
 
-        <div v-if="selectedJob.runs?.length" class="run-list">
-          <button
-            v-for="run in selectedJob.runs"
-            :key="run.id"
-            type="button"
-            class="run-row"
-            :class="{ actionable: canOpenConversation(run) }"
-            :disabled="!canOpenConversation(run)"
-            :aria-label="runRecordLabel(run)"
-            @click="openConversation(run)"
-          >
-            <span class="run-status" :class="runStatusTone(run)">{{ runStatusLabel(run) }}</span>
-            <span class="run-copy">
-              <strong>{{ run.trigger === 'manual' ? '手动运行' : '定时运行' }}</strong>
-              <small v-if="run.error_message" :title="run.error_message">{{ run.error_message }}</small>
-              <small v-else>{{ canOpenConversation(run) ? '查看对话和运行结果' : '尚未创建对话' }}</small>
+          <div v-if="loading" class="task-skeleton" aria-label="正在加载定时任务">
+            <span v-for="index in 3" :key="index"></span>
+          </div>
+
+          <div v-else-if="filteredJobs.length" class="task-list">
+            <button
+              v-for="job in filteredJobs"
+              :key="job.id"
+              type="button"
+              class="task-row"
+              :class="{ selected: selectedJobId === job.id }"
+              :aria-current="selectedJobId === job.id ? 'true' : undefined"
+              @click="selectJob(job)"
+            >
+              <span class="task-copy">
+                <strong>{{ job.name }}</strong>
+                <small>{{ scheduleLabel(job) }}</small>
+              </span>
+              <span class="task-state">{{ job.enabled ? '开启' : '暂停' }}</span>
+            </button>
+          </div>
+
+          <div v-else class="list-empty">
+            <strong>{{ jobs.length ? '没有匹配的任务' : '还没有定时任务' }}</strong>
+            <span>{{ jobs.length ? '调整搜索或筛选条件。' : '使用右上角的新建任务开始。' }}</span>
+          </div>
+        </template>
+      </aside>
+
+      <Transition name="detail-slide">
+        <main v-if="detailOpen" class="detail-pane">
+          <header class="detail-toolbar">
+            <span class="task-status" :class="{ paused: selectedJob && !selectedJob.enabled }">
+              {{ detailStatusLabel }}
             </span>
-            <time :datetime="run.scheduled_for">{{ formatRunTime(run.scheduled_for) }}</time>
-            <ExternalLink v-if="canOpenConversation(run)" :size="15" aria-hidden="true" />
-            <span v-else class="no-conversation">无对话</span>
-          </button>
-        </div>
-        <p v-else class="runs-empty">任务运行后，记录会显示在这里。</p>
-      </section>
-    </main>
-  </section>
+            <div class="detail-actions">
+              <template v-if="selectedJob">
+                <button
+                  type="button"
+                  :disabled="Boolean(activeActionId)"
+                  @click="runNow(selectedJob)"
+                >
+                  <Zap :size="15" aria-hidden="true" />
+                  立即运行
+                </button>
+                <button
+                  type="button"
+                  :disabled="Boolean(activeActionId)"
+                  @click="toggle(selectedJob)"
+                >
+                  <Pause v-if="selectedJob.enabled" :size="15" aria-hidden="true" />
+                  <Play v-else :size="15" aria-hidden="true" />
+                  {{ selectedJob.enabled ? '暂停' : '恢复' }}
+                </button>
+                <button
+                  type="button"
+                  class="icon-button danger"
+                  aria-label="删除任务"
+                  :disabled="Boolean(activeActionId)"
+                  @click="remove(selectedJob)"
+                >
+                  <Trash2 :size="15" aria-hidden="true" />
+                </button>
+              </template>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="关闭任务详情"
+                @click="closeDetail"
+              >
+                <X :size="17" aria-hidden="true" />
+              </button>
+            </div>
+          </header>
+
+          <ScheduledAgentEditor
+            :job="selectedJob"
+            :agents="availableAgents"
+            :saving="saving"
+            :save-state="saveState"
+            :error="editorError"
+            @change="queueAutoSave"
+          />
+
+          <section v-if="selectedJob" class="history-section" aria-labelledby="runs-heading">
+            <header>
+              <div>
+                <h3 id="runs-heading">运行历史记录</h3>
+                <p>点击记录进入本次运行创建的对话。</p>
+              </div>
+              <span>{{ selectedJob.runs?.length || 0 }} 条</span>
+            </header>
+
+            <div v-if="selectedJob.runs?.length" class="run-list">
+              <button
+                v-for="run in selectedJob.runs"
+                :key="run.id"
+                type="button"
+                class="run-row"
+                :class="{ actionable: canOpenConversation(run) }"
+                :disabled="!canOpenConversation(run)"
+                :aria-label="runRecordLabel(run)"
+                @click="openConversation(run)"
+              >
+                <span class="run-status" :class="runStatusTone(run)">{{
+                  runStatusLabel(run)
+                }}</span>
+                <span class="run-copy">
+                  <strong>{{ run.trigger === 'manual' ? '手动运行' : '定时运行' }}</strong>
+                  <small v-if="run.error_message" :title="run.error_message">{{
+                    run.error_message
+                  }}</small>
+                  <small v-else>{{
+                    canOpenConversation(run) ? '查看对话和运行结果' : '尚未创建对话'
+                  }}</small>
+                </span>
+                <time :datetime="run.scheduled_for">{{ formatRunTime(run.scheduled_for) }}</time>
+                <ExternalLink v-if="canOpenConversation(run)" :size="15" aria-hidden="true" />
+                <span v-else class="no-conversation">无对话</span>
+              </button>
+            </div>
+            <p v-else class="runs-empty">任务运行后，记录会显示在这里。</p>
+          </section>
+        </main>
+      </Transition>
+    </section>
+  </div>
 </template>
 
 <style lang="less" scoped>
-.scheduled-shell {
-  width: min(880px, 100%);
-  margin: 0 auto;
-  padding: 24px clamp(18px, 3vw, 32px) 44px;
-  color: var(--gray-1000);
+.scheduled-view {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
 
-  &.open {
-    display: grid;
-    width: min(1260px, 100%);
-    padding-top: 0;
-    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+.schedule-shoulder {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  flex: none;
+
+  :deep(.page-shoulder-left) {
+    min-width: 0;
+    flex: 1;
   }
+
+  :deep(.search-input) {
+    width: min(280px, 100%);
+  }
+}
+
+.scheduled-shell {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--gray-1000);
 }
 
 .list-alert {
-  grid-column: 1 / -1;
-  margin-top: 20px;
+  flex: 1;
+  margin: 20px;
 }
 
 .list-pane {
-  min-width: 0;
-  min-height: 0;
-}
-
-.open .list-pane {
-  border-right: 1px solid var(--gray-150);
-}
-
-.list-tools {
-  padding: 16px 8px 14px;
-  border-bottom: 1px solid var(--gray-150);
-}
-
-.open .list-tools {
-  padding-top: 20px;
-}
-
-.search-field {
   display: flex;
-  height: 38px;
-  padding: 0 11px;
-  border: 1px solid var(--gray-150);
-  border-radius: 6px;
-  background: var(--gray-0);
-  color: var(--gray-400);
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  flex: 1 1 100%;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  border-right: 1px solid transparent;
+  transition:
+    flex-basis 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    max-width 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
 
-  &:focus-within {
-    border-color: var(--gray-300);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--main-color) 9%, transparent);
-  }
+.scheduled-shell:not(.open) .list-pane {
+  max-width: 820px;
+  margin: 0 auto;
+  padding-bottom: 24px;
+}
 
-  input {
-    min-width: 0;
-    border: 0;
-    outline: 0;
-    flex: 1;
-    background: transparent;
-    color: var(--gray-900);
-    font: inherit;
-    font-size: 13px;
-  }
+.scheduled-shell.open .list-pane {
+  flex: 0 0 40%;
+  max-width: 40%;
+  border-right-color: var(--gray-150);
 }
 
 .filter-row {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  padding: 10px 14px 12px;
+  background: inherit;
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 10px;
 
   button {
     display: inline-flex;
@@ -496,54 +525,42 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
       font-variant-numeric: tabular-nums;
     }
   }
-
-  .refresh-button {
-    width: 28px;
-    padding: 0;
-    margin-left: auto;
-    justify-content: center;
-  }
 }
 
 .task-list {
-  padding: 6px 0;
+  display: grid;
+  padding: 8px 12px;
+  gap: 4px;
 }
 
 .task-row {
   display: grid;
   width: 100%;
-  min-height: 62px;
+  min-height: 60px;
   padding: 10px 12px;
-  border: 0;
-  border-bottom: 1px solid var(--gray-100);
+  border: 1px solid transparent;
+  border-radius: 9px;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 10px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 
   &:hover,
   &.selected {
-    background: var(--gray-50);
+    border-color: var(--gray-150);
+    background: var(--gray-0);
   }
 
   &:focus-visible {
     outline: 2px solid var(--main-color);
     outline-offset: -2px;
-  }
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-success-600);
-
-  &.paused {
-    background: var(--gray-300);
   }
 }
 
@@ -579,10 +596,12 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
 
 .task-skeleton {
   display: grid;
-  gap: 1px;
+  padding: 8px 12px;
+  gap: 4px;
 
   span {
     height: 62px;
+    border-radius: 9px;
     background: var(--gray-25);
   }
 }
@@ -606,17 +625,21 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
 }
 
 .detail-pane {
+  flex: 0 0 60%;
+  width: 60%;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--gray-0);
 }
 
 .detail-toolbar {
   display: flex;
-  min-height: 58px;
-  padding: 0 20px 0 28px;
-  border-bottom: 1px solid var(--gray-150);
+  min-height: 48px;
+  padding: 0 16px 0 22px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
 .task-status {
@@ -635,8 +658,8 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
 
   button {
     display: inline-flex;
-    height: 32px;
-    padding: 0 9px;
+    height: 30px;
+    padding: 0 8px;
     border: 1px solid transparent;
     border-radius: 5px;
     background: transparent;
@@ -646,7 +669,7 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
     cursor: pointer;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 4px;
 
     svg {
       flex: none;
@@ -669,7 +692,7 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
   }
 
   .icon-button {
-    width: 32px;
+    width: 30px;
     padding: 0;
   }
 
@@ -680,11 +703,11 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
 }
 
 .history-section {
-  padding: 0 28px 34px;
+  padding: 0 22px 24px;
 
   > header {
     display: flex;
-    padding: 14px 0 8px;
+    padding: 10px 0 6px;
     border-bottom: 1px solid var(--gray-150);
     align-items: flex-end;
     justify-content: space-between;
@@ -716,8 +739,8 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
 .run-row {
   display: grid;
   width: 100%;
-  min-height: 56px;
-  padding: 8px 0;
+  min-height: 44px;
+  padding: 6px 0;
   border: 0;
   border-bottom: 1px solid var(--gray-100);
   background: transparent;
@@ -803,24 +826,58 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
   font-size: 12px;
 }
 
+.detail-slide-enter-active {
+  transition:
+    flex-basis 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    width 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 130ms ease,
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  min-width: 0 !important;
+}
+
+.detail-slide-leave-active {
+  transition:
+    flex-basis 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    width 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 110ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  min-width: 0 !important;
+}
+
+.detail-slide-enter-from,
+.detail-slide-leave-to {
+  flex-basis: 0 !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  opacity: 0;
+  transform: translateX(14px);
+}
+
 @media (max-width: 1100px) {
   .scheduled-shell.open {
     display: block;
   }
 
   .open .list-pane {
-    border-right: 0;
-    border-bottom: 1px solid var(--gray-150);
+    display: none;
   }
 
-  .open .task-list {
-    max-height: 190px;
-    overflow-y: auto;
+  .scheduled-shell.open .detail-pane {
+    width: 100%;
+    height: 100%;
+    flex: 1 1 100%;
   }
 }
 
 @media (max-width: 640px) {
-  .scheduled-shell {
+  .schedule-shoulder {
+    gap: 8px;
+    padding-inline: 12px;
+  }
+
+  .scheduled-shell:not(.open) .list-pane {
     padding-inline: 12px;
   }
 
@@ -829,14 +886,14 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
   }
 
   .detail-actions button:not(.icon-button) {
-    width: 32px;
+    width: 30px;
     padding: 0;
     font-size: 0;
     gap: 0;
   }
 
   .history-section {
-    padding-inline: 18px;
+    padding-inline: 16px;
   }
 
   .run-row {
@@ -846,6 +903,23 @@ defineExpose({ beforeLeave: flushAutoSave, openCreate, loading, saving })
     .no-conversation {
       display: none;
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scheduled-shell,
+  .list-pane {
+    transition: none;
+  }
+
+  .detail-slide-enter-active,
+  .detail-slide-leave-active {
+    transition: none;
+  }
+
+  .detail-slide-enter-from,
+  .detail-slide-leave-to {
+    transform: none;
   }
 }
 </style>

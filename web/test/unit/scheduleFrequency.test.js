@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  applyFrequencyChange,
   buildCronExpression,
   describeSchedule,
   parseCronExpression
@@ -17,6 +18,7 @@ assert.equal(
 )
 assert.deepEqual(parseCronExpression('0 9 * * 1-5'), {
   frequency: 'weekly',
+  cronExpression: '0 9 * * 1-5',
   time: '09:00',
   weekdays: [1, 2, 3, 4, 5],
   dayOfMonth: 1,
@@ -33,6 +35,18 @@ assert.deepEqual(parseCronExpression('*/15 * * * *'), {
 assert.equal(
   buildCronExpression({ frequency: 'custom', cronExpression: '*/15 * * * *' }),
   '*/15 * * * *'
+)
+assert.equal(
+  applyFrequencyChange(
+    {
+      frequency: 'weekly',
+      cronExpression: '0 9 * * 1-5',
+      time: '10:00',
+      weekdays: [1, 2, 3, 4, 5]
+    },
+    'custom'
+  ).cronExpression,
+  '0 10 * * 1,2,3,4,5'
 )
 assert.equal(parseCronExpression('0 */2 * * *').frequency, 'custom')
 assert.equal(parseCronExpression('0 9 * * 5-1').frequency, 'custom')
