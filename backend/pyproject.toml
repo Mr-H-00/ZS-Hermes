@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.121",
     "uvicorn[standard]>=0.34.2",
     "arq>=0.26.3",
+    "croniter>=6.0.0",
     "yuxi",
 ]
 [tool.ruff]

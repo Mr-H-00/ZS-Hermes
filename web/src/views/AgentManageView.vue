@@ -1,10 +1,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import PageHeader from '@/components/shared/PageHeader.vue'
 import AgentManagePanel from '@/components/model-management/AgentManagePanel.vue'
 import ModelProviderManagePanel from '@/components/model-management/ModelProviderManagePanel.vue'
+import { canLeaveScheduledTab } from '@/components/scheduled-agents/scheduledAgentAutosave'
+import ScheduledAgentsView from '@/views/ScheduledAgentsView.vue'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
@@ -14,9 +16,13 @@ const userStore = useUserStore()
 const activeTab = ref('agents')
 const agentPanelRef = ref(null)
 const providerPanelRef = ref(null)
+const schedulePanelRef = ref(null)
 
 const modelManageTabs = computed(() => {
-  const tabs = [{ key: 'agents', label: '智能体' }]
+  const tabs = [
+    { key: 'agents', label: '智能体' },
+    { key: 'schedules', label: '定时任务' }
+  ]
   if (userStore.isAdmin) tabs.push({ key: 'providers', label: '模型供应商' })
   return tabs
 })
@@ -25,11 +31,17 @@ const activePanel = computed(() =>
   activeTab.value === 'providers' ? providerPanelRef.value : agentPanelRef.value
 )
 
-const activeLoading = computed(() => activePanel.value?.loading || false)
+const activeLoading = computed(() => {
+  if (activeTab.value === 'schedules') {
+    return schedulePanelRef.value?.loading || schedulePanelRef.value?.saving || false
+  }
+  return activePanel.value?.loading || false
+})
 const activeStats = computed(() => activePanel.value?.stats || {})
 
 const normalizeTab = (tab) => {
   if (tab === 'providers' && userStore.isAdmin) return 'providers'
+  if (tab === 'schedules') return 'schedules'
   return 'agents'
 }
 
@@ -42,26 +54,31 @@ watch(
   { immediate: true }
 )
 
-watch(activeTab, (tab) => {
-  const nextTab = normalizeTab(tab)
-  if (nextTab !== tab) {
-    activeTab.value = nextTab
-    return
-  }
-  if (route.query.tab === nextTab) return
-  router.replace({ query: { ...route.query, tab: nextTab } })
-})
+function canChangeTab(nextTab) {
+  return canLeaveScheduledTab(activeTab.value, nextTab, () =>
+    schedulePanelRef.value?.beforeLeave?.() ?? true
+  )
+}
+
+async function requestTabChange(item) {
+  const nextTab = normalizeTab(item.key)
+  if (nextTab === activeTab.value) return
+  await router.replace({ query: { ...route.query, tab: nextTab } })
+}
+
+onBeforeRouteUpdate((to) => canChangeTab(normalizeTab(to.query.tab)))
 </script>
 
 <template>
   <div class="agent-manage-view">
     <PageHeader
-      v-model:active-key="activeTab"
+      :active-key="activeTab"
       title="智能体管理"
       :tabs="modelManageTabs"
       :loading="activeLoading"
       :show-border="true"
       aria-label="智能体管理视图切换"
+      @change="requestTabChange"
     >
       <template #info>
         <div v-if="activeTab === 'agents'" class="summary-strip">
@@ -70,7 +87,7 @@ watch(activeTab, (tab) => {
           <span v-if="activeStats.builtin">{{ activeStats.builtin }} 个内置</span>
           <span>{{ activeStats.manageable || 0 }} 个可管理</span>
         </div>
-        <div v-else class="summary-strip">
+        <div v-else-if="activeTab === 'providers'" class="summary-strip">
           <span>{{ activeStats.total || 0 }} 个供应商</span>
           <span>{{ activeStats.enabled || 0 }} 个启用</span>
           <span v-if="activeStats.warning > 0" class="warning-count">
@@ -78,6 +95,16 @@ watch(activeTab, (tab) => {
           </span>
           <span>{{ activeStats.models || 0 }} 个模型</span>
         </div>
+      </template>
+      <template #actions>
+        <button
+          v-if="activeTab === 'schedules'"
+          type="button"
+          class="schedule-create-button"
+          @click="schedulePanelRef?.openCreate()"
+        >
+          新建任务
+        </button>
       </template>
     </PageHeader>
 
@@ -87,6 +114,9 @@ watch(activeTab, (tab) => {
       </div>
       <div v-if="userStore.isAdmin && activeTab === 'providers'" class="tab-panel">
         <ModelProviderManagePanel ref="providerPanelRef" />
+      </div>
+      <div v-if="activeTab === 'schedules'" class="tab-panel schedule-tab-panel">
+        <ScheduledAgentsView ref="schedulePanelRef" />
       </div>
     </div>
   </div>
@@ -111,6 +141,10 @@ watch(activeTab, (tab) => {
     min-height: 0;
     overflow-y: auto;
   }
+
+  .schedule-tab-panel {
+    overflow-y: auto;
+  }
 }
 
 .summary-strip {
@@ -131,6 +165,28 @@ watch(activeTab, (tab) => {
     background: var(--color-warning-50);
     border-color: var(--color-warning-100);
     color: var(--color-warning-700);
+  }
+}
+
+.schedule-create-button {
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--gray-1000);
+  border-radius: 5px;
+  background: var(--gray-1000);
+  color: var(--gray-0);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--gray-800);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--main-color);
+    outline-offset: 2px;
   }
 }
 </style>

@@ -374,6 +374,91 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         await _delete_provider(e2e_client, e2e_headers)
 
 
+async def test_scheduled_task_run_now_reaches_exact_conversation_and_result(
+    e2e_client: httpx.AsyncClient,
+    e2e_headers: dict[str, str],
+) -> None:
+    """Run now 复用真实 worker 链路，并把历史记录绑定到准确 Conversation。"""
+    me_response = await e2e_client.get("/api/auth/me", headers=e2e_headers)
+    assert me_response.status_code == 200, me_response.text
+    uid = str(me_response.json()["uid"])
+
+    await _create_provider(e2e_client, e2e_headers)
+    agent_slug: str | None = None
+    job_id: str | None = None
+    thread_id: str | None = None
+    try:
+        agent_slug = await _create_agent(e2e_client, e2e_headers, uid)
+        directory_name = f"pytest-scheduled-e2e-{uuid.uuid4().hex[:10]}"
+        directory_response = await e2e_client.post(
+            "/api/workspace/directory",
+            headers=e2e_headers,
+            json={"parent_path": "/", "name": directory_name},
+        )
+        assert directory_response.status_code == 200, directory_response.text
+
+        project_response = await e2e_client.post(
+            "/api/projects",
+            headers=e2e_headers,
+            json={
+                "request_id": f"scheduled-e2e-project-{uuid.uuid4()}",
+                "name": f"pytest scheduled E2E {uuid.uuid4().hex[:8]}",
+                "workdir": {"mode": "linked", "path": directory_name},
+            },
+        )
+        assert project_response.status_code == 200, project_response.text
+        project_id = str(project_response.json()["id"])
+
+        create_response = await e2e_client.post(
+            "/api/scheduled-tasks",
+            headers=e2e_headers,
+            json={
+                "name": make_test_conversation_title("scheduled-agent"),
+                "project_id": project_id,
+                "agent_slug": agent_slug,
+                "prompt": f"只输出 {EXPECTED_OUTPUT}",
+                "cron_expression": "0 9 * * *",
+                "timezone": "UTC",
+            },
+        )
+        assert create_response.status_code == 200, create_response.text
+        job_id = str(create_response.json()["id"])
+
+        run_response = await e2e_client.post(
+            f"/api/scheduled-tasks/{job_id}/run-now",
+            headers=e2e_headers,
+        )
+        assert run_response.status_code == 200, run_response.text
+        execution = run_response.json()
+        run_id = str(execution["run_id"])
+        thread_id = str(execution["thread_id"])
+
+        run = await wait_for_run(e2e_client, e2e_headers, run_id)
+        assert run["status"] == "completed", run
+        result = await e2e_client.get(f"/api/agent/runs/{run_id}/result", headers=e2e_headers)
+        assert result.status_code == 200, result.text
+        assert result.json()["output"] == EXPECTED_OUTPUT
+        assert result.json()["thread_id"] == thread_id
+
+        jobs_response = await e2e_client.get("/api/scheduled-tasks", headers=e2e_headers)
+        assert jobs_response.status_code == 200, jobs_response.text
+        job = next(item for item in jobs_response.json()["jobs"] if item["id"] == job_id)
+        history = next(item for item in job["runs"] if item["run_id"] == run_id)
+        assert history["status"] == "completed"
+        assert history["thread_id"] == thread_id
+        assert history["conversation_available"] is True
+    finally:
+        if job_id:
+            response = await e2e_client.delete(f"/api/scheduled-tasks/{job_id}", headers=e2e_headers)
+            assert response.status_code in {200, 404}, response.text
+        if thread_id:
+            response = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)
+            assert response.status_code in {200, 404}, response.text
+        if agent_slug:
+            await delete_agent(e2e_client, e2e_headers, agent_slug)
+        await _delete_provider(e2e_client, e2e_headers)
+
+
 async def test_attachment_is_written_to_user_workspace_workdir_and_survives_runtime_recreation(
     e2e_client: httpx.AsyncClient,
     e2e_headers: dict[str, str],

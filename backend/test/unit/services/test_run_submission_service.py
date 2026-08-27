@@ -74,6 +74,18 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
             assert kind == "main"
             return SimpleNamespace(slug=slug, backend_id="ChatbotAgent")
 
+    class ProjectRepo:
+        def __init__(self, db):
+            del db
+
+        async def get_for_user(self, project_id, uid):
+            calls["project_lookup"] = (project_id, uid)
+            return SimpleNamespace(
+                id=project_id,
+                workdir_path=f"projects/{project_id}",
+                directory_mode="managed",
+            )
+
     class ConvRepo:
         def __init__(self, db):
             del db
@@ -109,6 +121,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
     monkeypatch.setattr(svc, "AgentRunRequestRepository", _EmptyRequestRepo)
     monkeypatch.setattr(svc, "AgentRunRepository", _EmptyRunRepo)
     monkeypatch.setattr(svc, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(svc, "ProjectRepository", ProjectRepo)
 
     async def fake_create_implicit_project(**kwargs):
         calls["project"] = kwargs
@@ -150,6 +163,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
         model_spec="provider:model",
         create_conversation=True,
         conversation_title="Agent Call Run",
+        conversation_project_id="11111111-1111-4111-8111-111111111111",
     )
 
     result = await svc.submit_run_command(command=command, current_user=current_user, db=Db())
@@ -159,6 +173,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
         "channel": "api",
         "agent_invocation_meta": {"trace_id": "trace-1"},
     }
+    assert calls["project_lookup"] == ("11111111-1111-4111-8111-111111111111", "user-1")
     assert calls["conversation"]["project_id"] == "11111111-1111-4111-8111-111111111111"
     assert calls["intake"]["source"] == "agent_call"
     assert calls["intake"]["channel"] == "api"

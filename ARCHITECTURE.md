@@ -14,7 +14,7 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 
 - `web`：Vue 3 / Vite 前端，挂载 `web/src` 并热重载。
 - `api`：FastAPI API 服务，挂载 `backend/server`、`backend/package` 和测试目录并热重载。
-- `worker`：ARQ worker，执行已经派发的 AgentRun，通过 attempt ownership 与 heartbeat 维护运行租约，并周期收敛失联 Run。
+- `worker`：ARQ worker，执行已经派发的 AgentRun，并周期触发用户自建 Agent 定时任务；AgentRun 使用 attempt ownership 与 heartbeat 维护运行租约，定时任务使用 PostgreSQL 任务锁保证单次触发。
 - `storage-migrator`：Compose 中唯一修改 Yuxi 数据库 Schema 的一次性迁移进程，同时处理受支持的历史存储切换；API 与 worker 等待其成功后只校验 Schema 版本。
 - `sandbox-provisioner`：为智能体工具执行提供隔离沙盒。
 - `postgres`：业务数据、知识库元数据、请求队列、AgentRun 与 LangGraph checkpoint。
@@ -57,6 +57,7 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 项目中存在两套用途不同的后台执行机制，不应混用：
 
 - AgentRun：通过 PostgreSQL 保存事实状态，使用 Redis/ARQ 投递到 `worker`，支持运行事件、取消、恢复和线程请求队列。
+- 用户定时 Agent：PostgreSQL 保存任务定义和只含 occurrence、配置快照与提交状态的触发记录；每次触发创建绑定原 Project 的新 Conversation，worker 锁定到期任务后复用统一 AgentRun Request/Run 链路。排队和执行状态仍分别由 AgentRunRequest 与 AgentRun 拥有，Redis/ARQ 只负责唤醒。
 - `services/task_service.py` 中的 Tasker：运行在 API 进程内，用于知识库解析、评估和图谱构建等通用后台任务；任务摘要持久化到 PostgreSQL，但可执行 coroutine 和内存队列不具备跨进程重建能力。
 
 测试代码位于 `backend/test`，按 `unit`、`integration`、`e2e` 分层。新增或修改后端行为时，测试应放在最能覆盖真实风险的层级。

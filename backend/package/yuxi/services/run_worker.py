@@ -26,6 +26,10 @@ from yuxi.services.agent_request_queue_service import (
 from yuxi.services.agent_run_manifest_service import build_run_manifest_result, compute_manifest_fingerprint
 from yuxi.services.chat_service import get_agent_state_view, stream_agent_chat, stream_agent_resume
 from yuxi.services.input_message_service import restore_chat_input_message
+from yuxi.services.scheduled_agent_service import (
+    claim_and_dispatch_due_jobs,
+    recover_scheduled_dispatches,
+)
 from yuxi.services.run_queue_service import (
     RUN_RECONCILIATION_SECONDS,
     WORKER_HEALTH_INTERVAL_SECONDS,
@@ -1399,6 +1403,8 @@ async def _reconcile_agent_run_leases_forever() -> None:
             if cleaned_ids:
                 logger.warning(f"Reconciled pending runtime cleanups: count={len(cleaned_ids)}")
             await recover_pending_dispatches()
+            await recover_scheduled_dispatches()
+            await claim_and_dispatch_due_jobs()
             await _publish_reconciliation_health()
         except asyncio.CancelledError:
             raise
@@ -1450,6 +1456,8 @@ async def _worker_startup(ctx):
         logger.warning(f"Reconciled expired AgentRun leases at startup: count={len(reconciled_ids)}")
     await reconcile_pending_runtime_cleanups()
     await recover_pending_dispatches()
+    await recover_scheduled_dispatches()
+    await claim_and_dispatch_due_jobs()
     await _publish_reconciliation_health()
     ctx[_RECONCILIATION_TASK_KEY] = asyncio.create_task(_reconcile_agent_run_leases_forever())
 
