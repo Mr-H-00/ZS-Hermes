@@ -8,9 +8,7 @@ from yuxi_cli.config import Remote
 
 
 def _patched_client(monkeypatch):
-    client = YuxiClient(
-        Remote(name="local", url="http://localhost:5173", api_key="yxkey_test")
-    )
+    client = YuxiClient(Remote(name="local", url="http://localhost:5173", api_key="yxkey_test"))
     calls: list[dict] = []
 
     def fake_request(method, path, **kwargs):
@@ -147,6 +145,23 @@ def test_get_agent_uses_slug_path(monkeypatch):
     assert calls[-1]["path"] == "/agent/research-agent"
 
 
+def test_get_agent_keeps_slug_in_one_path_segment():
+    remote = Remote(name="local", url="http://localhost:5173", api_key="yxkey_test")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.raw_path == b"/api/agent/..%2Fsystem%2Finfo%3Ffull%3Dtrue"
+        return httpx.Response(404, json={"detail": "智能体不存在"})
+
+    client = YuxiClient(remote)
+    client.client.close()
+    client.client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ClientError, match="智能体不存在"):
+            client.get_agent("../system/info?full=true")
+    finally:
+        client.close()
+
+
 def test_get_agent_preserves_server_not_found_response():
     remote = Remote(name="local", url="http://localhost:5173", api_key="yxkey_test")
 
@@ -170,9 +185,7 @@ def test_get_agent_preserves_server_not_found_response():
 def test_list_external_files_passes_query_params(monkeypatch):
     client, calls = _patched_client(monkeypatch)
     try:
-        client.list_external_files(
-            "kb_1", query="report", offset=10, limit=50, status="indexed"
-        )
+        client.list_external_files("kb_1", query="report", offset=10, limit=50, status="indexed")
     finally:
         client.close()
     call = calls[-1]
@@ -188,19 +201,13 @@ def test_list_external_files_passes_query_params(monkeypatch):
 def test_retrieve_external_posts_json_body(monkeypatch):
     client, calls = _patched_client(monkeypatch)
     try:
-        client.retrieve_external(
-            "kb_1", query="hello", file_name="a.md", options={"final_top_k": 5}
-        )
+        client.retrieve_external("kb_1", query="hello", file_name="a.md", options={"final_top_k": 5})
     finally:
         client.close()
     call = calls[-1]
     assert call["method"] == "POST"
     assert call["path"] == "/knowledge/databases/external/kb_1/retrieve"
-    assert call["json"] == {
-        "query": "hello",
-        "file_name": "a.md",
-        "options": {"final_top_k": 5},
-    }
+    assert call["json"] == {"query": "hello", "file_name": "a.md", "options": {"final_top_k": 5}}
 
 
 def test_open_external_file_passes_offset_limit(monkeypatch):

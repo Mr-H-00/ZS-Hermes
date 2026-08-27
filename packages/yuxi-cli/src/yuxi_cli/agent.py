@@ -16,6 +16,13 @@ class AgentError(Exception):
     """Agent 查询命令错误。"""
 
 
+_TERMINAL_CONTROL_TRANSLATION = {
+    codepoint: None
+    for codepoint in (*range(32), 127, *range(128, 160))
+    if codepoint not in (9, 10)
+}
+
+
 def run_agent_list(
     store: ConfigStore,
     remote_name: str | None,
@@ -69,13 +76,11 @@ def _ensure_capability(client: YuxiClient, capability: str) -> None:
 
 def _render_agent_list(data: dict, console: Console, *, as_json: bool) -> None:
     """渲染 Agent 列表或原始 JSON。"""
+    agents = _validate_agent_list(data)
     if as_json:
         _print_json(data, console)
         return
 
-    agents = data.get("agents")
-    if not isinstance(agents, list):
-        raise AgentError("远程 Agent 列表响应格式无效")
     if not agents:
         console.print("没有可调用的 Agent")
         return
@@ -86,8 +91,6 @@ def _render_agent_list(data: dict, console: Console, *, as_json: bool) -> None:
     table.add_column("Slug")
     table.add_column("Description")
     for agent in agents:
-        if not isinstance(agent, dict):
-            raise AgentError("远程 Agent 列表响应格式无效")
         table.add_row(
             "*" if agent.get("is_default") else "",
             _text(agent.get("name")),
@@ -99,23 +102,10 @@ def _render_agent_list(data: dict, console: Console, *, as_json: bool) -> None:
 
 def _render_agent_detail(data: dict, console: Console, *, as_json: bool) -> None:
     """渲染 Agent 详情或原始 JSON。"""
+    agent, config_json, context = _validate_agent_detail(data)
     if as_json:
         _print_json(data, console)
         return
-
-    agent = data.get("agent")
-    if not isinstance(agent, dict):
-        raise AgentError("远程 Agent 详情响应格式无效")
-    config_json = agent.get("config_json")
-    if config_json is None:
-        config_json = {}
-    if not isinstance(config_json, dict):
-        raise AgentError("远程 Agent 配置响应格式无效")
-    context = config_json.get("context")
-    if context is None:
-        context = {}
-    if not isinstance(context, dict):
-        raise AgentError("远程 Agent context 响应格式无效")
 
     details = Table(show_header=False, box=None, pad_edge=False)
     details.add_column(style="bold", no_wrap=True)
@@ -164,14 +154,47 @@ def _selection(value: Any, *, empty_means_default: bool = False) -> Text:
     if value is None or (empty_means_default and value == []):
         return Text("默认（全部可用）")
     if isinstance(value, list):
-        return Text(", ".join(str(item) for item in value) if value else "无")
-    return Text(str(value))
+        value = ", ".join(str(item) for item in value) if value else "无"
+    return Text(_safe_terminal_text(str(value)))
 
 
 def _text(value: Any, *, default: str = "-") -> Text:
-    """把服务端字段转为不解析 Rich markup 的文本。"""
-    text = str(value).strip() if value is not None else ""
+    """把服务端字段转为不含终端控制字符的纯文本。"""
+    text = _safe_terminal_text(str(value)).strip() if value is not None else ""
     return Text(text or default)
+
+
+def _safe_terminal_text(value: str) -> str:
+    """移除可改变终端状态的 C0、DEL 与 C1 控制字符。"""
+    return value.translate(_TERMINAL_CONTROL_TRANSLATION)
+
+
+def _validate_agent_list(data: dict) -> list[dict]:
+    """校验 Agent 列表响应的最小结构。"""
+    agents = data.get("agents")
+    if not isinstance(agents, list) or any(
+        not isinstance(agent, dict) for agent in agents
+    ):
+        raise AgentError("远程 Agent 列表响应格式无效")
+    return agents
+
+
+def _validate_agent_detail(data: dict) -> tuple[dict, dict, dict]:
+    """校验 Agent 详情响应并返回渲染所需结构。"""
+    agent = data.get("agent")
+    if not isinstance(agent, dict):
+        raise AgentError("远程 Agent 详情响应格式无效")
+    config_json = agent.get("config_json")
+    if config_json is None:
+        config_json = {}
+    if not isinstance(config_json, dict):
+        raise AgentError("远程 Agent 配置响应格式无效")
+    context = config_json.get("context")
+    if context is None:
+        context = {}
+    if not isinstance(context, dict):
+        raise AgentError("远程 Agent context 响应格式无效")
+    return agent, config_json, context
 
 
 def _print_json(data: dict, console: Console) -> None:

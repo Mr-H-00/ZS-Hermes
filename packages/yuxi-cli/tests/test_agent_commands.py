@@ -137,6 +137,28 @@ def test_agent_list_json_outputs_server_payload(tmp_path):
     assert json.loads(output)["agents"][0]["is_default"] is True
 
 
+def test_agent_list_human_output_removes_terminal_control_sequences(tmp_path):
+    class UnsafeClient(FakeAgentClient):
+        def list_agents(self):
+            return {
+                "agents": [
+                    {
+                        "name": "\x1b]8;;https://example.test\x07Agent\x1b]8;;\x07",
+                        "slug": "unsafe",
+                        "description": "\x1b[31mred\x1b[0m",
+                    }
+                ]
+            }
+
+    console = _console(force_terminal=True)
+    run_agent_list(_store(tmp_path), None, console, client_factory=UnsafeClient)
+
+    output = _output(console)
+    assert "\x1b" not in output
+    assert "\x07" not in output
+    assert "Agent" in output
+
+
 def test_agent_list_reports_empty_result(tmp_path):
     class EmptyClient(FakeAgentClient):
         def list_agents(self):
@@ -245,6 +267,38 @@ def test_agent_show_rejects_malformed_payload(tmp_path, payload, message):
         )
 
 
+@pytest.mark.parametrize("as_json", [False, True])
+def test_agent_list_rejects_malformed_payload_in_all_output_modes(tmp_path, as_json):
+    class InvalidClient(FakeAgentClient):
+        def list_agents(self):
+            return {"agents": {"slug": "wrong"}}
+
+    with pytest.raises(AgentError, match="列表响应格式无效"):
+        run_agent_list(
+            _store(tmp_path),
+            None,
+            _console(),
+            as_json=as_json,
+            client_factory=InvalidClient,
+        )
+
+
+def test_agent_show_json_rejects_malformed_payload(tmp_path):
+    class InvalidClient(FakeAgentClient):
+        def get_agent(self, _agent_slug):
+            return {"agent": {"config_json": {"context": []}}}
+
+    with pytest.raises(AgentError, match="context 响应格式无效"):
+        run_agent_show(
+            _store(tmp_path),
+            None,
+            "research-agent",
+            _console(),
+            as_json=True,
+            client_factory=InvalidClient,
+        )
+
+
 def test_agent_show_preserves_not_found_error(tmp_path):
     class MissingClient(FakeAgentClient):
         def get_agent(self, _agent_slug):
@@ -260,12 +314,3 @@ def test_agent_show_preserves_not_found_error(tmp_path):
         )
 
     assert exc_info.value.status_code == 404
-
-
-def test_agent_list_rejects_malformed_payload(tmp_path):
-    class InvalidClient(FakeAgentClient):
-        def list_agents(self):
-            return {"agents": {"slug": "wrong"}}
-
-    with pytest.raises(AgentError, match="列表响应格式无效"):
-        run_agent_list(_store(tmp_path), None, _console(), client_factory=InvalidClient)

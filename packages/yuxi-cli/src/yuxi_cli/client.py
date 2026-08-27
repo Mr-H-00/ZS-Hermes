@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -118,7 +118,7 @@ class YuxiClient:
 
     def get_agent(self, agent_slug: str) -> dict:
         """按 slug 读取当前用户可见的 Agent 配置。"""
-        return self._request("GET", f"/agent/{agent_slug}")
+        return self._request("GET", f"/agent/{quote(agent_slug, safe='')}")
 
     def list_external_files(
         self,

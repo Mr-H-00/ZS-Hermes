@@ -22,17 +22,17 @@ CLI 不推测运行时资源解析结果。`tools`、`knowledges`、`mcps` 和 `
 
 ## 后果
 
-Agent 可见性、详情过滤和不存在或无权访问时的 404 继续由现有后端 Owner 决定。CLI 仅展示服务端授权后的响应，并对畸形响应、未登录状态和缺失能力声明显式失败。
+Agent 可见性、详情过滤和不存在或无权访问时的 404 继续由现有后端 Owner 决定。CLI 把 slug 编码为单个 URL 路径段，仅展示服务端授权后的响应，并在所有输出模式下对畸形响应、未登录状态和缺失能力声明显式失败。人类可读输出移除服务端文本中的终端控制字符，避免远端字段改变本地终端状态。
 
 人类可读输出只摘要稳定关键字段，其余字段保留在“其他配置”和 `--json` 中，避免维护平行 schema。后端扩展 Agent 查询契约时，需要同步 discovery 能力、CLI 展示与负向测试。
 
 ## 验证
 
-- `cd packages/yuxi-cli && UV_PYTHON=3.13 uv run --group test pytest -q`：107 passed。
+- `cd packages/yuxi-cli && UV_PYTHON=3.13 uv run --group test pytest -q`：111 passed。
 - `uvx ruff format/check`（Agent 新实现与测试）：通过。
 - `cd backend && UV_PYTHON=3.13 uv run --group test pytest test/unit -m "not slow"`：1590 passed。
 - API 容器 unit fallback `uv run --no-sync --group test pytest test/unit -m "not slow" -q`：1569 passed，40 skipped；常规同步命令因容器内 editable 文件权限失败。
 - 真实 integration 权限过滤测试：1 passed；隐藏 Agent 的真实 HTTP 请求返回 404。
 - `python3 scripts/verify_engineering_contracts.py` 与 `python3 -m unittest scripts.test_verify_engineering_contracts`：通过，后者 61 passed。
 - `cd docs && pnpm run build`：通过；保留既有 VitePress/Rolldown 警告。
-- 独立 Reviewer 最终复核：无发现。
+- 独立 Reviewer 已复核功能修复；合并最新 `main` 后再检查最终 diff。
