@@ -227,17 +227,22 @@ function changeFrequency(frequency) {
     <section class="settings-section" aria-labelledby="schedule-settings-heading">
       <h3 id="schedule-settings-heading">频率</h3>
       <div class="settings-card">
-        <div class="setting-row">
-          <span>重复</span>
-          <div class="setting-control">
-            <SimpleDropdownSelect
-              :model-value="form.frequency"
-              :options="scheduleFrequencies"
-              aria-label="重复频率"
-              @update:model-value="changeFrequency"
-            />
+        <fieldset class="setting-row frequency-row">
+          <legend class="sr-only">重复频率</legend>
+          <span aria-hidden="true">重复</span>
+          <div class="frequency-options">
+            <label v-for="frequency in scheduleFrequencies" :key="frequency.value">
+              <input
+                type="radio"
+                name="schedule-frequency"
+                :value="frequency.value"
+                :checked="form.frequency === frequency.value"
+                @change="changeFrequency(frequency.value)"
+              />
+              <span>{{ frequency.label }}</span>
+            </label>
           </div>
-        </div>
+        </fieldset>
         <div v-if="form.frequency === 'weekly'" class="setting-row weekday-row">
           <span>执行日</span>
           <div class="weekday-options" aria-label="每周执行日">
@@ -283,10 +288,6 @@ function changeFrequency(frequency) {
           />
           <input v-else v-model="form.time" type="time" aria-label="执行时间" />
         </label>
-        <div class="setting-row static-row">
-          <span>时区</span>
-          <output>{{ form.timezone }}</output>
-        </div>
       </div>
     </section>
   </section>
@@ -464,19 +465,38 @@ function changeFrequency(frequency) {
   }
 }
 
+.frequency-row {
+  min-inline-size: 0;
+  border-top: 0;
+  border-inline: 0;
+}
+
+.frequency-options {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  label {
+    display: inline-flex;
+    color: var(--gray-700);
+    cursor: pointer;
+    font-size: 12px;
+    align-items: center;
+    gap: 3px;
+  }
+
+  input {
+    width: auto;
+    height: auto;
+    padding: 0;
+    accent-color: var(--main-color);
+  }
+}
+
 .setting-control {
   width: min(240px, 100%);
   min-width: 0;
   justify-self: end;
-}
-
-.static-row output {
-  width: min(240px, 100%);
-  color: var(--gray-800);
-  font-size: 13px;
-  line-height: 30px;
-  justify-self: end;
-  text-align: right;
 }
 
 .weekday-options {
@@ -609,6 +629,10 @@ function changeFrequency(frequency) {
   }
 
   .weekday-options {
+    flex-wrap: wrap;
+  }
+
+  .frequency-options {
     flex-wrap: wrap;
   }
 }

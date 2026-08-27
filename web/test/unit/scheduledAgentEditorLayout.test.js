@@ -64,13 +64,20 @@ test('定时任务工具栏和移动端详情保持可访问', () => {
   )
 })
 
+test('立即运行把已受理和执行中的状态视为成功', () => {
+  assert.match(
+    scheduledViewSource,
+    /\['dispatching', 'submitted', 'queued', 'dispatched', 'pending', 'running'\]\.includes\(run\.status\)/
+  )
+})
+
 test('工具信任提示显示在详情卡片下方而不是作为表格行', () => {
   assert.match(
     editorSource,
     /<\/div>\s+<p v-if="form\.tool_approval_mode === 'always_trust'" class="trust-warning"/
   )
   assert.match(editorSource, /\.trust-warning \{[\s\S]*?margin: 6px 0 0/)
-  assert.doesNotMatch(editorSource, /\.trust-warning \{[\s\S]*?border-top/)
+  assert.doesNotMatch(editorSource, /\.trust-warning \{[^}]*border-top/)
 })
 
 test('定时任务复用控件共享受限值列且不再泛化覆盖输入按钮', () => {
@@ -78,7 +85,9 @@ test('定时任务复用控件共享受限值列且不再泛化覆盖输入按�
   assert.match(editorSource, /<AgentSelectionSection/)
   assert.doesNotMatch(editorSource, /<select v-model="form\.agent_slug"/)
   assert.doesNotMatch(editorSource, /<select v-model="form\.frequency"/)
-  assert.match(editorSource, /<SimpleDropdownSelect[\s\S]*?:model-value="form\.frequency"/)
+  assert.match(editorSource, /type="radio"[\s\S]*?name="schedule-frequency"/)
+  assert.doesNotMatch(editorSource, /:model-value="form\.frequency"/)
+  assert.doesNotMatch(editorSource, /<output>\{\{ form\.timezone \}\}<\/output>/)
   assert.match(editorSource, /width: min\(240px, 100%\)/)
   assert.match(editorSource, /\.project-trigger-label\),\s+\.inline-editor :deep\(\.model-info\)/)
   assert.match(editorSource, /\.model-select-content\) \{\s+justify-content: flex-end/)
@@ -117,7 +126,7 @@ test('工具审批组件独立拥有 Teleport 弹层样式', () => {
 test('自定义频率切换与下拉菜单保留安全和键盘语义', () => {
   assert.match(editorSource, /applyFrequencyChange\(form, frequency\)/)
   assert.match(editorSource, /\(form\.cronExpression \|\| ''\)\.trim\(\)/)
-  assert.match(editorSource, /@update:model-value="changeFrequency"/)
+  assert.match(editorSource, /@change="changeFrequency\(frequency\.value\)"/)
   assert.match(simpleDropdownSource, /@keydown="handleTriggerKeydown"/)
   assert.match(simpleDropdownSource, /'Enter', ' '/)
   assert.match(simpleDropdownSource, /ArrowDown: index \+ 1/)

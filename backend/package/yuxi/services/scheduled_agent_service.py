@@ -405,21 +405,30 @@ async def recover_scheduled_dispatches(*, limit: int = 100) -> int:
 async def _claim_due_run(*, db: AsyncSession, now: datetime) -> ScheduledAgentRun | None:
     """在一个事务中领取到期任务、推进计划并创建触发意图。"""
     repo = ScheduledAgentRepository(db)
-    job = await repo.claim_due_job(now=now)
-    if job is None:
-        return None
-    scheduled_for = job.next_run_at
-    job.next_run_at = next_run_at(job.cron_expression, job.timezone, now)
-    job.updated_at = now
-    run = await _create_run_record(
-        repo=repo,
-        job=job,
-        trigger="scheduled",
-        occurrence_key=f"scheduled:{scheduled_for.isoformat()}",
-        scheduled_for=scheduled_for,
-    )
-    await db.commit()
-    return run
+    while job := await repo.claim_due_job(now=now):
+        scheduled_for = job.next_run_at
+        try:
+            job.next_run_at = next_run_at(job.cron_expression, job.timezone, now)
+        except (CroniterError, OverflowError, TypeError, ValueError, ZoneInfoNotFoundError):
+            job.enabled = False
+            job.updated_at = now
+            await db.commit()
+            logger.error(
+                f"已停用无法计算下次触发时间的定时任务: scheduled_job={job.id}",
+                exc_info=True,
+            )
+            continue
+        job.updated_at = now
+        run = await _create_run_record(
+            repo=repo,
+            job=job,
+            trigger="scheduled",
+            occurrence_key=f"scheduled:{scheduled_for.isoformat()}",
+            scheduled_for=scheduled_for,
+        )
+        await db.commit()
+        return run
+    return None
 
 
 async def claim_and_dispatch_due_jobs(*, limit: int = 20) -> int:

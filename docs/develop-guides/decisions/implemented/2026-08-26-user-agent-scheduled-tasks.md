@@ -12,13 +12,13 @@ Owner：backend/package/yuxi/services/scheduled_agent_service.py
 
 PostgreSQL 保存用户自己的任务定义和触发记录。任务定义拥有 cron、IANA 时区、启用状态与下一次触发时间；触发记录只拥有 occurrence、配置快照和提交状态。`AgentRunRequest` 与 `AgentRun` 继续分别拥有排队和执行状态，接口查询时关联它们，不把运行结果周期复制回触发记录。
 
-worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 `FOR UPDATE SKIP LOCKED` 领取到期任务。领取事务推进 `next_run_at`、创建唯一 occurrence 并提交，随后在 occurrence 行锁内使用稳定 request/thread ID 幂等调用 `submit_run_command`。明确的 Project、Agent 或请求契约错误终结 occurrence；未知瞬时错误保持 `dispatching`，恢复轮次在行锁内重查 Request 后再收敛。单条 occurrence 的失败只记录并留待下轮恢复，不阻断同批记录、其他到期任务或普通 worker 启动。停机错过多个周期时合并为一次，同一任务已有非终态 Request/Run 时记录 skipped。暂停期间不产生 occurrence，恢复时从当前时间重新计算下次触发。
+worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 `FOR UPDATE SKIP LOCKED` 领取到期任务。领取事务推进 `next_run_at`、创建唯一 occurrence 并提交，随后在 occurrence 行锁内使用稳定 request/thread ID 幂等调用 `submit_run_command`。明确的 Project、Agent 或请求契约错误终结 occurrence；未知瞬时错误保持 `dispatching`，恢复轮次在行锁内重查 Request 后再收敛。单条 occurrence 的失败只记录并留待下轮恢复；持久化计划若已无法计算下一次触发时间，则停用该任务并继续领取，二者都不阻断同批记录、其他到期任务或普通 worker 启动。停机错过多个周期时合并为一次，同一任务已有非终态 Request/Run 时记录 skipped。暂停期间不产生 occurrence，恢复时从当前时间重新计算下次触发。
 
 每次触发创建绑定原 Project 的新 Conversation。任务软删除只停止未来触发；账号软删除在同一事务物理删除任务定义，并由数据库级联清理调度历史；Project 物理删除使用相同外键级联。Run now 复用相同的 occurrence 与提交路径。
 
 前端入口位于智能体管理的定时任务 Tab。默认只显示任务列表；选择任务或点击列表工具栏中的新建入口后才以轻量过渡展开工作区。宽屏按 4/6 比例分配列表与详情，两栏共同随可用空间伸缩，详情内容不再二次限宽；窄屏展开详情后隐藏列表，由关闭入口返回，避免列表堆叠在表单上方。左侧任务项使用内缩的圆角 hover 与选中面；右侧只在任务指令、详情和频率三个信息组使用一级圆角容器，组内使用分割行而不继续嵌套卡片。工作区不区分查看态和编辑态，名称、指令、运行上下文与频率始终可以直接编辑，合法变更经短暂 debounce 后自动保存；新任务在必填项完整后自动创建，不提供第二套编辑页面或保存按钮。
 
-频率编辑只为每日、每周、每月和每年提供结构化控件，其他表达式保留为自定义五段 Cron。Agent、Project、模型和审批复用现有选择组件，其中 Agent 选择器由聊天页和定时任务共同使用；任务指令使用普通多行输入，聊天附件、提及、发送和流式状态不进入定时任务。创建默认使用 `default` 审批模式，`always_trust` 只允许用户显式选择。
+频率编辑用原生单选直接呈现每日、每周、每月、每年和自定义五段 Cron，避免为五个固定选项增加一层下拉与键盘状态；时区沿用浏览器 IANA 时区并保留在 payload 中，不占用主编辑界面。Agent、Project、模型和审批复用现有选择组件，其中 Agent 选择器由聊天页和定时任务共同使用；任务指令使用普通多行输入，聊天附件、提及、发送和流式状态不进入定时任务。创建默认使用 `default` 审批模式，`always_trust` 只允许用户显式选择。
 
 运行记录直接链接本次触发创建的 Conversation。接口只在对应 `AgentRunRequest` 已存在时返回 `conversation_available=true`，前端同时要求 `thread_id` 才允许跳转；尚未创建对话的 occurrence 不可点击。
 
@@ -43,7 +43,7 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 | 用户只能管理自己的任务并绑定可见 Agent 与自有 Project | 越权读取、修改或触发 | router、service、repository | `python -m pytest -q test/integration/api/test_scheduled_agent_api.py` | 其他用户读取不到任务，修改、触发和删除均返回 404 | Passed |
 | 多 worker 对同一 occurrence 只创建一个触发意图，瞬时失败可以恢复 | 重复请求、模型副作用、occurrence 永久丢失或单条坏记录拖垮 worker | repository + scheduled service | service unit + `python -m pytest -q test/integration/services/test_scheduled_agent_repository.py` | 并发领取只能有一个事务取得任务；Request 写入前首次失败后恢复轮次只产生一个 Request；首条持续失败时同批第二条仍提交 | Passed |
 | 触发记录不复制 Request/Run 终态 | 镜像状态漂移后永久阻塞后续任务 | ScheduledAgentRun + AgentRunRequest + AgentRun 查询 | service unit + PostgreSQL integration | AgentRun 终态后重叠判断恢复为 false | Passed |
-| occurrence 提交后进入统一 Request/Run 与 worker 链路 | ARQ 先于持久事实，或只创建任务不执行 | scheduled service + submit_run_command + worker | `python -m pytest -q test/e2e/test_deterministic_agent_path_e2e.py::test_scheduled_task_run_now_reaches_exact_conversation_and_result` | E2E 回读 Run 终态、输出和同一 thread 历史 | Passed |
+| occurrence 提交后进入统一 Request/Run 与 worker 链路 | ARQ 先于持久事实，或只创建任务不执行 | scheduled service + submit_run_command + worker | `python -m pytest -q test/e2e/test_deterministic_agent_path_e2e.py::test_scheduled_task_run_now_reaches_exact_conversation_and_result` | E2E 回读 Run 终态、输出和同一 thread 历史 | Not run：Request/Run 前段已执行，但外部模型连接失败，未得到最终输出 |
 | schema 1 可以幂等升级，账号软删除同步清理任务数据 | main 数据库无法升级、丢失既有数据或删除账号后恢复旧任务 | storage migration + UserRepository + PostgreSQL constraints | `python -m pytest -q test/integration/services/test_schema_migration_version.py test/integration/services/test_scheduled_agent_repository.py` | 隔离 v1 schema 连续升级两次仍保留既有 User、Project、Job、Run；未知未来版本被拒绝；真实软删除后 Job 与 occurrence 均不存在 | Passed |
 | 暂停不补跑，恢复从当前时间计算下一次触发 | 恢复后立即执行暂停期旧时间 | scheduled service | service unit + PostgreSQL integration | `false → true` 后 `next_run_at` 晚于当前时间 | Passed |
 | 无人值守任务默认不完全信任工具 | 未显式授权即执行敏感工具 | router + service + editor | router/service unit + HTTP integration | 省略审批字段时持久化为 `default` | Passed |

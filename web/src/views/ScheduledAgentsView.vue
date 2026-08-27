@@ -171,7 +171,9 @@ function toggle(job) {
 async function runNow(job) {
   const run = await runAction(job, () => scheduledAgentApi.runNow(job.id), '立即运行失败')
   if (!run) return
-  if (['dispatching', 'queued', 'dispatched', 'submitted'].includes(run.status)) {
+  if (
+    ['dispatching', 'submitted', 'queued', 'dispatched', 'pending', 'running'].includes(run.status)
+  ) {
     message.success('已创建一次立即运行')
   } else if (run.status === 'skipped') {
     message.warning(run.error_message || '本次运行已跳过')

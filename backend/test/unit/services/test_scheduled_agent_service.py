@@ -239,3 +239,51 @@ async def test_due_job_claiming_continues_after_one_dispatch_fails(monkeypatch):
 
     assert await service.claim_and_dispatch_due_jobs(limit=3) == 2
     assert dispatched == ["run-failing", "run-success"]
+
+
+@pytest.mark.asyncio
+async def test_claim_disables_invalid_schedule_and_continues_to_next_job(monkeypatch):
+    invalid = SimpleNamespace(
+        id="job-invalid",
+        cron_expression="0 9 * * *",
+        timezone="Mars/Olympus",
+        next_run_at=datetime(2026, 8, 27, 1, 0),
+        enabled=True,
+        updated_at=None,
+    )
+    valid = SimpleNamespace(
+        id="job-valid",
+        cron_expression="0 9 * * *",
+        timezone="UTC",
+        next_run_at=datetime(2026, 8, 27, 9, 0),
+        enabled=True,
+        updated_at=None,
+    )
+    jobs = iter([invalid, valid])
+    commits = 0
+
+    class Repository:
+        async def claim_due_job(self, *, now):
+            assert now == datetime(2026, 8, 27, 10, 0)
+            return next(jobs)
+
+    class Db:
+        async def commit(self):
+            nonlocal commits
+            commits += 1
+
+    run = SimpleNamespace(id="run-valid")
+
+    async def create_run_record(**kwargs):
+        assert kwargs["job"] is valid
+        return run
+
+    monkeypatch.setattr(service, "ScheduledAgentRepository", lambda _db: Repository())
+    monkeypatch.setattr(service, "_create_run_record", create_run_record)
+
+    result = await service._claim_due_run(db=Db(), now=datetime(2026, 8, 27, 10, 0))
+
+    assert result is run
+    assert invalid.enabled is False
+    assert valid.next_run_at == datetime(2026, 8, 28, 9, 0)
+    assert commits == 2
