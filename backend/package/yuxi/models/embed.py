@@ -181,9 +181,7 @@ class OtherEmbedding(BaseEmbeddingModel):
         messages = [message] if isinstance(message, str) else message
         for idx, text in enumerate(messages):
             if text and len(text) > threshold:
-                logger.warning(
-                    f"超长 embedding 输入 index={idx}, len={len(text)}"
-                )
+                logger.warning(f"超长 embedding 输入 index={idx}, len={len(text)}")
 
     def encode(self, message: list[str] | str) -> list[list[float]]:
         payload = self.build_payload(message)

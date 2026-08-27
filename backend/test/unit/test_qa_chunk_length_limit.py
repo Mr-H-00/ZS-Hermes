@@ -24,8 +24,7 @@ def _load_qa_parser():
 
 qa = _load_qa_parser()
 
-# embedding 上下文上限的保守字符兜底（对应 bge_m3 4096 token），独立于实现常量，
-# 避免用被测对象的默认值充当断言边界形成自我引用 oracle
+# embedding 上下文上限的保守字符兜底（对应 bge_m3 4096 token），独立于实现常量以避免自我引用 oracle
 _EMBEDDING_CHAR_LIMIT = 4000
 _QUESTION = "问题：" + "这是一个问题" * 5  # 远低于上限，切分后可原样保留
 
@@ -123,8 +122,7 @@ class TestChunkMarkdownLengthCap:
     _LONG_MD = "Q: 高频问题\nA: " + "长答案内容。" * 1500
 
     def test_all_chunks_within_embedding_limit(self):
-        # 走实现默认常量：锁定「默认上限不超 embedding 承诺」这一工程主张，
-        # 若 _QA_CHUNK_MAX_CHARS 被调大到超过 4000，本断言会失败
+        # 走实现默认常量：锁定「默认上限不超 embedding 承诺」这一工程主张，_QA_CHUNK_MAX_CHARS 被调过 4000 时本断言失败
         chunks = qa.chunk_markdown("faq.md", self._LONG_MD)
         assert len(chunks) > 1
         assert all(len(c) <= _EMBEDDING_CHAR_LIMIT for c in chunks)

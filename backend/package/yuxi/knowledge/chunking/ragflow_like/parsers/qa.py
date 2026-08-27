@@ -217,8 +217,7 @@ def _extract_pairs_by_prefix(markdown_content: str) -> list[tuple[str, str]]:
 
         a_match = answer_re.match(text)
         if a_match:
-            # 答案必须归属活跃问题：问题尚未出现时的前言 A: 行直接忽略，
-            # 避免孤儿文本被拼进后续真实问答对
+            # 答案必须归属活跃问题：问题尚未出现时的前言 A: 行直接忽略，避免孤儿文本被拼进后续真实问答对
             if question:
                 answer_lines.append(a_match.group(1).strip())
             continue
