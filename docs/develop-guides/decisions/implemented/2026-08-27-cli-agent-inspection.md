@@ -35,4 +35,4 @@ Agent 可见性、详情过滤和不存在或无权访问时的 404 继续由现
 - 真实 integration 权限过滤测试：1 passed；隐藏 Agent 的真实 HTTP 请求返回 404。
 - `python3 scripts/verify_engineering_contracts.py` 与 `python3 -m unittest scripts.test_verify_engineering_contracts`：通过，后者 61 passed。
 - `cd docs && pnpm run build`：通过；保留既有 VitePress/Rolldown 警告。
-- 独立 Reviewer 已复核功能修复；合并最新 `main` 后再检查最终 diff。
+- 独立 Reviewer 已复核功能修复与最新 `main` 的最终 diff，无新增代码问题。
