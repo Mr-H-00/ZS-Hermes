@@ -8,21 +8,13 @@
     />
 
     <section v-for="scope in scopeOptions" :key="scope.key" class="permission-scope-section">
-      <div class="permission-scope-header">
-        <div>
-          <h4>{{ scope.title }}</h4>
-          <p>
-            <slot v-if="scope.key === 'manage_scope'" name="manage-description">
-              {{ scope.description }}
-            </slot>
-            <template v-else>{{ scope.description }}</template>
-          </p>
-        </div>
+      <div class="permission-scope-header" :class="{ 'has-content': Boolean(scopes[scope.key]) }">
+        <h4>{{ scope.title }}</h4>
         <a-switch
+          size="small"
           v-if="scope.key !== 'read_scope' || !requireReadScope"
           :checked="Boolean(scopes[scope.key])"
-          checked-children="开启"
-          un-checked-children="关闭"
+          :aria-label="`${scope.title}${scopes[scope.key] ? '已开启' : '已关闭'}`"
           :disabled="disabled || (scope.key === 'read_scope' && requireReadScope)"
           @change="(enabled) => toggleScope(scope.key, enabled)"
         />
@@ -161,15 +153,6 @@
           </div>
         </div>
       </template>
-      <p v-else class="permission-scope-empty">
-        {{
-          scope.key === 'read_scope'
-            ? scopes.manage_scope
-              ? '未设置额外只读范围；管理范围内用户同时拥有读取权限。'
-              : '未设置读取范围。'
-            : '未设置管理范围，读取用户只能查看和使用。'
-        }}
-      </p>
     </section>
 
     <a-alert
@@ -217,16 +200,8 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const scopeOptions = [
-  {
-    key: 'read_scope',
-    title: '读取权限',
-    description: '这些用户可以浏览、预览、下载和使用资源。'
-  },
-  {
-    key: 'manage_scope',
-    title: '共享管理权限（包含读取权限）',
-    description: '拥有管理权限的用户同时拥有读取权限；管理范围必须包含在读取范围内。'
-  }
+  { key: 'read_scope', title: '读取权限' },
+  { key: 'manage_scope', title: '共享管理权限（包含读取权限）' }
 ]
 
 const baseShareModeOptions = [
@@ -490,36 +465,31 @@ defineExpose({ scopes, validate })
 .share-config-form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  border-top: 1px solid var(--gray-150);
 }
 
 .permission-scope-section {
-  padding: 14px;
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: var(--gray-0);
+  padding: 14px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .permission-scope-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+
+  &.has-content {
+    margin-bottom: 12px;
+  }
 }
 
 .permission-scope-header h4 {
   margin: 0;
   color: var(--gray-800);
   font-size: 14px;
-}
-
-.permission-scope-header p,
-.permission-scope-empty {
-  margin: 4px 0 0;
-  color: var(--gray-500);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .share-mode-cards {

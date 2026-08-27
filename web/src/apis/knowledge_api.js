@@ -653,7 +653,8 @@ export const evaluationApi = {
 
     if (params.page) queryParams.append('page', params.page)
     if (params.pageSize) queryParams.append('page_size', params.pageSize)
-    if (params.errorOnly !== undefined) queryParams.append('error_only', params.errorOnly)
+    if (params.resultFilter !== undefined) queryParams.append('result_filter', params.resultFilter)
+    else if (params.errorOnly !== undefined) queryParams.append('error_only', params.errorOnly)
 
     const url = `/api/evaluation/databases/${kbId}/runs/${runId}${queryParams.toString() ? '?' + queryParams.toString() : ''}`
     return apiAdminGet(url)

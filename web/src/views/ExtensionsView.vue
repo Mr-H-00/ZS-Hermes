@@ -28,7 +28,7 @@
       </div>
     </div>
 
-    <router-view v-else />
+    <router-view v-else :key="route.path" />
   </div>
 </template>
 

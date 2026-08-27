@@ -19,7 +19,7 @@
         <button
           v-if="canEdit && editMode !== 'edit'"
           class="modal-action-btn"
-          @click="editMode = 'edit'"
+          @click="startEditing"
           title="编辑"
           aria-label="编辑"
         >
@@ -99,7 +99,9 @@
     </div>
 
     <div
-      v-if="showInlineHtmlControls && !showHeader && isHtmlFile"
+      v-if="
+        showInlineHtmlControls && !showHeader && isHtmlFile && !(canEdit && editMode === 'edit')
+      "
       class="preview-mode-switch inline-html-preview-switch"
     >
       <button
@@ -605,6 +607,13 @@ const zoomHtmlPreview = (delta) => {
 const resetHtmlPreviewZoom = () => {
   htmlPreviewScale.value = HTML_PREVIEW_DEFAULT_SCALE
 }
+
+const startEditing = () => {
+  if (!canEdit.value || props.saving) return
+  editMode.value = 'edit'
+}
+
+defineExpose({ startEditing })
 
 const requestSave = () => {
   if (!canEdit.value || props.saving) return
