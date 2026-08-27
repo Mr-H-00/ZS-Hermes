@@ -175,9 +175,23 @@ class OtherEmbedding(BaseEmbeddingModel):
             raise ValueError(f"Embedding failed: Invalid response format {result}")
         return [item["embedding"] for item in result["data"]]
 
+    @staticmethod
+    def _log_long_inputs(message: list[str] | str, threshold: int = 4000) -> None:
+        """调试辅助：打印超过字符阈值的 embedding 输入内容。"""
+        messages = [message] if isinstance(message, str) else message
+        for idx, text in enumerate(messages):
+            if text and len(text) > threshold:
+                logger.warning(
+                    f"超长 embedding 输入 index={idx}, len={len(text)}, "
+                    f"content_head={text[:200]!r}, content_tail={text[-200:]!r}"
+                )
+
     def encode(self, message: list[str] | str) -> list[list[float]]:
         payload = self.build_payload(message)
         retry_index = 0
+
+        self._log_long_inputs(message)
+
         while True:
             try:
                 response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=60)
@@ -200,6 +214,7 @@ class OtherEmbedding(BaseEmbeddingModel):
 
     async def aencode(self, message: list[str] | str) -> list[list[float]]:
         payload = self.build_payload(message)
+        self._log_long_inputs(message)
         async with httpx.AsyncClient() as client:
             retry_index = 0
             while True:
