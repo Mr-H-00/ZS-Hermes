@@ -370,16 +370,25 @@ export const threadApi = {
 
   /** 读取允许跨 Project/User Data/Skills 的 artifact 预览字节。 */
   previewThreadArtifact: (threadId, path) =>
-    apiGet(`${threadApi.getThreadArtifactUrl(threadId, path, false)}?preview=true`, {}, true, 'blob'),
+    apiGet(
+      `${threadApi.getThreadArtifactUrl(threadId, path, false)}?preview=true`,
+      {},
+      true,
+      'blob'
+    ),
 
   /**
-   * 保存交付物到 workspace/saved_artifacts
+   * 保存交付物到指定 workspace 目录
    * @param {string} threadId
    * @param {string} path
+   * @param {string} destinationPath
    * @returns {Promise}
    */
-  saveThreadArtifactToWorkspace: (threadId, path) =>
-    apiPost(`/api/chat/thread/${threadId}/artifacts/save`, { path }),
+  saveThreadArtifactToWorkspace: (threadId, path, destinationPath) =>
+    apiPost(`/api/chat/thread/${threadId}/artifacts/save`, {
+      path,
+      destination_path: destinationPath
+    }),
 
   /**
    * 上传临时附件

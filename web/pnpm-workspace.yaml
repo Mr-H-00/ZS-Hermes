@@ -1,0 +1,20 @@
+packages: []
+
+allowBuilds:
+  core-js: true
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@opencode-ai/models@0.0.55'
+
+overrides:
+  brace-expansion: 5.0.9
+  esbuild: 0.28.2
+  eslint-scope: 9.1.2
+  flatted: 3.4.2
+  lodash: 4.18.1
+  lodash-es: 4.18.1
+  nanoid: 3.3.18
+  postcss: 8.5.26
+  undici: 6.28.0
+  yaml: 2.8.3

@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 from yuxi.agents.backends.paths import (
     VIRTUAL_PATH_PREFIX,
     VIRTUAL_SKILLS_PATH,
+    is_runtime_path,
     runtime_user_data_path,
     workspace_scope_from_runtime_path,
 )
@@ -32,6 +33,7 @@ from yuxi.workspace.errors import FileTransferLimitError
 
 MAX_ARTIFACT_DOWNLOAD_BYTES = 1024 * 1024 * 1024
 MAX_SAVED_ARTIFACT_NAME_ATTEMPTS = 1000
+DEFAULT_ARTIFACT_DESTINATION = "/saved_artifacts"
 
 
 def _normalize_artifact_path(workdir_path: str, path: str) -> str:
@@ -186,10 +188,39 @@ async def resolve_thread_artifact_view(
     )
 
 
-async def save_thread_artifact_to_workspace_view(*, thread_id: str, current_uid: str, db, path: str) -> dict[str, str]:
-    """把可见 artifact 复制到用户级 User Data saved_artifacts。"""
+async def save_thread_artifact_to_workspace_view(
+    *, thread_id: str, current_uid: str, db, path: str, destination_path: str | None = None
+) -> dict[str, str]:
+    """把可见 artifact 复制到用户选择的工作区目录。"""
     access = await resolve_authorized_workdir(thread_id=thread_id, uid=current_uid, db=db)
     normalized = _normalize_artifact_path(runtime_user_data_path(access.workdir.root_path), path)
+    raw_destination = str(destination_path or DEFAULT_ARTIFACT_DESTINATION).strip()
+    destination = PurePosixPath(raw_destination)
+    if (
+        not destination.is_absolute()
+        or ".." in PurePosixPath(raw_destination).parts
+        or "\\" in raw_destination
+        or "://" in raw_destination
+        or is_runtime_path(raw_destination)
+    ):
+        raise HTTPException(status_code=403, detail="invalid artifact destination")
+    destination_scope = destination.as_posix()
+    destination_must_exist = destination_path is not None and destination_scope != DEFAULT_ARTIFACT_DESTINATION
+    if destination_must_exist:
+        try:
+            destination_item = await asyncio.to_thread(
+                access.workdir.workspace.stat_authorized_path,
+                destination_scope,
+                root="/",
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="artifact destination does not exist") from exc
+        except NotADirectoryError as exc:
+            raise HTTPException(status_code=400, detail="artifact destination is not a directory") from exc
+        except (PermissionError, ValueError) as exc:
+            raise HTTPException(status_code=403, detail="artifact destination access denied") from exc
+        if not destination_item["is_dir"]:
+            raise HTTPException(status_code=400, detail="artifact destination is not a directory")
     skill_source = await _require_skill_artifact_access(normalized_path=normalized, current_uid=current_uid, db=db)
     descriptor, temp_path = tempfile.mkstemp(prefix="yuxi-save-artifact-")
     os.close(descriptor)
@@ -200,7 +231,7 @@ async def save_thread_artifact_to_workspace_view(*, thread_id: str, current_uid:
         suffix = PurePosixPath(file_name).suffix
         for index in range(MAX_SAVED_ARTIFACT_NAME_ATTEMPTS + 1):
             candidate_name = file_name if index == 0 else f"{stem} ({index}){suffix}"
-            target_scope = f"/saved_artifacts/{candidate_name}"
+            target_scope = f"{destination_scope.rstrip('/')}/{candidate_name}"
             target = runtime_user_data_path(target_scope)
             try:
                 await asyncio.to_thread(
@@ -208,10 +239,17 @@ async def save_thread_artifact_to_workspace_view(*, thread_id: str, current_uid:
                     target_scope,
                     temp_path,
                     overwrite=False,
+                    create_parents=not destination_must_exist,
                 )
                 break
             except FileExistsError:
                 continue
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail="artifact destination does not exist") from exc
+            except NotADirectoryError as exc:
+                raise HTTPException(status_code=400, detail="artifact destination is not a directory") from exc
+            except (PermissionError, ValueError) as exc:
+                raise HTTPException(status_code=403, detail="artifact destination access denied") from exc
         else:
             raise HTTPException(status_code=409, detail="saved artifact name space is exhausted")
     finally:

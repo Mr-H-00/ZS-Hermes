@@ -120,7 +120,7 @@ import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDatabaseStore } from '@/stores/database'
-import { Copy, Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { Copy, Pencil, Plus, Trash2 } from '@lucide/vue'
 import { message, Modal } from 'ant-design-vue'
 import { databaseApi, typeApi } from '@/apis/knowledge_api'
 import PageHeader from '@/components/shared/PageHeader.vue'
@@ -343,7 +343,6 @@ defineExpose({
   height: 300px;
   gap: 16px;
 }
-
 </style>
 
 <style lang="less">

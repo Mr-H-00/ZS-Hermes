@@ -86,7 +86,7 @@
 
 <script setup>
 import { nextTick, ref, watch } from 'vue'
-import { FileText, Search, X } from 'lucide-vue-next'
+import { FileText, Search, X } from '@lucide/vue'
 import dayjs, { parseToShanghai } from '@/utils/time'
 import { formatFileSize } from '@/utils/file_utils'
 import { documentApi } from '@/apis/knowledge_api'

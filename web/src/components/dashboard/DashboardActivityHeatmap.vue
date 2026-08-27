@@ -27,7 +27,12 @@
             role="grid"
             aria-label="近 120 天用户活跃度"
           >
-            <div v-for="(week, weekIndex) in weeks" :key="weekIndex" class="heatmap-week" role="row">
+            <div
+              v-for="(week, weekIndex) in weeks"
+              :key="weekIndex"
+              class="heatmap-week"
+              role="row"
+            >
               <span
                 v-for="(cell, cellIndex) in week"
                 :key="cell?.date || `empty-${weekIndex}-${cellIndex}`"
@@ -43,7 +48,12 @@
       </div>
       <div class="heatmap-footer">
         <span>少</span>
-        <span v-for="level in 5" :key="level" class="heatmap-legend-cell" :class="`level-${level - 1}`" />
+        <span
+          v-for="level in 5"
+          :key="level"
+          class="heatmap-legend-cell"
+          :class="`level-${level - 1}`"
+        />
         <span>多</span>
         <span class="heatmap-total">{{ totalActiveUsers }} 次活跃记录</span>
       </div>
@@ -107,7 +117,9 @@ const heatmapGridStyle = computed(() => ({
 
 const months = computed(() => buildHeatmapMonthSegments(weeks.value))
 
-const totalActiveUsers = computed(() => normalizedDays.value.reduce((sum, item) => sum + item.value, 0))
+const totalActiveUsers = computed(() =>
+  normalizedDays.value.reduce((sum, item) => sum + item.value, 0)
+)
 </script>
 
 <style lang="less" scoped>

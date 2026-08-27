@@ -52,7 +52,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { Check, ChevronDown, Hand, ShieldAlert } from 'lucide-vue-next'
+import { Check, ChevronDown, Hand, ShieldAlert } from '@lucide/vue'
 import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'
 
 const props = defineProps({

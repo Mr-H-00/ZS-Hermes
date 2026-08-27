@@ -128,7 +128,7 @@ import { useRuntimeCapabilitiesStore } from '@/stores/runtimeCapabilities'
 import { useTaskerStore } from '@/stores/tasker'
 import { useThemeStore } from '@/stores/theme'
 import { useUserStore } from '@/stores/user'
-import { ClipboardList, Settings, Sun, Moon } from 'lucide-vue-next'
+import { ClipboardList, Settings, Sun, Moon } from '@lucide/vue'
 
 // 导入子组件
 import PageHeader from '@/components/shared/PageHeader.vue'

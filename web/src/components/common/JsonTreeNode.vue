@@ -102,7 +102,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { Check, ChevronDown, ChevronRight, Copy } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronRight, Copy } from '@lucide/vue'
 import { message } from 'ant-design-vue'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatJsonKey, formatJsonScalar } from '@/utils/jsonTree'

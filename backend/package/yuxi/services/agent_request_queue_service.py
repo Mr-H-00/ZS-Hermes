@@ -190,8 +190,12 @@ async def intake_request(
     else:
         request_status = REQUEST_STATUS_QUEUED
         delivery_status = DELIVERY_STATUS_QUEUED
+        conversation_model_spec = (conversation.extra_metadata or {}).get("model_spec")
+        requested_model_spec = (
+            model_spec if isinstance(model_spec, str) and model_spec.strip() else conversation_model_spec
+        )
         resolved_model_spec, resolved_tool_approval_mode = await resolve_agent_run_config(
-            model_spec, tool_approval_mode, agent_item, agent_backend, db
+            requested_model_spec, tool_approval_mode, agent_item, agent_backend, db
         )
         input_payload = {
             "model_spec": resolved_model_spec,
@@ -244,6 +248,8 @@ async def intake_request(
         raise
 
     if not reject_without_immediate_dispatch:
+        if policy != "reject":
+            await ConversationRepository(db).set_model_spec(conversation, resolved_model_spec)
         dispatched = await _dispatch_ready_head(
             db=db,
             uid=uid_str,
@@ -254,6 +260,8 @@ async def intake_request(
             expected_request_id=request_id if policy == "reject" else None,
         )
         if dispatched and dispatched.request_id == request_id:
+            if policy == "reject":
+                await ConversationRepository(db).set_model_spec(conversation, resolved_model_spec)
             return IntakeResult(
                 request_id=request_id,
                 status=REQUEST_STATUS_DISPATCHED,

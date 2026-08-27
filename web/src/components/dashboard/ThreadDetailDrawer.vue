@@ -186,7 +186,7 @@
 <script setup>
 import { ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { User, Bot, Wrench, Cpu } from 'lucide-vue-next'
+import { User, Bot, Wrench, Cpu } from '@lucide/vue'
 import { dashboardApi } from '@/apis/dashboard_api'
 import { formatFullDateTime } from '@/utils/time'
 

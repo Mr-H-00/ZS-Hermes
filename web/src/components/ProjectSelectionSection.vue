@@ -194,7 +194,7 @@ import {
   History,
   MessageSquare,
   Search
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { projectApi } from '@/apis/project_api'
 import WorkspacePathPicker from '@/components/WorkspacePathPicker.vue'
 import { AUTO_PROJECT_ID, filterProjects, formatRelativeTime } from '@/utils/projectSelection'

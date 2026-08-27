@@ -1,96 +1,76 @@
-# 中间件系统
+# 中间件
 
-中间件是 Yuxi 扩展智能体运行行为的主要机制。它工作在 LangGraph Agent 的模型调用、工具调用、状态更新和文件系统访问路径上，用来把知识库、Skills、子智能体、上下文压缩和运行观测接入同一条执行链路。
+中间件把文件、Skills、子智能体、上下文压缩、审批和用量统计接到 LangGraph Agent。它们在模型调用、工具调用或 state 更新的边界运行，让不同 Agent 复用同一套能力。
 
-内置 `ChatbotAgent` 与 `SubAgentBackend` 都会在 `get_graph()` 中构建中间件列表。`prepare_agent_runtime_context` 在 Graph 创建前完成资源过滤，中间件随后消费已经归一化的运行时配置。
+内置 `ChatbotAgent` 和 `SubAgentBackend` 都在 `get_graph()` 中组装中间件。Graph 创建前，系统先完成用户资源和权限的归一化；中间件不应绕过这一步重新决定授权。
 
-## 运行时准备
+## Graph 创建前的准备
 
-运行时准备发生在中间件装配之前，负责确定后续中间件可见的资源。内置 Agent 创建 Graph 前依次执行：
+`prepare_agent_runtime_context` 会根据当前用户和 Agent 配置：
 
-- `prepare_agent_runtime_context`：按当前用户权限过滤工具、知识库、MCP、Skills 和子智能体，并派生 `_visible_knowledge_bases`、`_effective_skill_slugs` 与 `_runtime_skills`
-- `build_prompt_with_context`：基于 Context 生成系统提示词
-- `load_chat_model(context.model)`：加载主模型
-- `resolve_configured_runtime_tools(context)`：加载已配置的内置/MCP 工具，并把可读 Skill 的本地依赖注册进静态 ToolNode；Skill MCP 依赖由 Middleware 在激活轮次动态绑定
+- 过滤内置工具、知识库、MCP、Skills 和子智能体；
+- 生成 `_visible_knowledge_bases`；
+- 展开 Skill 依赖，生成 `_effective_skill_slugs` 和 `_runtime_skills`；
+- 使用系统默认模型补齐空的模型配置。
 
-中间件直接消费归一化后的 runtime context。资源授权和可见性过滤由前置准备阶段完成，产生副作用的工具仍需在执行边界校验具体目标。
+随后，工具解析器准备可执行工具，`build_prompt_with_context` 生成系统提示词，Agent 再创建 Graph。工具执行时仍需检查具体目标，准备阶段的资源快照不是授权替代品。
 
-## 内置中间件链路
+## 内置中间件顺序
 
-当前内置 `ChatbotAgent` 的中间件顺序如下：
+`ChatbotAgent` 的常见顺序如下；可选项只在对应能力启用时加入：
 
-| 中间件 | 作用 |
-| --- | --- |
-| `create_agent_filesystem_middleware` | 通过 Sandbox 接入实时 Project Workdir、User Data 与只读 Skills，并在工具结果过大时把内容写入 Project `outputs/large_tool_results` |
-| `SkillsMiddleware` | 注入可见 Skill 的提示段，监听读取 `SKILL.md` 后的 Skill 激活，并按依赖追加工具和 MCP 工具；知识库工具由内置 `knowledge-base` Skill 按需加载 |
-| `YuxiSubAgentMiddleware` | 仅主 Agent 在存在可见子智能体时挂载，提供 `task` 工具调用真实子 Agent graph |
-| `YuxiSummarizationMiddleware` | 基于 DeepAgents `SummarizationMiddleware` 做长上下文压缩，并清洗被摘要历史里的工具结果 |
-| `TodoListMiddleware` | 提供待办状态，让前端状态面板可展示 Agent 运行进度 |
-| `PatchToolCallsMiddleware` | 修正部分工具调用消息形态，提升工具调用兼容性 |
-| `ModelRetryMiddleware` | 在模型调用失败时按配置重试 |
-| `ImageInputCompatibilityMiddleware` | 仅为 OpenAI Chat Completions 兼容链路桥接 `read_file` 返回的图片；模型明确拒绝图片输入时自动改为 `ocr_parse_file` |
-| `TokenUsageMiddleware` | 在 LangGraph state 写入近似上下文、本次与线程累计的 Provider 实际 token 用量、模型标识和缓存命中率，供前端状态面板查看 |
+| 顺序 | 中间件 | 作用 |
+| --- | --- | --- |
+| 1 | `SteerMiddleware` | 在安全边界发现待接替请求 |
+| 2 | `create_agent_filesystem_middleware` | 提供 Workdir、User Data、Skills 文件后端，并卸载过大的工具结果 |
+| 3 | `SkillsMiddleware` | 注入 Skill 说明，按激活状态开放依赖 |
+| 4 | `YuxiMemoryMiddleware` | Memory 开关开启且 `MEMORY.md` 有内容时，注入用户记忆并提供受限工具 |
+| 5 | `YuxiSubAgentMiddleware` | 主智能体有可见子智能体时提供 `task` 和生命周期工具 |
+| 6 | `YuxiSummarizationMiddleware` | 在上下文过大时执行 L1/L2 压缩 |
+| 7 | `TodoListMiddleware` | 保存待办，供状态面板展示 |
+| 8 | `PatchToolCallsMiddleware` | 修正部分工具调用消息形态 |
+| 9 | `ModelRetryMiddleware` | 按配置重试模型调用失败 |
+| 10 | `ImageInputCompatibilityMiddleware` | 桥接工具读取图片与模型输入格式；必要时回退 OCR |
+| 11 | `TokenUsageMiddleware` | 记录近似上下文和主模型实际用量 |
+| 12 | 工具审批 middleware | 默认模式下拦截写文件、编辑文件和执行命令 |
 
-`SubAgentBackend` 使用同一组核心能力，但不会挂载 `YuxiSubAgentMiddleware`，并额外过滤 `present_artifacts`、`ask_user_question`、`install_skill` 等不适合子智能体直接使用的工具。
+`SubAgentBackend` 复用文件、Skills、Summary、待办、重试和用量等能力，但不挂载子智能体 middleware，并过滤不适合子智能体的敏感或交互工具。
 
-## 知识库工具
+## Skills 和知识库
 
-知识库访问能力沉淀为内置 `knowledge-base` Skill。Agent 读取 `/home/gem/skills/knowledge-base/SKILL.md` 激活该 Skill 后，`SkillsMiddleware` 会按依赖追加 `list_kbs`、`query_kb`、`find_kb_document`、`open_kb_document`、`get_mindmap`、`search_file` 和 `download_kb_file` 七个工具。
+Skills middleware 将 Skill 说明按模型请求注入：预加载 Skill 从首轮开放依赖，普通 Skill 在模型读取对应 `SKILL.md` 后激活，再开放声明的工具和 MCP。
 
-`prepare_agent_runtime_context` 根据当前用户权限和 Agent 配置生成 `_visible_knowledge_bases`，工具执行范围受该集合限制。`context.knowledges` 只定义资源范围，Skill 激活状态由 `SkillsMiddleware` 单独维护。
+知识库能力由内置 `knowledge-base` Skill 提供。它的工具是否注册、模型是否可见、参数是否能访问目标知识库分别由工具组装、Skill 激活和知识库权限检查负责。完整链路见[工具系统](./tools-system.md)和[知识库机制详解](../mechanisms/knowledge-base.md)。
 
-知识库文件树不挂载到沙盒。Agent 通过知识库工具访问内容，`/home/gem/kbs` 等旧路径不属于当前接口。状态、权限、存储和检索边界见[知识库机制详解](../mechanisms/knowledge-base.md)。
+## 文件和附件
 
-## Skills 注入与激活
+附件确认后写入当前 Project Workdir。每次 Run 会把线程历史附件的文件名和实时路径加入本轮用户消息，让模型按需调用 `read_file`；持久化 Message 仍保存原始文本，不会把这段模型专用路径混进用户可见消息。
 
-`SkillsMiddleware` 支持渐进加载和显式预加载：
+普通 Agent 和子 Agent 使用根 Conversation 的同一个 `runtime_scope_id` 和 Workdir。子 Agent 的 child thread 只隔离 LangGraph checkpoint，不隔离共享文件。Viewer、附件和 artifact API 直接访问 UserWorkspace 的持久文件，不需要创建 file-bridge Sandbox。
 
-1. 模型调用前读取 `_effective_skill_slugs`。普通 Skill 注入名称、描述和 `SKILL.md` 路径；`preload_skills` 及其依赖闭包直接注入根级完整说明。
-2. 工具调用后检查模型是否读取了共享投影 `/home/gem/skills/<slug>/SKILL.md` 或个人 UserWorkspace
-   `/home/gem/user-data/agents/skills/<slug>/SKILL.md`。如果该 Skill 在
-   `_effective_skill_slugs` 范围内，就把它写入 `activated_skills`，并在后续模型调用中追加它声明的工具和 MCP 依赖。
+## 子智能体
 
-普通 Skill 在读取并激活后开放依赖；预加载 Skill 从首轮模型请求开始开放依赖。默认空配置保持初始工具 schema 不变。
+主智能体配置了可见子智能体时，middleware 提供 `task`、`subagent_start`、`subagent_status`、`subagent_cancel` 和 `subagent_await`。同步 `task` 会等待结果；异步工具按 `run_id` 查询和控制子 Run。子智能体使用自己的 Context 和 checkpoint，但继承发起用户的权限、Workdir 和 execution runtime。
 
-## 附件与文件系统
-
-附件确认后会落盘到当前 Workdir。每个新 Run 都把线程全部历史附件的文件名和实时路径追加到本轮模型可见的 `HumanMessage`，不会修改系统提示词，也不会把文件内容复制进模型上下文。数据库 Message、流式 `init` 事件和历史接口仍保留原始用户文本，因此前端不渲染这段模型专用上下文。模型需要查看附件时，应通过 `read_file` 读取对应路径；中断恢复沿用 checkpoint 中原有的本轮消息。
-
-文件系统中间件通过 Sandbox 暴露当前用户的整个 UserWorkspace 与只读共享 Skills。普通 Agent 与子智能体使用根 Conversation 的同一个 `runtime_scope_id` 和 `workdir_path`；child `thread_id` 只隔离 LangGraph checkpoint。Workdir 选择 cwd，不形成同一 uid 内的文件隔离；各 Agent 的 Skill 选中列表只影响 Prompt 和工具激活。
-
-## 子智能体任务
-
-主 Agent 配置了可见子智能体时，会挂载 `YuxiSubAgentMiddleware` 并获得 `task` 工具。该工具从 `agents` 表查找 `is_subagent=true` 且后端为 `SubAgentBackend` 的 Agent 配置，随后启动对应子 Agent graph。旧版独立 SubAgents 表不参与当前链路。
-
-子智能体执行时会获得独立 child thread、独立 checkpoint 和 `agent_runs(run_type=subagent)` 记录；工具结果会返回 child thread ID，后续可以把该 ID 传回 `task` 继续同一个子任务。子智能体自身不会再挂载下一层 `task` 中间件，避免形成嵌套子智能体链路。
+详细的调用、busy、结果和文件边界见[子智能体](./subagents-management.md)。
 
 ## Summary 上下文压缩
 
-`YuxiSummarizationMiddleware` 在主模型调用前按近似上下文大小决定是否进入压缩：L1 只生成临时精简视图并卸载长工具结果，L2 才把较早历史写入文件、调用摘要模型并更新 checkpoint 中的 `_summarization_event`。它不删除 PostgreSQL 聊天消息，内部摘要模型的 token 也不进入当前主模型用量口径。
+Summary 在文件和 Skills 等中间件之后运行：L1 只为当前模型请求精简消息并卸载长工具结果，L2 才写入历史文件、生成摘要并更新 checkpoint。它不会删除 PostgreSQL 聊天消息，也不会把内部摘要模型调用当作用户可见回复。
 
-配置字段及默认值见[智能体配置](agents-config.md)，完整触发条件、文件 Owner、流事件、恢复边界与测试入口见[Summary 上下文压缩机制](../mechanisms/context-compression.md)。中间件总览只维护装配位置与职责，不复制实现细节。
+参数和状态细节见[上下文压缩机制](../mechanisms/context-compression.md)。
 
-## Token 用量统计
+## Token 用量
 
-`TokenUsageMiddleware` 同时维护两种用途不同的口径：
+`TokenUsageMiddleware` 同时记录：
 
-- 近似上下文统计通过 `count_tokens_approximately` 计算，用于上下文窗口、摘要阈值和消息构成展示。
-- 实际用量直接保留主 Agent 模型调用返回的 `AIMessage.usage_metadata`，包括 `input_tokens`、`output_tokens`、`total_tokens`、缓存和推理 token 明细。当前不包含 Summary 中间件内部直接发起的 L2 摘要模型调用，因此尚不能作为完整账单口径。
+- 近似上下文 token，用于摘要阈值和状态面板；
+- 主 Agent 模型返回的 `usage_metadata`，按最近调用、当前 Run、线程和模型分桶保存。
 
-state 中的实际用量分为 `latest`、`run` 和 `thread`：分别表示最近一次模型调用、当前 AgentRun 累计和当前 LangGraph 线程累计。前端状态面板只读取 state；流式终态 chunk 不携带用量。worker 从当前父线程、`current_run_id` 匹配的 AgentState 提取 `run`，在 Run 进入终态时将该快照写入 `AgentRun.token_usage`。`run.models` 与 `thread.models` 使用 Yuxi `provider_id:model_id` 配置 spec 分桶，并记录 Provider 响应中的实际模型 ID，避免模型切换后把不同模型的 token 混为一组，也避免把 OpenAI 兼容协议类型误当作业务供应商。
+`siliconflow-cn` 和 `siliconflow` 当前位于 Provider 用量黑名单：这两个供应商仍可提供近似上下文统计，但不会写入最近调用、Run 或线程的 Provider 实际用量聚合。其他能返回兼容 `usage_metadata` 的供应商才会进入这组实际用量统计。当前口径也不包含 Summary 内部摘要模型调用。Run 终态时，worker 把与当前 `run_id` 匹配的 state 快照写入 `AgentRun.token_usage`；父 Run 和子 Run 分开保存。
 
-每个模型桶独立计算缓存 token 命中率：使用 Provider 明确上报的 `input_token_details.cache_read / input_tokens`；OpenAI `priority` / `flex` service tier 对应识别 `priority_cache_read` / `flex_cache_read`。累计时先汇总该模型已上报缓存明细的输入 token，再计算 `sum(cache_read) / sum(input_tokens)`；缺少缓存读取字段表示 Provider 未上报，不按 0 命中处理。当前 Run 的按模型聚合会在终态事务中写入 `AgentRun.token_usage`，父 Run 与 SubAgent Run 分别保存，不重复合并。
+## 新增中间件时
 
-`siliconflow-cn` 与 `siliconflow` 当前返回的 usage 格式与统计契约不一致，暂列入 Token 用量 Provider 黑名单。黑名单模型仍计算近似上下文占用，但不写入最近调用、Run 或线程的 Provider 实际用量聚合。
+先说明它要改变哪一条边界：Prompt、模型调用、工具调用、文件访问、state 或观测。资源筛选和权限收敛放在 Graph 创建前；文件读写和工具结果卸载优先复用现有 filesystem middleware；新增模型可见输入或副作用时补充对应测试和失败案例。
 
-Summary 触发使用近似上下文统计。Provider 返回的 `usage_metadata.total_tokens` 用于记录实际主模型用量。完整关系见[Summary 上下文压缩机制](../mechanisms/context-compression.md)。
-
-## 自定义中间件
-
-新增中间件时，将实现放入 `backend/package/yuxi/agents/middlewares`，再在具体 Agent 的 `get_graph()` 中加入 `middleware` 列表。新增前先确认它属于哪一种职责：
-
-- 资源过滤、权限收敛和默认资源选择应放在 `prepare_agent_runtime_context` 一类的 Graph 创建前逻辑中。
-- 模型提示注入、工具动态追加、工具结果处理和 state 更新适合做成 LangChain Agent middleware。
-- 文件读写、工具结果卸载和 artifacts 展示应优先复用 `create_agent_filesystem_middleware` 与沙盒 backend。
-
-仓库中仍保留 `DynamicToolMiddleware`，但当前内置 Agent 的工具和 MCP 加载已经由 `resolve_configured_runtime_tools(context)` 与 `SkillsMiddleware` 承担。新增功能时不要默认复用旧的动态工具中间件，除非确实需要“预注册后按请求筛选”的模式。
+实现入口：[ChatbotAgent graph](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/agents/buildin/chatbot/graph.py)、[中间件目录](https://github.com/xerrors/Yuxi/tree/main/backend/package/yuxi/agents/middlewares)。

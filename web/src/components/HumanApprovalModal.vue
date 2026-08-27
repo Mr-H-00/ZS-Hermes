@@ -195,7 +195,7 @@
 
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
-import { ChevronDown, Wrench } from 'lucide-vue-next'
+import { ChevronDown, Wrench } from '@lucide/vue'
 import {
   isOtherOption,
   normalizeQuestions,

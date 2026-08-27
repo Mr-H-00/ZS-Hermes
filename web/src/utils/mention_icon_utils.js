@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Plug, WandSparkles } from 'lucide-vue-next'
+import { BookOpen, Bot, Plug, WandSparkles } from '@lucide/vue'
 import { getSkillIcon } from './skill_icon_utils.js'
 
 export const MENTION_ICON_SIZE = 15

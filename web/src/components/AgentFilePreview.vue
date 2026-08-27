@@ -322,10 +322,7 @@
               </div>
             </template>
             <template v-else-if="file?.previewType === 'pdf' && file?.previewUrl">
-              <PdfPreview
-                :url="file.previewUrl"
-                class="pdf-preview fullscreen-embed-preview"
-              />
+              <PdfPreview :url="file.previewUrl" class="pdf-preview fullscreen-embed-preview" />
             </template>
             <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
               <iframe
@@ -374,7 +371,7 @@ import {
   X,
   ZoomIn,
   ZoomOut
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import hljs from 'highlight.js/lib/common'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import PdfPreview from '@/components/common/PdfPreview.vue'

@@ -122,7 +122,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { ChevronDown, FolderPlus, Loader2, Upload } from 'lucide-vue-next'
+import { ChevronDown, FolderPlus, Loader2, Upload } from '@lucide/vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'
 

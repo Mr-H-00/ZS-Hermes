@@ -45,7 +45,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { FileText, Eye } from 'lucide-vue-next'
+import { FileText, Eye } from '@lucide/vue'
 import KbFileChunksModal from './KbFileChunksModal.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 import { groupKnowledgeChunks } from '@/utils/kbResultGroups.js'

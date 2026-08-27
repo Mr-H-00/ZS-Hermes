@@ -68,6 +68,26 @@ def test_upload_without_overwrite_atomically_preserves_existing_entry(
     assert outside.read_text(encoding="utf-8") == "outside"
 
 
+def test_upload_without_parent_creation_rejects_missing_directory(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    source = tmp_path / "source.txt"
+    source.write_text("content", encoding="utf-8")
+    monkeypatch.setattr(workspace_filesystem_module, "user_workspace_dir", lambda _uid: workspace_root)
+
+    with pytest.raises(FileNotFoundError):
+        Workspace("user-1").upload_authorized_file_from_path(
+            "/missing/file.txt",
+            str(source),
+            create_parents=False,
+        )
+
+    assert not (workspace_root / "missing").exists()
+
+
 def test_create_authorized_directory_uses_owner_only_mode(
     tmp_path: Path,
     monkeypatch,

@@ -1,0 +1,11 @@
+packages: []
+
+allowBuilds:
+  esbuild: true
+
+overrides:
+  esbuild: 0.28.2
+  nanoid: 3.3.18
+  postcss: 8.5.26
+  vitepress>@vitejs/plugin-vue: 6.0.6
+  vitepress>vite: 8.0.16

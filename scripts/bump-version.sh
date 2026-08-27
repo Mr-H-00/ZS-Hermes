@@ -10,7 +10,7 @@ set -euo pipefail
 #
 # 该脚本从 backend/package/pyproject.toml 读取当前版本，
 # 自动同步所有需要硬编码版本号的位置。
-# --dev 模式不会更新 README.md、docs/intro/quick-start.md 和文档首页中 git clone --branch 的版本号。
+# --dev 模式不会更新 README、快速开始、部署指南和文档首页中的发布版本引用。
 #
 # 更新 tag 标准流程（给人工和 agent 使用）:
 #
@@ -107,6 +107,7 @@ if [ "$DEV_MODE" = false ]; then
     echo "  - README.md"
     echo "  - README.en.md"
     echo "  - docs/intro/quick-start.md"
+    echo "  - docs/advanced/deployment.md"
     echo "  - docs/.vitepress/theme/components/YuxiHome.vue"
 fi
 echo ""
@@ -166,7 +167,7 @@ perl -0pi -e "s/(^name = \"yuxi-workspace\"\nversion = \")[^\"]+/\${1}${NEW_VERS
 # 发布历史记录（如 [2026/04/01] v0.6.1 版本发布）不修改，保持为历史版本记录
 if [ "$DEV_MODE" = false ]; then
     echo "→ 更新 README.md"
-    perl -pi -e "s/(git clone --branch v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
+    perl -pi -e "s/(git clone --branch v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g; s/(当前仓库默认配置对应 \`v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
         "${PROJECT_ROOT}/README.md"
 
     echo "→ 更新 README.en.md"
@@ -174,14 +175,18 @@ if [ "$DEV_MODE" = false ]; then
         "${PROJECT_ROOT}/README.en.md"
 
     echo "→ 更新 docs/intro/quick-start.md"
-    perl -pi -e "s/(git clone --branch v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
+    perl -pi -e "s/(git clone --branch v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g; s/(仓库当前默认配置对应 \`v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
         "${PROJECT_ROOT}/docs/intro/quick-start.md"
+
+    echo "→ 更新 docs/advanced/deployment.md"
+    perl -pi -e "s/(升级到当前 \`v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g; s/(git checkout v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
+        "${PROJECT_ROOT}/docs/advanced/deployment.md"
 
     echo "→ 更新 docs/.vitepress/theme/components/YuxiHome.vue"
     perl -pi -e "s/(git clone --branch v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
         "${PROJECT_ROOT}/docs/.vitepress/theme/components/YuxiHome.vue"
 else
-    echo "→ dev 模式，跳过 README.md、README.en.md、docs/intro/quick-start.md 和文档首页的分支版本更新"
+    echo "→ dev 模式，跳过 README、快速开始、部署指南和文档首页的发布版本更新"
 fi
 
 # -----------------------------------------------------------------------------

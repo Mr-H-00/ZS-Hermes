@@ -28,10 +28,7 @@ export default defineConfig({
     ['meta', { name: 'twitter:image', content: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-151118-mac-1787037059154-8c08f48c.png' }]
   ],
   ignoreDeadLinks: [
-    /localhost/,
-    /CONTRIBUTING$/,
-    /docker-compose\.yml$/,
-    /^\.\/intro\//
+    /localhost/
   ],
   markdown: {
     config: (md) => {
@@ -53,7 +50,7 @@ export default defineConfig({
       {
         text: '简介',
         items: [
-          { text: '什么是 Yuxi？', link: '/intro/project-overview' },
+          { text: '认识 Yuxi', link: '/intro/project-overview' },
           { text: '快速开始', link: '/intro/quick-start' },
           { text: '命令行工具', link: '/intro/cli' },
           { text: '模型配置', link: '/intro/model-config' },
@@ -65,6 +62,7 @@ export default defineConfig({
         text: '智能体开发',
         items: [
           { text: '智能体配置', link: '/agents/agents-config' },
+          { text: '开发智能体后端', link: '/agents/agent-backend-development' },
           { text: 'Agent 请求队列', link: '/agents/agent-request-queue' },
           { text: '工具系统', link: '/agents/tools-system' },
           { text: '中间件', link: '/agents/middleware' },
@@ -79,8 +77,9 @@ export default defineConfig({
         text: '机制详解',
         items: [
           { text: '阅读路径', link: '/mechanisms/' },
+          { text: 'Agent 运行时上下文', link: '/mechanisms/agent-runtime' },
           { text: '沙盒与文件系统', link: '/mechanisms/sandbox' },
-          { text: 'Summary 上下文压缩', link: '/mechanisms/context-compression' },
+          { text: '上下文压缩', link: '/mechanisms/context-compression' },
           { text: '知识库', link: '/mechanisms/knowledge-base' }
         ]
       },
@@ -91,8 +90,13 @@ export default defineConfig({
           { text: 'Langfuse 集成', link: '/advanced/langfuse-integration' },
           { text: '文档解析', link: '/advanced/document-processing' },
           { text: '知识库管理与 API', link: '/advanced/knowledge-base-operations' },
+          { text: '文档导入与查询 API', link: '/advanced/knowledge-base-api' },
+          { text: '知识导图与知识图谱', link: '/advanced/knowledge-base-graph' },
           { text: '品牌自定义', link: '/advanced/branding' },
           { text: '其他配置', link: '/advanced/misc' },
+          { text: '内容审查', link: '/advanced/content-safety' },
+          { text: '网页搜索', link: '/advanced/web-search' },
+          { text: '服务端口', link: '/advanced/ports' },
           { text: '生产部署', link: '/advanced/deployment' },
           { text: 'API Key 外部集成', link: '/advanced/api-key-integration' },
           { text: '第三方认证', link: '/advanced/third-party-auth' }

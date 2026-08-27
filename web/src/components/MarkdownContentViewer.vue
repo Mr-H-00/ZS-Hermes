@@ -85,7 +85,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { mergeChunks, getChunkPreview } from '@/utils/chunkUtils'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
-import { ChevronRight, ChevronLeft } from 'lucide-vue-next'
+import { ChevronRight, ChevronLeft } from '@lucide/vue'
 
 const props = defineProps({
   chunks: {

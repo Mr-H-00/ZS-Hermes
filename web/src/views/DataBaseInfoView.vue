@@ -147,6 +147,14 @@
                         <button
                           type="button"
                           class="file-action-menu-item"
+                          @click="onUploadFolderAction"
+                        >
+                          <FolderUp :size="14" />
+                          <span>上传文件夹</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="file-action-menu-item"
                           @click="onCreateFolderAction"
                         >
                           <FolderPlus :size="14" />
@@ -447,6 +455,7 @@ import {
   Database as DatabaseIcon,
   FileText,
   FolderPlus,
+  FolderUp,
   Hash,
   LoaderCircle,
   Map as MapIcon,
@@ -454,7 +463,7 @@ import {
   Pencil,
   Search,
   Upload
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import FileTable from '@/components/FileTable.vue'
@@ -762,6 +771,11 @@ const uploadActionMenuOpen = ref(false)
 const onUploadAction = () => {
   uploadActionMenuOpen.value = false
   showAddFilesModal()
+}
+
+const onUploadFolderAction = () => {
+  uploadActionMenuOpen.value = false
+  showAddFilesModal({ isFolder: true, mode: 'folder' })
 }
 
 const onCreateFolderAction = () => {

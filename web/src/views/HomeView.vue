@@ -182,7 +182,7 @@ import { useUserStore } from '@/stores/user'
 import { useInfoStore } from '@/stores/info'
 import { healthApi } from '@/apis/system_api'
 import UserInfoComponent from '@/components/UserInfoComponent.vue'
-import { ArrowRight, BookText } from 'lucide-vue-next'
+import { ArrowRight, BookText } from '@lucide/vue'
 
 const router = useRouter()
 const userStore = useUserStore()

@@ -42,7 +42,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { FileText } from 'lucide-vue-next'
+import { FileText } from '@lucide/vue'
 import BaseToolCall from '../BaseToolCall.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 

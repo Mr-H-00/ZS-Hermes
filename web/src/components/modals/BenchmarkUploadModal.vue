@@ -62,7 +62,7 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { UploadCloud } from 'lucide-vue-next'
+import { UploadCloud } from '@lucide/vue'
 import { evaluationApi } from '@/apis/knowledge_api'
 
 const props = defineProps({

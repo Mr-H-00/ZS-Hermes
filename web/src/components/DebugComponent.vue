@@ -697,7 +697,7 @@ import {
   Plus,
   Eye,
   Edit3
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import dayjs from '@/utils/time'
 import { authApi } from '@/apis/auth_api'
 import { configApi } from '@/apis/system_api'

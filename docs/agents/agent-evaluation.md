@@ -1,88 +1,83 @@
-# 智能体评估
+# 评估智能体
 
-Yuxi 的智能体评估用于判断某个 Agent 能否稳定完成一组固定任务。Langfuse 管理评估数据集、评分规则和对比报表；Yuxi 按真实 Agent 运行链路执行每条样例，并将结果回写到 Langfuse experiment。
+智能体评估用 Langfuse Dataset 保存一组固定任务，再让 Yuxi 按真实的 AgentRun、worker 和工具链路逐条执行。它适合比较一个智能体在研究、编程、文件处理或多步骤任务上的表现。
 
-## 适用边界
+本页不介绍知识库的 `recall@K` 和答案指标；那部分见[知识库评估](../intro/evaluation.md)。
 
-这个功能面向 Agent 端到端行为评估，不是知识库检索指标评估。如果你要评估 RAG 检索召回、答案准确率和知识库基准，请使用「知识库评估」。如果你要评估一个 Agent 在编程、研究、工具调用、规划或多步骤任务上的真实表现，则使用本页介绍的 Langfuse dataset experiment 流程。
+## 需要准备什么
 
-评估链路保持三个边界：
+1. Yuxi 已配置 Langfuse tracing，API/worker 环境包含：
 
-- Langfuse 负责 dataset、experiment、score、对比和可视化。
-- Yuxi 后端负责创建正常 conversation 和 AgentRun，并复用 worker 执行链路。
-- `yuxi` CLI 只负责读取 Langfuse dataset、运行 experiment、调用 Yuxi eval API，不负责创建或上传 dataset。
+   ```bash
+   LANGFUSE_PUBLIC_KEY=<your-public-key>
+   LANGFUSE_SECRET_KEY=<your-secret-key>
+   LANGFUSE_BASE_URL=https://cloud.langfuse.com
+   ```
 
-## 前置条件
+2. 本机运行 CLI 时也能读取同一 Langfuse 项目的变量。CLI 会直接读取 Dataset 并创建 experiment。
+3. 已安装 `yuxi-cli`，并登录目标实例：
 
-1. Yuxi 后端已经启用 Langfuse tracing，并在 `.env` 中配置：
+   ```bash
+   yuxi remote add local http://localhost:5173
+   yuxi login --browser
+   ```
 
-```bash
-LANGFUSE_PUBLIC_KEY=...
-LANGFUSE_SECRET_KEY=...
-LANGFUSE_BASE_URL=https://cloud.langfuse.com
-```
+   CI 或没有浏览器时，可以使用 `yuxi login --api-key "$YUXI_API_KEY"`。
+4. 目标智能体已经存在，登录用户有权访问它。命令使用 Agent slug，例如 `default-chatbot`。
 
-2. 本机 CLI 环境也能读取同一组 Langfuse 环境变量。`yuxi agent eval` 需要直接调用 Langfuse SDK 读取 dataset 和创建 experiment。
+## 准备 Dataset
 
-3. 已经登录 Yuxi CLI：
-
-```bash
-yuxi remote add local http://localhost:5173
-yuxi login --browser
-```
-
-评估命令必须使用当前 remote 的登录态，不支持在 `yuxi agent eval` 上直接传 token。CI 环境也必须先执行登录步骤，例如：
-
-```bash
-yuxi login --api-key "$YUXI_API_KEY"
-```
-
-4. 要评估的 Agent 已经存在，并且当前 CLI 登录用户有权限访问该 Agent。命令使用的是 Agent slug，例如 `default-chatbot`。
-
-## 准备 Langfuse Dataset
-
-评估数据集必须先在 Langfuse 中准备好。CLI 不提供上传能力，避免把数据集管理职责混进运行命令。
-
-Dataset item 的 `input` 推荐使用下面任一字段承载任务文本：
+在 Langfuse 中创建 Dataset，并为每个 item 的 `input` 提供任务文本：
 
 ```json
-{"input": "请用 Python 完成任务并给出最终答案：..."}
+{"input":"请整理这份资料，并列出三个需要核实的事实。"}
 ```
 
-也兼容 `query`、`question`、`prompt`。`expected_output` 可以写标准答案，后续在 Langfuse UI 或 evaluator 中使用。
+也兼容把任务放在 `query`、`question` 或 `prompt` 字段中。`expected_output` 可以保存参考答案，具体评分规则由 Langfuse evaluator 或人工评审负责。
 
-## 运行评估
+Yuxi 不负责创建或上传 Dataset。先在 Langfuse 中检查任务文本、参考输出和数据集版本，再运行实验。
 
-上传 dataset 后，用 dataset name 运行：
+## 运行实验
 
 ```bash
 yuxi agent eval \
-  --dataset-name yuxi-python-tasks-20260619-demo \
+  --dataset-name demo-dataset \
   --agent-slug default-chatbot \
-  --experiment-name default-chatbot-python-tasks-20260619 \
+  --experiment-name default-chatbot-demo \
   --max-concurrency 1 \
   --timeout-seconds 900
 ```
 
-命令执行流程：
+CLI 对每条 item：
 
-1. 从 Langfuse 读取 dataset。
-2. 对每条 dataset item 提取任务文本。
-3. 调用 `POST /api/agent-invocation/eval/runs`。
-4. Yuxi 后端创建正常 conversation 和 AgentRun。
-5. worker 按真实 Agent 链路执行任务。
-6. 接口阻塞到 run 终态后返回最终 assistant output。
-7. CLI 将 output 写回 Langfuse experiment item。
+1. 从 Dataset 读取任务文本；
+2. 调用 Yuxi 的 `POST /api/agent-invocation/eval/runs`；
+3. 由 Yuxi 创建临时 Conversation 和 AgentRun；
+4. 通过 worker 执行真实智能体；
+5. 等待 Run 进入终态；
+6. 把最终输出写回 Langfuse experiment item。
 
-`--max-concurrency` 控制 Langfuse experiment runner 的并发数。复杂 Agent 或本地开发环境建议从 `1` 开始，避免同时压垮模型服务、worker 或沙盒。
+`--max-concurrency` 是 Dataset 实验的并发数。先从 `1` 开始，再根据模型服务、worker 和沙盒容量提高。`--timeout-seconds` 是每条样例等待 Yuxi 结果的上限；超时会报告当前运行状态，不应把它当作成功。
 
 ## 查看结果
 
-评估完成后，在 Langfuse 控制台打开对应 dataset，可以看到刚创建的 experiment run。每条 item 会保存本次 Yuxi Agent 的最终输出。Yuxi 后端会在运行内部使用 `agent_invocation_meta.evaluation` 保存评估上下文，并给 Langfuse trace 写入 `agent_evaluation` 标记，方便筛选：
+实验完成后，在 Langfuse Dataset 的 experiment 中查看每条 item 的最终输出。Yuxi 会在本地运行上下文和 trace 中保存以下标记，便于筛选：
 
-- `source=agent_evaluation`
-- `evaluation_dataset_name=<dataset name>`
-- `evaluation_dataset_item_id=<item id>`
-- `evaluation_experiment_name=<experiment name>`
+```text
+source=agent_evaluation
+evaluation_dataset_name=<dataset-name>
+evaluation_dataset_item_id=<item-id>
+evaluation_experiment_name=<experiment-name>
+```
 
-如果没有看到 experiment，先确认 CLI 环境中的 Langfuse key 和 dataset name 是否正确。如果 experiment 有记录但 Yuxi trace 缺失，检查 `api-dev` 容器是否读取到了同一组 Langfuse 配置。
+先比较同一数据集的输出，再按自己的评估规则打分。一次实验的输出只代表当时的模型、Agent 配置、工具、知识库和外部服务状态；改变这些条件后，应创建新的 experiment 名称。
+
+## 排查失败
+
+- 没有 experiment：检查 CLI 的 Langfuse 公钥、密钥、地址和 Dataset 名称。
+- experiment 有 item 但 Yuxi 失败：检查 CLI 登录的 API Key、Agent slug、`api-dev` 和 `worker-dev` 日志。
+- Trace 缺失：检查 API/worker 是否读取到 Langfuse 配置；Yuxi 业务结果仍以 PostgreSQL 的 Run 和消息为准。
+- 大量超时：降低 `--max-concurrency`，检查模型响应时间、worker 健康状态和沙盒创建耗时。
+- 实验部分成功：不要只看命令退出前的汇总，回到 Langfuse 检查每条 item 是否都有结果；CLI 会在成功写入数量与 Dataset 总数不一致时报告错误。
+
+实现入口见 [Agent Eval 路由](https://github.com/xerrors/Yuxi/blob/main/backend/server/routers/agent_invocation_eval_router.py)、[CLI 实验](https://github.com/xerrors/Yuxi/blob/main/packages/yuxi-cli/src/yuxi_cli/agent_eval.py) 和 [Langfuse 集成](../advanced/langfuse-integration.md)。

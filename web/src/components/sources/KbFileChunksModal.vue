@@ -92,7 +92,7 @@
 
 <script setup>
 import { computed, useId } from 'vue'
-import { FileText, X } from 'lucide-vue-next'
+import { FileText, X } from '@lucide/vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 
 const props = defineProps({

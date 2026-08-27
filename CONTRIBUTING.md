@@ -1,94 +1,54 @@
-# Contributing to Yuxi
+# 参与贡献
 
-感谢你关注 Yuxi。欢迎提交 Issue、改进文档、修复 Bug 或贡献新功能。
+感谢你关注 Yuxi。欢迎提交 Issue、修复 Bug、补充测试、改进文档或贡献新功能。
 
-更完整的开发文档可参考 [docs/develop-guides/contributing.md](docs/develop-guides/contributing.md)。
+## 开始前
 
-## 开始之前
+- 先搜索 [Issues](https://github.com/xerrors/Yuxi/issues)，避免重复工作。
+- 较大的功能、公开接口、权限或架构变化，先在 Issue 或 [Discussions](https://github.com/xerrors/Yuxi/discussions) 讨论范围和方案。
+- 一个 PR 只解决一个明确问题，不混入无关重构、格式化或顺手优化。
+- 修改不熟悉的模块前，先阅读 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-- 提交前请先搜索现有 [Issues](https://github.com/xerrors/Yuxi/issues)
-- 对于较大的功能改动，建议先开 Issue 讨论方案
-- 保持改动聚焦，避免在一次 PR 中混入无关重构
+完整的 Fork、开发、测试、Review 和 PR 说明见[开发贡献指南](docs/develop-guides/contributing.md)。文档改动请同时阅读[文档编写与维护规范](docs/develop-guides/documentation-guidelines.md)。
 
-## 开发方式
+## 开发环境
 
-本项目通过 Docker Compose 进行开发，推荐直接在容器环境中调试。
+Yuxi 使用 Docker Compose 管理开发环境：
 
 ```bash
 docker compose up -d
-docker ps
-docker logs api-dev --tail 100
+docker compose ps
+docker compose logs --tail=100 api
 ```
 
-项目中的 `api-dev` 和 `web-dev` 默认支持热重载，本地修改代码后通常无需重启容器。
+API 和 Web 默认支持热重载。需要轻量环境时可以使用 `make up-lite`；完整服务拓扑以 `docker-compose.yml` 为准。
 
-## 提交流程
-
-1. Fork 仓库并创建分支
-2. 在对应目录完成开发与测试
-3. 提交清晰的 Commit Message
-4. 发起 Pull Request，并说明修改内容、原因和验证方式
-5. PR 模板 [PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) 中的检查项需要在提交前完成
-
-示例：
+## 常用检查
 
 ```bash
-git checkout -b feat/your-change
-git commit -m "feat: 新增知识图谱导入流程"
-git push origin feat/your-change
-```
-
-## 代码要求
-
-### 通用
-
-- 保持实现简单直接，避免过度设计
-- 只修改当前任务所需内容，不顺手做额外重构
-- 更新相关文档
-- 如有必要，同步更新 [docs/develop-guides/changelog.md](docs/develop-guides/changelog.md)
-- 设计部分请参考 [docs/develop-guides/design.md](docs/develop-guides/design.md)
-
-### 后端
-
-- 使用 Python 3.12+ 风格
-- 提交前运行：
-
-```bash
-make format
 make lint
-docker compose exec api uv run --group test pytest test/unit -m "not slow"
+make test
+python3 scripts/verify_engineering_contracts.py
+python3 -m unittest scripts.test_verify_engineering_contracts
+git diff --check
 ```
 
-- 测试按 unit / integration / e2e 分层放入 `backend/test` 对应目录，完整命令见 [测试规范](docs/develop-guides/testing-guidelines.md)
+涉及 API、数据库、worker、SSE、沙盒、对象或浏览器时，按[测试规范](docs/develop-guides/testing-guidelines.md)补充真实 integration 或 E2E。未执行的检查要在 PR 中说明原因，不要把未验证写成通过。
 
-### 前端
+## Pull Request
 
-- 使用 `pnpm`
-- API 接口统一放在 `web/src/apis`
-- 优先使用 `lucide-vue-next` 图标
-- 样式使用 `less`
-- 非特殊情况优先复用 [web/src/assets/css/base.css](web/src/assets/css/base.css) 中的颜色变量
+PR 标题直接说明目标，正文写清背景、影响范围和验证命令。UI 改动附真实页面截图或录屏；接口、配置或行为变化同步更新文档。非平凡改动还要记录事实 Owner、决策记录、oracle、负向案例和未验证范围。
 
-## Pull Request 建议
+提交信息使用中文 Conventional Commit，例如：
 
-- 标题清晰，能说明变更目标
-- 描述中包含改动内容、影响范围和验证结果
-- 如果涉及 UI，请附截图或录屏
-- 如果涉及接口或行为变化，请补充文档
-
-## 提交信息建议
-
-推荐使用以下前缀：
-
-- `feat`
-- `fix`
-- `docs`
-- `refactor`
-- `test`
-- `chore`
+```bash
+git switch -c docs/improve-guides
+git add <changed-files>
+git commit -m "docs: 完善项目文档"
+git push -u origin docs/improve-guides
+```
 
 ## 问题反馈
 
-- Bug 反馈/功能讨论：<https://github.com/xerrors/Yuxi/issues>
-
-感谢你的贡献 ❤️。
+- Bug 和功能建议：[GitHub Issues](https://github.com/xerrors/Yuxi/issues)
+- 方案讨论：[GitHub Discussions](https://github.com/xerrors/Yuxi/discussions)

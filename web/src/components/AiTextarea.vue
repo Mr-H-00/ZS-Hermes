@@ -28,7 +28,7 @@
 import { ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { databaseApi } from '@/apis/knowledge_api'
-import { WandSparkles } from 'lucide-vue-next'
+import { WandSparkles } from '@lucide/vue'
 
 const props = defineProps({
   modelValue: {

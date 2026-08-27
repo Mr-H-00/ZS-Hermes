@@ -74,7 +74,7 @@ import * as echarts from 'echarts'
 import { getColorByIndex, getColorPalette } from '@/utils/chartColors'
 import { formatNumber } from '@/utils/dashboard'
 import { useThemeStore } from '@/stores/theme'
-import { Activity, BadgeCheck, CircleAlert } from 'lucide-vue-next'
+import { Activity, BadgeCheck, CircleAlert } from '@lucide/vue'
 import DashboardMetricCard from './DashboardMetricCard.vue'
 
 // CSS 变量解析工具函数

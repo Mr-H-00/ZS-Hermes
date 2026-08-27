@@ -45,7 +45,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          version: "0.7.2"
+          version: "0.12.6"
 
       # 3. 设置 Python 环境
       - name: Set up Python

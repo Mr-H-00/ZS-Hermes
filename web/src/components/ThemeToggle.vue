@@ -10,7 +10,7 @@
 
 <script setup>
 import { useThemeStore } from '@/stores/theme'
-import { Sun as SunIcon, Moon as MoonIcon } from 'lucide-vue-next'
+import { Sun as SunIcon, Moon as MoonIcon } from '@lucide/vue'
 
 const themeStore = useThemeStore()
 </script>

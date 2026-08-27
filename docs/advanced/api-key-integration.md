@@ -1,177 +1,203 @@
-# API Key 外部集成
+# 使用 API Key 调用 Yuxi
 
-Yuxi 平台提供了 API Key 认证机制，允许外部系统在无需用户登录的情况下调用智能体对话接口。本文档详细介绍 API Key 的使用方法、接口调用方式以及安全注意事项。
-
-## API Key 概述
-
-API Key 是一种用于身份验证的密钥字符串，外部系统可以通过它在请求头中携带凭据来访问 Yuxi 的对话接口。与传统的用户名密码登录方式相比，API Key 更加适合用于系统间的自动化调用场景。Yuxi 的 API Key 以 `yxkey_` 为前缀，长度为 54 个字符，采用 SHA-256 哈希存储，确保密钥本身不会在数据库中明文保存。系统会记录每个 API Key 的最后使用时间，方便管理员追踪使用情况。
+API Key 适合服务之间调用 Yuxi。它绑定到一个具体的 Yuxi 用户，请求会继承该用户的角色、部门和资源权限；它不是一个绕过权限的“超级凭证”。
 
 ## 创建 API Key
 
-登录系统后，进入 API Key 管理界面，可以创建新的密钥。创建时需要为 API Key 设置一个名称，用于标识其用途，例如"外部客服系统"或"数据同步服务"。创建的 API Key 会自动绑定到当前登录用户，绑定后的 API Key 在调用接口时会以该用户的身份执行操作。API Key 还支持设置过期时间，过期后该密钥将自动失效。
+登录 Web 后，进入“设置 → API Keys”，点击“创建 API Key”。创建时填写名称和可选的过期时间。
 
-需要特别注意的是，创建 API Key 时返回的完整密钥（secret）只会显示一次，务必在创建时将其安全保存。如果遗失，请删除旧密钥并创建一个新的 API Key。
-
-管理接口同样走通用认证：
-
-- `GET /api/user/apikey/`：列出当前用户可见的 API Key
-- `POST /api/user/apikey/`：创建 API Key
-- `PUT /api/user/apikey/{api_key_id}`：更新名称、状态或过期时间
-- `DELETE /api/user/apikey/{api_key_id}`：删除密钥
-
-## 确定 API 访问地址
-
-Yuxi 后端服务绑定在 `0.0.0.0:5050`，不会自动探测或对外宣告本机 IP。实际访问地址取决于部署环境：
-
-- **本地开发**：`http://localhost:5050`
-- **生产部署（Nginx 反向代理）**：**强烈建议使用 HTTPS**，即 `https://<服务器域名>`（443 端口）。由于 API Key 会在请求头中以明文形式传输，使用 HTTP（80 端口）会导致密钥在网络传输过程中被窃听或篡改，必须避免
-
-完整的 API 交互流程可参考自动生成的 Swagger 文档：`{base_url}/docs`。
-
-## 接口调用方式
-
-> **关于 `agent_id` / `agent_slug` 的说明**：创建会话线程时仍使用 `agent_id` 绑定目标 Agent；创建运行任务时使用 `agent_slug` 快照本次运行目标。二者的取值都是智能体的 **slug**（如 `default-chatbot`），不是数据库自增 ID 或 `agent_config_id`。
-
-外部系统通过 HTTP 请求调用 Yuxi 接口时，需要在请求头中携带 API Key：
+也可以调用管理接口：
 
 ```http
-Authorization: Bearer yxkey_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
+POST /api/user/apikey/
+Authorization: Bearer <your-jwt>
+Content-Type: application/json
 
-当前智能体对话采用 run + SSE 流程：
-
-1. 创建对话线程：`POST /api/chat/thread`
-2. 创建运行任务：`POST /api/agent/runs`
-3. 订阅事件流：`GET /api/agent/runs/{run_id}/events`
-
-`POST /api/agent/runs` 请求体必填 `query`、`agent_slug` 和 `thread_id`，可选字段包括 `meta`、`image_content`、`resume`、`created_by_run_id`。接口返回 `run_id`、`thread_id`、`status`、`request_id` 和 `stream_url`。
-
-以下是一个典型的 Python 调用示例：
-
-```python
-import json
-import requests
-
-base_url = "https://your-yuxi-server"  # 生产环境务必使用 HTTPS；本地开发可改为 http://localhost:5050
-headers = {
-    "Authorization": "Bearer yxkey_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "Content-Type": "application/json",
+{
+  "request_id": "crm-integration-2026",
+  "name": "外部客服系统",
+  "expires_at": "2027-01-01T00:00:00Z"
 }
-
-thread_resp = requests.post(
-    f"{base_url}/api/chat/thread",
-    headers=headers,
-    json={
-        "agent_id": "default-chatbot",
-        "title": "外部系统会话",
-        "metadata": {},
-    },
-)
-thread_resp.raise_for_status()
-thread_id = thread_resp.json()["id"]
-
-run_resp = requests.post(
-    f"{base_url}/api/agent/runs",
-    headers=headers,
-    json={
-        "query": "你好，请介绍一下你自己",
-        "agent_slug": "default-chatbot",
-        "thread_id": thread_id,
-        "meta": {"request_id": "external-request-001"},
-    },
-)
-run_resp.raise_for_status()
-run = run_resp.json()
-
-with requests.get(f"{base_url}{run['stream_url']}", headers=headers, stream=True) as response:
-    response.raise_for_status()
-    event_type = None
-    data_lines = []
-
-    for line in response.iter_lines(decode_unicode=True):
-        if line is None:
-            continue
-        if line.startswith(":"):
-            continue
-
-        if line == "":
-            if event_type and data_lines:
-                payload = json.loads("\n".join(data_lines))
-                print(event_type, payload)
-                if event_type == "end":
-                    break
-            event_type = None
-            data_lines = []
-            continue
-
-        if line.startswith("event:"):
-            event_type = line.removeprefix("event:").strip()
-        elif line.startswith("data:"):
-            data_lines.append(line.removeprefix("data:").strip())
 ```
 
-如果已经有会话线程，可以复用已有 `thread_id` 直接创建 run：
+`request_id` 是创建意图的幂等标识，长度为 8–64 个字符，只能使用字母、数字、`.`、`_`、`:` 和 `-`。同一用户用相同的 `request_id` 重试会返回同一创建事实；用同一个 ID 提交不同意图会返回冲突。
+
+响应中的 `secret` 会返回本次创建意图对应的完整密钥：
 
 ```json
 {
-    "query": "继续上一轮话题",
-    "agent_slug": "default-chatbot",
-    "thread_id": "existing-thread-id",
-    "meta": {}
+  "api_key": {
+    "id": 12,
+    "key_prefix": "yxkey_abcdef",
+    "name": "外部客服系统",
+    "user_id": 3,
+    "is_enabled": true
+  },
+  "secret": "yxkey_<your-secret>"
 }
 ```
 
-### 读取运行结果
+数据库只保存 secret 的哈希和前缀。请把完整 secret 立即放进外部系统的密钥管理器。若创建响应丢失，可以用同一用户、同一 `request_id` 和完全相同的创建参数重试；幂等重放会返回同一个 secret。改动创建意图、主密钥已经轮换或 Key 已撤销时，重试会返回冲突，此时应创建新的 `request_id` 并按需撤销旧 Key。
 
-如果不需要逐事件消费 SSE，可以在 run 终态后直接拉取最终结果：
+管理接口：
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| `GET` | `/api/user/apikey/` | 查看当前用户可见的 Key |
+| `POST` | `/api/user/apikey/` | 创建 Key |
+| `PUT` | `/api/user/apikey/{api_key_id}` | 修改名称、过期时间或启用状态 |
+| `DELETE` | `/api/user/apikey/{api_key_id}` | 撤销 Key |
+
+`superadmin` 可以查看和管理全局可见的 Key；其他用户只能操作自己有权限的 Key。删除用户或撤销 Key 后，旧 secret 不能继续使用，也不会因为重复提交旧的创建请求而复活。列表和详情响应还包含 `last_used_at`：它表示最近一次成功认证时间，`null` 表示尚未使用；`key_prefix` 只用于识别 Key，服务端不会再次返回完整 secret。
+
+## 选择调用地址
+
+API 服务在容器内监听 `5050`：
+
+- 开发环境可使用 `http://localhost:5050`；
+- 生产环境使用反向代理提供的 HTTPS 地址，例如 `https://yuxi.example.com`；
+- 同一套 API 的 Web 入口通常是 `http://localhost:5173`（开发）或反向代理的根路径（生产）。
+
+API Key 通过 `Authorization` 请求头发送。生产环境必须使用 HTTPS，避免密钥在网络中被窃听或篡改。
+
+## 认证请求
+
+```http
+Authorization: Bearer yxkey_<your-secret>
+```
+
+服务端会根据 `yxkey_` 前缀进入 API Key 校验；其他 Bearer token 按 JWT 校验。当前派生的 secret 由 `yxkey_` 加 48 位十六进制字符组成，总长度为 54 个字符；客户端不要记录或打印完整 secret。两种方式可以调用同一个受保护接口，但 API Key 的实际权限仍等于它绑定的用户。
+
+## 运行一次 Agent
+
+通用 Run API 分为创建线程、提交运行和读取事件三步。创建线程时，`agent_id` 的值是智能体 slug，不是数据库自增 ID：
+
+```bash
+BASE_URL=https://yuxi.example.com
+API_KEY=yxkey_<your-secret>
+
+curl --fail "$BASE_URL/api/chat/thread" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"agent_id":"default-chatbot","title":"外部系统会话","metadata":{}}'
+```
+
+从响应中取出线程 `id`，再提交运行：
+
+```bash
+curl --fail "$BASE_URL/api/agent/runs" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query":"你好，请介绍一下你自己",
+    "agent_slug":"default-chatbot",
+    "thread_id":"<thread-id>",
+    "meta":{"request_id":"crm-run-2026-0001"},
+    "queue_policy":"enqueue"
+  }'
+```
+
+请求会返回 `run_id`、`request_id`、`thread_id`、状态和流地址。立即派发的 Run 提供 `stream_url`；仍在 FIFO 中等待的 Request 提供 `request_events_url`，具体状态以同一 `request_id` 查询结果为准。`agent_slug` 也使用智能体 slug；`thread_id` 用于把多轮输入放进同一上下文。
+
+通用 Run 的可选字段如下：
+
+| 字段 | 作用 |
+| --- | --- |
+| `meta.request_id` | 请求幂等和追踪标识；不传时服务端生成 UUID |
+| `image_content` | 可选的 base64 图片内容；普通 Chat 会把它作为图片消息提交 |
+| `model_spec` | 本次运行的模型覆盖，格式为 `provider_id:model_id` |
+| `tool_approval_mode` | 本次运行的工具审批模式覆盖 |
+| `queue_policy` | 普通 Chat 可用 `enqueue`、`reject` 或 `steer`；默认是 `enqueue` |
+| `resume` | LangGraph 恢复载荷；非空时走恢复路径，不进入普通 Request 队列 |
+| `created_by_run_id` | 恢复时填写被恢复的 Run ID |
+
+`resume` 不是布尔开关。恢复请求可以同时带 `query` 和 `image_content`，但 `queue_policy` 只适用于普通 Chat；恢复和 Steer 的状态、权限与失败语义见[Agent 请求队列与调度设计](../agents/agent-request-queue.md)。
+
+### 读取 SSE
+
+`stream_url` 是 Server-Sent Events 地址。使用 `curl` 订阅：
+
+```bash
+curl --no-buffer --fail "$BASE_URL<stream_url>" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Accept: text/event-stream'
+```
+
+每个事件包含 `event`、`data` 和 `id`：
+
+- `event` 是事件类型；常见过程事件包括消息、工具和状态更新，`end` 表示该 Run 的终止事件，`error` 表示流中的错误事件；
+- `data` 是 JSON envelope，包含 `run_id`、`thread_id` 和事件载荷；
+- `id` 是 Redis Stream 游标；
+- 以 `:` 开头的行是 heartbeat，客户端应忽略；
+- 收到 `end` 或 `error` 后停止等待新的输出，并用同一 `run_id` 读取最终结果；
+- 断线重连时可以发送 `Last-Event-ID`，也可以在 URL 中使用 `after_seq`；
+- `?verbose=false` 返回面向客户端的精简载荷，适合普通 UI；默认模式保留更多调试字段。
+
+不需要过程事件时，直接读取同一个 Run 的最终结果：
 
 ```http
 GET /api/agent/runs/{run_id}/result
+Authorization: Bearer yxkey_<your-secret>
 ```
 
-返回结构包含运行状态、最终 assistant 输出、Langfuse trace id 和错误信息。该接口只读，不会再次触发 run。对外部系统只关心「最终答案」、不需要展示中间过程的场景，比订阅 SSE 更简单。
+结果接口只读，不会重复执行 Run。最终输出必须从该 `run_id` 绑定的结果读取，不要从相邻 Run 或最近一条消息猜测。
 
-### 外部系统调用入口
+## Agent Call 接口
 
-除通用 `/api/agent/runs` 之外，Yuxi 还提供专为外部系统设计的 `agent-invocation` 路由，复用同一套 AgentRun 队列与结果读取能力：
+外部系统也可以使用面向调用方的 `agent-invocation` 接口。它不支持 `stream=true`：
 
 | 接口 | 用途 | 关键字段 |
-|------|------|----------|
-| `POST /api/agent-invocation/agent-call/runs` | 外部系统调用 Agent；`async_mode=true` 时立即返回 `run_id`，否则阻塞到 run 终态返回结果 | `agent_slug`、`messages`、`thread_id`、`request_id`、`model_spec`、`async_mode` |
-| `POST /api/agent-invocation/agent-call/runs/result` | 读取 agent-call run 的 OpenAI 兼容结果结构 | `run_id`、可选 `agent_slug` |
-| `POST /api/agent-invocation/eval/runs` | 运行一次评估样例，阻塞到 run 终态后返回最终输出与可选轨迹摘要 | `query`、`agent_slug`、`evaluation`、`include_trajectory_summary` |
+| --- | --- | --- |
+| `POST /api/agent-invocation/agent-call/runs` | 创建 Agent Call；默认等待终态，`async_mode=true` 时立即返回运行信息 | `agent_slug`、`messages`、`thread_id`、`request_id`、`model_spec`、`tool_approval_mode`、`agent_call_meta`、`async_mode`、`queue_policy`、`stream` |
+| `POST /api/agent-invocation/agent-call/runs/result` | 按 `run_id` 读取 OpenAI 风格的结果 | `run_id`、可选 `agent_slug` |
+| `POST /api/agent-invocation/eval/runs` | 运行一次评估样例并返回结果 | `query`、`agent_slug`、`thread_id`、`evaluation`、`image_content`、`model_spec`、`tool_approval_mode`、`include_trajectory_summary` |
 
-agent-call 的 `messages[].content` 兼容 OpenAI 风格的 `text`/`image_url` 多模态数组：纯文本数组不会触发 422，图片输入会保留原始 LangChain 多模态消息供 worker 恢复。出于安全考虑，**不允许通过 `agent_call_meta.context` 覆盖 Agent 运行上下文**；运行时模型覆盖只允许走独立 `model_spec` 字段。Agent Eval 通常通过 `yuxi agent eval` CLI 触发，详见[智能体评估](../agents/agent-evaluation.md)。
+`evaluation` 可以包含 `dataset_name`、`dataset_item_id` 和 `experiment_name`，用于关联 Langfuse 评估上下文。`include_trajectory_summary=true` 时，响应附带最多 500 个运行事件聚合出的工具调用、错误、中断和事件范围摘要；它不是完整事件流。
 
-## 响应格式
+同步 Agent Call 不能排队，线程忙碌时会返回拒绝结果；异步调用默认使用 `enqueue`。一个最小请求：
 
-运行事件流采用 Server-Sent Events 格式，响应头为 `text/event-stream`。每个事件包含：
+```bash
+curl --fail "$BASE_URL/api/agent-invocation/agent-call/runs" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "agent_slug":"default-chatbot",
+    "messages":[{"role":"user","content":"请总结这段文字：……"}],
+    "async_mode":false
+  }'
+```
 
-- `event`：事件类型，可能是模型输出、工具调用、子智能体输出等语义事件，也可能是 `error` 或终止事件 `end`
-- `data`：JSON 编码的事件 envelope，包含 `run_id`、`thread_id`、事件载荷等字段
-- `id`：Redis Stream 序号，可作为断线重连游标
+`messages` 使用 OpenAI 风格结构，系统会取最后一条 `user` 消息作为输入。文本可以直接使用字符串；图片使用多模态数组：
 
-服务端还会定期发送以 `:` 开头的 heartbeat 注释，客户端应忽略。断线重连时，可以在请求头中传 `Last-Event-ID`，或在 query 参数中传 `after_seq`，服务端会从该序号后继续回放事件。
+```json
+{
+  "role": "user",
+  "content": [
+    {"type": "text", "text": "请描述这张图片"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,<base64-data>"}}
+  ]
+}
+```
 
-事件流默认返回完整载荷，便于排查 LangGraph/Langfuse 运行细节。如果只需要渲染消息、工具调用、工具结果、Agent state 和终止状态，可以在订阅地址追加 `?verbose=false`。精简模式会保留 SSE `event/data/id`、data 中的 `run_id/thread_id/request_id/payload` 以及客户端消费所需字段；同一 data 内的 `request_id` 会外提为单个字段。精简模式还会跳过 `metadata` 和空 `yuxi.agent_state`，并去掉每个 chunk 中重复的 `meta`、`metadata`、`thread_id`、`response`、空 `namespace` 和图片 base64 等调试字段。
+纯文本数组也可以使用；不支持的 content part 类型会返回 `422`。`model_spec` 可以覆盖本次运行使用的模型；不要通过 `agent_call_meta.context` 覆盖 Agent runtime context。`stream` 字段为兼容 OpenAI 客户端而保留，但只能传 `false`，传 `true` 会返回 `422`。同步 Agent Call 固定使用 `queue_policy=reject`；异步调用默认使用 `enqueue`，显式传入不适用的策略会被拒绝。
 
-每次创建 run 都会返回 `request_id`，可用于日志追踪和问题排查。如果需要在多轮对话中使用同一个会话，请复用 `thread_id`，系统会将同一线程的消息串联起来形成连贯的对话上下文。
+Agent Call 结果包含 `run_id`、`agent_slug`、`thread_id`、`status`、`output`、`choices` 和可用时的 `usage`。同步等待超时时，接口返回 HTTP `504`；当前 Run 快照放在错误响应的 `detail.run` 中，里面的 `agent_run_id` 就是后续查询所需的运行 ID。此时不要把 504 当作 Run 失败：可以继续调用 `POST /api/agent-invocation/agent-call/runs/result`，提交 `{"run_id":"<agent-run-id>"}`，读取最终状态。
 
-## 认证方式
+```http
+POST /api/agent-invocation/agent-call/runs/result
+Authorization: Bearer yxkey_<your-secret>
+Content-Type: application/json
 
-Yuxi 的 API 接口统一支持两种认证方式：
+{"run_id":"<agent-run-id>"}
+```
 
-1. **API Key 认证**：使用 `Authorization: Bearer <api_key>` 格式，其中 API Key 必须以 `yxkey_` 前缀开头
-2. **JWT Token 认证**：使用 `Authorization: Bearer <jwt_token>` 格式
+## 安全建议
 
-系统根据 token 前缀选择认证方式：`yxkey_` 前缀进入 API Key 校验，其余 token 进入 JWT 校验。同一接口因此可同时服务外部系统和使用登录态的内部前端。
+- 为不同外部系统创建不同的 Key，并设置过期时间。
+- 只把 secret 放在密钥管理器或受保护的环境变量中，不要硬编码进源码、镜像或日志。
+- 怀疑泄露时立即在“API Keys”中停用或删除，并检查外部系统的重试配置。
+- API Key 继承绑定用户的权限。为集成创建权限最小化的专用用户，不要直接使用超级管理员 Key。
+- 生产调用使用 HTTPS；HTTP 只适合本机开发。
+- 排查时同时记录 `request_id`、`run_id` 和 `thread_id`，但不要记录完整 API Key。
 
-## 安全注意事项
-
-**传输层安全**：API Key 在请求头中以明文形式传输，**生产环境必须通过 HTTPS（443 端口）调用**，避免在公网上以 HTTP 明文传输造成密钥泄露。建议在 Nginx 反向代理层启用 TLS 并强制 HTTP 重定向到 HTTPS。
-
-API Key 泄露后可被直接滥用。密钥应通过环境变量或配置中心管理，禁止硬编码进源码。怀疑泄露时，立即在管理界面禁用或删除旧密钥，并创建替代密钥。生产密钥应设置有效期并定期轮换。
-
-在生产环境中，建议为不同的外部系统创建独立的 API Key，这样可以在某个密钥泄露时快速定位问题并限制影响范围。同时，建议在管理界面定期查看 API Key 的使用记录，检查是否存在异常调用情况。
-
-关于权限控制，API Key 的权限等同于其绑定的用户在系统中的角色。如果 API Key 绑定到特定用户，则该用户的所有权限都会体现在 API Key 的操作中，因此务必妥善保管。
+完整请求 Schema、状态码和当前字段以部署实例的 Swagger 页面为准：`<base-url>/docs`。更多关于 Run、FIFO、SSE 和取消语义的说明见[Agent 请求队列与调度设计](../agents/agent-request-queue.md)。

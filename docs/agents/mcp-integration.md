@@ -1,100 +1,106 @@
-# MCP 集成
+# 集成 MCP
 
-MCP（Model Context Protocol）是扩展智能体能力的重要方式。系统支持通过管理界面动态配置 MCP 服务器，无需修改代码。
+MCP（Model Context Protocol）让智能体调用外部服务提供的工具。管理员在“扩展 → MCP”中添加远程服务器，智能体配置再决定哪些服务器进入运行时。
 
-内置 MCP 服务器以代码为事实源：系统启动时会自动补齐缺失项，并用代码中的最新连接与展示字段覆盖数据库定义；是否“已添加”以及工具级禁用列表仍保留数据库状态。
+## 支持的传输方式
 
-## 支持的传输协议
+| 传输方式 | 适用场景 |
+| --- | --- |
+| `streamable_http` | 新的远程 MCP 服务 |
+| `sse` | 仍提供 SSE 接口的远程服务 |
+| `stdio` | 仅限代码维护的系统内置 MCP |
 
-| 协议 | 说明 | 适用场景 |
-|------|------|----------|
-| Streamable HTTP | 流式 HTTP 连接 | 远程 MCP 服务 |
-| SSE | Server-Sent Events | 标准 HTTP 长连接 |
-| Stdio | 标准输入输出 | 仅限代码中维护的系统内置 MCP |
+管理接口只接受 `streamable_http` 和 `sse`。Yuxi 不允许通过 HTTP 请求创建任意本地 `stdio` 进程；历史用户 `stdio` 配置会被禁用，应迁移为远程服务。
 
-## 配置示例
+## 添加远程 MCP
 
-### 远程 MCP 服务
+在“扩展 → MCP”点击“添加 MCP”，填写稳定标识、名称、传输方式和 URL。例如：
 
 ```json
 {
-    "name": "custom-remote-mcp",
-    "transport": "streamable_http",
-    "url": "https://example.com/mcp"
+  "slug": "custom-remote-mcp",
+  "name": "Example MCP",
+  "transport": "streamable_http",
+  "url": "https://example.com/mcp"
 }
 ```
 
-管理接口只允许配置 `streamable_http` 与 `sse` 远程服务。`stdio` 会在 API / worker 容器内启动本地进程，
-因此仅允许 `_DEFAULT_MCP_SERVERS` 中代码定义的系统内置 MCP；管理员不能通过接口新增 stdio 服务，
-也不能修改内置 MCP 的连接配置。升级前已保存的用户 stdio 配置会被禁用，需要迁移为远程 MCP。
+管理接口对应：
 
-## 添加系统内置 stdio MCP
+```http
+POST /api/system/mcp-servers
+Authorization: Bearer <admin-token>
+Content-Type: application/json
 
-只有经过代码审查、确实需要在 Yuxi 容器内启动本地进程的 MCP 才应使用 stdio。能够部署为远程服务时，
-优先使用 SSE 或 Streamable HTTP，通过管理界面添加即可。
+{
+  "slug": "custom-remote-mcp",
+  "name": "Example MCP",
+  "transport": "streamable_http",
+  "url": "https://example.com/mcp",
+  "description": "提供示例查询工具"
+}
+```
 
-编辑 `backend/package/yuxi/agents/mcp/service.py` 中的 `_DEFAULT_MCP_SERVERS`，新增一个全局唯一的 slug。
-下面的包名和版本仅作结构参考，实际提交时应替换为经过审查并固定版本的 MCP 包：
+需要认证的远程服务可以配置 HTTP headers、连接超时和 SSE 读取超时。凭证会随着连接请求发送，请只配置必要的 header，并把管理接口限制在可信的管理员范围。
+
+添加后先点击“测试连接”，确认能发现工具，再把服务器状态设为“已添加”。状态关闭时，服务器记录仍保留，但不会进入运行时。
+
+## 让智能体使用 MCP
+
+在智能体配置的 MCP 字段中选择已添加的服务器：
+
+- 未显式配置时，使用当前用户可见的全部已启用服务器；
+- 显式选择后，只使用选择项；
+- MCP 工具仍会在执行处使用当前用户身份和服务器配置；
+- 管理员可以在 MCP 详情页单独禁用某个工具。
+
+MCP 配置从 PostgreSQL 读取，工具对象按配置哈希缓存。修改连接配置或工具禁用列表后，下一次运行会使用新的配置键。
+
+## 添加内置 stdio MCP
+
+`stdio` MCP 等价于在 API/worker 容器内启动一个进程，只适合经过代码审查且必须本地运行的系统能力。远程服务可以承载时，优先使用 SSE 或 Streamable HTTP。
+
+开发者在 [`service.py`](https://github.com/xerrors/Yuxi/blob/main/backend/package/yuxi/agents/mcp/service.py) 的 `_DEFAULT_MCP_SERVERS` 中添加固定定义：
 
 ```python
 _DEFAULT_MCP_SERVERS = {
-    # 已有内置 MCP ...
     "example-mcp": {
         "command": "npx",
         "args": ["-y", "@scope/example-mcp@1.2.3"],
         "transport": "stdio",
-        "description": "示例内置 MCP，请替换为真实用途说明",
+        "description": "说明具体能力和使用场景",
         "icon": "🧩",
-        "tags": ["内置", "示例"],
+        "tags": ["内置"],
     },
 }
 ```
 
-常用字段如下：
+`command`、`args` 和 `env` 必须是代码中的固定值，包版本必须锁定；不能从 HTTP 请求、数据库字段或不受信任的环境拼接。`env` 只放非敏感固定值，密钥不能提交到代码或同步到数据库。
 
-| 字段 | 要求 |
-|------|------|
-| `command` | 容器内已安装或明确可用的可执行程序，不接受用户输入 |
-| `args` | 固定参数列表；使用包执行器时应固定包版本，不使用动态脚本参数 |
-| `transport` | 固定为 `stdio` |
-| `description` | 说明 MCP 的具体能力和使用场景 |
-| `icon` / `tags` | 管理界面的展示信息 |
-| `env` | 仅允许非敏感固定值；密钥不得提交到代码或同步进数据库 |
+API/worker 启动时会把内置定义同步到数据库。新内置 MCP 默认未添加，管理员需要在管理页启用；内置项的连接配置由代码维护，不能删除或通过页面改成其他进程。
 
-新增 slug 前应确认数据库和 `_DEFAULT_MCP_SERVERS` 中没有同名项。运行时只信任
-`_DEFAULT_MCP_SERVERS` 的固定 slug 白名单；`created_by` 仅用于审计，不能通过复用用户记录或手工修改
-`created_by` 来创建内置 MCP。
-
-开发环境会在 API / worker 热重载后的启动阶段调用 `ensure_builtin_mcp_servers_in_db()`；生产部署需要重新
-构建并启动 API 与 worker。新内置项首次同步时默认 `enabled=false`，管理员需要在 MCP 管理页中“添加”后
-才会进入运行时。后续启动会用代码定义覆盖连接与展示字段，同时保留启用状态和工具禁用列表。
-
-添加后执行一次验证：
+验证新内置 MCP：
 
 ```bash
 docker compose up -d --build api worker
-docker logs api-dev --tail 100
-docker logs worker-dev --tail 100
+docker compose logs --tail=100 api worker
 ```
 
-确认日志中没有同步异常，并在管理页添加该 MCP，检查能够发现预期工具。验证过程不得执行文件写入、
-Shell 命令或其他无关副作用。
+然后在管理页添加并测试工具。测试只确认连接和工具发现，不要在没有隔离和授权的情况下执行文件写入、Shell 或其他副作用。
 
 ::: danger 安全边界
-stdio MCP 与在 API / worker 容器内执行程序等价。提交前必须审查可执行程序、依赖来源、固定版本、参数、
-网络访问和工具副作用；不得从 HTTP 请求、数据库用户配置或环境中的非受信任内容拼接 `command`、`args`
-或 `env`，也不得通过把用户记录改成 `created_by=system` 绕过运行时限制。
+MCP 工具的副作用等同于外部服务或本地进程本身的副作用。审查依赖来源、固定版本、命令参数、网络访问和数据权限；不要把 `SANDBOX_PROVISIONER_TOKEN`、数据库密码或对象存储管理凭据注入 MCP 或 Agent 沙盒。
 :::
 
-## 服务器管理
+## 常用管理接口
 
-管理界面使用“添加 / 移除”语义管理 MCP 服务器：
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| `GET` | `/api/system/mcp-servers` | 查看服务器；普通用户只得到脱敏基础信息 |
+| `POST` / `PUT` | `/api/system/mcp-servers`、`/{slug}` | 添加或修改远程 MCP |
+| `PUT` | `/api/system/mcp-servers/{slug}/status` | 添加或移除服务器 |
+| `POST` | `/api/system/mcp-servers/{slug}/test` | 测试连接并发现工具 |
+| `GET` | `/api/system/mcp-servers/{slug}/tools` | 查看工具 |
+| `PUT` | `/api/system/mcp-servers/{slug}/tools/{tool_name}/toggle` | 启用或禁用单个工具 |
 
-- 已添加：`enabled=true`；远程 MCP 读取数据库中的最新连接配置，内置 stdio MCP 使用代码中的固定连接配置
-- 可添加：`enabled=false`，记录保留但不会进入运行时
-
-Agent 配置中的 `mcps` 决定本次运行可使用哪些已添加服务器；未显式配置时使用当前用户可见的全部服务器。工具对象会按配置哈希做本地缓存，更新服务器配置后会自动使用新的缓存键，不需要重启服务。
-
-## 工具管理
-
-MCP 工具支持粒度控制：管理员可以单独启用或禁用某个 MCP 服务器下的特定工具，实现精细化的权限管理。
+接口字段和错误响应以实例 Swagger 为准。

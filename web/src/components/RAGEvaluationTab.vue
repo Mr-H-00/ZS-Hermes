@@ -451,7 +451,7 @@ import { ref, reactive, onMounted, onUnmounted, computed, watch, h } from 'vue'
 import { message } from 'ant-design-vue'
 import { evaluationApi } from '@/apis/knowledge_api'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
-import { BarChart3, ChevronDown, ClipboardList, RefreshCw, X } from 'lucide-vue-next'
+import { BarChart3, ChevronDown, ClipboardList, RefreshCw, X } from '@lucide/vue'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
 import { useTaskerStore } from '@/stores/tasker'
 

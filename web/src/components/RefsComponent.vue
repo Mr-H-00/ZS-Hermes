@@ -120,7 +120,7 @@ import {
   RotateCcw,
   BookOpen,
   ChevronDown
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { agentApi } from '@/apis'
 import { formatChatTime, parseToShanghai } from '@/utils/time'
 import KnowledgeSourceSection from '@/components/KnowledgeSourceSection.vue'

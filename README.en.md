@@ -5,7 +5,7 @@
 
 [![](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=ffffff)](https://github.com/xerrors/Yuxi/blob/main/docker-compose.yml)
 [![](https://img.shields.io/github/issues/xerrors/Yuxi?color=F48D73)](https://github.com/xerrors/Yuxi/issues)
-[![License](https://img.shields.io/github/license/bitcookies/winrar-keygen.svg?logo=github)](https://github.com/xerrors/Yuxi/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/xerrors/Yuxi.svg?logo=github)](https://github.com/xerrors/Yuxi/blob/main/LICENSE)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-blue.svg)](https://deepwiki.com/xerrors/Yuxi)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/xerrors/Yuxi)
 [![demo](https://img.shields.io/badge/demo-00A1D6.svg?style=flat&logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1TZEx6NEit/)
@@ -58,7 +58,7 @@ Yuxi is a strong fit for teams that need private deployment, organizational acce
 **1. Clone and initialize**
 
 ```bash
-git clone --branch v0.7.2.beta1 --depth 1 https://github.com/xerrors/Yuxi.git
+git clone --branch v0.7.2.beta2 --depth 1 https://github.com/xerrors/Yuxi.git
 cd Yuxi
 
 # Linux/macOS
@@ -76,11 +76,11 @@ docker compose up --build
 
 Do not run `up` directly when upgrading an existing installation to the v0.7.2
 storage layout. The single owning procedure is the
-[production deployment guide](docs/advanced/deployment.md#2-启动服务).
+[production deployment guide](docs/advanced/deployment.md).
 
 **3. Open the platform**
 
-Once the services are ready, open `http://localhost:5173` in your browser and sign in with the admin account generated during initialization.
+Once the services are ready, open `http://localhost:5173` in your browser and follow the first-run page to create the initial superadmin account.
 
 > 💡 If you don't need heavy dependencies like knowledge bases / graphs, run `make up-lite` for a lightweight LITE mode with faster cold starts. See the [docs](https://xerrors.github.io/Yuxi) for more deployment details.
 
@@ -168,7 +168,7 @@ Yuxi references and builds on the following excellent open-source projects:
 - [LightRAG](https://github.com/HKUDS/LightRAG) - Inspired parts of the early graph construction and retrieval design. Yuxi now uses its own Milvus-backed knowledge-base and graph pipeline.
 - [DeepAgents](https://github.com/langchain-ai/deepagents) - Used as the deep agent framework.
 - [DeerFlow](https://github.com/bytedance/deer-flow) - Referenced for Sandbox agent architecture ideas.
-- [RAGflow](https://github.com/infiniflow/ragflow) - Referenced for document text chunking strategies.
+- [RAGFlow](https://github.com/infiniflow/ragflow) - Referenced for document text chunking strategies.
 - [LangGraph](https://github.com/langchain-ai/langgraph) - Multi-agent orchestration framework and the core architectural foundation of this project.
 - [QwenPaw](https://github.com/agentscope-ai/QwenPaw) - Referenced for model configuration and personal file area design.
 

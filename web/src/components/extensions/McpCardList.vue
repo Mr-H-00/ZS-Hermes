@@ -163,7 +163,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { Check, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Check, Plus, RefreshCw, Trash2 } from '@lucide/vue'
 import { mcpApi } from '@/apis/mcp_api'
 import ExtensionCardGrid from './ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'

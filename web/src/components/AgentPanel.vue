@@ -260,7 +260,7 @@ import {
   Search,
   Trash2,
   X
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { Modal, message } from 'ant-design-vue'
 import FileTreeComponent from '@/components/FileTreeComponent.vue'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'

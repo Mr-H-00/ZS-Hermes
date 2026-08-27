@@ -299,7 +299,7 @@ images=(
     "milvusdb/milvus:v2.5.6"
     "neo4j:5.26.29"
     "minio/minio:RELEASE.2023-03-20T20-16-18Z"
-    "ghcr.io/astral-sh/uv:0.11.26"
+    "ghcr.io/astral-sh/uv:0.12.6"
     "nginx:alpine"
     "quay.io/coreos/etcd:v3.5.5"
     "postgres:16"
