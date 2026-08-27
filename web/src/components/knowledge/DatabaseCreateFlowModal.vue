@@ -194,11 +194,7 @@
             v-model="shareConfig"
             :auto-select-user-dept="true"
             :require-read-scope="true"
-          >
-            <template #manage-description>
-              知识库<strong>仅管理员</strong>可以管理；普通用户只能按读取范围使用。
-            </template>
-          </ShareConfigForm>
+          />
         </section>
       </main>
 

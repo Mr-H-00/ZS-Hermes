@@ -1,340 +1,369 @@
 <template>
-  <div class="skill-detail extension-detail-page">
-    <div v-if="loading" class="loading-bar-wrapper">
-      <div class="loading-bar"></div>
-    </div>
-    <div class="detail-top-bar">
-      <button class="detail-back-btn" @click="goBack">
-        <ArrowLeft :size="16" />
-        <span>返回</span>
-      </button>
-      <div class="detail-title-area">
-        <div class="detail-icon">
-          <WandSparkles :size="18" />
-        </div>
-        <div class="detail-title-text">
-          <h2>{{ currentSkill?.name || slug }}</h2>
-          <span class="detail-subtitle">{{ currentSkillStatusLabel }}</span>
+  <ExtensionDetailLayout
+    v-model:active-key="activeTab"
+    :tabs="skillDetailTabs"
+    :loading="loading"
+    :ready="Boolean(currentSkill && isInstalledSkill)"
+    empty-description="未找到 Skill"
+    class="skill-detail"
+  >
+    <template #breadcrumb>
+      <nav class="extension-detail-breadcrumb" aria-label="技能详情导航">
+        <button type="button" class="extension-detail-back" @click="goBack">技能</button>
+        <ChevronRight :size="15" aria-hidden="true" />
+        <span class="extension-detail-current" :title="currentSkill?.name || slug">
+          {{ currentSkill?.name || slug }}
+        </span>
+      </nav>
+    </template>
+    <template #actions>
+      <div class="extension-detail-actions">
+        <div class="detail-actions">
+          <a-space :size="8">
+            <button
+              v-if="activeTab === 'editor'"
+              type="button"
+              class="lucide-icon-btn extension-panel-action extension-panel-action-secondary tree-toggle"
+              :class="{ active: treeVisible }"
+              :aria-expanded="treeVisible"
+              aria-controls="skill-project-tree"
+              :title="treeVisible ? '隐藏项目结构' : '显示项目结构'"
+              @click="treeVisible = !treeVisible"
+              :aria-label="treeVisible ? '隐藏项目结构' : '显示项目结构'"
+            >
+              <FolderTree :size="14" aria-hidden="true" />
+            </button>
+            <button
+              v-if="isInstalledSkill && canManageCurrentSkill"
+              type="button"
+              aria-label="导出 Skill"
+              @click="handleExport"
+              class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
+            >
+              <Download :size="14" />
+              <span>导出</span>
+            </button>
+            <button
+              v-if="isInstalledSkill && canManageCurrentSkill && !isBuiltinInstalledSkill"
+              type="button"
+              aria-label="删除 Skill"
+              @click="confirmDeleteSkill"
+              class="lucide-icon-btn extension-panel-action extension-panel-action-danger"
+            >
+              <Trash2 :size="14" />
+              <span>删除</span>
+            </button>
+          </a-space>
         </div>
       </div>
-      <div class="detail-actions">
-        <a-space :size="8">
-          <button
-            v-if="isInstalledSkill && canManageCurrentSkill"
-            type="button"
-            @click="handleExport"
-            class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
-          >
-            <Download :size="14" />
-            <span>导出</span>
-          </button>
-          <button
-            v-if="isInstalledSkill && canManageCurrentSkill && !isBuiltinInstalledSkill"
-            type="button"
-            @click="confirmDeleteSkill"
-            class="lucide-icon-btn extension-panel-action extension-panel-action-danger"
-          >
-            <Trash2 :size="14" />
-            <span>删除</span>
-          </button>
-        </a-space>
-      </div>
-    </div>
+    </template>
 
-    <div class="detail-content-wrapper">
-      <div v-if="currentSkill" class="detail-content-inner">
+    <template #panel-editor>
+      <div class="editor-tab-content">
         <div v-if="isReadOnlySkill" class="readonly-scope-hint readonly-detail-hint">
           你可以查看并使用此 Skill，但没有管理权限。
         </div>
-        <a-tabs v-if="isInstalledSkill" v-model:activeKey="activeTab" class="minimal-tabs">
-          <a-tab-pane key="editor">
-            <template #tab>
-              <span class="tab-title"><FileText :size="14" />代码管理</span>
-            </template>
-            <div class="workspace">
-              <div class="tree-container">
-                <div class="tree-header">
-                  <span class="label">项目结构</span>
-                  <div class="tree-actions">
-                    <a-tooltip v-if="canEditSkillFiles" title="新建文件"
-                      ><button @click="openCreateModal(false)"><FilePlus :size="14" /></button
-                    ></a-tooltip>
-                    <a-tooltip v-if="canEditSkillFiles" title="新建目录"
-                      ><button @click="openCreateModal(true)"><FolderPlus :size="14" /></button
-                    ></a-tooltip>
-                    <a-tooltip title="刷新"
-                      ><button @click="reloadTree"><RotateCw :size="14" /></button
-                    ></a-tooltip>
-                  </div>
-                </div>
-                <div class="tree-content">
-                  <FileTreeComponent
-                    v-model:selectedKeys="selectedTreeKeys"
-                    v-model:expandedKeys="expandedKeys"
-                    :tree-data="treeData"
-                    @select="handleTreeSelect"
-                  />
+        <div class="workspace" :class="{ 'tree-visible': treeVisible }">
+          <Transition name="skill-tree">
+            <div v-if="treeVisible" id="skill-project-tree" class="tree-container">
+              <div class="tree-header">
+                <span class="label">项目结构</span>
+                <div class="tree-actions">
+                  <a-tooltip
+                    v-if="canEditSkillFiles && selectedPath && !selectedIsDir"
+                    title="编辑当前文件"
+                  >
+                    <button
+                      type="button"
+                      aria-label="编辑当前文件"
+                      :disabled="savingFile"
+                      @click="startEditingCurrentFile"
+                    >
+                      <FilePen :size="14" />
+                    </button>
+                  </a-tooltip>
+                  <a-tooltip v-if="canEditSkillFiles" title="新建文件">
+                    <button type="button" aria-label="新建文件" @click="openCreateModal(false)">
+                      <FilePlus :size="14" />
+                    </button>
+                  </a-tooltip>
+                  <a-tooltip v-if="canEditSkillFiles" title="新建目录">
+                    <button type="button" aria-label="新建目录" @click="openCreateModal(true)">
+                      <FolderPlus :size="14" />
+                    </button>
+                  </a-tooltip>
+                  <a-tooltip title="刷新">
+                    <button type="button" aria-label="刷新项目结构" @click="reloadTree">
+                      <RotateCw :size="14" />
+                    </button>
+                  </a-tooltip>
                 </div>
               </div>
-              <div class="editor-container">
-                <div class="editor-main">
-                  <a-empty
-                    v-if="!selectedPath || selectedIsDir"
-                    description="选择文件以开始编辑"
-                    class="mt-40"
-                  />
-                  <template v-else>
-                    <AgentFilePreview
-                      :file="selectedFilePreview"
-                      :file-path="selectedPath"
-                      :show-download="false"
-                      :show-fullscreen="true"
-                      :editable="canEditSkillFiles"
-                      :edit-all-text="true"
-                      :saving="savingFile"
-                      :full-height="true"
-                      container-class="skill-file-preview"
-                      content-class="skill-file-preview-content"
-                      @save="saveCurrentFile"
-                    />
-                  </template>
-                </div>
+              <div class="tree-content">
+                <FileTreeComponent
+                  v-model:selectedKeys="selectedTreeKeys"
+                  v-model:expandedKeys="expandedKeys"
+                  :tree-data="treeData"
+                  @select="handleTreeSelect"
+                />
               </div>
             </div>
-          </a-tab-pane>
-
-          <a-tab-pane key="settings">
-            <template #tab>
-              <span class="tab-title"><Settings :size="14" />生效范围</span>
-            </template>
-            <div class="config-view">
-              <div class="config-header">
-                <div class="text">
-                  <h3>共享与启用状态</h3>
-                  <p>控制此 Skill 是否可用，以及哪些用户可以选择和运行它。</p>
-                </div>
-                <a-button
-                  v-if="canManageCurrentSkill"
-                  type="primary"
-                  :loading="savingShareConfig"
-                  @click="saveShareConfig"
-                  class="lucide-icon-btn"
-                >
-                  <Save :size="14" />
-                  <span>保存设置</span>
-                </a-button>
-              </div>
-              <div class="settings-stack">
-                <section class="settings-card">
-                  <div class="settings-card-main">
-                    <div class="settings-card-title">启用状态</div>
-                    <div class="settings-card-desc">
-                      禁用后此 Skill 不会出现在可选资源中，也不会参与 Agent 运行时加载。
-                    </div>
-                  </div>
-                  <div class="settings-card-action">
-                    <span class="status-pill" :class="enabledForm ? 'enabled' : 'disabled'">
-                      {{ enabledForm ? '已启用' : '已禁用' }}
-                    </span>
-                    <a-switch v-model:checked="enabledForm" :disabled="!canManageCurrentSkill" />
-                  </div>
-                </section>
-
-                <section class="settings-card scope-card">
-                  <div class="settings-card-main">
-                    <div class="settings-card-title">生效范围</div>
-                    <div class="settings-card-desc">
-                      控制哪些用户可以选择并在运行时使用此 Skill。
-                    </div>
-                  </div>
-                  <div v-if="isBuiltinInstalledSkill" class="readonly-scope-hint">
-                    内置 Skill 固定为全局生效范围，可通过启用状态控制是否参与运行时。
-                  </div>
-                  <div v-else-if="isReadOnlySkill" class="readonly-scope-hint">
-                    当前 Skill 对你只读，不能修改生效范围。
-                  </div>
-                  <ShareConfigForm
-                    v-else
-                    ref="shareConfigFormRef"
-                    v-model="shareConfigForm"
-                    :auto-select-user-dept="true"
-                    :allowed-access-levels="allowedSkillAccessLevels"
-                  />
-                </section>
-              </div>
+          </Transition>
+          <div class="editor-container">
+            <div class="editor-main">
+              <a-empty
+                v-if="!selectedPath || selectedIsDir"
+                description="选择文件以开始编辑"
+                class="mt-40"
+              />
+              <template v-else>
+                <AgentFilePreview
+                  ref="filePreviewRef"
+                  :file="selectedFilePreview"
+                  :file-path="selectedPath"
+                  :show-header="false"
+                  :show-download="false"
+                  :show-inline-html-controls="true"
+                  :borderless="true"
+                  :editable="canEditSkillFiles"
+                  :edit-all-text="true"
+                  :saving="savingFile"
+                  :full-height="true"
+                  container-class="skill-file-preview"
+                  content-class="skill-file-preview-content"
+                  @save="saveCurrentFile"
+                />
+              </template>
             </div>
-          </a-tab-pane>
+          </div>
+        </div>
+      </div>
+    </template>
 
-          <a-tab-pane key="dependencies">
-            <template #tab>
-              <span class="tab-title"><Layers :size="14" />依赖管理</span>
-            </template>
-            <div class="config-view">
-              <div class="config-header">
-                <div class="text">
-                  <h3>依赖声明</h3>
-                  <p>配置此 Skill 所需的工具、MCP 及其他 Skill 依赖。</p>
+    <template #panel-config>
+      <div class="extension-detail-view extension-detail-gray-switches config-view">
+        <section class="config-section extension-detail-section">
+          <div class="config-section-header extension-detail-section-header">
+            <div class="text extension-detail-section-heading">
+              <h3>可用范围</h3>
+              <p>决定此 Skill 是否可被选择，以及哪些用户可在运行时使用它。</p>
+            </div>
+            <a-button
+              v-if="canManageCurrentSkill"
+              type="primary"
+              size="small"
+              :loading="savingShareConfig"
+              @click="saveShareConfig"
+              class="lucide-icon-btn"
+            >
+              <Save :size="14" />
+              <span>保存范围</span>
+            </a-button>
+          </div>
+          <div class="settings-stack extension-detail-divider-list">
+            <section class="settings-card extension-detail-divider-row">
+              <div class="settings-card-main">
+                <div class="settings-card-title">启用状态</div>
+                <div class="settings-card-desc">
+                  禁用后此 Skill 不会出现在可选资源中，也不会参与 Agent 运行时加载。
                 </div>
-                <a-button
+              </div>
+              <div class="settings-card-action">
+                <span class="status-pill" :class="enabledForm ? 'enabled' : 'disabled'">
+                  {{ enabledForm ? '已启用' : '已禁用' }}
+                </span>
+                <a-switch
+                  v-model:checked="enabledForm"
+                  size="small"
+                  :aria-label="`启用状态${enabledForm ? '已启用' : '已禁用'}`"
+                  :disabled="!canManageCurrentSkill"
+                />
+              </div>
+            </section>
+
+            <section class="settings-card scope-card extension-detail-divider-row">
+              <div class="settings-card-main">
+                <div class="settings-card-title">共享范围</div>
+                <div class="settings-card-desc">选择哪些用户可以发现并使用此 Skill。</div>
+              </div>
+              <div v-if="isBuiltinInstalledSkill" class="readonly-scope-hint">
+                内置 Skill 固定为全局生效范围，可通过启用状态控制是否参与运行时。
+              </div>
+              <div v-else-if="isReadOnlySkill" class="readonly-scope-hint">
+                当前 Skill 对你只读，不能修改生效范围。
+              </div>
+              <ShareConfigForm
+                v-else
+                ref="shareConfigFormRef"
+                v-model="shareConfigForm"
+                :auto-select-user-dept="true"
+                :allowed-access-levels="allowedSkillAccessLevels"
+              />
+            </section>
+          </div>
+        </section>
+
+        <section class="config-section extension-detail-section">
+          <div class="config-section-header extension-detail-section-header">
+            <div class="text extension-detail-section-heading">
+              <h3>运行依赖</h3>
+              <p>声明运行时需一并加载的工具、MCP 与其他 Skill。</p>
+            </div>
+            <a-button
+              v-if="canEditSkillDependencies"
+              type="primary"
+              size="small"
+              :loading="savingDependencies"
+              @click="saveDependencies"
+              class="lucide-icon-btn"
+            >
+              <Save :size="14" />
+              <span>更新依赖</span>
+            </a-button>
+          </div>
+          <div class="dependency-groups extension-detail-divider-list">
+            <section
+              v-for="group in dependencyGroups"
+              :key="group.key"
+              class="dependency-card extension-detail-divider-row"
+              :class="{ readonly: !canEditSkillDependencies }"
+            >
+              <div class="dependency-card-header">
+                <div class="dependency-title-block">
+                  <div class="dependency-title-row">
+                    <h4>{{ group.title }}</h4>
+                    <span class="dependency-count"
+                      >已选择 {{ getDependencyValues(group).length }} 项</span
+                    >
+                  </div>
+                  <p>{{ group.description }}</p>
+                </div>
+                <a-dropdown
                   v-if="canEditSkillDependencies"
-                  type="primary"
-                  :loading="savingDependencies"
-                  @click="saveDependencies"
-                  class="lucide-icon-btn"
+                  :trigger="['click']"
+                  placement="bottomRight"
+                  overlay-class-name="dependency-selection-popover"
                 >
-                  <Save :size="14" />
-                  <span>更新依赖</span>
+                  <a-button size="small" class="dependency-action-btn dependency-select-btn">
+                    <Plus :size="13" />
+                    <span>选择依赖</span>
+                    <ChevronDown :size="12" class="dependency-select-chevron" />
+                  </a-button>
+                  <template #overlay>
+                    <div class="selection-dropdown" @mousedown.stop @click.stop>
+                      <div class="selection-dropdown-header">
+                        <div class="selection-dropdown-title">{{ group.title }}</div>
+                        <div class="selection-dropdown-subtitle">
+                          {{ group.dropdownHint }}
+                        </div>
+                      </div>
+                      <a-input
+                        v-model:value="dependencySearch[group.key]"
+                        size="small"
+                        allow-clear
+                        class="selection-search"
+                        :placeholder="`搜索${group.shortTitle}`"
+                        @mousedown.stop
+                        @click.stop
+                      />
+                      <div v-if="getFilteredDependencyOptions(group).length" class="selection-list">
+                        <div
+                          v-for="option in getFilteredDependencyOptions(group)"
+                          :key="option.value"
+                          role="checkbox"
+                          :aria-checked="isDependencySelected(group, option.value)"
+                          tabindex="0"
+                          class="selection-item"
+                          :class="{ selected: isDependencySelected(group, option.value) }"
+                          @mousedown.stop
+                          @click.stop="
+                            toggleDependency(
+                              group,
+                              option.value,
+                              !isDependencySelected(group, option.value)
+                            )
+                          "
+                          @keydown.enter.prevent="
+                            toggleDependency(
+                              group,
+                              option.value,
+                              !isDependencySelected(group, option.value)
+                            )
+                          "
+                          @keydown.space.prevent="
+                            toggleDependency(
+                              group,
+                              option.value,
+                              !isDependencySelected(group, option.value)
+                            )
+                          "
+                        >
+                          <span class="selection-item-content">
+                            <a-checkbox
+                              :checked="isDependencySelected(group, option.value)"
+                              @click.stop
+                              @change="toggleDependency(group, option.value, $event.target.checked)"
+                            />
+                            <span class="selection-label">{{ option.label }}</span>
+                          </span>
+                        </div>
+                      </div>
+                      <div v-else class="selection-empty">
+                        {{ group.options.length ? '没有匹配的依赖' : '暂无可选依赖' }}
+                      </div>
+                    </div>
+                  </template>
+                </a-dropdown>
+                <a-button v-else size="small" disabled class="dependency-action-btn">
+                  {{ isBuiltinInstalledSkill ? '系统维护' : '只读' }}
                 </a-button>
               </div>
-              <div class="dependency-groups">
-                <section
-                  v-for="group in dependencyGroups"
-                  :key="group.key"
-                  class="dependency-card"
-                  :class="{ readonly: !canEditSkillDependencies }"
+
+              <div v-if="getDependencyValues(group).length" class="dependency-chip-list">
+                <span
+                  v-for="value in getDependencyValues(group)"
+                  :key="value"
+                  class="dependency-chip"
+                  :title="getDependencyOptionLabel(group, value)"
                 >
-                  <div class="dependency-card-header">
-                    <div class="dependency-title-block">
-                      <div class="dependency-title-row">
-                        <h4>{{ group.title }}</h4>
-                        <span class="dependency-count"
-                          >已选择 {{ getDependencyValues(group).length }} 项</span
-                        >
-                      </div>
-                      <p>{{ group.description }}</p>
-                    </div>
-                    <a-dropdown
-                      v-if="canEditSkillDependencies"
-                      :trigger="['click']"
-                      placement="bottomRight"
-                      overlay-class-name="dependency-selection-popover"
-                    >
-                      <a-button size="small" class="dependency-action-btn dependency-select-btn">
-                        <Plus :size="13" />
-                        <span>选择依赖</span>
-                        <ChevronDown :size="12" class="dependency-select-chevron" />
-                      </a-button>
-                      <template #overlay>
-                        <div class="selection-dropdown" @mousedown.stop @click.stop>
-                          <div class="selection-dropdown-header">
-                            <div class="selection-dropdown-title">{{ group.title }}</div>
-                            <div class="selection-dropdown-subtitle">{{ group.dropdownHint }}</div>
-                          </div>
-                          <a-input
-                            v-model:value="dependencySearch[group.key]"
-                            size="small"
-                            allow-clear
-                            class="selection-search"
-                            :placeholder="`搜索${group.shortTitle}`"
-                            @mousedown.stop
-                            @click.stop
-                          />
-                          <div
-                            v-if="getFilteredDependencyOptions(group).length"
-                            class="selection-list"
-                          >
-                            <div
-                              v-for="option in getFilteredDependencyOptions(group)"
-                              :key="option.value"
-                              role="checkbox"
-                              :aria-checked="isDependencySelected(group, option.value)"
-                              tabindex="0"
-                              class="selection-item"
-                              :class="{ selected: isDependencySelected(group, option.value) }"
-                              @mousedown.stop
-                              @click.stop="
-                                toggleDependency(
-                                  group,
-                                  option.value,
-                                  !isDependencySelected(group, option.value)
-                                )
-                              "
-                              @keydown.enter.prevent="
-                                toggleDependency(
-                                  group,
-                                  option.value,
-                                  !isDependencySelected(group, option.value)
-                                )
-                              "
-                              @keydown.space.prevent="
-                                toggleDependency(
-                                  group,
-                                  option.value,
-                                  !isDependencySelected(group, option.value)
-                                )
-                              "
-                            >
-                              <span class="selection-item-content">
-                                <a-checkbox
-                                  :checked="isDependencySelected(group, option.value)"
-                                  @click.stop
-                                  @change="
-                                    toggleDependency(group, option.value, $event.target.checked)
-                                  "
-                                />
-                                <span class="selection-label">{{ option.label }}</span>
-                              </span>
-                            </div>
-                          </div>
-                          <div v-else class="selection-empty">
-                            {{ group.options.length ? '没有匹配的依赖' : '暂无可选依赖' }}
-                          </div>
-                        </div>
-                      </template>
-                    </a-dropdown>
-                    <a-button v-else size="small" disabled class="dependency-action-btn">
-                      {{ isBuiltinInstalledSkill ? '系统维护' : '只读' }}
-                    </a-button>
-                  </div>
-
-                  <div v-if="getDependencyValues(group).length" class="dependency-chip-list">
-                    <span
-                      v-for="value in getDependencyValues(group)"
-                      :key="value"
-                      class="dependency-chip"
-                      :title="getDependencyOptionLabel(group, value)"
-                    >
-                      <span>{{ getDependencyOptionLabel(group, value) }}</span>
-                      <button
-                        v-if="canEditSkillDependencies"
-                        type="button"
-                        class="dependency-chip-remove"
-                        :aria-label="`移除 ${getDependencyOptionLabel(group, value)}`"
-                        @click="removeDependency(group, value)"
-                      >
-                        <X :size="12" />
-                      </button>
-                    </span>
-                  </div>
-                  <div v-else class="dependency-empty-hint">{{ group.emptyText }}</div>
-                </section>
+                  <span>{{ getDependencyOptionLabel(group, value) }}</span>
+                  <button
+                    v-if="canEditSkillDependencies"
+                    type="button"
+                    class="dependency-chip-remove"
+                    :aria-label="`移除 ${getDependencyOptionLabel(group, value)}`"
+                    @click="removeDependency(group, value)"
+                  >
+                    <X :size="12" />
+                  </button>
+                </span>
               </div>
-            </div>
-          </a-tab-pane>
-        </a-tabs>
+              <div v-else class="dependency-empty-hint">{{ group.emptyText }}</div>
+            </section>
+          </div>
+        </section>
       </div>
-      <div v-else-if="!loading" class="detail-empty">
-        <a-empty description="未找到 Skill" />
-      </div>
-    </div>
+    </template>
 
-    <a-modal
-      v-model:open="createModalVisible"
-      :title="createForm.isDir ? '新建目录' : '新建文件'"
-      @ok="handleCreateNode"
-      :confirm-loading="creatingNode"
-      width="400px"
-    >
-      <a-form layout="vertical" class="pt-12">
-        <a-form-item label="路径 (相对于根目录)" required>
-          <a-input v-model:value="createForm.path" placeholder="src/main.py" />
-        </a-form-item>
-        <a-form-item v-if="!createForm.isDir" label="内容">
-          <a-textarea v-model:value="createForm.content" :rows="5" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-  </div>
+    <template #overlays>
+      <a-modal
+        v-model:open="createModalVisible"
+        :title="createForm.isDir ? '新建目录' : '新建文件'"
+        @ok="handleCreateNode"
+        :confirm-loading="creatingNode"
+        width="400px"
+      >
+        <a-form layout="vertical" class="pt-12">
+          <a-form-item label="路径 (相对于根目录)" required>
+            <a-input v-model:value="createForm.path" placeholder="src/main.py" />
+          </a-form-item>
+          <a-form-item v-if="!createForm.isDir" label="内容">
+            <a-textarea v-model:value="createForm.content" :rows="5" />
+          </a-form-item>
+        </a-form>
+      </a-modal>
+    </template>
+  </ExtensionDetailLayout>
 </template>
 
 <script setup>
@@ -342,29 +371,40 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import {
-  ArrowLeft,
-  WandSparkles,
   Download,
   Trash2,
   Save,
+  FilePen,
   FileText,
-  Layers,
+  Settings,
+  FolderTree,
   FilePlus,
   FolderPlus,
   RotateCw,
-  Settings,
   X,
   Plus,
-  ChevronDown
+  ChevronDown,
+  ChevronRight
 } from '@lucide/vue'
 import { skillApi } from '@/apis/skill_api'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
+import ExtensionDetailLayout from '@/components/shared/ExtensionDetailLayout.vue'
 import FileTreeComponent from '@/components/FileTreeComponent.vue'
 import ShareConfigForm from '@/components/ShareConfigForm.vue'
 
 const route = useRoute()
 const router = useRouter()
 const slug = computed(() => decodeURIComponent(route.params.slug))
+
+const skillDetailTabs = [
+  {
+    key: 'editor',
+    label: '代码管理',
+    icon: FileText,
+    panelClass: 'extension-detail-panel-fixed'
+  },
+  { key: 'config', label: '配置', icon: Settings }
+]
 
 const loading = ref(false)
 const currentSkill = ref(null)
@@ -379,6 +419,8 @@ const creatingNode = ref(false)
 const savingDependencies = ref(false)
 const savingShareConfig = ref(false)
 const activeTab = ref('editor')
+const treeVisible = ref(false)
+const filePreviewRef = ref(null)
 
 const skills = ref([])
 const createModalVisible = ref(false)
@@ -412,19 +454,6 @@ const canEditSkillFiles = computed(
 const canEditSkillDependencies = computed(
   () => canManageCurrentSkill.value && !isBuiltinInstalledSkill.value
 )
-
-const sourceTypeLabel = (sourceType) => {
-  if (sourceType === 'builtin') return '内置'
-  if (sourceType === 'remote') return '远程添加'
-  return '上传'
-}
-
-const currentSkillStatusLabel = computed(() => {
-  const skill = currentSkill.value
-  if (!skill) return ''
-  if (skill.enabled === false) return `${sourceTypeLabel(skill.source_type)} · 已禁用`
-  return sourceTypeLabel(skill.source_type)
-})
 
 const selectedFilePreview = computed(() => ({
   content: fileContent.value,
@@ -519,6 +548,10 @@ const removeDependency = (group, value) => {
 
 const goBack = () => {
   router.push({ path: '/extensions', query: { tab: 'skills' } })
+}
+
+const startEditingCurrentFile = () => {
+  filePreviewRef.value?.startEditing?.()
 }
 
 const cloneShareConfig = (config) => ({
@@ -789,7 +822,6 @@ const saveDependencies = async () => {
       currentSkill.value = updated
       syncDependencyFormFromSkill(updated)
     }
-    await fetchSkillDetail()
     message.success('依赖已更新')
   } catch {
     message.error('更新失败')
@@ -805,69 +837,108 @@ onMounted(() => {
 
 <style lang="less" scoped>
 @import '@/assets/css/extensions.less';
-@import '@/assets/css/extension-detail.less';
 
 .skill-detail {
-  .detail-content-wrapper {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-    background-color: var(--gray-10);
+  .readonly-detail-hint {
+    width: min(100%, 860px);
+    margin: 16px auto 0;
   }
 
-  .detail-content-inner {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
+  .tree-toggle {
+    width: 30px;
+    padding: 0;
 
-  :deep(.minimal-tabs) {
-    height: 100%;
+    &.active {
+      border-color: var(--main-100);
+      background: var(--main-10);
+      color: var(--main-color);
+    }
   }
+}
+
+.editor-tab-content {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .workspace {
-  display: flex;
+  width: min(calc(100% - 48px), 768px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0;
+  gap: 0;
   flex: 1;
   min-height: 0;
   height: 100%;
+  margin: 0 auto;
+  padding: 20px 0 24px;
   overflow: hidden;
+  transition:
+    width 220ms ease,
+    grid-template-columns 220ms ease,
+    gap 220ms ease;
+
+  &.tree-visible {
+    width: min(calc(100% - 48px), 1100px);
+    grid-template-columns: minmax(0, 1fr) 252px;
+    gap: 20px;
+  }
 }
 
 .tree-container {
-  width: 240px;
-  order: 2;
-  border-left: 1px solid var(--gray-150);
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
   background: var(--gray-0);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  overflow: hidden;
 
   .tree-header {
-    padding: 10px var(--page-padding) 0;
+    min-height: 44px;
+    padding: 8px 10px 8px 14px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    border-bottom: 1px solid var(--gray-100);
+
     .label {
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
-      color: var(--gray-500);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      color: var(--gray-700);
     }
+
     .tree-actions {
       display: flex;
-      gap: 4px;
+      gap: 2px;
+
       button {
-        background: none;
-        border: none;
-        padding: 2px;
-        cursor: pointer;
-        color: var(--gray-500);
+        width: 28px;
+        height: 28px;
         display: flex;
         align-items: center;
-        &:hover {
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--gray-500);
+        cursor: pointer;
+
+        &:hover:not(:disabled),
+        &:focus-visible:not(:disabled) {
           color: var(--gray-900);
+          background: var(--gray-50);
+          outline: none;
+        }
+
+        &:disabled {
+          color: var(--gray-300);
+          cursor: not-allowed;
         }
       }
     }
@@ -875,14 +946,28 @@ onMounted(() => {
 
   .tree-content {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    height: 100%;
-    padding: 8px calc(var(--page-padding) - 4px);
+    padding: 8px 10px 12px;
   }
 }
 
+.skill-tree-enter-active,
+.skill-tree-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 220ms ease;
+}
+
+.skill-tree-enter-from,
+.skill-tree-leave-to {
+  opacity: 0;
+  transform: translateX(12px);
+}
+
 .editor-container {
-  flex: 1;
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -891,7 +976,7 @@ onMounted(() => {
   .editor-main {
     flex: 1;
     min-height: 0;
-    background-color: var(--gray-0);
+    background: transparent;
     display: flex;
     flex-direction: column;
   }
@@ -915,54 +1000,18 @@ onMounted(() => {
     max-height: none;
   }
 
+  :deep(.skill-file-preview.is-full-height .file-content) {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  :deep(.skill-file-preview.is-full-height .file-content::-webkit-scrollbar) {
+    display: none;
+  }
+
   :deep(.skill-file-preview-content .file-content-pre.code-highlight code) {
     min-height: 100%;
   }
-}
-
-.config-view {
-  padding: 20px;
-  flex: 1;
-  overflow-y: auto;
-  max-width: 860px;
-
-  .config-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 18px;
-    flex-shrink: 0;
-
-    .text {
-      h3 {
-        margin: 0 0 4px 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--gray-900);
-      }
-
-      p {
-        margin: 0;
-        color: var(--gray-500);
-        font-size: 13px;
-      }
-    }
-  }
-}
-
-.settings-stack,
-.dependency-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.settings-card,
-.dependency-card {
-  border: 1px solid var(--gray-150);
-  border-radius: 10px;
-  background: var(--gray-0);
 }
 
 .settings-card {
@@ -970,7 +1019,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 12px;
+  padding: 18px 0;
 
   &.scope-card {
     display: block;
@@ -1033,10 +1082,10 @@ onMounted(() => {
 }
 
 .dependency-card {
-  padding: 14px;
+  padding: 18px 0;
 
   &.readonly {
-    background: linear-gradient(180deg, var(--gray-0) 0%, var(--gray-25) 100%);
+    background: transparent;
   }
 }
 
@@ -1085,7 +1134,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 30px;
+  height: 28px;
   flex-shrink: 0;
   gap: 5px;
   padding: 0 10px;
@@ -1168,14 +1217,42 @@ onMounted(() => {
   font-size: 12px;
 }
 
-@media (max-width: 768px) {
-  .config-view {
-    padding: 14px;
+@media (max-width: 900px) {
+  .workspace {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
   }
 
-  .config-header,
-  .settings-card,
-  .dependency-card-header {
+  .tree-container {
+    order: 0;
+    width: 100%;
+    height: 220px;
+    flex: 0 0 auto;
+  }
+
+  .editor-container {
+    order: 1;
+    min-height: 520px;
+    flex: 0 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace,
+  .skill-tree-enter-active,
+  .skill-tree-leave-active {
+    transition: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .workspace,
+  .workspace.tree-visible {
+    width: min(calc(100% - 32px), 768px);
+  }
+
+  .settings-card {
     flex-direction: column;
     align-items: stretch;
   }

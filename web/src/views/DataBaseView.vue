@@ -79,6 +79,7 @@
         :subtitle="cardSubtitle(database)"
         :description="database.description || '暂无描述'"
         :tags="cardTags(database)"
+        :disabled="kbUtils.isReadOnlyDatabase(database)"
         @click="navigateToDatabase(database)"
       >
         <template #icon>
@@ -251,6 +252,7 @@ const cardTags = (database) => {
 }
 
 const navigateToDatabase = (database) => {
+  if (kbUtils.isReadOnlyDatabase(database)) return
   router.push({ path: `/extensions/knowledgebase/${database.kb_id}` })
 }
 

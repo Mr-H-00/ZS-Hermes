@@ -1,24 +1,28 @@
 <template>
-  <div class="mcp-detail extension-detail-page">
-    <div v-if="loading" class="loading-bar-wrapper">
-      <div class="loading-bar"></div>
-    </div>
-    <div class="detail-top-bar">
-      <button class="detail-back-btn" @click="goBack">
-        <ArrowLeft :size="16" />
-        <span>返回</span>
-      </button>
-      <div class="detail-title-area">
-        <span class="detail-icon">{{ server?.icon || '🔌' }}</span>
-        <div class="detail-title-text">
-          <h2>{{ server?.name || name }}</h2>
-          <span class="detail-subtitle">{{ server?.transport || '' }}</span>
-        </div>
-      </div>
-      <div class="detail-actions">
+  <ExtensionDetailLayout
+    v-model:active-key="detailTab"
+    :tabs="mcpDetailTabs"
+    :loading="loading"
+    :ready="Boolean(server)"
+    empty-description="未找到 MCP 服务器"
+    class="mcp-detail"
+  >
+    <template #breadcrumb>
+      <nav class="extension-detail-breadcrumb" aria-label="MCP 详情导航">
+        <button type="button" class="extension-detail-back" @click="goBack">MCP</button>
+        <ChevronRight :size="15" aria-hidden="true" />
+        <span class="extension-detail-current" :title="server?.name || slug">
+          {{ server?.name || slug }}
+        </span>
+      </nav>
+    </template>
+
+    <template #actions>
+      <div class="extension-detail-actions">
         <a-space :size="8">
           <button
             type="button"
+            :aria-label="testLoading ? '正在测试 MCP' : '测试 MCP'"
             @click="handleTestServer"
             :disabled="testLoading || server?.requires_migration"
             :title="server?.requires_migration ? '请先迁移为远程 MCP' : ''"
@@ -29,6 +33,7 @@
           </button>
           <button
             type="button"
+            aria-label="编辑 MCP"
             @click="startEdit"
             :disabled="isEditing || !server || server.is_builtin"
             :title="server?.is_builtin ? '系统内置 MCP 的连接配置由代码管理' : ''"
@@ -39,6 +44,7 @@
           </button>
           <button
             type="button"
+            :aria-label="`${actionLabel} MCP`"
             @click="handleDangerAction"
             :class="[
               'lucide-icon-btn',
@@ -54,335 +60,303 @@
           </button>
         </a-space>
       </div>
-    </div>
+    </template>
 
-    <div class="detail-content-wrapper">
-      <a-spin :spinning="loading">
-        <div v-if="server" class="detail-content-inner">
-          <a-alert
-            v-if="server.requires_migration"
-            type="warning"
-            show-icon
-            message="此 stdio MCP 已禁用，请编辑为 SSE 或 Streamable HTTP，或直接删除。"
-          />
-          <a-tabs v-model:activeKey="detailTab" class="detail-tabs">
-            <a-tab-pane key="general">
-              <template #tab>
-                <span class="tab-title"><Settings2 :size="14" />信息</span>
+    <template #panel-general>
+      <div class="extension-detail-view mcp-general-view">
+        <a-alert
+          v-if="server.requires_migration"
+          type="warning"
+          show-icon
+          class="migration-alert"
+          message="此 stdio MCP 已禁用，请编辑为 SSE 或 Streamable HTTP，或直接删除。"
+        />
+        <div v-if="isEditing" class="edit-panel">
+          <div class="edit-panel-header">
+            <div>
+              <h3>编辑 MCP</h3>
+              <p>修改后保存会立即更新当前 MCP 配置。</p>
+            </div>
+          </div>
+
+          <a-form layout="vertical" class="extension-form inline-edit-form">
+            <section class="form-section">
+              <div class="form-section-title">
+                <span>基础信息</span>
+                <small>定义 MCP 的名称、描述与展示方式。</small>
+              </div>
+              <div class="form-grid form-grid-three">
+                <a-form-item label="MCP 标识" required class="form-item">
+                  <a-input v-model:value="editForm.slug" disabled />
+                </a-form-item>
+                <a-form-item label="MCP 名称" required class="form-item">
+                  <a-input v-model:value="editForm.name" placeholder="请输入 MCP 展示名称" />
+                </a-form-item>
+                <a-form-item label="传输类型" required class="form-item">
+                  <a-select v-model:value="editForm.transport">
+                    <a-select-option value="streamable_http">streamable_http</a-select-option>
+                    <a-select-option value="sse">sse</a-select-option>
+                  </a-select>
+                </a-form-item>
+                <a-form-item label="图标" class="form-item">
+                  <a-input
+                    v-model:value="editForm.icon"
+                    placeholder="输入 emoji，如 🧠"
+                    :maxlength="2"
+                  />
+                </a-form-item>
+              </div>
+              <a-form-item label="描述" class="form-item form-item-full">
+                <a-textarea
+                  v-model:value="editForm.description"
+                  placeholder="请输入 MCP 描述"
+                  :rows="2"
+                />
+              </a-form-item>
+            </section>
+
+            <section class="form-section">
+              <div class="form-section-title">
+                <span>连接配置</span>
+                <small>配置当前传输方式需要的连接参数。</small>
+              </div>
+              <template
+                v-if="editForm.transport === 'streamable_http' || editForm.transport === 'sse'"
+              >
+                <a-form-item label="MCP URL" required class="form-item form-item-full">
+                  <a-input v-model:value="editForm.url" placeholder="https://example.com/mcp" />
+                </a-form-item>
+                <div class="form-grid">
+                  <a-form-item label="HTTP 超时（秒）" class="form-item">
+                    <a-input-number
+                      v-model:value="editForm.timeout"
+                      :min="1"
+                      :max="300"
+                      style="width: 100%"
+                    />
+                  </a-form-item>
+                  <a-form-item label="SSE 读取超时（秒）" class="form-item">
+                    <a-input-number
+                      v-model:value="editForm.sse_read_timeout"
+                      :min="1"
+                      :max="300"
+                      style="width: 100%"
+                    />
+                  </a-form-item>
+                </div>
               </template>
-              <div class="tab-content">
-                <div v-if="isEditing" class="edit-panel">
-                  <div class="edit-panel-header">
-                    <div>
-                      <h3>编辑 MCP</h3>
-                      <p>修改后保存会立即更新当前 MCP 配置。</p>
-                    </div>
-                  </div>
+              <a-form-item label="标签" class="form-item form-item-full">
+                <a-select
+                  v-model:value="editForm.tags"
+                  mode="tags"
+                  placeholder="输入标签后回车添加"
+                  style="width: 100%"
+                />
+              </a-form-item>
+            </section>
 
-                  <a-form layout="vertical" class="extension-form inline-edit-form">
-                    <section class="form-section">
-                      <div class="form-section-title">
-                        <span>基础信息</span>
-                        <small>定义 MCP 的名称、描述与展示方式。</small>
-                      </div>
-                      <div class="form-grid form-grid-three">
-                        <a-form-item label="MCP 标识" required class="form-item">
-                          <a-input v-model:value="editForm.slug" disabled />
-                        </a-form-item>
-                        <a-form-item label="MCP 名称" required class="form-item">
-                          <a-input
-                            v-model:value="editForm.name"
-                            placeholder="请输入 MCP 展示名称"
-                          />
-                        </a-form-item>
-                        <a-form-item label="传输类型" required class="form-item">
-                          <a-select v-model:value="editForm.transport">
-                            <a-select-option value="streamable_http"
-                              >streamable_http</a-select-option
-                            >
-                            <a-select-option value="sse">sse</a-select-option>
-                          </a-select>
-                        </a-form-item>
-                        <a-form-item label="图标" class="form-item">
-                          <a-input
-                            v-model:value="editForm.icon"
-                            placeholder="输入 emoji，如 🧠"
-                            :maxlength="2"
-                          />
-                        </a-form-item>
-                      </div>
-                      <a-form-item label="描述" class="form-item form-item-full">
-                        <a-textarea
-                          v-model:value="editForm.description"
-                          placeholder="请输入 MCP 描述"
-                          :rows="2"
-                        />
-                      </a-form-item>
-                    </section>
+            <section class="form-section">
+              <div class="form-section-title">
+                <span>高级配置</span>
+                <small>请求头会直接影响 MCP 连接。</small>
+              </div>
+              <template
+                v-if="editForm.transport === 'streamable_http' || editForm.transport === 'sse'"
+              >
+                <a-form-item label="HTTP 请求头" class="form-item form-item-full">
+                  <a-textarea
+                    v-model:value="editForm.headersText"
+                    placeholder='JSON 格式，如：{"Authorization": "Bearer xxx"}'
+                    :rows="4"
+                    class="config-textarea"
+                  />
+                  <div class="form-helper">请输入合法 JSON 对象，留空表示不发送额外请求头。</div>
+                </a-form-item>
+              </template>
+            </section>
+          </a-form>
 
-                    <section class="form-section">
-                      <div class="form-section-title">
-                        <span>连接配置</span>
-                        <small>配置当前传输方式需要的连接参数。</small>
-                      </div>
-                      <template
-                        v-if="
-                          editForm.transport === 'streamable_http' || editForm.transport === 'sse'
-                        "
-                      >
-                        <a-form-item label="MCP URL" required class="form-item form-item-full">
-                          <a-input
-                            v-model:value="editForm.url"
-                            placeholder="https://example.com/mcp"
-                          />
-                        </a-form-item>
-                        <div class="form-grid">
-                          <a-form-item label="HTTP 超时（秒）" class="form-item">
-                            <a-input-number
-                              v-model:value="editForm.timeout"
-                              :min="1"
-                              :max="300"
-                              style="width: 100%"
-                            />
-                          </a-form-item>
-                          <a-form-item label="SSE 读取超时（秒）" class="form-item">
-                            <a-input-number
-                              v-model:value="editForm.sse_read_timeout"
-                              :min="1"
-                              :max="300"
-                              style="width: 100%"
-                            />
-                          </a-form-item>
-                        </div>
-                      </template>
-                      <a-form-item label="标签" class="form-item form-item-full">
-                        <a-select
-                          v-model:value="editForm.tags"
-                          mode="tags"
-                          placeholder="输入标签后回车添加"
-                          style="width: 100%"
-                        />
-                      </a-form-item>
-                    </section>
+          <div class="edit-panel-actions">
+            <a-button
+              size="small"
+              @click="cancelEdit"
+              :disabled="editLoading"
+              class="lucide-icon-btn"
+            >
+              <template #icon><X :size="14" /></template>
+              取消
+            </a-button>
+            <a-button
+              type="primary"
+              size="small"
+              @click="handleSaveEdit"
+              :loading="editLoading"
+              class="lucide-icon-btn"
+            >
+              <template #icon><Save :size="14" /></template>
+              保存
+            </a-button>
+          </div>
+        </div>
 
-                    <section class="form-section">
-                      <div class="form-section-title">
-                        <span>高级配置</span>
-                        <small>请求头会直接影响 MCP 连接。</small>
-                      </div>
-                      <template
-                        v-if="
-                          editForm.transport === 'streamable_http' || editForm.transport === 'sse'
-                        "
-                      >
-                        <a-form-item label="HTTP 请求头" class="form-item form-item-full">
-                          <a-textarea
-                            v-model:value="editForm.headersText"
-                            placeholder='JSON 格式，如：{"Authorization": "Bearer xxx"}'
-                            :rows="4"
-                            class="config-textarea"
-                          />
-                          <div class="form-helper">
-                            请输入合法 JSON 对象，留空表示不发送额外请求头。
-                          </div>
-                        </a-form-item>
-                      </template>
-                    </section>
-                  </a-form>
+        <div v-else class="info-grid extension-detail-divider-list">
+          <div class="info-item" v-if="server.description">
+            <label>描述</label>
+            <span>{{ server.description }}</span>
+          </div>
+          <div class="info-item">
+            <label>传输类型</label>
+            <span>
+              <a-tag :color="getTransportColor(server.transport)">{{ server.transport }}</a-tag>
+            </span>
+          </div>
+          <div class="info-item" v-if="Array.isArray(server.tags) && server.tags.length > 0">
+            <label>标签</label>
+            <span>
+              <a-tag v-for="tag in server.tags" :key="tag">{{ tag }}</a-tag>
+            </span>
+          </div>
+          <template v-if="server.transport === 'streamable_http' || server.transport === 'sse'">
+            <div class="info-item" v-if="server.url">
+              <label>MCP URL</label>
+              <span class="code-inline text-break-all">{{ server.url }}</span>
+            </div>
+            <div class="info-item" v-if="server.headers && Object.keys(server.headers).length > 0">
+              <label>请求头</label>
+              <pre class="code-pre">{{ JSON.stringify(server.headers, null, 2) }}</pre>
+            </div>
+            <div class="info-item" v-if="server.timeout">
+              <label>HTTP 超时</label>
+              <span>{{ server.timeout }} 秒</span>
+            </div>
+            <div class="info-item" v-if="server.sse_read_timeout">
+              <label>SSE 读取超时</label>
+              <span>{{ server.sse_read_timeout }} 秒</span>
+            </div>
+          </template>
+          <template v-if="server.transport === 'stdio'">
+            <div class="info-item" v-if="server.command">
+              <label>命令</label>
+              <span class="code-inline">{{ server.command }}</span>
+            </div>
+            <div class="info-item" v-if="server.args && server.args.length > 0">
+              <label>参数</label>
+              <span>
+                <a-tag v-for="(arg, index) in server.args" :key="index" size="small">{{
+                  arg
+                }}</a-tag>
+              </span>
+            </div>
+            <div class="info-item" v-if="server.env && Object.keys(server.env).length > 0">
+              <label>环境变量</label>
+              <pre class="code-pre">{{ JSON.stringify(server.env, null, 2) }}</pre>
+            </div>
+          </template>
+          <div class="info-item">
+            <label>创建时间</label>
+            <span>{{ formatTime(server.created_at) }}</span>
+          </div>
+          <div class="info-item">
+            <label>更新时间</label>
+            <span>{{ formatTime(server.updated_at) }}</span>
+          </div>
+          <div class="info-item">
+            <label>创建人</label>
+            <span>{{ server.created_by }}</span>
+          </div>
+        </div>
+      </div>
+    </template>
 
-                  <div class="edit-panel-actions">
-                    <a-button @click="cancelEdit" :disabled="editLoading" class="lucide-icon-btn">
-                      <template #icon><X :size="14" /></template>
-                      取消
-                    </a-button>
+    <template #panel-tools>
+      <div class="extension-detail-view extension-detail-gray-switches tools-tab">
+        <div class="tools-toolbar">
+          <a-input-search
+            v-model:value="toolSearchText"
+            placeholder="搜索工具..."
+            style="width: 200px"
+            allowClear
+          />
+          <a-button
+            size="small"
+            @click="fetchTools"
+            :loading="toolsLoading"
+            class="lucide-icon-btn"
+          >
+            <RotateCw :size="14" />
+            <span>刷新</span>
+          </a-button>
+        </div>
+        <a-spin :spinning="toolsLoading">
+          <div v-if="filteredTools.length === 0" class="empty-tools">
+            <a-empty :description="toolsError || '暂无工具'" />
+          </div>
+          <div v-else class="tools-list extension-detail-divider-list">
+            <div
+              v-for="tool in filteredTools"
+              :key="tool.name"
+              class="tool-card extension-detail-divider-row"
+              :class="{ disabled: !tool.enabled }"
+            >
+              <div class="tool-header">
+                <div class="tool-info">
+                  <span class="tool-name">{{ tool.name }}</span>
+                  <a-tooltip :title="`ID: ${tool.id}`">
+                    <Info :size="14" class="info-icon" />
+                  </a-tooltip>
+                </div>
+                <div class="tool-actions">
+                  <a-switch
+                    :checked="tool.enabled"
+                    :aria-label="`${tool.name} ${tool.enabled ? '已启用' : '已禁用'}`"
+                    @change="handleToggleTool(tool)"
+                    :loading="toggleToolLoading === tool.name"
+                    size="small"
+                  />
+                  <a-tooltip title="复制工具名称">
                     <a-button
-                      type="primary"
-                      @click="handleSaveEdit"
-                      :loading="editLoading"
+                      type="text"
+                      size="small"
+                      :aria-label="`复制工具名称 ${tool.name}`"
+                      @click="copyToolName(tool.name)"
                       class="lucide-icon-btn"
                     >
-                      <template #icon><Save :size="14" /></template>
-                      保存
+                      <Copy :size="14" />
                     </a-button>
-                  </div>
-                </div>
-
-                <div v-else class="info-grid">
-                  <div class="info-item" v-if="server.description">
-                    <label>描述</label>
-                    <span>{{ server.description }}</span>
-                  </div>
-                  <div class="info-item">
-                    <label>传输类型</label>
-                    <span>
-                      <a-tag :color="getTransportColor(server.transport)">{{
-                        server.transport
-                      }}</a-tag>
-                    </span>
-                  </div>
-                  <div
-                    class="info-item"
-                    v-if="Array.isArray(server.tags) && server.tags.length > 0"
-                  >
-                    <label>标签</label>
-                    <span>
-                      <a-tag v-for="tag in server.tags" :key="tag">{{ tag }}</a-tag>
-                    </span>
-                  </div>
-                  <template
-                    v-if="server.transport === 'streamable_http' || server.transport === 'sse'"
-                  >
-                    <div class="info-item" v-if="server.url">
-                      <label>MCP URL</label>
-                      <span class="code-inline text-break-all">{{ server.url }}</span>
-                    </div>
-                    <div
-                      class="info-item"
-                      v-if="server.headers && Object.keys(server.headers).length > 0"
-                    >
-                      <label>请求头</label>
-                      <pre class="code-pre">{{ JSON.stringify(server.headers, null, 2) }}</pre>
-                    </div>
-                    <div class="info-item" v-if="server.timeout">
-                      <label>HTTP 超时</label>
-                      <span>{{ server.timeout }} 秒</span>
-                    </div>
-                    <div class="info-item" v-if="server.sse_read_timeout">
-                      <label>SSE 读取超时</label>
-                      <span>{{ server.sse_read_timeout }} 秒</span>
-                    </div>
-                  </template>
-                  <template v-if="server.transport === 'stdio'">
-                    <div class="info-item" v-if="server.command">
-                      <label>命令</label>
-                      <span class="code-inline">{{ server.command }}</span>
-                    </div>
-                    <div class="info-item" v-if="server.args && server.args.length > 0">
-                      <label>参数</label>
-                      <span>
-                        <a-tag v-for="(arg, index) in server.args" :key="index" size="small">{{
-                          arg
-                        }}</a-tag>
-                      </span>
-                    </div>
-                    <div class="info-item" v-if="server.env && Object.keys(server.env).length > 0">
-                      <label>环境变量</label>
-                      <pre class="code-pre">{{ JSON.stringify(server.env, null, 2) }}</pre>
-                    </div>
-                  </template>
-                  <div class="info-item">
-                    <label>创建时间</label>
-                    <span>{{ formatTime(server.created_at) }}</span>
-                  </div>
-                  <div class="info-item">
-                    <label>更新时间</label>
-                    <span>{{ formatTime(server.updated_at) }}</span>
-                  </div>
-                  <div class="info-item">
-                    <label>创建人</label>
-                    <span>{{ server.created_by }}</span>
-                  </div>
+                  </a-tooltip>
                 </div>
               </div>
-            </a-tab-pane>
-
-            <a-tab-pane v-if="!server.requires_migration" key="tools">
-              <template #tab>
-                <span class="tab-title"><Wrench :size="14" />工具 ({{ tools.length }})</span>
-              </template>
-              <div class="tab-content tools-tab">
-                <div class="tools-toolbar">
-                  <a-input-search
-                    v-model:value="toolSearchText"
-                    placeholder="搜索工具..."
-                    style="width: 200px"
-                    allowClear
-                  />
-                  <a-button @click="fetchTools" :loading="toolsLoading" class="lucide-icon-btn">
-                    <RotateCw :size="14" />
-                    <span>刷新</span>
-                  </a-button>
-                </div>
-                <a-spin :spinning="toolsLoading">
-                  <div v-if="filteredTools.length === 0" class="empty-tools">
-                    <a-empty :description="toolsError || '暂无工具'" />
-                  </div>
-                  <div v-else class="tools-list">
+              <div class="tool-description" v-if="tool.description">
+                {{ tool.description }}
+              </div>
+              <a-collapse v-if="tool.parameters && Object.keys(tool.parameters).length > 0" ghost>
+                <a-collapse-panel key="params" header="参数">
+                  <div class="params-list">
                     <div
-                      v-for="tool in filteredTools"
-                      :key="tool.name"
-                      class="tool-card"
-                      :class="{ disabled: !tool.enabled }"
+                      v-for="(param, paramName) in tool.parameters"
+                      :key="paramName"
+                      class="param-item"
                     >
-                      <div class="tool-header">
-                        <div class="tool-info">
-                          <span class="tool-name">{{ tool.name }}</span>
-                          <a-tooltip :title="`ID: ${tool.id}`">
-                            <Info :size="14" class="info-icon" />
-                          </a-tooltip>
-                        </div>
-                        <div class="tool-actions">
-                          <a-switch
-                            :checked="tool.enabled"
-                            @change="handleToggleTool(tool)"
-                            :loading="toggleToolLoading === tool.name"
-                            size="small"
-                          />
-                          <a-tooltip title="复制工具名称">
-                            <a-button
-                              type="text"
-                              size="small"
-                              @click="copyToolName(tool.name)"
-                              class="lucide-icon-btn"
-                            >
-                              <Copy :size="14" />
-                            </a-button>
-                          </a-tooltip>
-                        </div>
+                      <div class="param-header">
+                        <span class="param-name">{{ paramName }}</span>
+                        <span class="param-required" v-if="tool.required?.includes(paramName)"
+                          >必填</span
+                        >
+                        <span class="param-type">{{ param.type || 'any' }}</span>
                       </div>
-                      <div class="tool-description" v-if="tool.description">
-                        {{ tool.description }}
+                      <div class="param-desc" v-if="param.description">
+                        {{ param.description }}
                       </div>
-                      <a-collapse
-                        v-if="tool.parameters && Object.keys(tool.parameters).length > 0"
-                        ghost
-                      >
-                        <a-collapse-panel key="params" header="参数">
-                          <div class="params-list">
-                            <div
-                              v-for="(param, paramName) in tool.parameters"
-                              :key="paramName"
-                              class="param-item"
-                            >
-                              <div class="param-header">
-                                <span class="param-name">{{ paramName }}</span>
-                                <span
-                                  class="param-required"
-                                  v-if="tool.required?.includes(paramName)"
-                                  >必填</span
-                                >
-                                <span class="param-type">{{ param.type || 'any' }}</span>
-                              </div>
-                              <div class="param-desc" v-if="param.description">
-                                {{ param.description }}
-                              </div>
-                            </div>
-                          </div>
-                        </a-collapse-panel>
-                      </a-collapse>
                     </div>
                   </div>
-                </a-spin>
-              </div>
-            </a-tab-pane>
-          </a-tabs>
-        </div>
-        <div v-else-if="!loading" class="detail-empty">
-          <a-empty description="未找到 MCP 服务器" />
-        </div>
-      </a-spin>
-    </div>
-  </div>
+                </a-collapse-panel>
+              </a-collapse>
+            </div>
+          </div>
+        </a-spin>
+      </div>
+    </template>
+  </ExtensionDetailLayout>
 </template>
 
 <script setup>
@@ -390,7 +364,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import {
-  ArrowLeft,
+  ChevronRight,
   Zap,
   Pencil,
   Trash2,
@@ -403,6 +377,7 @@ import {
   Save,
   X
 } from '@lucide/vue'
+import ExtensionDetailLayout from '@/components/shared/ExtensionDetailLayout.vue'
 import { mcpApi } from '@/apis/mcp_api'
 import { formatFullDateTime } from '@/utils/time'
 
@@ -420,6 +395,14 @@ const toolsLoading = ref(false)
 const toolsError = ref(null)
 const toolSearchText = ref('')
 const toggleToolLoading = ref(null)
+
+const mcpDetailTabs = computed(() => {
+  const tabs = [{ key: 'general', label: '信息', icon: Settings2 }]
+  if (!server.value?.requires_migration) {
+    tabs.push({ key: 'tools', label: `工具 (${tools.value.length})`, icon: Wrench })
+  }
+  return tabs
+})
 
 const isEditing = ref(false)
 const editLoading = ref(false)
@@ -707,14 +690,26 @@ onMounted(() => {
 
 <style lang="less" scoped>
 @import '@/assets/css/extensions.less';
-@import '@/assets/css/extension-detail.less';
+
+.migration-alert {
+  margin-bottom: 20px;
+}
+
+.info-grid {
+  gap: 0;
+
+  .info-item {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--gray-150);
+  }
+}
 
 .edit-panel {
-  background: var(--gray-0);
-  border: 1px solid var(--gray-150);
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.025);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
 
   .edit-panel-header {
     display: flex;
@@ -844,18 +839,14 @@ onMounted(() => {
   .tools-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0;
 
     .tool-card {
-      background: var(--gray-0);
-      border: 1px solid var(--gray-150);
-      border-radius: 8px;
-      padding: 12px 16px;
-      transition: all 0.2s ease;
-
-      &:hover {
-        border-color: var(--gray-200);
-      }
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--gray-150);
+      border-radius: 0;
+      padding: 16px 0;
 
       &.disabled {
         opacity: 0.6;
@@ -965,18 +956,21 @@ onMounted(() => {
   }
 }
 
-.mcp-detail {
-  .detail-content-wrapper {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    background-color: var(--gray-10);
+@media (max-width: 768px) {
+  .edit-panel {
+    .form-grid,
+    .form-grid-three {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
-  .detail-content-inner {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 16px var(--page-padding);
+  .tools-toolbar {
+    gap: 8px;
+
+    :deep(.ant-input-search) {
+      min-width: 0;
+      flex: 1;
+    }
   }
 }
 </style>

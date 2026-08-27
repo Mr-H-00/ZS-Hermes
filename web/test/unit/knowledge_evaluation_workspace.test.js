@@ -1,0 +1,122 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+
+function readSource(relativePath) {
+  return readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+}
+
+test('知识库详情将评估基准和近期评估收敛到同一个评估工作台', () => {
+  const detailSource = readSource('../../src/views/DataBaseInfoView.vue')
+  const workspaceSource = readSource(
+    '../../src/components/evaluation/KnowledgeEvaluationWorkspace.vue'
+  )
+  const extensionsSource = readSource('../../src/views/ExtensionsView.vue')
+  const apiSource = readSource('../../src/apis/knowledge_api.js')
+
+  assert.match(detailSource, /key: 'evaluation', label: '评估', icon: BarChart3/)
+  assert.doesNotMatch(detailSource, /key: 'benchmarks'/)
+  assert.match(detailSource, /<KnowledgeEvaluationWorkspace/)
+  assert.match(detailSource, /route\.query\.section/)
+  assert.match(detailSource, /:can-manage="canManageDatabase"/)
+  assert.doesNotMatch(detailSource, /<RAGEvaluationTab/)
+  assert.doesNotMatch(detailSource, /<EvaluationBenchmarks/)
+  assert.match(extensionsSource, /<router-view v-else :key="route\.path" \/>/)
+  assert.match(
+    apiSource,
+    /else if \(params\.errorOnly !== undefined\) queryParams\.append\('error_only', params\.errorOnly\)/
+  )
+
+  assert.match(workspaceSource, /id="evaluation-benchmarks-title">评估基准/)
+  assert.match(workspaceSource, /id="recent-evaluations-title">近期评估/)
+  assert.match(workspaceSource, />创建基准</)
+  assert.match(workspaceSource, />新建评估</)
+  assert.match(workspaceSource, /Promise\.all\(\[\s*evaluationApi\.listDatasets/)
+  assert.match(workspaceSource, /evaluationApi\.listRuns\(props\.kbId\)/)
+})
+
+test('评估基准和近期评估使用语义按钮导航到可深链接三级页面', () => {
+  const workspaceSource = readSource(
+    '../../src/components/evaluation/KnowledgeEvaluationWorkspace.vue'
+  )
+  const routerSource = readSource('../../src/router/index.js')
+
+  assert.match(routerSource, /path: 'knowledgebase\/:kbId\/evaluation\/:datasetId'/)
+  assert.match(routerSource, /name: 'ExtensionEvaluationBenchmarkDetail'/)
+  assert.match(routerSource, /import\('\.\.\/views\/EvaluationBenchmarkDetailView\.vue'\)/)
+  assert.match(workspaceSource, /v-for="dataset in datasets"/)
+  assert.match(workspaceSource, /class="evaluation-row-open"/)
+  assert.match(workspaceSource, /const openDataset = \(dataset\) =>/)
+  assert.match(workspaceSource, /name: 'ExtensionEvaluationBenchmarkDetail'/)
+  assert.match(workspaceSource, /query: \{ view: 'results', run: run\.run_id \}/)
+  assert.doesNotMatch(workspaceSource, /evaluation-detail-overlay/)
+  assert.doesNotMatch(workspaceSource, /<Teleport/)
+})
+
+test('评估基准三级页包含题目和评估结果 Tab 并按当前基准过滤运行', () => {
+  const source = readSource('../../src/views/EvaluationBenchmarkDetailView.vue')
+  const workspaceSource = readSource(
+    '../../src/components/evaluation/KnowledgeEvaluationWorkspace.vue'
+  )
+
+  assert.match(source, /<ExtensionDetailLayout/)
+  assert.match(source, /\{ key: 'questions', label: '题目', icon: ClipboardList \}/)
+  assert.match(source, /\{ key: 'results', label: '评估结果', icon: BarChart3 \}/)
+  assert.match(source, /<template #panel-questions>/)
+  assert.match(source, /<template #panel-results>/)
+  assert.match(source, /placeholder="筛选当前页题目"/)
+  assert.match(source, /WrapText/)
+  assert.match(source, /resultFilterOptions/)
+  assert.match(source, /resultFilter: resultFilter\.value/)
+  assert.match(source, /:bordered="false"/)
+  assert.match(source, /label: getRunName\(run\)/)
+  assert.match(source, /const getRunName = \(run\) => run\?\.name \|\| run\?\.run_name \|\| '未命名测试'/)
+  assert.match(source, /font-weight: 600 !important/)
+  assert.match(source, /padding: 0 24px 0 0/)
+  assert.match(source, /width: max-content/)
+  assert.match(source, /仅查看错误/)
+  assert.match(source, /错误及 R@10 < 1/)
+  assert.match(source, /toFixed\(2\)/)
+  assert.match(source, /key\.replace\('recall', 'R'\)/)
+  assert.match(source, /key\.replace\('precision', 'P'\)/)
+  assert.doesNotMatch(source, /resultErrorOnly|errorOnly/)
+  assert.match(source, /筛选仅作用于当前页/)
+  assert.match(source, /id="benchmark-run-select"/)
+  assert.match(source, /v-model:value="selectedRunId"/)
+  assert.match(source, /route\.query\.view === 'results'/)
+  assert.match(source, /\(view\) => \{\s*activeTab\.value = view === 'results' \? 'results' : 'questions'/)
+  assert.doesNotMatch(source, /\(\) => \[route\.params\.kbId, route\.params\.datasetId\]/)
+  assert.match(
+    source,
+    /const getResultRowKey = \(record\) => `\$\{selectedRunId\.value\}:\$\{record\.item_index\}`/
+  )
+  assert.match(source, /response\.data\.filter\(\(run\) => run\.dataset_id === datasetId\.value\)/)
+  assert.match(source, /evaluationApi\.getDataset\(kbId\.value, datasetId\.value, page, pageSize\)/)
+  assert.match(source, /evaluationApi\.getRunResults\(kbId\.value, selectedRunId\.value/)
+  assert.match(source, /query: \{ section: 'evaluation' \}/)
+  assert.match(source, /:scroll="\{ x: 1080 \}"/)
+  assert.match(source, /:scroll="\{ x: 1390 \}"/)
+  assert.match(source, /\{ title: '检索指标', key: 'retrieval_metrics', width: 360 \}/)
+  assert.match(source, /\.benchmark-metric-list \{\s*flex-wrap: nowrap;/)
+  assert.match(
+    workspaceSource,
+    /const formatMetric = \(value\) => \(Number\.isFinite\(value\) \? value\.toFixed\(2\) : '-'\)/
+  )
+  assert.doesNotMatch(workspaceSource, /\.evaluation-row-actions \{\s*display: none;/)
+  assert.doesNotMatch(source, /evaluation-detail-overlay/)
+})
+
+test('新建评估在没有已完成基准时禁用且不伪造成功', () => {
+  const workspaceSource = readSource(
+    '../../src/components/evaluation/KnowledgeEvaluationWorkspace.vue'
+  )
+  const modalSource = readSource(
+    '../../src/components/evaluation/EvaluationRunCreateModal.vue'
+  )
+
+  assert.match(workspaceSource, /:disabled="completedDatasets\.length === 0"/)
+  assert.match(modalSource, /await evaluationApi\.runEvaluation\(props\.kbId/)
+  assert.match(modalSource, /if \(response\?\.message !== 'success'\)/)
+  assert.match(modalSource, /message\.error\(error\.message \|\| '启动评估失败'\)/)
+  assert.match(modalSource, /hasAnswerModel !== hasJudgeModel/)
+})
