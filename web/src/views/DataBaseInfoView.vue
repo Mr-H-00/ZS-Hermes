@@ -1,5 +1,233 @@
 <template>
-  <div class="database-info-container extension-detail-page">
+  <div class="database-info-container">
+    <ExtensionDetailLayout
+      :active-key="activeTab"
+      :tabs="visibleTabs"
+      @update:active-key="handleActiveTabChange"
+      :loading="detailLoading"
+      :ready="isCurrentDatabaseLoaded && !isConnector"
+      empty-description="未找到知识库"
+      class="knowledge-detail-layout"
+    >
+      <template #breadcrumb>
+        <nav class="extension-detail-breadcrumb" aria-label="知识库详情导航">
+          <button type="button" class="extension-detail-back" @click="backToDatabase">
+            知识库
+          </button>
+          <ChevronRight :size="15" aria-hidden="true" />
+          <span class="extension-detail-current" :title="database.name || kbId">
+            {{ database.name || kbId }}
+          </span>
+        </nav>
+      </template>
+
+      <template #actions>
+        <div class="extension-detail-actions">
+          <a-space :size="8">
+            <button
+              type="button"
+              aria-label="复制知识库 ID"
+              class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
+              @click="copyDatabaseId"
+            >
+              <Copy :size="14" />
+              <span>复制 ID</span>
+            </button>
+            <button
+              v-if="canManageDatabase"
+              type="button"
+              aria-label="配置知识库"
+              class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
+              @click="showEditModal"
+            >
+              <Pencil :size="14" />
+              <span>配置</span>
+            </button>
+          </a-space>
+        </div>
+      </template>
+
+      <template #panel-filetable>
+        <div v-if="isMilvus" v-show="activeTab === 'filetable'" class="tab-panel file-panel">
+          <div class="file-management-info">
+            <div class="file-info-title">
+              <div class="file-info-title-row">
+                <div
+                  v-if="canManageDatabase"
+                  ref="uploadActionMenuRef"
+                  class="file-action-dropdown"
+                >
+                  <button
+                    type="button"
+                    class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
+                    @click="uploadActionMenuOpen = !uploadActionMenuOpen"
+                  >
+                    <Upload :size="14" />
+                    <span>上传</span>
+                    <ChevronDown
+                      :size="12"
+                      class="file-action-chevron"
+                      :class="{ 'is-open': uploadActionMenuOpen }"
+                    />
+                  </button>
+                  <Transition name="file-action-menu">
+                    <div v-if="uploadActionMenuOpen" class="file-action-menu">
+                      <button type="button" class="file-action-menu-item" @click="onUploadAction">
+                        <Upload :size="14" />
+                        <span>上传文件</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="file-action-menu-item"
+                        @click="onUploadFolderAction"
+                      >
+                        <FolderUp :size="14" />
+                        <span>上传文件夹</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="file-action-menu-item"
+                        @click="onCreateFolderAction"
+                      >
+                        <FolderPlus :size="14" />
+                        <span>新建文件夹</span>
+                      </button>
+                    </div>
+                  </Transition>
+                </div>
+              </div>
+            </div>
+            <div class="file-panel-status">
+              <button
+                v-if="canManageDatabase && pendingParseCount > 0"
+                type="button"
+                class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-warning file-stat-summary"
+                :disabled="store.state.chunkLoading"
+                @click="confirmBatchParse"
+              >
+                <FileText :size="16" />
+                <div class="file-stat-inline">
+                  <span class="file-stat-value">{{ pendingParseCount }}</span>
+                  <span class="file-stat-label">待解析</span>
+                </div>
+              </button>
+              <button
+                v-if="canManageDatabase && pendingIndexCount > 0"
+                type="button"
+                class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-warning file-stat-summary"
+                :disabled="store.state.chunkLoading"
+                @click="confirmBatchIndex"
+              >
+                <DatabaseIcon :size="16" />
+                <div class="file-stat-inline">
+                  <span class="file-stat-value">{{ pendingIndexCount }}</span>
+                  <span class="file-stat-label">待入库</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary"
+                :class="{ 'file-stat-warning': virtualFolderStatus.has_virtual_folders }"
+                :disabled="!virtualFolderStatus.has_virtual_folders || !canManageDatabase"
+                :title="
+                  virtualFolderStatus.has_virtual_folders ? '存在历史虚拟文件夹，点击转换' : ''
+                "
+                @click="virtualFolderModalVisible = true"
+              >
+                <CircleAlert v-if="virtualFolderStatus.has_virtual_folders" :size="16" />
+                <FileText v-else :size="16" />
+                <div class="file-stat-inline">
+                  <span class="file-stat-value">{{ fileStats.count }}</span>
+                  <span class="file-stat-label">文件</span>
+                </div>
+              </button>
+              <div
+                v-if="fileStats.sizeText"
+                class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary"
+                :title="`文件大小 ${fileStats.sizeText}`"
+              >
+                <DatabaseIcon :size="16" aria-hidden="true" />
+                <div class="file-stat-inline">
+                  <span class="file-stat-value">{{ fileStats.sizeText }}</span>
+                </div>
+              </div>
+              <button
+                v-if="canManageDatabase"
+                type="button"
+                class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary file-stat-repair"
+                :disabled="statsRepairing"
+                :aria-busy="statsRepairing"
+                aria-label="修复缺失的 Chunk/Token 统计"
+                title="修复缺失的 Chunk/Token 统计"
+                @click="repairDatabaseStats"
+              >
+                <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
+                <DatabaseIcon v-else :size="16" />
+                <div class="file-stat-inline">
+                  <span class="file-stat-value">{{ fileStats.chunkText }}</span>
+                  <span class="file-stat-label">Chunks</span>
+                </div>
+              </button>
+              <button
+                v-if="canManageDatabase"
+                type="button"
+                class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary file-stat-repair"
+                :disabled="statsRepairing"
+                :aria-busy="statsRepairing"
+                aria-label="修复缺失的 Chunk/Token 统计"
+                title="修复缺失的 Chunk/Token 统计"
+                @click="repairDatabaseStats"
+              >
+                <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
+                <Hash v-else :size="16" />
+                <div class="file-stat-inline">
+                  <span class="file-stat-value">{{ fileStats.tokenText }}</span>
+                  <span class="file-stat-label">Tokens</span>
+                </div>
+              </button>
+            </div>
+          </div>
+          <FileTable
+            ref="fileTableRef"
+            :readonly="!canManageDatabase"
+            @mindmap="mindmapModalVisible = true"
+            @search="fileSearchModalVisible = true"
+          />
+        </div>
+      </template>
+
+      <template #panel-query>
+        <div
+          v-if="!isConnector"
+          v-show="activeTab === 'query'"
+          class="tab-panel query-config-panel"
+        >
+          <QuerySection ref="querySectionRef" :visible="true" @toggle-visible="() => {}" />
+        </div>
+      </template>
+
+      <template #panel-graph>
+        <div v-if="isMilvus && activeTab === 'graph'" class="tab-panel">
+          <KnowledgeGraphSection
+            :visible="true"
+            :active="activeTab === 'graph'"
+            :readonly="!canManageDatabase"
+            @toggle-visible="() => {}"
+          />
+        </div>
+      </template>
+
+      <template #panel-evaluation>
+        <div v-if="isMilvus && activeTab === 'evaluation'" class="tab-panel evaluation-panel">
+          <KnowledgeEvaluationWorkspace
+            v-if="kbId"
+            :kb-id="kbId"
+            :can-manage="canManageDatabase"
+          />
+        </div>
+      </template>
+    </ExtensionDetailLayout>
+
     <FileDetailModal
       v-model:open="store.state.fileDetailModalVisible"
       :kb-id="kbId"
@@ -54,258 +282,18 @@
       </template>
     </a-modal>
 
-    <div v-if="detailLoading" class="database-detail-loading">
-      <a-spin tip="加载知识库信息..." />
-    </div>
-
-    <template v-else>
-      <div class="detail-top-bar">
-        <button class="detail-back-btn" type="button" @click="backToDatabase">
-          <ArrowLeft :size="16" />
-          <span>返回</span>
-        </button>
-        <div class="detail-title-area">
-          <div class="detail-icon">
-            <component :is="kbTypeIcon" :size="18" />
-          </div>
-          <div class="detail-title-text">
-            <h2>{{ database.name || '知识库加载中' }}</h2>
-            <span class="detail-subtitle">{{ databaseSubtitle }}</span>
-          </div>
-        </div>
-        <div class="detail-actions">
-          <a-space :size="8">
-            <button
-              type="button"
-              class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
-              @click="copyDatabaseId"
-            >
-              <Copy :size="14" />
-              <span>复制 ID</span>
-            </button>
-            <button
-              v-if="canManageDatabase"
-              type="button"
-              class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
-              @click="showEditModal"
-            >
-              <Pencil :size="14" />
-              <span>配置</span>
-            </button>
-          </a-space>
-        </div>
+    <a-modal
+      v-model:open="mindmapModalVisible"
+      title="思维导图"
+      width="1200px"
+      :footer="null"
+      destroy-on-close
+      wrap-class-name="knowledge-mindmap-modal"
+    >
+      <div class="knowledge-mindmap-modal-content">
+        <MindMapSection v-if="kbId" :kb-id="kbId" :readonly="!canManageDatabase" />
       </div>
-
-      <div class="database-detail-body">
-        <div class="database-tab-bar" aria-label="知识库功能导航">
-          <nav class="database-tab-list" aria-label="知识库功能标签" role="tablist">
-            <button
-              v-for="tab in visibleTabs"
-              :key="tab.key"
-              type="button"
-              class="database-tab-item"
-              :class="{ active: activeTab === tab.key }"
-              role="tab"
-              :aria-selected="activeTab === tab.key"
-              @click="activeTab = tab.key"
-            >
-              <component :is="tab.icon" :size="17" />
-              <span>{{ tab.label }}</span>
-            </button>
-          </nav>
-        </div>
-
-        <main class="database-tab-content">
-          <div v-if="isMilvus" v-show="activeTab === 'filetable'" class="tab-panel file-panel">
-            <div class="file-management-info">
-              <div class="file-info-title">
-                <div class="file-info-title-row">
-                  <div
-                    v-if="canManageDatabase"
-                    ref="uploadActionMenuRef"
-                    class="file-action-dropdown"
-                  >
-                    <button
-                      type="button"
-                      class="lucide-icon-btn extension-panel-action extension-panel-action-primary"
-                      @click="uploadActionMenuOpen = !uploadActionMenuOpen"
-                    >
-                      <Upload :size="14" />
-                      <span>上传</span>
-                      <ChevronDown
-                        :size="12"
-                        class="file-action-chevron"
-                        :class="{ 'is-open': uploadActionMenuOpen }"
-                      />
-                    </button>
-                    <Transition name="file-action-menu">
-                      <div v-if="uploadActionMenuOpen" class="file-action-menu">
-                        <button type="button" class="file-action-menu-item" @click="onUploadAction">
-                          <Upload :size="14" />
-                          <span>上传文件</span>
-                        </button>
-                        <button
-                          type="button"
-                          class="file-action-menu-item"
-                          @click="onUploadFolderAction"
-                        >
-                          <FolderUp :size="14" />
-                          <span>上传文件夹</span>
-                        </button>
-                        <button
-                          type="button"
-                          class="file-action-menu-item"
-                          @click="onCreateFolderAction"
-                        >
-                          <FolderPlus :size="14" />
-                          <span>新建文件夹</span>
-                        </button>
-                      </div>
-                    </Transition>
-                  </div>
-                </div>
-              </div>
-              <div class="file-panel-status">
-                <button
-                  v-if="canManageDatabase && pendingParseCount > 0"
-                  type="button"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-warning file-stat-summary"
-                  :disabled="store.state.chunkLoading"
-                  @click="confirmBatchParse"
-                >
-                  <FileText :size="16" />
-                  <div class="file-stat-inline">
-                    <span class="file-stat-value">{{ pendingParseCount }}</span>
-                    <span class="file-stat-label">待解析</span>
-                  </div>
-                </button>
-                <button
-                  v-if="canManageDatabase && pendingIndexCount > 0"
-                  type="button"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-warning file-stat-summary"
-                  :disabled="store.state.chunkLoading"
-                  @click="confirmBatchIndex"
-                >
-                  <DatabaseIcon :size="16" />
-                  <div class="file-stat-inline">
-                    <span class="file-stat-value">{{ pendingIndexCount }}</span>
-                    <span class="file-stat-label">待入库</span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary"
-                  :class="{ 'file-stat-warning': virtualFolderStatus.has_virtual_folders }"
-                  :disabled="!virtualFolderStatus.has_virtual_folders || !canManageDatabase"
-                  :title="
-                    virtualFolderStatus.has_virtual_folders ? '存在历史虚拟文件夹，点击转换' : ''
-                  "
-                  @click="virtualFolderModalVisible = true"
-                >
-                  <CircleAlert v-if="virtualFolderStatus.has_virtual_folders" :size="16" />
-                  <FileText v-else :size="16" />
-                  <div class="file-stat-inline">
-                    <span class="file-stat-value">{{ fileStats.count }}</span>
-                    <span class="file-stat-label">文件</span>
-                  </div>
-                </button>
-                <div
-                  v-if="fileStats.sizeText"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary"
-                  :title="`文件大小 ${fileStats.sizeText}`"
-                >
-                  <DatabaseIcon :size="16" aria-hidden="true" />
-                  <div class="file-stat-inline">
-                    <span class="file-stat-value">{{ fileStats.sizeText }}</span>
-                  </div>
-                </div>
-                <button
-                  v-if="canManageDatabase"
-                  type="button"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary file-stat-repair"
-                  :disabled="statsRepairing"
-                  :aria-busy="statsRepairing"
-                  aria-label="修复缺失的 Chunk/Token 统计"
-                  title="修复缺失的 Chunk/Token 统计"
-                  @click="repairDatabaseStats"
-                >
-                  <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
-                  <DatabaseIcon v-else :size="16" />
-                  <div class="file-stat-inline">
-                    <span class="file-stat-value">{{ fileStats.chunkText }}</span>
-                    <span class="file-stat-label">Chunks</span>
-                  </div>
-                </button>
-                <button
-                  v-if="canManageDatabase"
-                  type="button"
-                  class="lucide-icon-btn extension-panel-action extension-panel-action-secondary file-stat-card file-stat-summary file-stat-repair"
-                  :disabled="statsRepairing"
-                  :aria-busy="statsRepairing"
-                  aria-label="修复缺失的 Chunk/Token 统计"
-                  title="修复缺失的 Chunk/Token 统计"
-                  @click="repairDatabaseStats"
-                >
-                  <LoaderCircle v-if="statsRepairing" :size="16" class="file-stat-spinner" />
-                  <Hash v-else :size="16" />
-                  <div class="file-stat-inline">
-                    <span class="file-stat-value">{{ fileStats.tokenText }}</span>
-                    <span class="file-stat-label">Tokens</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-            <FileTable
-              ref="fileTableRef"
-              :readonly="!canManageDatabase"
-              @search="fileSearchModalVisible = true"
-            />
-          </div>
-
-          <div v-show="activeTab === 'query'" class="tab-panel query-config-panel">
-            <QuerySection ref="querySectionRef" :visible="true" @toggle-visible="() => {}" />
-          </div>
-
-          <div v-if="isMilvus && activeTab === 'graph'" class="tab-panel">
-            <KnowledgeGraphSection
-              :visible="true"
-              :active="activeTab === 'graph'"
-              :readonly="!canManageDatabase"
-              @toggle-visible="() => {}"
-            />
-          </div>
-
-          <div v-if="isMilvus && activeTab === 'mindmap'" class="tab-panel">
-            <MindMapSection
-              v-if="kbId"
-              :kb-id="kbId"
-              :readonly="!canManageDatabase"
-              ref="mindmapSectionRef"
-            />
-          </div>
-
-          <div v-if="isMilvus && activeTab === 'evaluation'" class="tab-panel">
-            <RAGEvaluationTab
-              v-if="kbId"
-              :kb-id="kbId"
-              @switch-to-benchmarks="activeTab = 'benchmarks'"
-            />
-          </div>
-
-          <div v-if="isMilvus && activeTab === 'benchmarks'" class="tab-panel">
-            <div class="benchmark-management-container">
-              <div class="benchmark-content">
-                <EvaluationBenchmarks
-                  v-if="kbId && isEvaluationSupported"
-                  :kb-id="kbId"
-                  @benchmark-selected="activeTab = 'evaluation'"
-                />
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
-    </template>
+    </a-modal>
 
     <a-modal
       v-model:open="editModalVisible"
@@ -313,6 +301,7 @@
       width="720px"
       :mask-closable="false"
       wrap-class-name="database-edit-modal"
+      @after-close="handleEditModalAfterClose"
     >
       <template #footer>
         <a-button key="close" @click="editModalVisible = false">关闭</a-button>
@@ -412,11 +401,7 @@
                     v-model="editShareConfig"
                     :auto-select-user-dept="true"
                     :require-read-scope="true"
-                  >
-                    <template #manage-description>
-                      知识库<strong>仅管理员</strong>可以管理知识库；普通用户无法管理。
-                    </template>
-                  </ShareConfigForm>
+                  />
                 </a-form-item-rest>
               </a-form-item>
               <div v-else-if="database.share_config" class="share-config-readonly">
@@ -446,10 +431,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
 import { useTaskerStore } from '@/stores/tasker'
 import {
-  ArrowLeft,
   BarChart3,
-  ClipboardList,
   ChevronDown,
+  ChevronRight,
   CircleAlert,
   Copy,
   Database as DatabaseIcon,
@@ -458,7 +442,6 @@ import {
   FolderUp,
   Hash,
   LoaderCircle,
-  Map as MapIcon,
   Network,
   Pencil,
   Search,
@@ -466,6 +449,7 @@ import {
 } from '@lucide/vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
+import ExtensionDetailLayout from '@/components/shared/ExtensionDetailLayout.vue'
 import FileTable from '@/components/FileTable.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 import FileUploadModal from '@/components/FileUploadModal.vue'
@@ -473,8 +457,7 @@ import FileSearchModal from '@/components/modals/FileSearchModal.vue'
 import KnowledgeGraphSection from '@/components/KnowledgeGraphSection.vue'
 import QuerySection from '@/components/QuerySection.vue'
 import MindMapSection from '@/components/MindMapSection.vue'
-import RAGEvaluationTab from '@/components/RAGEvaluationTab.vue'
-import EvaluationBenchmarks from '@/components/EvaluationBenchmarks.vue'
+import KnowledgeEvaluationWorkspace from '@/components/evaluation/KnowledgeEvaluationWorkspace.vue'
 import SearchConfigPanel from '@/components/SearchConfigPanel.vue'
 import AiTextarea from '@/components/AiTextarea.vue'
 import ShareConfigForm from '@/components/ShareConfigForm.vue'
@@ -483,7 +466,7 @@ import { departmentApi } from '@/apis/department_api'
 import { authApi } from '@/apis/auth_api'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
-import { getKbTypeIcon, getKbTypeLabel, kbUtils } from '@/utils/kb_utils'
+import { kbUtils } from '@/utils/kb_utils'
 
 const route = useRoute()
 const router = useRouter()
@@ -509,56 +492,49 @@ const isNotionKb = computed(() => kbType.value === 'notion')
 const isConnector = computed(
   () => isCurrentDatabaseLoaded.value && kbUtils.isReadOnlyDatabase(database.value)
 )
-const isEvaluationSupported = computed(() => isMilvus.value)
-const kbTypeIcon = computed(() => getKbTypeIcon(kbType.value || 'milvus'))
-
-const databaseSubtitle = computed(() => {
-  const typeLabel = getKbTypeLabel(kbType.value || 'milvus')
-  if (!isCurrentDatabaseLoaded.value) return '正在加载知识库信息'
-
-  const description = database.value.description?.trim()
-  if (description) return description
-
-  if (isConnector.value) return `${typeLabel} 连接器`
-  return `${typeLabel} 知识库 · ${database.value.row_count || 0} 文件`
-})
-
 const tabs = computed(() => {
   if (isMilvus.value) {
     return [
       { key: 'filetable', label: '文件管理', icon: FileText },
-      { key: 'query', label: '检索测试', icon: Search },
+      { key: 'query', label: '检索测试', icon: Search, forceRender: true },
       { key: 'graph', label: '知识图谱', icon: Network },
-      { key: 'mindmap', label: '知识导图', icon: MapIcon },
-      { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
-      { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
+      { key: 'evaluation', label: '评估', icon: BarChart3 }
     ]
   }
 
-  return [{ key: 'query', label: '检索测试', icon: Search }]
+  return [{ key: 'query', label: '检索测试', icon: Search, forceRender: true }]
 })
 
 const visibleTabs = computed(() =>
   canManageDatabase.value
     ? tabs.value
-    : tabs.value.filter((tab) => ['filetable', 'query', 'graph', 'mindmap'].includes(tab.key))
+    : tabs.value.filter((tab) => ['filetable', 'query', 'graph'].includes(tab.key))
 )
 const activeTab = ref('filetable')
 
 watch(
-  () => [kbId.value, isMilvus.value],
-  ([newDbId, isMilvusType]) => {
+  () => [kbId.value, route.query.section, visibleTabs.value, isCurrentDatabaseLoaded.value],
+  ([newDbId, requestedTab, availableTabs, loaded]) => {
     if (!newDbId) return
-    activeTab.value = isMilvusType ? 'filetable' : 'query'
+    const fallbackTab = availableTabs[0]?.key || 'query'
+    activeTab.value = availableTabs.some((tab) => tab.key === requestedTab)
+      ? requestedTab
+      : fallbackTab
+
+    if (loaded && requestedTab && requestedTab !== activeTab.value) {
+      router.replace({ query: { ...route.query, section: activeTab.value } })
+    }
   },
   { immediate: true }
 )
 
-watch(visibleTabs, (nextTabs) => {
-  if (!nextTabs.some((tab) => tab.key === activeTab.value)) {
-    activeTab.value = nextTabs[0]?.key || 'query'
+const handleActiveTabChange = (tab) => {
+  if (!visibleTabs.value.some((item) => item.key === tab)) return
+  activeTab.value = tab
+  if (route.query.section !== tab) {
+    router.replace({ query: { ...route.query, section: tab } })
   }
-})
+}
 
 const pendingParseCount = computed(() => {
   return Number(store.database.stats?.pending_parse_count || 0)
@@ -733,7 +709,7 @@ const confirmBatchIndex = () => {
   }
 }
 
-const mindmapSectionRef = ref(null)
+const mindmapModalVisible = ref(false)
 const querySectionRef = ref(null)
 const searchConfigPanelRef = ref(null)
 
@@ -830,6 +806,14 @@ watch(
     store.stopAutoRefresh()
     try {
       await store.getDatabaseInfo(nextKbId, false)
+      if (store.database?.kb_id === nextKbId && kbUtils.isReadOnlyDatabase(store.database)) {
+        if (route.query.action === 'edit' && canManageDatabase.value) {
+          showEditModal()
+          return
+        }
+        await router.replace({ path: '/extensions', query: { tab: 'knowledge' } })
+        return
+      }
       await detectVirtualFolders()
       store.startAutoRefresh()
     } finally {
@@ -998,6 +982,10 @@ const loadUsers = async () => {
   }
 }
 
+const handleEditModalAfterClose = () => {
+  if (isConnector.value) backToDatabase()
+}
+
 const showEditModal = () => {
   editModalTab.value = 'basic'
   editForm.name = database.value.name || ''
@@ -1021,7 +1009,7 @@ const showEditModal = () => {
 watch(
   () => [route.query.action, detailLoading.value, isCurrentDatabaseLoaded.value],
   ([action, loading, loaded]) => {
-    if (action !== 'edit' || loading || !loaded) return
+    if (action !== 'edit' || loading || !loaded || !canManageDatabase.value) return
     showEditModal()
     router.replace({ path: route.path, query: { ...route.query, action: undefined } })
   },
@@ -1121,115 +1109,12 @@ onUnmounted(() => {
 
 <style lang="less" scoped>
 @import '@/assets/css/extensions.less';
-@import '@/assets/css/extension-detail.less';
 
-.database-info-container {
-  .detail-content-wrapper {
-    flex: 1;
-    min-height: 0;
-  }
-
-  .detail-subtitle {
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.database-detail-body {
-  flex: 1;
+.database-info-container,
+.knowledge-detail-layout {
+  width: 100%;
+  height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--gray-10);
-  overflow: hidden;
-}
-
-.database-detail-loading {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--gray-10);
-}
-
-.database-tab-bar {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--gray-150);
-  background: var(--gray-0);
-  padding: 8px 12px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.database-tab-list {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: max-content;
-}
-
-.database-tab-item {
-  position: relative;
-  min-height: 40px;
-  border: none;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--gray-600);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 0 14px 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background 0.15s,
-    color 0.15s;
-
-  svg {
-    flex-shrink: 0;
-  }
-
-  &:hover {
-    color: var(--gray-900);
-    background: var(--gray-50);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--main-200);
-    outline-offset: 2px;
-  }
-
-  &.active {
-    color: var(--main-color);
-    background: var(--main-20);
-
-    &::before {
-      content: '';
-      position: absolute;
-      left: 12px;
-      right: 12px;
-      bottom: 0;
-      height: 3px;
-      border-radius: 3px 3px 0 0;
-      background: var(--main-color);
-    }
-  }
-}
-
-.database-tab-content {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
 }
 
 .tab-panel {
@@ -1253,6 +1138,10 @@ onUnmounted(() => {
     flex: 1;
     min-width: 0;
   }
+}
+
+.evaluation-panel {
+  padding: 0;
 }
 
 .file-panel-toolbar {
@@ -1626,20 +1515,8 @@ onUnmounted(() => {
 }
 
 @media (max-width: 767px) {
-  .detail-top-bar {
-    gap: 10px;
-  }
-
-  .detail-actions :deep(.extension-panel-action span) {
+  .extension-detail-actions :deep(.extension-panel-action span) {
     display: none;
-  }
-
-  .database-tab-bar {
-    padding: 8px 8px 0;
-  }
-
-  .database-tab-item {
-    min-width: 104px;
   }
 
   .retrieval-config-content :deep(.ant-col) {
@@ -1659,6 +1536,30 @@ onUnmounted(() => {
   .app-layout:has(.database-info-container) {
     min-width: 0;
   }
+}
+
+.knowledge-mindmap-modal .ant-modal {
+  top: 32px;
+  max-width: calc(100vw - 32px);
+  padding-bottom: 0;
+}
+
+.knowledge-mindmap-modal .ant-modal-content {
+  height: min(760px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+}
+
+.knowledge-mindmap-modal .ant-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.knowledge-mindmap-modal-content {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 /* 全局样式作为备用方案 */
@@ -1754,15 +1655,4 @@ onUnmounted(() => {
   border-radius: 12px;
 }
 
-.benchmark-management-container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.benchmark-content {
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
-}
 </style>

@@ -68,6 +68,7 @@ class EvaluationService:
 
     def _run_item_to_dict(self, item) -> dict[str, Any]:
         return {
+            "item_index": item.item_index,
             "query": item.query_text,
             "gold_chunk_ids": item.gold_chunk_ids,
             "gold_answer": item.gold_answer,
@@ -76,11 +77,19 @@ class EvaluationService:
             "metrics": item.metrics or {},
         }
 
-    def _is_error_run_item(self, item) -> bool:
+    def _matches_result_filter(self, item, result_filter: str) -> bool:
+        """判断评估结果是否符合指定筛选条件。"""
+        if result_filter == "all":
+            return True
+
         metrics = item.metrics or {}
-        return metrics.get("score", 1.0) <= 0.5 or any(
-            metrics.get(key, 1.0) < 0.3 for key in metrics if key.startswith("recall@")
-        )
+        answer_error = metrics.get("score", 1.0) <= 0.5
+        if result_filter == "answer_errors":
+            return answer_error
+        if result_filter == "legacy_errors":
+            return answer_error or any(metrics.get(key, 1.0) < 0.3 for key in metrics if key.startswith("recall@"))
+
+        return answer_error or metrics.get("recall@10", 1.0) < 1
 
     def _normalize_run_name(self, name: str | None, run_id: str) -> str:
         run_name = (name or "").strip()
@@ -786,8 +795,14 @@ class EvaluationService:
             raise
 
     async def get_run_results(
-        self, kb_id: str, run_id: str, page: int = 1, page_size: int = 20, error_only: bool = False
+        self,
+        kb_id: str,
+        run_id: str,
+        page: int = 1,
+        page_size: int = 20,
+        result_filter: str = "all",
     ) -> dict[str, Any]:
+        """分页获取评估运行结果，并按结果类型筛选。"""
         if not re.match(r"^run_[a-f0-9]{8}$", run_id):
             raise ValueError("Invalid run_id format")
         row = await self.eval_repo.get_run(run_id)
@@ -798,7 +813,7 @@ class EvaluationService:
             raise ValueError(f"Run not found for {run_id}")
 
         start_idx = (page - 1) * page_size
-        if error_only:
+        if result_filter != "all":
             total = 0
             paged_items = []
             offset = 0
@@ -808,7 +823,7 @@ class EvaluationService:
                 if not batch:
                     break
                 for item in batch:
-                    if not self._is_error_run_item(item):
+                    if not self._matches_result_filter(item, result_filter):
                         continue
                     if start_idx <= total < start_idx + page_size:
                         paged_items.append(self._run_item_to_dict(item))
@@ -834,7 +849,8 @@ class EvaluationService:
                 "page_size": page_size,
                 "total": total,
                 "total_pages": (total + page_size - 1) // page_size,
-                "error_only": error_only,
+                "result_filter": result_filter,
+                "error_only": result_filter == "legacy_errors",
             },
         }
 

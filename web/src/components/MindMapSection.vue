@@ -116,6 +116,24 @@ const mindmapDiff = ref(null)
 const isIncremental = ref(false)
 let markmapInstance = null
 let textMeasureContext = null
+let unmounted = false
+const pendingTimers = new Set()
+
+/** 安排仅在组件仍挂载时执行的延迟任务。 */
+const scheduleMountedTask = (callback, delay) => {
+  if (unmounted) return
+  const timer = setTimeout(() => {
+    pendingTimers.delete(timer)
+    if (!unmounted) callback()
+  }, delay)
+  pendingTimers.add(timer)
+}
+
+/** 清理组件持有的全部延迟任务。 */
+const clearMountedTasks = () => {
+  pendingTimers.forEach((timer) => clearTimeout(timer))
+  pendingTimers.clear()
+}
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const MARKMAP_MAX_WIDTH = 200
@@ -163,13 +181,12 @@ const loadMindmap = async () => {
       await nextTick()
 
       // 延迟渲染，确保DOM完全更新
-      setTimeout(() => {
-        renderMindmap(mindmap)
-      }, 100)
+      scheduleMountedTask(() => renderMindmap(mindmap), 100)
     }
 
     await checkMindmapDiff()
   } catch (error) {
+    if (unmounted) return
     // 如果是404错误，说明还没有生成，静默处理
     if (
       error?.message?.includes('404') ||
@@ -208,13 +225,14 @@ const generateMindmap = async () => {
     await nextTick()
 
     // 再延迟一点，确保SVG元素完全渲染
-    setTimeout(() => {
-      renderMindmap(response.mindmap)
-      message.success('思维导图生成成功！')
+    scheduleMountedTask(async () => {
+      await renderMindmap(response.mindmap)
+      if (!unmounted) message.success('思维导图生成成功！')
     }, 100)
 
     await checkMindmapDiff()
   } catch (error) {
+    if (unmounted) return
     console.error('生成思维导图失败:', error)
     const errorMsg = error?.message || String(error)
     message.error('生成失败: ' + errorMsg)
@@ -264,8 +282,9 @@ const incrementalUpdate = async () => {
 
     await nextTick()
 
-    setTimeout(() => {
-      renderMindmap(response.mindmap)
+    scheduleMountedTask(async () => {
+      await renderMindmap(response.mindmap)
+      if (unmounted) return
       if (response.no_ai_needed) {
         message.success('思维导图已更新（自动清理已删除文件）')
       } else {
@@ -275,6 +294,7 @@ const incrementalUpdate = async () => {
 
     await checkMindmapDiff()
   } catch (error) {
+    if (unmounted) return
     console.error('增量更新失败:', error)
     const errorMsg = error?.message || String(error)
     message.error('增量更新失败: ' + errorMsg)
@@ -450,12 +470,14 @@ const syncSafariTextFallback = () => {
 const patchSafariTextFallback = () => {
   if (!useSvgTextFallback || !markmapInstance) return
 
-  const originalRenderData = markmapInstance.renderData.bind(markmapInstance)
-  markmapInstance.renderData = async (...args) => {
+  const instance = markmapInstance
+  const originalRenderData = instance.renderData.bind(instance)
+  instance.renderData = async (...args) => {
     const result = await originalRenderData(...args)
+    if (unmounted || markmapInstance !== instance) return result
     syncSafariTextFallback()
-    setTimeout(() => {
-      hideOriginalMarkmapText(markmapInstance?.g?.node?.())
+    scheduleMountedTask(() => {
+      if (markmapInstance === instance) hideOriginalMarkmapText(instance.g?.node?.())
     }, 350)
     return result
   }
@@ -465,20 +487,17 @@ const patchSafariTextFallback = () => {
  * 渲染思维导图
  */
 const renderMindmap = async (data, retryCount = 0) => {
-  if (!data) return
+  if (!data || unmounted) return
 
   if (!mindmapSvg.value || !ensureSvgViewportSize()) {
     // 如果SVG或尺寸还没准备好，最多重试3次
     if (retryCount < 3) {
-      setTimeout(() => {
-        renderMindmap(data, retryCount + 1)
-      }, 100)
-      return
-    } else {
-      console.error('无法获取SVG容器，渲染失败')
-      message.error('渲染失败：无法找到SVG容器')
+      scheduleMountedTask(() => renderMindmap(data, retryCount + 1), 100)
       return
     }
+    console.error('无法获取SVG容器，渲染失败')
+    message.error('渲染失败：无法找到SVG容器')
+    return
   }
 
   try {
@@ -496,7 +515,7 @@ const renderMindmap = async (data, retryCount = 0) => {
     const { root } = transformer.transform(markdown)
 
     // 创建Markmap实例
-    markmapInstance = Markmap.create(mindmapSvg.value, {
+    const instance = Markmap.create(mindmapSvg.value, {
       duration: 300,
       maxWidth: MARKMAP_MAX_WIDTH,
       nodeMinHeight: 24,
@@ -504,19 +523,22 @@ const renderMindmap = async (data, retryCount = 0) => {
       spacingVertical: 5,
       spacingHorizontal: 60
     })
+    markmapInstance = instance
     patchSafariTextFallback()
 
-    await markmapInstance.setData(root)
-    await markmapInstance.fit()
+    await instance.setData(root)
+    if (unmounted || markmapInstance !== instance) return
+    await instance.fit()
 
     // 延迟再次适应，确保布局完全稳定
-    setTimeout(() => {
-      if (markmapInstance) {
+    scheduleMountedTask(() => {
+      if (markmapInstance === instance) {
         syncSafariTextFallback()
-        markmapInstance.fit()
+        instance.fit()
       }
     }, 300)
   } catch (error) {
+    if (unmounted) return
     console.error('渲染思维导图失败:', error)
     message.error('渲染失败: ' + error.message)
   }
@@ -560,6 +582,7 @@ watch(
 let resizeObserver = null
 
 onMounted(() => {
+  unmounted = false
   // 设置ResizeObserver监听容器大小变化
   nextTick(() => {
     if (mindmapSvg.value) {
@@ -580,11 +603,15 @@ onMounted(() => {
 
 // 清理
 onUnmounted(() => {
+  unmounted = true
+  clearMountedTasks()
   if (markmapInstance) {
     markmapInstance.destroy()
+    markmapInstance = null
   }
   if (resizeObserver) {
     resizeObserver.disconnect()
+    resizeObserver = null
   }
 })
 </script>
