@@ -20,7 +20,7 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
-BUSINESS_SCHEMA_VERSION = 2
+BUSINESS_SCHEMA_VERSION = 3
 KNOWLEDGE_SCHEMA_VERSION = 1
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
@@ -31,6 +31,37 @@ AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
 )
 AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS langfuse_trace_id VARCHAR(64)",
+)
+MODEL_MESSAGE_AUDIT_SCHEMA_STATEMENTS = (
+    "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS operation_id VARCHAR(128)",
+    "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITHOUT TIME ZONE",
+    "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP WITHOUT TIME ZONE",
+    "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS duration_ms BIGINT",
+    "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS sequence BIGINT",
+    "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS execution_status VARCHAR(32)",
+    "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS usage JSONB",
+    (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_messages_run_operation_id "
+        "ON messages(run_id, operation_id) WHERE operation_id IS NOT NULL"
+    ),
+    ("CREATE INDEX IF NOT EXISTS ix_messages_run_sequence ON messages(run_id, sequence) WHERE sequence IS NOT NULL"),
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_messages_execution_status'
+              AND conrelid = 'messages'::regclass
+        ) THEN
+            ALTER TABLE messages
+            ADD CONSTRAINT ck_messages_execution_status
+            CHECK (
+                execution_status IS NULL OR execution_status IN
+                ('running', 'completed', 'failed', 'interrupted', 'abandoned')
+            );
+        END IF;
+    END $$
+    """,
 )
 AGENT_RUN_FACT_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS manifest JSONB",
@@ -808,6 +839,13 @@ class PostgresManager(metaclass=SingletonMeta):
             for statement in AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS:
                 await conn.execute(text(statement))
 
+    async def migrate_business_schema_v2_to_v3(self) -> None:
+        """为既有 business v2 数据库增加 Model Message 审计字段。"""
+        self._check_initialized()
+        async with self.async_engine.begin() as conn:
+            for statement in MODEL_MESSAGE_AUDIT_SCHEMA_STATEMENTS:
+                await conn.execute(text(statement))
+
     async def ensure_business_schema(self):
         """确保业务 schema 包含后续新增字段（运行时 schema 演进）。"""
         self._check_initialized()
@@ -985,6 +1023,7 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)",
             *AGENT_RUN_LEASE_SCHEMA_STATEMENTS,
             *AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
+            *MODEL_MESSAGE_AUDIT_SCHEMA_STATEMENTS,
             *AGENT_RUN_FACT_SCHEMA_STATEMENTS,
             (
                 "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS "

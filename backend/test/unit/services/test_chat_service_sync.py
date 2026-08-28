@@ -112,12 +112,22 @@ async def test_resolve_agent_runtime_includes_subagents_only_when_requested(monk
     assert conversation.thread_id == "child-thread"
 
 
+class _EmptyModelAuditRepo:
+    def __init__(self, _db):
+        pass
+
+    async def list_for_run(self, _run_id: str):
+        return []
+
+
 class _FakeConvRepo:
     def __init__(self, _db):
         self.db = _db
         self.saved_messages: list[dict] = []
         self.tool_calls: list[dict] = []
         self.conversations: dict[str, SimpleNamespace] = {}
+        self.source_ids: set[str] = set()
+        self.published_message_ids: list[int] = []
 
     def _conversation(self, thread_id: str) -> SimpleNamespace:
         return self.conversations.setdefault(
@@ -158,13 +168,25 @@ class _FakeConvRepo:
                 "commit": commit,
             }
         )
-        return SimpleNamespace(id=1)
+        return SimpleNamespace(
+            id=1,
+            conversation_id=1,
+            message_type=message_type,
+            extra_metadata=extra_metadata or {},
+        )
 
     async def get_conversation_by_thread_id(self, thread_id: str):
         return self._conversation(thread_id)
 
     async def get_messages_by_thread_id(self, _thread_id: str):
         return []
+
+    async def get_message_source_ids_by_thread_id(self, _thread_id: str):
+        return set(self.source_ids)
+
+    async def publish_assistant_output(self, message) -> None:
+        message.message_type = "text"
+        self.published_message_ids.append(message.id)
 
     async def add_tool_call(
         self,
@@ -310,6 +332,7 @@ async def test_save_messages_from_langgraph_state_backfills_run_output_message(m
             return object()
 
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
+    monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
 
     await svc.save_messages_from_langgraph_state(
         agent_instance=FakeAgent(),
@@ -335,6 +358,227 @@ async def test_save_messages_from_langgraph_state_backfills_run_output_message(m
         "worker_id": "worker-1",
     }
     assert fake_db.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_state_fallback_does_not_rebind_hidden_message_from_previous_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeDB:
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+    class FakeGraph:
+        async def aget_state(self, _config):
+            return SimpleNamespace(
+                values={
+                    "messages": [
+                        AIMessage(content="old intermediate", id="old-model-audit"),
+                        AIMessage(content="current answer", id="current-final"),
+                    ]
+                }
+            )
+
+    class FakeAgent:
+        async def get_graph(self, *, context):
+            return FakeGraph()
+
+    captured: dict[str, int] = {}
+
+    class FakeRunRepo:
+        def __init__(self, _db):
+            pass
+
+        async def lock_output_persistence(self, *_args, **_kwargs):
+            return object()
+
+        async def set_output_message(self, _run_id, message_id, *, worker_id):
+            captured[worker_id] = message_id
+
+    fake_db = FakeDB()
+    conv_repo = _FakeConvRepo(fake_db)
+    conv_repo.source_ids.add("old-model-audit")
+    monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
+    monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
+
+    await svc.save_messages_from_langgraph_state(
+        agent_instance=FakeAgent(),
+        thread_id="thread-1",
+        conv_repo=conv_repo,
+        config_dict={},
+        context=object(),
+        run_id="run-current",
+        request_id="request-current",
+        worker_id="worker-current",
+    )
+
+    assert [message["content"] for message in conv_repo.saved_messages] == ["current answer"]
+    assert captured == {"worker-current": 1}
+
+
+@pytest.mark.asyncio
+async def test_completed_run_rejects_unmatched_final_state_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    audit_message = SimpleNamespace(
+        id=9,
+        operation_id="known-intermediate",
+        content="",
+        extra_metadata={},
+        execution_status="completed",
+        message_type="model_audit",
+        conversation_id=1,
+    )
+
+    class FakeDB:
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+        async def flush(self):
+            pass
+
+    class FakeGraph:
+        async def aget_state(self, _config):
+            return SimpleNamespace(
+                values={
+                    "messages": [
+                        AIMessage(content="known", id="known-intermediate"),
+                        AIMessage(content="unmatched final", id="missing-final"),
+                    ]
+                }
+            )
+
+    class FakeAgent:
+        async def get_graph(self, *, context):
+            return FakeGraph()
+
+    class FakeAuditRepo:
+        def __init__(self, _db):
+            pass
+
+        async def list_for_run(self, _run_id):
+            return [audit_message]
+
+        async def get(self, *, run_id, operation_id):
+            assert run_id == "run-1"
+            return audit_message if operation_id == "known-intermediate" else None
+
+    class FakeRunRepo:
+        def __init__(self, _db):
+            pass
+
+        async def lock_output_persistence(self, *_args, **_kwargs):
+            return object()
+
+    fake_db = FakeDB()
+    monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
+    monkeypatch.setattr(svc, "ModelMessageAuditRepository", FakeAuditRepo)
+
+    with pytest.raises(ValueError, match="最终 State AIMessage"):
+        await svc.save_messages_from_langgraph_state(
+            agent_instance=FakeAgent(),
+            thread_id="thread-1",
+            conv_repo=_FakeConvRepo(fake_db),
+            config_dict={},
+            context=object(),
+            run_id="run-1",
+            request_id="request-1",
+            worker_id="worker-1",
+            complete_run=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_tool_call_interrupt_keeps_intermediate_model_audit_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
+    audit_message = SimpleNamespace(
+        id=12,
+        operation_id="tool-model",
+        content="",
+        extra_metadata={},
+        execution_status="completed",
+        message_type="model_audit",
+        conversation_id=1,
+    )
+
+    class FakeDB:
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+        async def flush(self):
+            pass
+
+    class FakeGraph:
+        async def aget_state(self, _config):
+            return SimpleNamespace(
+                values={
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            id="tool-model",
+                            tool_calls=[{"id": "call-1", "name": "search", "args": {}}],
+                        )
+                    ]
+                }
+            )
+
+    class FakeAgent:
+        async def get_graph(self, *, context):
+            return FakeGraph()
+
+    class FakeAuditRepo:
+        def __init__(self, _db):
+            pass
+
+        async def list_for_run(self, _run_id):
+            return [audit_message]
+
+        async def get(self, *, run_id, operation_id):
+            return audit_message
+
+    output_ids: list[int] = []
+
+    class FakeRunRepo:
+        def __init__(self, _db):
+            pass
+
+        async def lock_output_persistence(self, *_args, **_kwargs):
+            return object()
+
+        async def set_output_message(self, _run_id, message_id, *, worker_id):
+            output_ids.append(message_id)
+
+        async def set_terminal_status(self, *_args, **_kwargs):
+            return SimpleNamespace(status="interrupted"), True
+
+        async def cancel_active_execution_tree_descendants(self, _run):
+            return []
+
+    fake_db = FakeDB()
+    conv_repo = _FakeConvRepo(fake_db)
+    monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
+    monkeypatch.setattr(svc, "ModelMessageAuditRepository", FakeAuditRepo)
+
+    committed = await svc.save_messages_from_langgraph_state(
+        agent_instance=FakeAgent(),
+        thread_id="thread-1",
+        conv_repo=conv_repo,
+        config_dict={},
+        context=object(),
+        run_id="run-1",
+        request_id="request-1",
+        worker_id="worker-1",
+        interrupt_run=True,
+    )
+
+    assert committed is True
+    assert output_ids == [audit_message.id]
+    assert audit_message.message_type == "model_audit"
+    assert conv_repo.published_message_ids == []
 
 
 @pytest.mark.asyncio
@@ -379,6 +623,7 @@ async def test_interrupt_persists_message_and_terminal_status_in_one_commit(
 
     fake_db = FakeDB()
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
+    monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
 
     terminal_committed = await svc.save_messages_from_langgraph_state(
         agent_instance=FakeAgent(),

@@ -19,10 +19,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
+from yuxi.repositories.model_message_audit_repository import ModelMessageAuditRepository
 from yuxi.services import chat_service, run_worker
 from yuxi.storage.postgres.manager import (
     AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
     AGENT_RUN_LEASE_SCHEMA_STATEMENTS,
+    MODEL_MESSAGE_AUDIT_SCHEMA_STATEMENTS,
     RUNTIME_SCOPE_SCHEMA_STATEMENTS,
 )
 from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, Project, SubagentThread, User
@@ -36,7 +38,11 @@ async def lease_database():
     engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
     async with engine.begin() as connection:
         for _ in range(2):
-            for statement in (*AGENT_RUN_LEASE_SCHEMA_STATEMENTS, *AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS):
+            for statement in (
+                *AGENT_RUN_LEASE_SCHEMA_STATEMENTS,
+                *AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
+                *MODEL_MESSAGE_AUDIT_SCHEMA_STATEMENTS,
+            ):
                 await connection.execute(text(statement))
         await connection.execute(text(RUNTIME_SCOPE_SCHEMA_STATEMENTS[-1]))
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -252,6 +258,180 @@ async def _cleanup_runs(session_factory, thread_ids: list[str]) -> None:
         await db.execute(delete(Project).where(Project.id.in_({row.project_id for row in rows})))
         await db.execute(delete(User).where(User.uid.in_({row.uid for row in rows})))
         await db.commit()
+
+
+async def test_model_audit_lifecycle_is_idempotent_and_lease_fenced(lease_database):
+    """Model start/finish 只允许当前 owner，并保持同一来源键单行。"""
+    _engine, session_factory = lease_database
+    now = utc_now_naive()
+    owner = "model-audit-owner"
+    run_id, thread_id, _message_id = await _create_run(
+        session_factory,
+        status="running",
+        worker_id=owner,
+        lease_expires_at=now + timedelta(minutes=1),
+    )
+    try:
+        async with session_factory() as db:
+            run = await db.get(AgentRun, run_id)
+            repo = ModelMessageAuditRepository(db)
+            message, created = await repo.start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="model-operation-1",
+                sequence=7,
+                started_at=now,
+                metadata={"id": "model-operation-1"},
+            )
+            duplicate, duplicate_created = await repo.start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="model-operation-1",
+                sequence=7,
+                started_at=now,
+            )
+            assert duplicate.id == message.id
+            assert created is True
+            assert duplicate_created is False
+
+            completed = await repo.finish(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="model-operation-1",
+                content="answer",
+                finished_at=now + timedelta(seconds=1),
+                duration_ms=321,
+                usage={"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
+            )
+            replayed = await repo.finish(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="model-operation-1",
+                content="answer",
+                finished_at=now + timedelta(seconds=2),
+                duration_ms=999,
+                usage={"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
+            )
+            assert replayed.id == completed.id
+            assert completed.execution_status == "completed"
+            assert completed.duration_ms == 321
+            assert [item.id for item in await repo.list_for_run(run_id)] == [message.id]
+
+            with pytest.raises(ValueError, match="不同结果覆盖"):
+                await repo.finish(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id=thread_id,
+                    worker_id=owner,
+                    operation_id="model-operation-1",
+                    content="different",
+                    finished_at=now + timedelta(seconds=3),
+                    duration_ms=400,
+                    usage=None,
+                )
+            await db.commit()
+
+        async with session_factory() as db:
+            run = await db.get(AgentRun, run_id)
+            with pytest.raises(ValueError, match="lease owner"):
+                await ModelMessageAuditRepository(db).start(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id=thread_id,
+                    worker_id="other-owner",
+                    operation_id="model-operation-2",
+                    sequence=8,
+                    started_at=now,
+                )
+            with pytest.raises(ValueError, match="同一 thread 和 request"):
+                await ModelMessageAuditRepository(db).start(
+                    run_id=run_id,
+                    request_id="other-request",
+                    thread_id=thread_id,
+                    worker_id=owner,
+                    operation_id="model-operation-2",
+                    sequence=8,
+                    started_at=now,
+                )
+            with pytest.raises(ValueError, match="同一 thread 和 request"):
+                await ModelMessageAuditRepository(db).start(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id="other-thread",
+                    worker_id=owner,
+                    operation_id="model-operation-2",
+                    sequence=8,
+                    started_at=now,
+                )
+
+        async with session_factory() as db:
+            run = await db.get(AgentRun, run_id)
+            db.add(
+                Message(
+                    conversation_id=run.conversation_id,
+                    role="assistant",
+                    content="duplicate",
+                    message_type="model_audit",
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    operation_id="model-operation-1",
+                    execution_status="completed",
+                )
+            )
+            with pytest.raises(IntegrityError):
+                await db.flush()
+            await db.rollback()
+    finally:
+        await _cleanup_runs(session_factory, [thread_id])
+
+
+async def test_terminal_failure_closes_running_model_audit(lease_database):
+    """Run 终态 owning transaction 不得留下 running Model 行。"""
+    _engine, session_factory = lease_database
+    now = utc_now_naive()
+    owner = "model-audit-terminal-owner"
+    run_id, thread_id, _message_id = await _create_run(
+        session_factory,
+        status="running",
+        worker_id=owner,
+        lease_expires_at=now + timedelta(minutes=1),
+    )
+    try:
+        async with session_factory() as db:
+            run = await db.get(AgentRun, run_id)
+            audit, _created = await ModelMessageAuditRepository(db).start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="model-operation-running",
+                sequence=11,
+                started_at=now,
+            )
+            terminal_run, changed = await AgentRunRepository(db).set_terminal_status(
+                run_id,
+                status="failed",
+                error_type="model_error",
+                error_message="provider failed",
+                worker_id=owner,
+                now=now + timedelta(seconds=1),
+            )
+            await db.commit()
+            assert terminal_run is not None
+            assert changed is True
+            await db.refresh(audit)
+            assert audit.execution_status == "failed"
+            assert audit.finished_at == now + timedelta(seconds=1)
+    finally:
+        await _cleanup_runs(session_factory, [thread_id])
 
 
 async def _create_live_child(
@@ -703,12 +883,22 @@ async def test_expired_owner_cannot_finish_or_publish_retry_before_reconciliatio
 
     try:
         async with session_factory() as db:
-            _, acquired = await AgentRunRepository(db).mark_running(
+            run, acquired = await AgentRunRepository(db).mark_running(
                 run_id,
                 worker_id=owner,
                 lease_seconds=10,
                 now=now,
             )
+            audit, _created = await ModelMessageAuditRepository(db).start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="expired-model-operation",
+                sequence=3,
+                started_at=now,
+            )
+            audit_id = audit.id
             await db.commit()
 
         async with session_factory() as db:
@@ -735,6 +925,7 @@ async def test_expired_owner_cannot_finish_or_publish_retry_before_reconciliatio
         async with session_factory() as db:
             persisted_run = await db.get(AgentRun, run_id)
             persisted_message = await db.get(Message, message_id)
+            persisted_audit = await db.get(Message, audit_id)
 
         assert acquired is True
         assert released is False
@@ -744,6 +935,7 @@ async def test_expired_owner_cannot_finish_or_publish_retry_before_reconciliatio
         assert persisted_run.status == "failed"
         assert persisted_run.error_type == "worker_lease_expired"
         assert persisted_message.delivery_status == "failed"
+        assert persisted_audit.execution_status == "abandoned"
     finally:
         await _cleanup_runs(session_factory, [thread_id])
 

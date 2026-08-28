@@ -195,7 +195,7 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_business_v1_runs_adjacent_v2_migration_before_recording_version(monkeypatch):
+async def test_business_v1_runs_all_adjacent_migrations_before_recording_version(monkeypatch):
     calls: list[str] = []
     sessions = [_Session(), _Session(), _Session()]
 
@@ -214,6 +214,7 @@ async def test_business_v1_runs_adjacent_v2_migration_before_recording_version(m
         ensure_business_schema=lambda: _record(calls, "business_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         migrate_business_schema_v1_to_v2=lambda: _record(calls, "business_v1_to_v2"),
+        migrate_business_schema_v2_to_v3=lambda: _record(calls, "business_v2_to_v3"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
         close=lambda: _record(calls, "close"),
@@ -238,7 +239,58 @@ async def test_business_v1_runs_adjacent_v2_migration_before_recording_version(m
 
     await storage_migration.main()
 
-    assert calls.index("business_v1_to_v2") < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
+    assert calls.index("business_v1_to_v2") < calls.index("business_v2_to_v3")
+    assert calls.index("business_v2_to_v3") < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
+    assert {"create_business", "business_schema", "checkpoint"}.isdisjoint(calls)
+
+
+@pytest.mark.asyncio
+async def test_business_v2_runs_model_audit_migration_before_recording_version(monkeypatch):
+    calls: list[str] = []
+    sessions = [_Session(), _Session(), _Session()]
+
+    @asynccontextmanager
+    async def session_context():
+        yield sessions.pop(0)
+
+    manager = SimpleNamespace(
+        initialize=lambda: calls.append("initialize"),
+        schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
+        create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
+        get_schema_versions=lambda: _async_value({"business": 2, "knowledge": KNOWLEDGE_SCHEMA_VERSION}),
+        record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
+        create_business_tables=lambda: _record(calls, "create_business"),
+        create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
+        ensure_business_schema=lambda: _record(calls, "business_schema"),
+        ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
+        migrate_business_schema_v1_to_v2=lambda: _record(calls, "business_v1_to_v2"),
+        migrate_business_schema_v2_to_v3=lambda: _record(calls, "business_v2_to_v3"),
+        setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
+        get_async_session_context=session_context,
+        close=lambda: _record(calls, "close"),
+    )
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(
+        storage_migration,
+        "read_v071_workdir_plan",
+        lambda _db: _async_value(V071WorkdirMigrationPlan(False, (), ())),
+    )
+    monkeypatch.setattr(storage_migration, "_legacy_skill_roots_exist", lambda: False)
+    monkeypatch.setattr(storage_migration, "_legacy_system_config_exists", lambda: False)
+    monkeypatch.setattr(storage_migration, "runtime_storage_requires_quiescence", lambda: False)
+    monkeypatch.setattr(
+        storage_migration,
+        "_converge_database_state",
+        lambda *, fail_nonterminal_runs: _record(calls, f"converge:{fail_nonterminal_runs}"),
+    )
+    monkeypatch.setattr(storage_migration, "migrate_shared_skills", lambda _db: _record(calls, "skills"))
+    monkeypatch.setattr(storage_migration, "mark_v071_skills_migrated", lambda: calls.append("mark_skills"))
+    monkeypatch.setattr(storage_migration, "migrate_runtime_storage_identity", lambda: calls.append("runtime_identity"))
+
+    await storage_migration.main()
+
+    assert "business_v1_to_v2" not in calls
+    assert calls.index("business_v2_to_v3") < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
     assert {"create_business", "business_schema", "checkpoint"}.isdisjoint(calls)
 
 

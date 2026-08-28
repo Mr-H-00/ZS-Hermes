@@ -77,8 +77,8 @@ async def test_schema_migration_lock_serializes_real_postgres_sessions() -> None
         await engine.dispose()
 
 
-async def test_business_v1_to_v2_migration_adds_trace_column_before_version_publication() -> None:
-    """相邻迁移必须先提交 AgentRun trace 列，再发布 business v2。"""
+async def test_business_adjacent_migrations_add_audit_columns_before_version_publication() -> None:
+    """连续相邻迁移必须先提交 Trace 与 Model 审计列，再发布当前版本。"""
     schema = f"pytest_schema_upgrade_{uuid.uuid4().hex[:16]}"
     admin_engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
     scoped_engine = None
@@ -95,16 +95,19 @@ async def test_business_v1_to_v2_migration_adds_trace_column_before_version_publ
         manager = _scoped_manager(scoped_engine)
         async with scoped_engine.begin() as connection:
             await connection.execute(text("CREATE TABLE agent_runs (id VARCHAR(64) PRIMARY KEY)"))
+            await connection.execute(text("CREATE TABLE messages (id SERIAL PRIMARY KEY, run_id VARCHAR(64))"))
 
         await manager.create_schema_version_table()
         await manager.record_schema_version("business", 1)
         await manager.migrate_business_schema_v1_to_v2()
         await manager.migrate_business_schema_v1_to_v2()
+        await manager.migrate_business_schema_v2_to_v3()
+        await manager.migrate_business_schema_v2_to_v3()
         await manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
         await manager.require_current_schema(include_knowledge=False)
 
         async with scoped_engine.connect() as connection:
-            column_exists = await connection.scalar(
+            trace_column_exists = await connection.scalar(
                 text(
                     "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
                     "WHERE table_schema = :schema AND table_name = 'agent_runs' "
@@ -112,8 +115,28 @@ async def test_business_v1_to_v2_migration_adds_trace_column_before_version_publ
                 ),
                 {"schema": schema},
             )
+            audit_columns = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = 'messages' "
+                    "AND column_name = ANY(:columns)"
+                ),
+                {
+                    "schema": schema,
+                    "columns": [
+                        "operation_id",
+                        "started_at",
+                        "finished_at",
+                        "duration_ms",
+                        "sequence",
+                        "execution_status",
+                        "usage",
+                    ],
+                },
+            )
 
-        assert column_exists is True
+        assert trace_column_exists is True
+        assert audit_columns == 7
         assert await manager.get_schema_versions() == {"business": BUSINESS_SCHEMA_VERSION}
     finally:
         if scoped_engine is not None:

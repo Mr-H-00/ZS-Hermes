@@ -11,7 +11,7 @@ from yuxi.repositories.conversation_repository import (
     INVOCATION_CONVERSATION_SOURCES,
     MAX_CONVERSATION_TITLE_LENGTH,
 )
-from yuxi.storage.postgres.models_business import Base, Conversation, Message
+from yuxi.storage.postgres.models_business import Base, Conversation, ConversationStats, Message, ToolCall
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = pytest.mark.unit
@@ -84,6 +84,97 @@ def _seed_invocation_excluding_conversations() -> tuple[Conversation, Conversati
         extra_metadata={"source": "agent_evaluation"},
     )
     return normal, agent_call, agent_eval, now
+
+
+@pytest.mark.asyncio
+async def test_model_audit_messages_are_hidden_from_history_and_message_count(conversation_session):
+    now = utc_now_naive()
+    conversation = Conversation(
+        thread_id="thread-model-audit",
+        project_id="project-model-audit",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Model Audit",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    conversation_session.add(conversation)
+    await conversation_session.flush()
+    stats = ConversationStats(conversation_id=conversation.id, message_count=0)
+    visible_message = Message(
+        conversation_id=conversation.id,
+        role="user",
+        content="visible",
+        message_type="text",
+    )
+    audit_message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content="hidden intermediate",
+        message_type="model_audit",
+        operation_id="model-1",
+        execution_status="completed",
+    )
+    conversation_session.add_all([stats, visible_message, audit_message])
+    await conversation_session.commit()
+
+    repo = ConversationRepository(conversation_session)
+    messages = await repo.get_messages(conversation.id)
+    await repo._update_message_count(conversation.id)
+
+    assert [message.content for message in messages] == ["visible"]
+    assert stats.message_count == 1
+
+    previous_updated_at = conversation.updated_at
+    await repo.publish_assistant_output(audit_message)
+    published_messages = await repo.get_messages(conversation.id)
+
+    assert [message.content for message in published_messages] == ["visible", "hidden intermediate"]
+    assert audit_message.message_type == "text"
+    assert stats.message_count == 2
+    assert conversation.updated_at > previous_updated_at
+
+
+@pytest.mark.asyncio
+async def test_completed_model_audit_keeps_tool_call_visible_after_history_reload(conversation_session):
+    now = utc_now_naive()
+    conversation = Conversation(
+        thread_id="thread-tool-audit",
+        project_id="project-tool-audit",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Tool Audit",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    conversation_session.add(conversation)
+    await conversation_session.flush()
+    audit_message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content="",
+        message_type="model_audit",
+        operation_id="model-tool-1",
+        execution_status="completed",
+    )
+    conversation_session.add(audit_message)
+    await conversation_session.flush()
+    conversation_session.add(
+        ToolCall(
+            message_id=audit_message.id,
+            langgraph_tool_call_id="tool-call-1",
+            tool_name="search",
+            status="success",
+        )
+    )
+    await conversation_session.commit()
+
+    messages = await ConversationRepository(conversation_session).get_messages(conversation.id)
+
+    assert [message.id for message in messages] == [audit_message.id]
+    assert messages[0].tool_calls[0].langgraph_tool_call_id == "tool-call-1"
 
 
 @pytest.mark.asyncio

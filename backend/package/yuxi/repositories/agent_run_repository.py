@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.storage.postgres.models_business import (
     AGENT_RUN_TERMINAL_STATUSES,
+    MODEL_AUDIT_MESSAGE_TYPE,
     AgentRun,
     AgentRunAttempt,
     Message,
@@ -571,6 +572,7 @@ class AgentRunRepository:
             run.lease_expires_at = None
             run.runtime_cleanup_pending = run.run_type != "subagent"
             await self._project_input_delivery_status(run)
+            await self._close_running_model_audits(run.id, execution_status="abandoned", now=current_time)
             await self._close_open_attempts(
                 run.id,
                 outcome="lease_expired",
@@ -606,6 +608,7 @@ class AgentRunRepository:
             # quiescence proof 已证明旧 runtime 不存在，无需再创建异步清理任务。
             run.runtime_cleanup_pending = False
             await self._project_input_delivery_status(run)
+            await self._close_running_model_audits(run.id, execution_status="abandoned", now=current_time)
             await self._close_open_attempts(
                 run.id,
                 outcome="failed",
@@ -767,6 +770,13 @@ class AgentRunRepository:
         run.lease_expires_at = None
         run.runtime_cleanup_pending = run.run_type != "subagent"
         await self._project_input_delivery_status(run)
+        audit_status = {
+            "completed": "abandoned",
+            "failed": "failed",
+            "cancelled": "interrupted",
+            "interrupted": "interrupted",
+        }[status]
+        await self._close_running_model_audits(run.id, execution_status=audit_status, now=current_time)
         await self._finish_open_attempt(
             run.id,
             worker_id=worker_id,
@@ -791,6 +801,24 @@ class AgentRunRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def _close_running_model_audits(
+        self,
+        run_id: str,
+        *,
+        execution_status: str,
+        now: datetime,
+    ) -> None:
+        """在 Run owning transaction 内关闭尚无 finish 事实的 Model 审计行。"""
+        await self.db.execute(
+            update(Message)
+            .where(
+                Message.run_id == run_id,
+                Message.message_type == MODEL_AUDIT_MESSAGE_TYPE,
+                Message.execution_status == "running",
+            )
+            .values(execution_status=execution_status, finished_at=now)
+        )
 
     async def _project_input_delivery_status(self, run: AgentRun) -> None:
         """在 owning transaction 内同步输入消息的终态投影。"""

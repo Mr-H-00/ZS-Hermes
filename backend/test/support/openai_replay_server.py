@@ -152,18 +152,20 @@ class ReplayHandler(BaseHTTPRequestHandler):
 
         serialized_messages = json.dumps(request["messages"], ensure_ascii=False)
         blocking_match = re.search(rf"{BLOCK_BEFORE_RESPONSE_MARKER}:([0-9a-f-]+)", serialized_messages)
-        if blocking_match:
-            with BLOCKING_REQUEST_TOKENS_LOCK:
-                BLOCKING_REQUEST_TOKENS.add(blocking_match.group(1))
-            time.sleep(60)
-
         model = str(request["model"])
+        payloads = _stream_payloads(model, request["messages"])
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
-        for payload in _stream_payloads(model, request["messages"]):
+        if blocking_match:
+            self.wfile.write(f"data: {json.dumps(payloads.pop(0))}\n\n".encode())
+            self.wfile.flush()
+            with BLOCKING_REQUEST_TOKENS_LOCK:
+                BLOCKING_REQUEST_TOKENS.add(blocking_match.group(1))
+            time.sleep(60)
+        for payload in payloads:
             self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
             self.wfile.flush()
         self.wfile.write(b"data: [DONE]\n\n")

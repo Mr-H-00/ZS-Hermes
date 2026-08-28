@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from yuxi.storage.postgres.models_business import (
+    MODEL_AUDIT_MESSAGE_TYPE,
     UNVIEWED_RUN_MARKER,
     Conversation,
     ConversationStats,
@@ -27,7 +28,7 @@ MESSAGE_SEARCH_SNIPPET_RADIUS = 72
 MESSAGE_SEARCH_SNIPPET_MAX_LENGTH = 180
 MESSAGE_SEARCH_SNIPPETS_PER_THREAD = 2
 MESSAGE_SEARCH_ROLES = ("user", "assistant")
-MESSAGE_SEARCH_EXCLUDED_TYPES = ("tool_call", "tool_result")
+MESSAGE_SEARCH_EXCLUDED_TYPES = ("tool_call", "tool_result", MODEL_AUDIT_MESSAGE_TYPE)
 INVOCATION_CONVERSATION_SOURCES = ("agent_call", "agent_evaluation")
 
 # ==== 历史对话检索参数 ====
@@ -341,6 +342,19 @@ class ConversationRepository:
         logger.debug(f"Added tool call {tool_name} to message {message_id}")
         return tool_call
 
+    async def publish_assistant_output(self, message: Message) -> None:
+        """把最终 AIMessage 发布到普通历史并刷新 Conversation 读模型。"""
+        if message.role != "assistant":
+            raise ValueError("只有 assistant Message 可以发布为最终输出")
+        if message.message_type == MODEL_AUDIT_MESSAGE_TYPE:
+            message.message_type = "text"
+        conversation = await self.get_conversation_by_id(message.conversation_id)
+        if conversation is None:
+            raise ValueError("最终输出缺少 Conversation")
+        conversation.updated_at = utc_now_naive()
+        await self._update_message_count(message.conversation_id)
+        await self.db.flush()
+
     async def get_messages(self, conversation_id: int, limit: int | None = None, offset: int = 0) -> list[Message]:
         query = (
             select(Message)
@@ -348,7 +362,14 @@ class ConversationRepository:
                 selectinload(Message.tool_calls),
                 selectinload(Message.feedbacks),
             )
-            .where(Message.conversation_id == conversation_id)
+            .where(
+                Message.conversation_id == conversation_id,
+                or_(
+                    Message.message_type.is_(None),
+                    Message.message_type != MODEL_AUDIT_MESSAGE_TYPE,
+                    Message.tool_calls.any(),
+                ),
+            )
             .order_by(Message.created_at.asc())
         )
 
@@ -357,6 +378,18 @@ class ConversationRepository:
 
         result = await self.db.execute(query)
         return list(result.scalars().unique().all())
+
+    async def get_message_source_ids_by_thread_id(self, thread_id: str) -> set[str]:
+        """读取全部持久 Message 来源 ID，包括普通历史隐藏的审计行。"""
+        conversation = await self.get_conversation_by_thread_id(thread_id)
+        if conversation is None:
+            return set()
+        result = await self.db.execute(select(Message.extra_metadata).where(Message.conversation_id == conversation.id))
+        return {
+            str(metadata["id"])
+            for metadata in result.scalars().all()
+            if isinstance(metadata, dict) and isinstance(metadata.get("id"), str)
+        }
 
     async def get_messages_by_thread_id(
         self, thread_id: str, limit: int | None = None, offset: int = 0
@@ -587,10 +620,16 @@ class ConversationRepository:
         if conversation is None:
             raise ValueError("历史线程不存在或不可见")
 
+        message_type_condition = or_(
+            Message.message_type.is_(None),
+            Message.message_type.notin_(MESSAGE_SEARCH_EXCLUDED_TYPES),
+        )
+        if include_tools:
+            message_type_condition = or_(message_type_condition, Message.tool_calls.any())
         message_conditions = [
             Message.conversation_id == conversation.id,
             Message.role.in_(MESSAGE_SEARCH_ROLES),
-            or_(Message.message_type.is_(None), Message.message_type.notin_(MESSAGE_SEARCH_EXCLUDED_TYPES)),
+            message_type_condition,
         ]
         if message_id is None:
             query = (
@@ -866,7 +905,12 @@ class ConversationRepository:
 
         stats = await self.get_stats(conversation_id)
         if stats:
-            result = await self.db.execute(select(func.count()).where(Message.conversation_id == conversation_id))
+            result = await self.db.execute(
+                select(func.count()).where(
+                    Message.conversation_id == conversation_id,
+                    or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                )
+            )
             message_count = result.scalar()
             stats.message_count = message_count
             await self.db.flush()

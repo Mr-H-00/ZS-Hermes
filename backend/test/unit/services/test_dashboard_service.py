@@ -160,7 +160,23 @@ async def dashboard_db():
         msg1 = Message(conversation=conv1, role="user", content="Hello", created_at=yesterday)
         msg2 = Message(conversation=conv1, role="assistant", content="Hi there!", created_at=yesterday)
         msg3 = Message(conversation=conv2, role="user", content="Write code", created_at=now)
-        msg4 = Message(conversation=conv2, role="assistant", content="Here is code", created_at=now)
+        msg4 = Message(
+            conversation=conv2,
+            role="assistant",
+            content="Here is code",
+            created_at=now,
+            extra_metadata={"usage_metadata": {"input_tokens": 5, "output_tokens": 3}},
+        )
+        hidden_model_audit = Message(
+            conversation=conv2,
+            role="assistant",
+            content="Intermediate model output",
+            message_type="model_audit",
+            operation_id="model-audit-1",
+            execution_status="completed",
+            created_at=now,
+            extra_metadata={"usage_metadata": {"input_tokens": 100, "output_tokens": 100}},
+        )
         removed_agent_message = Message(
             conversation=missing_agent_conversation,
             role="assistant",
@@ -207,6 +223,7 @@ async def dashboard_db():
                 msg2,
                 msg3,
                 msg4,
+                hidden_model_audit,
                 removed_agent_message,
                 tool1,
                 removed_agent_tool,
@@ -289,6 +306,16 @@ async def test_dashboard_service_thread_analytics(dashboard_db):
     assert [item["agent_id"] for item in coder_only["agent_distribution"]] == ["agent-coder"]
     assert coder_only["status_distribution"] == {"active": 1, "archived": 1}
     assert {item["uid"] for item in coder_only["top_users"]} == {"uid-alice", "uid-bob"}
+
+
+async def test_call_token_timeseries_excludes_hidden_model_audits(dashboard_db):
+    service = DashboardService(dashboard_db)
+
+    timeseries = await service.get_call_timeseries(metric_type="tokens", time_range="14days")
+
+    assert timeseries["total_count"] == 8
+    assert sum(item["data"]["input_tokens"] for item in timeseries["data"]) == 5
+    assert sum(item["data"]["output_tokens"] for item in timeseries["data"]) == 3
 
 
 async def test_thread_analytics_groups_daily_trends_by_shanghai_date(dashboard_db):

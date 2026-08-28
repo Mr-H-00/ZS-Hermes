@@ -122,7 +122,7 @@ async def main() -> None:
             await pg_manager.create_schema_version_table()
             versions = await pg_manager.get_schema_versions()
             business_version = versions.get("business")
-            _require_supported_version("business", business_version, BUSINESS_SCHEMA_VERSION, previous=(1,))
+            _require_supported_version("business", business_version, BUSINESS_SCHEMA_VERSION, previous=(1, 2))
             if not lite_mode_enabled():
                 _require_supported_version("knowledge", versions.get("knowledge"), KNOWLEDGE_SCHEMA_VERSION)
 
@@ -140,8 +140,10 @@ async def main() -> None:
                 await pg_manager.ensure_business_schema()
                 await pg_manager.setup_langgraph_checkpointer()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
-            elif business_version == 1:
-                await pg_manager.migrate_business_schema_v1_to_v2()
+            elif business_version in {1, 2}:
+                if business_version == 1:
+                    await pg_manager.migrate_business_schema_v1_to_v2()
+                await pg_manager.migrate_business_schema_v2_to_v3()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
             if not lite_mode_enabled() and versions.get("knowledge") is None:

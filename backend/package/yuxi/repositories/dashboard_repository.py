@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.storage.minio.client import normalize_public_minio_url
 from yuxi.storage.postgres.models_business import (
+    MODEL_AUDIT_MESSAGE_TYPE,
     Agent,
     Conversation,
     ConversationStats,
@@ -26,9 +27,15 @@ class DashboardRepository:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    @staticmethod
-    def _time_group_format(column: Any, time_range: str) -> Any:
-        """生成使用上海时区显示的 PostgreSQL 时间分组表达式。"""
+    def _time_group_format(self, column: Any, time_range: str) -> Any:
+        """生成使用上海时区显示的 PostgreSQL/SQLite 时间分组表达式。"""
+        bind = self.db_session.bind
+        if bind is not None and bind.dialect.name == "sqlite":
+            sqlite_format = {
+                "14hours": "%Y-%m-%d %H:00",
+                "14weeks": "%Y-%W",
+            }.get(time_range, "%Y-%m-%d")
+            return func.strftime(sqlite_format, column, "+8 hours")
         if time_range == "14hours":
             return func.to_char(column + text("INTERVAL '8 hours'"), "YYYY-MM-DD HH24:00")
         if time_range == "14weeks":
@@ -419,7 +426,10 @@ class DashboardRepository:
             .join(Conversation, Message.conversation_id == Conversation.id)
             .join(User, Conversation.uid == User.uid)
             .join(Agent, Conversation.agent_id == Agent.slug)
-            .where(*valid_filters)
+            .where(
+                *valid_filters,
+                or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+            )
         )
         total_users_result = await self.db_session.execute(select(func.count(User.id)).where(User.is_deleted == 0))
         total_feedbacks_result = await self.db_session.execute(
@@ -512,6 +522,7 @@ class DashboardRepository:
                 .join(Agent, Conversation.agent_id == Agent.slug)
                 .where(
                     Message.role == "assistant",
+                    or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
                     Message.created_at >= query_start_time,
                     Message.extra_metadata.isnot(None),
                     Conversation.status.notin_(("deleted", "subagent")),
@@ -560,6 +571,7 @@ class DashboardRepository:
                     .join(Agent, Conversation.agent_id == Agent.slug)
                     .where(
                         Message.created_at >= query_start_time,
+                        or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
                         Message.extra_metadata.isnot(None),
                         Message.extra_metadata["usage_metadata"].isnot(None),
                         Conversation.status.notin_(("deleted", "subagent")),
@@ -717,7 +729,10 @@ class DashboardRepository:
             .join(Conversation, Message.conversation_id == Conversation.id)
             .join(User, Conversation.uid == User.uid)
             .join(Agent, Conversation.agent_id == Agent.slug)
-            .where(*conversation_filters)
+            .where(
+                *conversation_filters,
+                or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+            )
         )
         message_summary_row = message_summary_result.one()
 
@@ -763,7 +778,12 @@ class DashboardRepository:
             .join(Conversation, Message.conversation_id == Conversation.id)
             .join(User, Conversation.uid == User.uid)
             .join(Agent, Conversation.agent_id == Agent.slug)
-            .where(Message.created_at >= query_start_time, Message.created_at <= query_now, *conversation_filters)
+            .where(
+                Message.created_at >= query_start_time,
+                Message.created_at <= query_now,
+                or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                *conversation_filters,
+            )
             .group_by(message_date)
         )
         activity_rows = (await self.db_session.execute(activity_query)).all()

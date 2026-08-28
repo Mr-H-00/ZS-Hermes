@@ -25,6 +25,7 @@ EXPECTED_OUTPUT = "DETERMINISTIC_AGENT_E2E_OK"
 EXPECTED_PRELOADED_SKILL_MARKER = "# 图片生成技能"
 EXPECTED_PRELOADED_TOOL = "present_artifacts"
 EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
+EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
 BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
 PROVIDER_ID = "ci-replay"
 MODEL_SPEC = f"{PROVIDER_ID}:deterministic-chat"
@@ -137,6 +138,29 @@ async def _wait_for_blocking_replay(token: str) -> None:
     pytest.fail("deterministic replay did not observe blocking model request")
 
 
+async def _wait_for_running_model_audit(run_id: str) -> None:
+    """回读 PG，证明取消发生前 Model running 事实已经提交。"""
+    conn = await asyncpg.connect(postgres_dsn())
+    try:
+        for _ in range(100):
+            status = await conn.fetchval(
+                """
+                SELECT execution_status
+                FROM messages
+                WHERE run_id = $1 AND message_type = 'model_audit'
+                ORDER BY sequence
+                LIMIT 1
+                """,
+                run_id,
+            )
+            if status == "running":
+                return
+            await asyncio.sleep(0.1)
+    finally:
+        await conn.close()
+    pytest.fail("running Model audit was not committed before cancellation")
+
+
 async def _run_deterministic(
     client: httpx.AsyncClient,
     headers: dict[str, str],
@@ -237,6 +261,27 @@ async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
         if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
             assert row["langfuse_trace_id"]
 
+        model_audits = await conn.fetch(
+            """
+            SELECT id, message_type, operation_id, sequence, execution_status,
+                   started_at, finished_at, duration_ms, usage
+            FROM messages
+            WHERE run_id = $1 AND operation_id IS NOT NULL AND role = 'assistant'
+            ORDER BY sequence
+            """,
+            run_id,
+        )
+        assert len(model_audits) == 2
+        assert [item["execution_status"] for item in model_audits] == ["completed", "completed"]
+        assert model_audits[0]["message_type"] == "model_audit"
+        assert model_audits[1]["id"] == row["output_message_id"]
+        assert model_audits[1]["message_type"] == "text"
+        assert model_audits[0]["sequence"] < model_audits[1]["sequence"]
+        assert all(item["operation_id"] for item in model_audits)
+        assert all(item["started_at"] and item["finished_at"] for item in model_audits)
+        assert all(item["duration_ms"] is not None and item["duration_ms"] >= 0 for item in model_audits)
+        assert all(item["usage"] for item in model_audits)
+
         tool_call = await conn.fetchrow(
             """
             SELECT tc.langgraph_tool_call_id, tc.tool_name, tc.status, tc.tool_output
@@ -246,11 +291,67 @@ async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
             """,
             run_id,
         )
-        assert tool_call, "预加载工具必须经过真实 ToolNode 执行并持久化"
+        if not tool_call:
+            persisted_messages = await conn.fetch(
+                """
+                SELECT message.id, message.message_type, message.operation_id,
+                       message.extra_metadata, count(tool_call.id) AS tool_call_count
+                FROM messages message
+                LEFT JOIN tool_calls tool_call ON tool_call.message_id = message.id
+                WHERE message.run_id = $1
+                GROUP BY message.id
+                ORDER BY message.sequence NULLS LAST, message.id
+                """,
+                run_id,
+            )
+            pytest.fail(f"预加载工具未持久化；Run messages={persisted_messages!r}")
         assert tool_call["langgraph_tool_call_id"] == EXPECTED_TOOL_CALL_ID
         assert tool_call["tool_name"] == EXPECTED_PRELOADED_TOOL
         assert tool_call["status"] == "success"
         assert tool_call["tool_output"]
+    finally:
+        await conn.close()
+
+
+async def _assert_followup_run_does_not_rebind_prior_audits(
+    *,
+    first_run_id: str,
+    second_run_id: str,
+    second_request_id: str,
+) -> None:
+    """同线程后续 Run 不得把前一 Run 的隐藏 Model 行复制为自身输出。"""
+    conn = await asyncpg.connect(postgres_dsn())
+    try:
+        first_operations = await conn.fetch(
+            "SELECT operation_id FROM messages WHERE run_id = $1 AND operation_id IS NOT NULL",
+            first_run_id,
+        )
+        first_operation_ids = [row["operation_id"] for row in first_operations]
+        row = await conn.fetchrow(
+            """
+            SELECT run.request_id, run.output_message_id,
+                   count(message.id) FILTER (WHERE message.run_id = run.id AND message.operation_id IS NOT NULL)
+                       AS second_audit_count,
+                   count(message.id) FILTER (
+                       WHERE message.run_id = run.id AND message.operation_id = ANY($2::varchar[])
+                   ) AS rebound_count,
+                   count(message.id) FILTER (
+                       WHERE message.role = 'assistant' AND message.message_type != 'model_audit'
+                   ) AS visible_assistant_count
+            FROM agent_runs run
+            JOIN messages message ON message.conversation_id = run.conversation_id
+            WHERE run.id = $1
+            GROUP BY run.request_id, run.output_message_id
+            """,
+            second_run_id,
+            first_operation_ids,
+        )
+        assert row
+        assert row["request_id"] == second_request_id
+        assert row["output_message_id"] is not None
+        assert row["second_audit_count"] == 1
+        assert row["rebound_count"] == 0
+        assert row["visible_assistant_count"] == 2
     finally:
         await conn.close()
 
@@ -351,12 +452,26 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         projection_root = get_skill_projection_dir() / workspace_uid_dirname(uid)
         shutil.rmtree(projection_root, ignore_errors=True)
         assert not projection_root.exists(), "冷启动用例必须从缺失 uid Skill projection 开始"
+        thread_response = await e2e_client.post(
+            "/api/chat/thread",
+            json={
+                "agent_id": agent_slug,
+                "title": make_test_conversation_title("model-audit-followup"),
+                "metadata": make_test_conversation_metadata("model-audit-followup", e2e=True),
+            },
+            headers=e2e_headers,
+        )
+        assert thread_response.status_code == 200, thread_response.text
+        thread_payload = thread_response.json()
+        thread_id = str(thread_payload.get("thread_id") or thread_payload["id"])
+
         request_id = f"deterministic-e2e-{uuid.uuid4()}"
         run_response = await e2e_client.post(
             "/api/agent-invocation/agent-call/runs",
             json={
                 "agent_slug": agent_slug,
                 "messages": [{"role": "user", "content": f"只输出 {EXPECTED_OUTPUT}"}],
+                "thread_id": thread_id,
                 "request_id": request_id,
                 "async_mode": True,
             },
@@ -365,7 +480,7 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         assert run_response.status_code == 200, run_response.text
         run_payload = run_response.json()
         run_id = str(run_payload["run_id"])
-        thread_id = str(run_payload["thread_id"])
+        assert str(run_payload["thread_id"]) == thread_id
 
         event_counts = await consume_events(e2e_client, e2e_headers, run_id)
         assert event_counts.get("messages", 0) > 0, event_counts
@@ -385,6 +500,41 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         await _assert_persisted_causality(run_id, request_id)
         await _assert_persistent_workdir_binding(run_id, thread_id)
         await _assert_persisted_execution_facts(run_id, agent_slug)
+        history_response = await e2e_client.get(f"/api/chat/thread/{thread_id}/history", headers=e2e_headers)
+        assert history_response.status_code == 200, history_response.text
+        history = history_response.json()["history"]
+        tool_message = next(message for message in history if message.get("tool_calls"))
+        tool_call = tool_message["tool_calls"][0]
+        assert tool_message["run_id"] == run_id
+        assert tool_call["id"] == EXPECTED_TOOL_CALL_ID
+        assert tool_call["name"] == EXPECTED_PRELOADED_TOOL
+        assert tool_call["status"] == "success"
+        assert EXPECTED_TOOL_RESULT_MARKER in tool_call["tool_call_result"]["content"]
+        assert any(message.get("content") == EXPECTED_OUTPUT for message in history)
+
+        first_run_id = run_id
+        second_request_id = f"deterministic-followup-{uuid.uuid4()}"
+        second_response = await e2e_client.post(
+            "/api/agent-invocation/agent-call/runs",
+            json={
+                "agent_slug": agent_slug,
+                "messages": [{"role": "user", "content": f"再次只输出 {EXPECTED_OUTPUT}"}],
+                "thread_id": thread_id,
+                "request_id": second_request_id,
+                "async_mode": True,
+            },
+            headers=e2e_headers,
+        )
+        assert second_response.status_code == 200, second_response.text
+        run_id = str(second_response.json()["run_id"])
+        await consume_events(e2e_client, e2e_headers, run_id)
+        followup_run = await wait_for_run(e2e_client, e2e_headers, run_id)
+        assert followup_run["status"] == "completed", followup_run
+        await _assert_followup_run_does_not_rebind_prior_audits(
+            first_run_id=first_run_id,
+            second_run_id=run_id,
+            second_request_id=second_request_id,
+        )
         run_completed = True
     finally:
         if run_id and not run_completed:
@@ -397,11 +547,11 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         await _delete_provider(e2e_client, e2e_headers)
 
 
-async def test_cancelled_run_keeps_trace_without_output_message(
+async def test_cancelled_run_keeps_trace_and_closes_running_model_audit(
     e2e_client: httpx.AsyncClient,
     e2e_headers: dict[str, str],
 ) -> None:
-    """模型请求开始后取消时，Run trace 必须独立于最终 AIMessage 保留。"""
+    """模型请求开始后取消时，保留 Run trace 并关闭无最终输出的 Model 审计。"""
     me_response = await e2e_client.get("/api/auth/me", headers=e2e_headers)
     assert me_response.status_code == 200, me_response.text
     uid = str(me_response.json()["uid"])
@@ -449,6 +599,7 @@ async def test_cancelled_run_keeps_trace_without_output_message(
         assert str(run_response.json()["thread_id"]) == thread_id
 
         await _wait_for_blocking_replay(blocking_token)
+        await _wait_for_running_model_audit(run_id)
         await cancel_run(e2e_client, e2e_headers, run_id)
         run = await wait_for_run(e2e_client, e2e_headers, run_id)
         assert run["status"] == "cancelled", run
@@ -459,7 +610,15 @@ async def test_cancelled_run_keeps_trace_without_output_message(
             row = await conn.fetchrow(
                 """
                 SELECT ar.langfuse_trace_id, ar.output_message_id,
-                       count(message.id) FILTER (WHERE message.role = 'assistant') AS assistant_count,
+                       count(message.id) FILTER (
+                           WHERE message.role = 'assistant' AND message.message_type != 'model_audit'
+                       ) AS visible_assistant_count,
+                       count(message.id) FILTER (
+                           WHERE message.role = 'assistant' AND message.message_type = 'model_audit'
+                       ) AS audit_count,
+                       min(message.execution_status) FILTER (
+                           WHERE message.message_type = 'model_audit'
+                       ) AS audit_status,
                        count(message.id) FILTER (
                            WHERE message.role = 'assistant'
                              AND (
@@ -480,7 +639,9 @@ async def test_cancelled_run_keeps_trace_without_output_message(
         assert row
         assert row["langfuse_trace_id"]
         assert row["output_message_id"] is None
-        assert row["assistant_count"] == 0
+        assert row["visible_assistant_count"] == 0
+        assert row["audit_count"] == 1
+        assert row["audit_status"] == "interrupted"
         assert row["misbound_assistant_count"] == 0
 
         result = await e2e_client.get(f"/api/agent/runs/{run_id}/result", headers=e2e_headers)
