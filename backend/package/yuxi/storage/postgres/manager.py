@@ -849,6 +849,8 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS mcp_servers ADD COLUMN IF NOT EXISTS env JSONB",
             "ALTER TABLE IF EXISTS scheduled_agent_jobs ADD COLUMN IF NOT EXISTS model_spec VARCHAR(512)",
             "ALTER TABLE IF EXISTS scheduled_agent_runs ADD COLUMN IF NOT EXISTS model_spec VARCHAR(512)",
+            "ALTER TABLE IF EXISTS scheduled_agent_jobs ADD COLUMN IF NOT EXISTS creation_request_id VARCHAR(64)",
+            "ALTER TABLE IF EXISTS scheduled_agent_jobs ADD COLUMN IF NOT EXISTS creation_intent_hash VARCHAR(64)",
             """
             CREATE TABLE IF NOT EXISTS agent_envs (
                 id SERIAL PRIMARY KEY,
@@ -932,6 +934,8 @@ class PostgresManager(metaclass=SingletonMeta):
             CREATE TABLE IF NOT EXISTS scheduled_agent_jobs (
                 id VARCHAR(64) PRIMARY KEY,
                 uid VARCHAR(64) NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+                creation_request_id VARCHAR(64) NOT NULL,
+                creation_intent_hash VARCHAR(64) NOT NULL,
                 project_id VARCHAR(64) NOT NULL,
                 agent_slug VARCHAR(64) NOT NULL,
                 name VARCHAR(255) NOT NULL,
@@ -947,6 +951,8 @@ class PostgresManager(metaclass=SingletonMeta):
                 updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
                 CONSTRAINT fk_scheduled_agent_jobs_project_uid
                     FOREIGN KEY (project_id, uid) REFERENCES projects(id, uid) ON DELETE CASCADE,
+                CONSTRAINT uq_scheduled_agent_jobs_uid_creation_request
+                    UNIQUE (uid, creation_request_id),
                 CONSTRAINT ck_scheduled_agent_jobs_tool_approval_mode
                     CHECK (tool_approval_mode IN ('default', 'always_trust'))
             )
@@ -955,6 +961,20 @@ class PostgresManager(metaclass=SingletonMeta):
             "CREATE INDEX IF NOT EXISTS ix_scheduled_agent_jobs_project_id ON scheduled_agent_jobs(project_id)",
             "CREATE INDEX IF NOT EXISTS ix_scheduled_agent_jobs_deleted_at ON scheduled_agent_jobs(deleted_at)",
             "CREATE INDEX IF NOT EXISTS ix_scheduled_agent_jobs_due ON scheduled_agent_jobs(enabled, next_run_at)",
+            (
+                "UPDATE scheduled_agent_jobs SET creation_request_id = 'legacy:' || md5(uid || ':' || id) "
+                "WHERE creation_request_id IS NULL"
+            ),
+            (
+                "UPDATE scheduled_agent_jobs SET creation_intent_hash = md5(id) || md5(uid || ':' || id) "
+                "WHERE creation_intent_hash IS NULL"
+            ),
+            "ALTER TABLE scheduled_agent_jobs ALTER COLUMN creation_request_id SET NOT NULL",
+            "ALTER TABLE scheduled_agent_jobs ALTER COLUMN creation_intent_hash SET NOT NULL",
+            (
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_scheduled_agent_jobs_uid_creation_request "
+                "ON scheduled_agent_jobs(uid, creation_request_id)"
+            ),
             """
             CREATE TABLE IF NOT EXISTS scheduled_agent_runs (
                 id VARCHAR(64) PRIMARY KEY,

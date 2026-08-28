@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-
 from yuxi.services import scheduled_agent_service as service
 from yuxi.services.scheduled_agent_service import next_run_at, validate_schedule
 
@@ -174,6 +173,33 @@ async def test_enabling_paused_job_schedules_from_current_time(monkeypatch):
     )
 
     assert result == {"enabled": True, "next_run_at": next_time}
+
+
+@pytest.mark.asyncio
+async def test_run_now_rejects_request_id_reused_for_another_job(monkeypatch):
+    job = SimpleNamespace(id="job-2")
+    existing_run = SimpleNamespace(job_id="job-1")
+
+    class Repository:
+        async def get_job(self, job_id, uid, *, lock):
+            assert (job_id, uid, lock) == ("job-2", "user-1", True)
+            return job
+
+        async def get_run(self, run_id):
+            assert run_id == service.build_request_id("scheduled-run", "user-1:manual:manual-request-1")
+            return existing_run
+
+    monkeypatch.setattr(service, "ScheduledAgentRepository", lambda _db: Repository())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.run_scheduled_job_now(
+            job_id="job-2",
+            request_id="manual-request-1",
+            user=SimpleNamespace(uid="user-1"),
+            db=object(),
+        )
+
+    assert exc_info.value.status_code == 409
 
 
 @pytest.mark.asyncio

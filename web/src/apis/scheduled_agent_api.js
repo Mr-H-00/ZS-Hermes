@@ -9,6 +9,7 @@ export const scheduledAgentApi = {
       method: 'PATCH',
       body: JSON.stringify(payload)
     }),
-  runNow: (jobId) => apiPost(`/api/scheduled-tasks/${jobId}/run-now`, {}),
+  runNow: (jobId, requestId) =>
+    apiPost(`/api/scheduled-tasks/${jobId}/run-now`, { request_id: requestId }),
   remove: (jobId) => apiDelete(`/api/scheduled-tasks/${jobId}`)
 }

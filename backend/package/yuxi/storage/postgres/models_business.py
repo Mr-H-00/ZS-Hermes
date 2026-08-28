@@ -852,6 +852,11 @@ class ScheduledAgentJob(Base):
 
     __tablename__ = "scheduled_agent_jobs"
     __table_args__ = (
+        UniqueConstraint(
+            "uid",
+            "creation_request_id",
+            name="uq_scheduled_agent_jobs_uid_creation_request",
+        ),
         ForeignKeyConstraint(
             ["project_id", "uid"],
             ["projects.id", "projects.uid"],
@@ -866,6 +871,8 @@ class ScheduledAgentJob(Base):
 
     id = Column(String(64), primary_key=True)
     uid = Column(String(64), ForeignKey("users.uid", ondelete="CASCADE"), nullable=False, index=True)
+    creation_request_id = Column(String(64), nullable=False)
+    creation_intent_hash = Column(String(64), nullable=False)
     project_id = Column(String(64), nullable=False, index=True)
     agent_slug = Column(String(64), nullable=False)
     name = Column(String(255), nullable=False)

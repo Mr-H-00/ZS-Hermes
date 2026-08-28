@@ -61,6 +61,8 @@ async def test_claim_concurrency_coalesce_and_soft_delete_history():
                 ScheduledAgentJob(
                     id=job_id,
                     uid=uid,
+                    creation_request_id=f"test-create-{job_id}",
+                    creation_intent_hash="0" * 64,
                     project_id=project_id,
                     agent_slug="chatbot",
                     name="Scheduled Job",
@@ -223,6 +225,8 @@ async def test_deleted_user_job_is_not_claimed():
                 ScheduledAgentJob(
                     id=job_id,
                     uid=uid,
+                    creation_request_id=f"test-create-{job_id}",
+                    creation_intent_hash="0" * 64,
                     project_id=project_id,
                     agent_slug="chatbot",
                     name="Deleted User Job",
@@ -343,6 +347,8 @@ async def test_transient_dispatch_failure_is_recovered_exactly_once(monkeypatch)
                 ScheduledAgentJob(
                     id=job_id,
                     uid=uid,
+                    creation_request_id=f"test-create-{job_id}",
+                    creation_intent_hash="0" * 64,
                     project_id=project_id,
                     agent_slug="chatbot",
                     name="Recovery Job",
@@ -449,6 +455,8 @@ async def test_account_soft_deletion_removes_scheduled_job_history():
                 ScheduledAgentJob(
                     id=job_id,
                     uid=uid,
+                    creation_request_id=f"test-create-{job_id}",
+                    creation_intent_hash="0" * 64,
                     project_id=project_id,
                     agent_slug="chatbot",
                     name="Cascade Job",

@@ -65,10 +65,16 @@ test('定时任务工具栏和移动端详情保持可访问', () => {
 })
 
 test('立即运行把已受理和执行中的状态视为成功', () => {
-  assert.match(
-    scheduledViewSource,
-    /\['dispatching', 'submitted', 'queued', 'dispatched', 'pending', 'running'\]\.includes\(run\.status\)/
-  )
+  assert.match(scheduledViewSource, /const ACCEPTED_RUN_NOW_STATUSES = new Set\(\[/)
+  for (const status of ['dispatching', 'submitted', 'queued', 'dispatched', 'pending', 'running']) {
+    assert.match(scheduledViewSource, new RegExp(`'${status}'`))
+  }
+  assert.match(scheduledViewSource, /ACCEPTED_RUN_NOW_STATUSES\.has\(run\.status\)/)
+})
+
+test('仅允许丢弃从未发出未知创建请求的非法草稿', () => {
+  assert.match(scheduledViewSource, /creatingDraft\.value && autosave\.canDiscardInvalidDraft\(\)/)
+  assert.doesNotMatch(scheduledViewSource, /creatingDraft\.value && saveState\.value === 'invalid'/)
 })
 
 test('工具信任提示显示在详情卡片下方而不是作为表格行', () => {

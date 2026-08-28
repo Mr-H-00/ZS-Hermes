@@ -6,7 +6,10 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 
 import { scheduledAgentApi } from '@/apis/scheduled_agent_api'
 import ScheduledAgentEditor from '@/components/scheduled-agents/ScheduledAgentEditor.vue'
-import { createScheduledAgentAutosave } from '@/components/scheduled-agents/scheduledAgentAutosave'
+import {
+  createRetriableRequestIds,
+  createScheduledAgentAutosave
+} from '@/components/scheduled-agents/scheduledAgentAutosave'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
 import { useAgentStore } from '@/stores/agent'
 import { describeSchedule, parseCronExpression } from '@/utils/scheduleFrequency'
@@ -24,6 +27,15 @@ const creatingDraft = ref(false)
 const activeActionId = ref('')
 const searchQuery = ref('')
 const statusFilter = ref('all')
+const runNowRequests = createRetriableRequestIds()
+const ACCEPTED_RUN_NOW_STATUSES = new Set([
+  'dispatching',
+  'submitted',
+  'queued',
+  'dispatched',
+  'pending',
+  'running'
+])
 const RUN_STATUS_LABELS = {
   dispatching: '提交中',
   submitted: '已提交',
@@ -94,8 +106,10 @@ function agentLabel(job) {
 }
 
 const autosave = createScheduledAgentAutosave({
-  persist: ({ jobId, payload }) =>
-    jobId ? scheduledAgentApi.update(jobId, payload) : scheduledAgentApi.create(payload),
+  persist: ({ jobId, payload, requestId }) =>
+    jobId
+      ? scheduledAgentApi.update(jobId, payload)
+      : scheduledAgentApi.create({ ...payload, request_id: requestId }),
   onPersisted(savedJob, { created, finalizeDraft }) {
     if (created) jobs.value = [{ ...savedJob, runs: [] }, ...jobs.value]
     else {
@@ -138,7 +152,7 @@ async function openCreate() {
 }
 
 async function closeDetail() {
-  const discardingInvalidDraft = creatingDraft.value && saveState.value === 'invalid'
+  const discardingInvalidDraft = creatingDraft.value && autosave.canDiscardInvalidDraft()
   if (!discardingInvalidDraft && !(await flushAutoSave())) return
   creatingDraft.value = false
   selectedJobId.value = ''
@@ -169,16 +183,24 @@ function toggle(job) {
 }
 
 async function runNow(job) {
-  const run = await runAction(job, () => scheduledAgentApi.runNow(job.id), '立即运行失败')
-  if (!run) return
-  if (
-    ['dispatching', 'submitted', 'queued', 'dispatched', 'pending', 'running'].includes(run.status)
-  ) {
-    message.success('已创建一次立即运行')
-  } else if (run.status === 'skipped') {
-    message.warning(run.error_message || '本次运行已跳过')
-  } else {
-    message.error(run.error_message || `立即运行状态：${run.status || '未知'}`)
+  if (!(await flushAutoSave())) return
+  activeActionId.value = job.id
+  const requestId = runNowRequests.get(job.id)
+  try {
+    const run = await scheduledAgentApi.runNow(job.id, requestId)
+    runNowRequests.complete(job.id)
+    await load({ silent: true })
+    if (ACCEPTED_RUN_NOW_STATUSES.has(run.status)) {
+      message.success('已创建一次立即运行')
+    } else if (run.status === 'skipped') {
+      message.warning(run.error_message || '本次运行已跳过')
+    } else {
+      message.error(run.error_message || `立即运行状态：${run.status || '未知'}`)
+    }
+  } catch (error) {
+    message.error(error.message || '立即运行失败')
+  } finally {
+    activeActionId.value = ''
   }
 }
 

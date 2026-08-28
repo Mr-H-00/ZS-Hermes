@@ -34,6 +34,7 @@ def test_scheduled_task_api_uses_proposal_paths_and_forbids_unknown_fields(monke
     response = _client().post(
         "/api/scheduled-tasks",
         json={
+            "request_id": "create-request-1",
             "name": "Daily",
             "project_id": "project-1",
             "agent_slug": "chatbot",
@@ -52,6 +53,7 @@ def test_scheduled_task_api_uses_proposal_paths_and_forbids_unknown_fields(monke
     invalid = _client().post(
         "/api/scheduled-tasks",
         json={
+            "request_id": "create-request-2",
             "name": "Daily",
             "project_id": "project-1",
             "agent_slug": "chatbot",
@@ -67,8 +69,8 @@ def test_scheduled_task_api_uses_proposal_paths_and_forbids_unknown_fields(monke
 def test_run_now_and_delete_keep_owner_scope(monkeypatch):
     calls = []
 
-    async def fake_run_now(*, job_id, user, **_kwargs):
-        calls.append(("run-now", job_id, user.uid))
+    async def fake_run_now(*, job_id, request_id, user, **_kwargs):
+        calls.append(("run-now", job_id, request_id, user.uid))
         return {"id": "execution-1", "thread_id": "thread-1"}
 
     async def fake_delete(*, job_id, user, **_kwargs):
@@ -79,6 +81,15 @@ def test_run_now_and_delete_keep_owner_scope(monkeypatch):
     monkeypatch.setattr(router_module, "delete_scheduled_job", fake_delete)
     client = _client()
 
-    assert client.post("/api/scheduled-tasks/job-1/run-now").json()["thread_id"] == "thread-1"
+    assert (
+        client.post(
+            "/api/scheduled-tasks/job-1/run-now",
+            json={"request_id": "manual-request-1"},
+        ).json()["thread_id"]
+        == "thread-1"
+    )
     assert client.delete("/api/scheduled-tasks/job-1").json()["deleted"] is True
-    assert calls == [("run-now", "job-1", "user-1"), ("delete", "job-1", "user-1")]
+    assert calls == [
+        ("run-now", "job-1", "manual-request-1", "user-1"),
+        ("delete", "job-1", "user-1"),
+    ]

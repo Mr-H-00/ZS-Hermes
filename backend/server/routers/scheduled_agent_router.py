@@ -5,8 +5,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from server.utils.auth_middleware import get_db, get_required_user
 from yuxi.services.scheduled_agent_service import (
     create_scheduled_job,
     delete_scheduled_job,
@@ -16,6 +14,8 @@ from yuxi.services.scheduled_agent_service import (
 )
 from yuxi.storage.postgres.models_business import User
 
+from server.utils.auth_middleware import get_db, get_required_user
+
 scheduled_agents = APIRouter(prefix="/scheduled-tasks", tags=["scheduled-tasks"])
 
 
@@ -24,6 +24,7 @@ class ScheduledAgentCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    request_id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")
     name: str = Field(..., max_length=255)
     project_id: str = Field(..., max_length=64)
     agent_slug: str = Field(..., max_length=64)
@@ -49,6 +50,14 @@ class ScheduledAgentUpdate(BaseModel):
     tool_approval_mode: str | None = Field(None, max_length=32)
     model_spec: str | None = Field(None, max_length=512)
     enabled: bool | None = None
+
+
+class ScheduledAgentRunNow(BaseModel):
+    """立即运行的幂等请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")
 
 
 @scheduled_agents.get("")
@@ -89,11 +98,17 @@ async def update_job(
 @scheduled_agents.post("/{job_id}/run-now")
 async def run_now(
     job_id: str,
+    payload: ScheduledAgentRunNow,
     current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     """立即按任务快照创建一次独立 Conversation 和 AgentRun。"""
-    result = await run_scheduled_job_now(job_id=job_id, user=current_user, db=db)
+    result = await run_scheduled_job_now(
+        job_id=job_id,
+        request_id=payload.request_id,
+        user=current_user,
+        db=db,
+    )
     if result is None:
         raise HTTPException(status_code=404, detail="定时任务不存在")
     return result

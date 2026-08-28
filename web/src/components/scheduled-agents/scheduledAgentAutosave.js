@@ -1,9 +1,44 @@
-export function createScheduledAgentAutosave({ persist, onPersisted, onState, delay = 600 }) {
+export function newScheduledAgentRequestId() {
+  return (
+    globalThis.crypto?.randomUUID?.() ||
+    `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  )
+}
+
+export function createRetriableRequestIds(createRequestId = newScheduledAgentRequestId) {
+  const requestIds = new Map()
+  return {
+    get(key) {
+      const requestId = requestIds.get(key) || createRequestId()
+      requestIds.set(key, requestId)
+      return requestId
+    },
+    complete(key) {
+      requestIds.delete(key)
+    }
+  }
+}
+
+function isUnknownCreateResult(error) {
+  if (error?.status == null) return true
+  const status = Number(error.status)
+  return !Number.isInteger(status) || status === 408 || status >= 500
+}
+
+export function createScheduledAgentAutosave({
+  persist,
+  onPersisted,
+  onState,
+  delay = 600,
+  createRequestId = newScheduledAgentRequestId
+}) {
   let timer = null
   let latest = null
-  let active = null
+  let drain = null
   let draftToken = 0
   let draftJobId = null
+  let draftRequestId = null
+  let pendingCreate = null
   let revision = 0
   let state = 'idle'
 
@@ -20,13 +55,17 @@ export function createScheduledAgentAutosave({ persist, onPersisted, onState, de
 
   async function save(saveRequest) {
     publish('saving')
+    const creating = !saveRequest.jobId
+    if (creating && !pendingCreate) pendingCreate = saveRequest
     try {
       const savedJob = await persist(saveRequest)
       let finalizeDraft = false
-      if (!saveRequest.jobId) {
+      if (creating) {
+        pendingCreate = null
         draftJobId = savedJob.id
         if (latest?.draftToken === saveRequest.draftToken && !latest.jobId) {
           latest.jobId = savedJob.id
+          latest.requestId = null
         }
       }
       if (
@@ -37,15 +76,26 @@ export function createScheduledAgentAutosave({ persist, onPersisted, onState, de
         finalizeDraft = Boolean(draftJobId)
       }
       onPersisted(savedJob, {
-        created: !saveRequest.jobId,
+        created: creating,
         finalizeDraft
       })
       if (finalizeDraft) draftJobId = null
       if (saveRequest.revision === revision) publish('saved')
       return true
     } catch (error) {
+      const unknownCreateResult = creating && isUnknownCreateResult(error)
+      if (creating && !unknownCreateResult) {
+        pendingCreate = null
+        draftRequestId = createRequestId()
+        if (latest && !latest.jobId) latest.requestId = draftRequestId
+      }
       if (saveRequest.revision === revision) {
-        if (!latest) latest = saveRequest
+        if ((!creating || !unknownCreateResult) && !latest) {
+          if (creating) saveRequest.requestId = draftRequestId
+          latest = saveRequest
+        }
+        publish('error', `${error.message || '自动保存失败'}，请重试后再离开`)
+      } else if (unknownCreateResult && state !== 'invalid') {
         publish('error', `${error.message || '自动保存失败'}，请重试后再离开`)
       }
       return false
@@ -56,23 +106,29 @@ export function createScheduledAgentAutosave({ persist, onPersisted, onState, de
     return state !== 'error' && state !== 'invalid'
   }
 
-  async function flush() {
-    clearTimer()
-    if (active) {
-      const saved = await active
-      if (!saved) return false
-      return latest ? flush() : canLeave()
-    }
-    if (!latest) return canLeave()
+  async function drainSaves() {
+    while (true) {
+      clearTimer()
+      if (state === 'invalid' && !latest) return false
+      if (!pendingCreate && !latest) return canLeave()
 
-    const saveRequest = latest
-    latest = null
-    const promise = save(saveRequest)
-    active = promise
-    const saved = await promise
-    if (active === promise) active = null
-    if (!saved) return false
-    return latest ? flush() : canLeave()
+      const saveRequest = pendingCreate || latest
+      if (saveRequest === latest) latest = null
+      const saved = await save(saveRequest)
+      if (!saved && (pendingCreate || !latest || state === 'error')) return false
+    }
+  }
+
+  function flush() {
+    clearTimer()
+    if (drain) return drain
+    const currentDrain = drainSaves()
+    drain = currentDrain
+    const releaseDrain = () => {
+      if (drain === currentDrain) drain = null
+    }
+    currentDrain.then(releaseDrain, releaseDrain)
+    return currentDrain
   }
 
   function queue({ payload, error }, selectedJobId) {
@@ -86,6 +142,8 @@ export function createScheduledAgentAutosave({ persist, onPersisted, onState, de
     latest = {
       payload,
       jobId: selectedJobId || draftJobId,
+      requestId:
+        selectedJobId || draftJobId ? null : draftRequestId || (draftRequestId = createRequestId()),
       draftToken,
       revision
     }
@@ -96,6 +154,8 @@ export function createScheduledAgentAutosave({ persist, onPersisted, onState, de
   function beginDraft() {
     draftToken += 1
     draftJobId = null
+    draftRequestId = createRequestId()
+    pendingCreate = null
     publish('idle')
   }
 
@@ -103,10 +163,16 @@ export function createScheduledAgentAutosave({ persist, onPersisted, onState, de
     clearTimer()
     latest = null
     draftJobId = null
+    draftRequestId = null
+    pendingCreate = null
     publish('idle')
   }
 
-  return { beginDraft, flush, leaveEditor, queue }
+  function canDiscardInvalidDraft() {
+    return state === 'invalid' && !pendingCreate
+  }
+
+  return { beginDraft, canDiscardInvalidDraft, flush, leaveEditor, queue }
 }
 
 export async function canLeaveScheduledTab(currentTab, nextTab, flush) {

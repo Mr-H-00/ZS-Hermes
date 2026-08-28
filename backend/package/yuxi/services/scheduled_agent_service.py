@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -10,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import CroniterBadDateError, CroniterError, croniter
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.agents.buildin import agent_manager
 from yuxi.agents.tool_approval import normalize_tool_approval_mode
@@ -26,11 +29,26 @@ from yuxi.utils.logging_config import logger
 SCHEDULED_AGENT_SOURCE = "scheduled_agent"
 MAX_PROMPT_LENGTH = 32_000
 MAX_NAME_LENGTH = 255
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
 
 
 def build_request_id(prefix: str, value: str) -> str:
     """为调度对象生成稳定、长度受限的 ID。"""
     return f"{prefix[:16]}-{hashlib.sha256(value.encode()).hexdigest()[:47]}"
+
+
+def _normalize_request_id(value: str) -> str:
+    """校验客户端持有的稳定请求 ID。"""
+    request_id = str(value or "").strip()
+    if not 8 <= len(request_id) <= 64 or REQUEST_ID_PATTERN.fullmatch(request_id) is None:
+        raise HTTPException(status_code=422, detail="request_id 必须是 8 到 64 位字母、数字或 ._:-")
+    return request_id
+
+
+def _intent_hash(data: dict) -> str:
+    """为规范化创建意图生成稳定摘要。"""
+    serialized = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode()).hexdigest()
 
 
 def validate_schedule(cron_expression: str, timezone: str) -> tuple[str, str]:
@@ -97,9 +115,10 @@ def _new_scheduled_run(
     occurrence_key: str,
     scheduled_for: datetime,
     active_run: bool,
+    identity: str | None = None,
 ) -> ScheduledAgentRun:
     """从任务快照创建一次触发意图。"""
-    identity = f"{job.id}:{occurrence_key}"
+    identity = identity or f"{job.id}:{occurrence_key}"
     return ScheduledAgentRun(
         id=build_request_id("scheduled-run", identity),
         job_id=job.id,
@@ -174,12 +193,11 @@ def _execution_to_dict(scheduled_run, request, run) -> dict:
 
 
 async def create_scheduled_job(*, user: User, db: AsyncSession, data: dict) -> dict:
-    """校验并创建用户定时任务。"""
+    """按稳定请求 ID 幂等创建用户定时任务。"""
     repo = ScheduledAgentRepository(db)
+    request_id = _normalize_request_id(data.get("request_id"))
     project_id = _normalize_text(data.get("project_id"), "project_id", 64)
-    await _validate_project(project_id, user, db)
     agent_slug = _normalize_text(data.get("agent_slug"), "agent_slug", 64)
-    await _validate_agent(agent_slug, user, db)
     name = _normalize_text(data.get("name"), "name", MAX_NAME_LENGTH)
     prompt = _normalize_text(data.get("prompt"), "prompt", MAX_PROMPT_LENGTH)
     expression, timezone = validate_schedule(data.get("cron_expression"), data.get("timezone"))
@@ -190,10 +208,33 @@ async def create_scheduled_job(*, user: User, db: AsyncSession, data: dict) -> d
         tool_approval_mode = normalize_tool_approval_mode(data.get("tool_approval_mode", "default"))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    intent_hash = _intent_hash(
+        {
+            "project_id": project_id,
+            "agent_slug": agent_slug,
+            "name": name,
+            "prompt": prompt,
+            "tool_approval_mode": tool_approval_mode,
+            "model_spec": model_spec,
+            "cron_expression": expression,
+            "timezone": timezone,
+            "enabled": bool(data.get("enabled", True)),
+        }
+    )
+    existing = await repo.get_job_by_creation_request(str(user.uid), request_id)
+    if existing is not None:
+        if existing.creation_intent_hash != intent_hash:
+            raise HTTPException(status_code=409, detail="request_id 已用于其他定时任务创建意图")
+        return existing.to_dict()
+
+    await _validate_project(project_id, user, db)
+    await _validate_agent(agent_slug, user, db)
     now = utc_now_naive()
     job = ScheduledAgentJob(
         id=str(uuid.uuid4()),
         uid=str(user.uid),
+        creation_request_id=request_id,
+        creation_intent_hash=intent_hash,
         project_id=project_id,
         agent_slug=agent_slug,
         name=name,
@@ -207,8 +248,17 @@ async def create_scheduled_job(*, user: User, db: AsyncSession, data: dict) -> d
         created_at=now,
         updated_at=now,
     )
-    await repo.add_job(job)
-    await db.commit()
+    try:
+        await repo.add_job(job)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        replay = await repo.get_job_by_creation_request(str(user.uid), request_id)
+        if replay is None:
+            raise HTTPException(status_code=409, detail="定时任务创建冲突")
+        if replay.creation_intent_hash != intent_hash:
+            raise HTTPException(status_code=409, detail="request_id 已用于其他定时任务创建意图")
+        job = replay
     return job.to_dict()
 
 
@@ -268,23 +318,49 @@ async def delete_scheduled_job(*, job_id: str, user: User, db: AsyncSession) -> 
     return True
 
 
-async def run_scheduled_job_now(*, job_id: str, user: User, db: AsyncSession) -> dict | None:
-    """创建手动触发记录；实际 Run 仍走统一提交链路。"""
+async def run_scheduled_job_now(
+    *,
+    job_id: str,
+    request_id: str,
+    user: User,
+    db: AsyncSession,
+) -> dict | None:
+    """按稳定请求 ID 幂等创建手动触发记录。"""
     repo = ScheduledAgentRepository(db)
+    request_id = _normalize_request_id(request_id)
     job = await repo.get_job(job_id, str(user.uid), lock=True)
     if not job:
         return None
-    await _validate_project(job.project_id, user, db)
-    await _validate_agent(job.agent_slug, user, db)
-    now = utc_now_naive()
-    run = await _create_run_record(
-        repo=repo,
-        job=job,
-        trigger="manual",
-        occurrence_key=f"manual:{uuid.uuid4()}",
-        scheduled_for=now,
-    )
-    await db.commit()
+    identity = f"{user.uid}:manual:{request_id}"
+    run_id = build_request_id("scheduled-run", identity)
+    run = await repo.get_run(run_id)
+    if run is not None and run.job_id != job.id:
+        raise HTTPException(status_code=409, detail="request_id 已用于其他立即运行意图")
+    if run is None:
+        await _validate_project(job.project_id, user, db)
+        await _validate_agent(job.agent_slug, user, db)
+        now = utc_now_naive()
+        run = _new_scheduled_run(
+            job=job,
+            trigger="manual",
+            occurrence_key=f"manual:{request_id}",
+            scheduled_for=now,
+            active_run=await repo.has_active_run(job.id),
+            identity=identity,
+        )
+        try:
+            await repo.add_run(run)
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            replay = await repo.get_run(run_id)
+            if replay is None:
+                raise HTTPException(status_code=409, detail="立即运行请求冲突")
+            if replay.job_id != job.id:
+                raise HTTPException(status_code=409, detail="request_id 已用于其他立即运行意图")
+            run = replay
+    else:
+        await db.commit()
     if run.status != "dispatching":
         return run.to_dict()
     return await dispatch_scheduled_run(scheduled_run_id=run.id)

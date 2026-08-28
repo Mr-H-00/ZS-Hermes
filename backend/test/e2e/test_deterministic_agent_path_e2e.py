@@ -12,12 +12,12 @@ import uuid
 import asyncpg
 import httpx
 import pytest
-
 from e2e_helpers import cancel_run, consume_events, delete_agent, postgres_dsn, wait_for_run
-from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 from yuxi.agents.backends.sandbox import ProvisionerSandboxBackend, get_sandbox_provider
-from yuxi.workspace.paths import workspace_uid_dirname
 from yuxi.config import get_skill_projection_dir
+from yuxi.workspace.paths import workspace_uid_dirname
+
+from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
@@ -413,6 +413,7 @@ async def test_scheduled_task_run_now_reaches_exact_conversation_and_result(
             "/api/scheduled-tasks",
             headers=e2e_headers,
             json={
+                "request_id": f"scheduled-e2e-create-{uuid.uuid4()}",
                 "name": make_test_conversation_title("scheduled-agent"),
                 "project_id": project_id,
                 "agent_slug": agent_slug,
@@ -427,6 +428,7 @@ async def test_scheduled_task_run_now_reaches_exact_conversation_and_result(
         run_response = await e2e_client.post(
             f"/api/scheduled-tasks/{job_id}/run-now",
             headers=e2e_headers,
+            json={"request_id": f"scheduled-e2e-run-{uuid.uuid4()}"},
         )
         assert run_response.status_code == 200, run_response.text
         execution = run_response.json()

@@ -49,6 +49,19 @@ class ScheduledAgentRepository:
             stmt = stmt.with_for_update()
         return await self.db.scalar(stmt)
 
+    async def get_job_by_creation_request(
+        self,
+        uid: str,
+        request_id: str,
+    ) -> ScheduledAgentJob | None:
+        """按用户作用域读取幂等创建结果，包括已软删除任务。"""
+        return await self.db.scalar(
+            select(ScheduledAgentJob).where(
+                ScheduledAgentJob.uid == str(uid),
+                ScheduledAgentJob.creation_request_id == request_id,
+            )
+        )
+
     async def add_job(self, job: ScheduledAgentJob) -> ScheduledAgentJob:
         self.db.add(job)
         await self.db.flush()
@@ -157,6 +170,10 @@ class ScheduledAgentRepository:
         self.db.add(run)
         await self.db.flush()
         return run
+
+    async def get_run(self, run_id: str) -> ScheduledAgentRun | None:
+        """按稳定 ID 读取一次触发意图。"""
+        return await self.db.get(ScheduledAgentRun, run_id)
 
     async def list_dispatching_runs(self, *, before: datetime, limit: int = 100) -> list[ScheduledAgentRun]:
         result = await self.db.execute(

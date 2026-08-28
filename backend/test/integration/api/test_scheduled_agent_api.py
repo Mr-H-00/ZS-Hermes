@@ -60,6 +60,7 @@ async def test_scheduled_task_crud_persists_and_enforces_owner_scope(
         "/api/scheduled-tasks",
         headers=owner_headers,
         json={
+            "request_id": f"pytest-scheduled-create-{uuid.uuid4()}",
             "name": "Daily review",
             "project_id": project_id,
             "agent_slug": agent_slug,
@@ -72,6 +73,27 @@ async def test_scheduled_task_crud_persists_and_enforces_owner_scope(
     created = create_response.json()
     job_id = created["id"]
     assert created["tool_approval_mode"] == "default"
+
+    replay_payload = {
+        "request_id": f"pytest-scheduled-replay-{uuid.uuid4()}",
+        "name": "Replay-safe review",
+        "project_id": project_id,
+        "agent_slug": agent_slug,
+        "prompt": "Review replay safety",
+        "cron_expression": "0 10 * * *",
+        "timezone": "Asia/Shanghai",
+    }
+    first_replay = await test_client.post("/api/scheduled-tasks", headers=owner_headers, json=replay_payload)
+    second_replay = await test_client.post("/api/scheduled-tasks", headers=owner_headers, json=replay_payload)
+    assert first_replay.status_code == 200, first_replay.text
+    assert second_replay.status_code == 200, second_replay.text
+    assert second_replay.json()["id"] == first_replay.json()["id"]
+    conflicting_replay = await test_client.post(
+        "/api/scheduled-tasks",
+        headers=owner_headers,
+        json={**replay_payload, "prompt": "Different intent"},
+    )
+    assert conflicting_replay.status_code == 409, conflicting_replay.text
 
     update_response = await test_client.patch(
         f"/api/scheduled-tasks/{job_id}",
@@ -102,6 +124,7 @@ async def test_scheduled_task_crud_persists_and_enforces_owner_scope(
         await test_client.post(
             f"/api/scheduled-tasks/{job_id}/run-now",
             headers=admin_headers,
+            json={"request_id": f"pytest-admin-run-{uuid.uuid4()}"},
         )
     ).status_code == 404
     assert (
@@ -110,6 +133,21 @@ async def test_scheduled_task_crud_persists_and_enforces_owner_scope(
             headers=admin_headers,
         )
     ).status_code == 404
+
+    run_request_id = f"pytest-owner-run-{uuid.uuid4()}"
+    first_run = await test_client.post(
+        f"/api/scheduled-tasks/{job_id}/run-now",
+        headers=owner_headers,
+        json={"request_id": run_request_id},
+    )
+    second_run = await test_client.post(
+        f"/api/scheduled-tasks/{job_id}/run-now",
+        headers=owner_headers,
+        json={"request_id": run_request_id},
+    )
+    assert first_run.status_code == 200, first_run.text
+    assert second_run.status_code == 200, second_run.text
+    assert second_run.json()["id"] == first_run.json()["id"]
 
     delete_response = await test_client.delete(
         f"/api/scheduled-tasks/{job_id}",

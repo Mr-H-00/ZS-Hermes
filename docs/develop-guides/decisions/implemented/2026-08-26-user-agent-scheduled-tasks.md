@@ -10,7 +10,7 @@ Owner：backend/package/yuxi/services/scheduled_agent_service.py
 
 ## 决策
 
-PostgreSQL 保存用户自己的任务定义和触发记录。任务定义拥有 cron、IANA 时区、启用状态与下一次触发时间；触发记录只拥有 occurrence、配置快照和提交状态。`AgentRunRequest` 与 `AgentRun` 继续分别拥有排队和执行状态，接口查询时关联它们，不把运行结果周期复制回触发记录。
+PostgreSQL 保存用户自己的任务定义和触发记录。任务定义拥有 cron、IANA 时区、启用状态与下一次触发时间；触发记录只拥有 occurrence、配置快照和提交状态。首次创建携带由草稿持有的稳定 `request_id`，数据库以 `(uid, creation_request_id)` 唯一约束去重，并以不可变意图摘要拒绝同一 ID 对应不同配置。Run now 的一次点击同样持有稳定 `request_id`；触发 ID 由用户与该请求共同派生，同一用户把该 ID 用于其他任务时返回冲突。`AgentRunRequest` 与 `AgentRun` 继续分别拥有排队和执行状态，接口查询时关联它们，不把运行结果周期复制回触发记录。
 
 worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 `FOR UPDATE SKIP LOCKED` 领取到期任务。领取事务推进 `next_run_at`、创建唯一 occurrence 并提交，随后在 occurrence 行锁内使用稳定 request/thread ID 幂等调用 `submit_run_command`。明确的 Project、Agent 或请求契约错误终结 occurrence；未知瞬时错误保持 `dispatching`，恢复轮次在行锁内重查 Request 后再收敛。单条 occurrence 的失败只记录并留待下轮恢复；持久化计划若已无法计算下一次触发时间，则停用该任务并继续领取，二者都不阻断同批记录、其他到期任务或普通 worker 启动。停机错过多个周期时合并为一次，同一任务已有非终态 Request/Run 时记录 skipped。暂停期间不产生 occurrence，恢复时从当前时间重新计算下次触发。
 
@@ -34,7 +34,7 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 
 任务定义和 occurrence 成为 PostgreSQL 业务事实，调度复用现有 worker 健康与 AgentRun 生命周期。代价是 business schema 升至版本 3，并增加 `croniter` 依赖。任务删除保留历史 Conversation、Message 和 AgentRun；账号删除会清理任务与调度 occurrence，但已进入普通运行链路的 Conversation、Message 和 AgentRun 仍按各自生命周期处理。
 
-前端只保留列表和一个原地编辑器；频率转换、自动保存和 Agent 选择器各有一个就近、可独立验证的语义 Owner。无法完整填写的草稿不会发送请求；创建请求在途时的新输入会继续 PATCH 同一任务，旧请求回包不能覆盖更新的非法或失败状态，保存失败会保留同一 payload 并阻止任务、标签或路由切换；无法无损映射的 Cron 不会被结构化控件改写。
+前端只保留列表和一个原地编辑器；频率转换、自动保存和 Agent 选择器各有一个就近、可独立验证的语义 Owner。无法完整填写的草稿不会发送请求；创建请求在途时的新输入会继续 PATCH 同一任务，旧请求回包不能覆盖更新的非法或失败状态。创建结果未知时，前端会用同一 `request_id` 原样重放首次创建意图，恢复 `job_id` 后再用 PATCH 保存后续编辑；并发保存与导航共同等待同一个保存链路，在全部变更收敛前不能离开。Run now 只有收到服务端结果后才释放本次请求 ID，网络失败后的再次点击重放同一 occurrence。无法无损映射的 Cron 不会被结构化控件改写。
 
 ## 验证
 
@@ -42,12 +42,13 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 |---|---|---|---|---|---|
 | 用户只能管理自己的任务并绑定可见 Agent 与自有 Project | 越权读取、修改或触发 | router、service、repository | `python -m pytest -q test/integration/api/test_scheduled_agent_api.py` | 其他用户读取不到任务，修改、触发和删除均返回 404 | Passed |
 | 多 worker 对同一 occurrence 只创建一个触发意图，瞬时失败可以恢复 | 重复请求、模型副作用、occurrence 永久丢失或单条坏记录拖垮 worker | repository + scheduled service | service unit + `python -m pytest -q test/integration/services/test_scheduled_agent_repository.py` | 并发领取只能有一个事务取得任务；Request 写入前首次失败后恢复轮次只产生一个 Request；首条持续失败时同批第二条仍提交 | Passed |
+| 创建与 Run now 在响应丢失后可以安全重放 | 重复长期任务或手动 occurrence | autosave + scheduled service + PostgreSQL unique/primary key | web unit + router unit + `python -m pytest -q test/integration/api/test_scheduled_agent_api.py` | 同一 ID 与同一意图返回原记录；创建响应丢失后继续编辑会先原样恢复创建结果再 PATCH；同一 ID 改变创建配置或目标任务返回 409 | Passed |
 | 触发记录不复制 Request/Run 终态 | 镜像状态漂移后永久阻塞后续任务 | ScheduledAgentRun + AgentRunRequest + AgentRun 查询 | service unit + PostgreSQL integration | AgentRun 终态后重叠判断恢复为 false | Passed |
 | occurrence 提交后进入统一 Request/Run 与 worker 链路 | ARQ 先于持久事实，或只创建任务不执行 | scheduled service + submit_run_command + worker | `python -m pytest -q test/e2e/test_deterministic_agent_path_e2e.py::test_scheduled_task_run_now_reaches_exact_conversation_and_result` | E2E 回读 Run 终态、输出和同一 thread 历史 | Not run：Request/Run 前段已执行，但外部模型连接失败，未得到最终输出 |
 | schema 1 可以幂等升级，账号软删除同步清理任务数据 | main 数据库无法升级、丢失既有数据或删除账号后恢复旧任务 | storage migration + UserRepository + PostgreSQL constraints | `python -m pytest -q test/integration/services/test_schema_migration_version.py test/integration/services/test_scheduled_agent_repository.py` | 隔离 v1 schema 连续升级两次仍保留既有 User、Project、Job、Run；未知未来版本被拒绝；真实软删除后 Job 与 occurrence 均不存在 | Passed |
 | 暂停不补跑，恢复从当前时间计算下一次触发 | 恢复后立即执行暂停期旧时间 | scheduled service | service unit + PostgreSQL integration | `false → true` 后 `next_run_at` 晚于当前时间 | Passed |
 | 无人值守任务默认不完全信任工具 | 未显式授权即执行敏感工具 | router + service + editor | router/service unit + HTTP integration | 省略审批字段时持久化为 `default` | Passed |
-| 默认列表、按需展开、原地自动保存和历史跳转可用 | 首屏被表单占满、保存丢失或跳入相邻对话 | ScheduledAgentsView + ScheduledAgentEditor | web unit、lint、build、真实浏览器与 API 回读 | 延迟 create 期间继续编辑时最终只保留最新版；在途请求后出现非法编辑时旧回包不能放行；失败 payload 重试成功前任务、标签和路由均不能离开；历史必须同时具有 thread 与可用标记 | Passed |
+| 默认列表、按需展开、原地自动保存和历史跳转可用 | 首屏被表单占满、保存丢失或跳入相邻对话 | ScheduledAgentsView + ScheduledAgentEditor | web unit、lint、build、真实浏览器与 API 回读 | 延迟 create 期间继续编辑时最终只保留最新版；并发 flush 共同等待后续 PATCH，PATCH 失败不能放行导航；在途请求后出现非法编辑时旧回包不能放行；失败 payload 重试成功前任务、标签和路由均不能离开；历史必须同时具有 thread 与可用标记 | Passed |
 
 真实浏览器已覆盖默认列表、点击展开、新建草稿、自动保存 API 回读、运行历史跳转、浅色、暗色与 1024px 响应式。定时到点后的周期扫描未单独等待真实时钟触发；PostgreSQL claim integration 与 worker startup/reconciliation unit 分别覆盖领取和装配边界。
 

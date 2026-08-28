@@ -9,7 +9,6 @@ import uuid
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-
 from yuxi.storage.postgres.manager import BUSINESS_SCHEMA_VERSION, PostgresManager
 from yuxi.storage.postgres.models_business import Base
 
@@ -170,15 +169,23 @@ async def test_business_v1_upgrades_to_scheduled_schema_idempotently() -> None:
                 text(
                     """
                     INSERT INTO scheduled_agent_jobs (
-                        id, uid, project_id, agent_slug, name, prompt, tool_approval_mode,
+                        id, uid, creation_request_id, creation_intent_hash,
+                        project_id, agent_slug, name, prompt, tool_approval_mode,
                         cron_expression, timezone, enabled, next_run_at
                     ) VALUES (
-                        :job_id, :uid, :project_id, 'chatbot', 'Preserved Job', 'hello', 'default',
+                        :job_id, :uid, :creation_request_id, :creation_intent_hash,
+                        :project_id, 'chatbot', 'Preserved Job', 'hello', 'default',
                         '0 9 * * *', 'UTC', TRUE, CURRENT_TIMESTAMP
                     )
                     """
                 ),
-                {"job_id": job_id, "uid": uid, "project_id": project_id},
+                {
+                    "job_id": job_id,
+                    "uid": uid,
+                    "creation_request_id": f"migration-create-{uuid.uuid4()}",
+                    "creation_intent_hash": "0" * 64,
+                    "project_id": project_id,
+                },
             )
             await connection.execute(
                 text(
@@ -251,6 +258,7 @@ async def test_business_v1_upgrades_to_scheduled_schema_idempotently() -> None:
                             WHERE ns.nspname = :schema
                               AND con.conname IN (
                                   'fk_scheduled_agent_jobs_project_uid',
+                                  'uq_scheduled_agent_jobs_uid_creation_request',
                                   'scheduled_agent_runs_job_id_fkey',
                                   'uq_scheduled_agent_runs_job_occurrence',
                                   'uq_scheduled_agent_runs_request',
@@ -295,10 +303,13 @@ async def test_business_v1_upgrades_to_scheduled_schema_idempotently() -> None:
         assert tables == {"scheduled_agent_jobs", "scheduled_agent_runs"}
         assert {
             ("scheduled_agent_jobs", "model_spec"),
+            ("scheduled_agent_jobs", "creation_request_id"),
+            ("scheduled_agent_jobs", "creation_intent_hash"),
             ("scheduled_agent_runs", "model_spec"),
         }.issubset(columns)
         assert "ON DELETE CASCADE" in constraints["fk_scheduled_agent_jobs_project_uid"]
         assert "ON DELETE CASCADE" in constraints["scheduled_agent_runs_job_id_fkey"]
+        assert "UNIQUE (uid, creation_request_id)" in constraints["uq_scheduled_agent_jobs_uid_creation_request"]
         assert {
             "uq_scheduled_agent_runs_job_occurrence",
             "uq_scheduled_agent_runs_request",
