@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
-from yuxi_cli.client import YuxiClient, _iter_sse_events
+from yuxi_cli.client import ClientError, YuxiClient, _iter_sse_events
 from yuxi_cli.config import Remote
 
 
@@ -122,6 +123,63 @@ def test_list_external_databases_uses_external_path(monkeypatch):
         client.close()
     assert calls[-1]["method"] == "GET"
     assert calls[-1]["path"] == "/knowledge/databases/external"
+
+
+def test_list_agents_uses_visible_agent_path(monkeypatch):
+    client, calls = _patched_client(monkeypatch)
+    try:
+        client.list_agents()
+    finally:
+        client.close()
+    assert calls[-1]["method"] == "GET"
+    assert calls[-1]["path"] == "/agent"
+
+
+def test_get_agent_uses_slug_path(monkeypatch):
+    client, calls = _patched_client(monkeypatch)
+    try:
+        client.get_agent("research-agent")
+    finally:
+        client.close()
+    assert calls[-1]["method"] == "GET"
+    assert calls[-1]["path"] == "/agent/research-agent"
+
+
+def test_get_agent_keeps_slug_in_one_path_segment():
+    remote = Remote(name="local", url="http://localhost:5173", api_key="yxkey_test")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.raw_path == b"/api/agent/..%2Fsystem%2Finfo%3Ffull%3Dtrue"
+        return httpx.Response(404, json={"detail": "智能体不存在"})
+
+    client = YuxiClient(remote)
+    client.client.close()
+    client.client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ClientError, match="智能体不存在"):
+            client.get_agent("../system/info?full=true")
+    finally:
+        client.close()
+
+
+def test_get_agent_preserves_server_not_found_response():
+    remote = Remote(name="local", url="http://localhost:5173", api_key="yxkey_test")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/agent/hidden-agent"
+        assert request.headers["Authorization"] == "Bearer yxkey_test"
+        return httpx.Response(404, json={"detail": "智能体不存在"})
+
+    client = YuxiClient(remote)
+    client.client.close()
+    client.client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ClientError, match="智能体不存在") as exc_info:
+            client.get_agent("hidden-agent")
+    finally:
+        client.close()
+
+    assert exc_info.value.status_code == 404
 
 
 def test_list_external_files_passes_query_params(monkeypatch):

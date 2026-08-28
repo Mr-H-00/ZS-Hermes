@@ -97,6 +97,8 @@ async def test_discovery_declares_cli_knowledge_capabilities(test_client):
     expected = knowledge_capability_enabled()
     assert capabilities["features"]["knowledge"] is expected
     cli_capabilities = capabilities["cli"]
+    assert cli_capabilities["agent_list"] is True
+    assert cli_capabilities["agent_show"] is True
     for capability in ("kb_list", "kb_files", "kb_query", "kb_open", "kb_find"):
         assert cli_capabilities.get(capability) is expected, capability
     assert "kb_parse" not in cli_capabilities

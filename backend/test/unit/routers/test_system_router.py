@@ -26,6 +26,8 @@ def test_discovery_endpoint_is_public(monkeypatch):
     assert payload["capabilities"]["features"]["knowledge"] is True
     assert payload["capabilities"]["cli"]["browser_login"] is True
     assert payload["capabilities"]["cli"]["api_key_auth"] is True
+    assert payload["capabilities"]["cli"]["agent_list"] is True
+    assert payload["capabilities"]["cli"]["agent_show"] is True
     assert payload["capabilities"]["cli"]["kb_upload"] is True
     assert payload["endpoints"]["cli_auth_sessions"] == "/api/auth/cli/sessions"
     assert payload["endpoints"]["readiness"] == "/api/system/ready"

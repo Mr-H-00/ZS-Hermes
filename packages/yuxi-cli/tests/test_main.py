@@ -23,6 +23,22 @@ def test_agent_eval_help_is_registered():
     assert "--auth-token" not in output
 
 
+def test_agent_inspection_commands_are_registered():
+    result = CliRunner().invoke(app, ["agent", "--help"])
+    output = Text.from_ansi(result.output).plain
+
+    assert result.exit_code == 0
+    assert "list" in output
+    assert "show" in output
+    assert "eval" in output
+
+    show_help = CliRunner().invoke(app, ["agent", "show", "--help"])
+    show_output = Text.from_ansi(show_help.output).plain
+    assert show_help.exit_code == 0
+    assert "agent_slug" in show_output
+    assert "--json" in show_output
+
+
 def test_kb_upload_help_is_registered():
     result = CliRunner().invoke(app, ["kb", "upload", "--help"])
     output = Text.from_ansi(result.output).plain
