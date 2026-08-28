@@ -57,6 +57,8 @@ async def discovery():
                 "browser_login": True,
                 "api_key_auth": True,
                 "remote_config": True,
+                "agent_list": True,
+                "agent_show": True,
                 "kb_upload": knowledge_enabled,
                 "kb_list": knowledge_enabled,
                 "kb_files": knowledge_enabled,

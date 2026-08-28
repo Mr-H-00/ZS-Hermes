@@ -16,6 +16,7 @@ beta2 延续 beta1 的存储与数据库迁移边界。从 v0.7.1 或更早版�
 - Dashboard、用户管理分页、知识库 OCR 配置和数据库 schema 迁移入口完成收敛，减少大数据量和升级场景中的不一致。
 - pnpm 升级到 11.24.0、uv 升级到 0.12.6，并刷新 Web、docs、backend 与 CLI 锁文件；生产依赖审计无已知漏洞。
 - Vue 图标依赖从已废弃的 `lucide-vue-next` 迁移到官方 `@lucide/vue` 1.34.0，现有图标名称、尺寸和样式保持兼容。
+- CLI 新增 `yuxi agent list` 与 `yuxi agent show <slug>`：登录用户可以列出服务端授权可见的主 Agent、描述和默认标识，并查看指定 Agent 的模型、Skills、系统提示词、工具等角色过滤后的配置；命令支持 remote 选择和 JSON 输出，服务端 discovery 同步声明对应能力。
 
 ## 0.7.3 （当前）
 

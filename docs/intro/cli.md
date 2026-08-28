@@ -96,6 +96,22 @@ yuxi chat --remote production --no-open
 
 关闭终端中的进程后，本地页面也会停止。当前页面支持纯文本对话、新建会话、`/state` 查看线程状态和 `/approve` 继续工具审批；附件和 `ask_user_question` 仍需使用正式 Web 界面。
 
+## 查看可用 Agent
+
+列出当前账号有权调用的主 Agent：
+
+```bash
+yuxi agent list
+```
+
+列表中的 `*` 表示默认 Agent。使用 slug 查看服务端已授权返回的详细配置，包括绑定的模型、Skills、系统提示词、工具、MCP、知识库和子 Agent：
+
+```bash
+yuxi agent show default-chatbot
+```
+
+未显式绑定的资源显示为“默认（全部可用）”。`tools`、`knowledges`、`mcps` 和 `skills` 的显式空列表显示为“无”；`subagents` 的空列表仍按服务端契约显示为“默认（全部可用）”。这两条命令都支持 `--remote <name>` 切换实例，以及 `--json` 输出完整服务端响应。
+
 ## 上传知识库文件
 
 上传需要当前账号可以管理知识库。省略 `--kb-id` 时，CLI 会列出当前实例中支持文档上传的知识库供选择：
