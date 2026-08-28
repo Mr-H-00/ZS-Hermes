@@ -19,7 +19,7 @@ beta2 延续 beta1 的存储与数据库迁移边界。从 v0.7.1 或更早版�
 
 ## 0.7.3 （当前）
 
-- 通用后台 Task 从 API 进程内 coroutine 队列迁至 PostgreSQL 执行意图与 ARQ worker：注册 Handler 通过 owner/heartbeat/lease 执行，数据库去重阻止并发重复提交，失联任务按 restart/fail 策略收敛；business schema 由 1 相邻升级到 2。
+- 通用后台 Task 从 API 进程内 coroutine 队列迁至 PostgreSQL 执行意图与 ARQ worker：注册 Handler 通过 owner/heartbeat/lease 执行，数据库去重阻止并发重复提交，失联任务明确失败；business schema 由 1 相邻升级到 2。
 
 ## v0.7.2.beta1 (2026-08-23)
 

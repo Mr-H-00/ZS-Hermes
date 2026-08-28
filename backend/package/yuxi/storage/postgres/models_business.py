@@ -814,7 +814,6 @@ class TaskRecord(Base):
     result = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     cancel_requested = Column(Integer, nullable=False, default=0)
-    recovery_strategy = Column(String(16), nullable=False, default="fail")
     handler_version = Column(Integer, nullable=False, default=1)
     dedupe_key = Column(String(64), nullable=True)
     attempt_count = Column(Integer, nullable=False, default=0)
@@ -843,7 +842,6 @@ class TaskRecord(Base):
             "result": self.result,
             "error": self.error,
             "cancel_requested": bool(self.cancel_requested),
-            "recovery_strategy": self.recovery_strategy,
             "handler_version": int(self.handler_version if self.handler_version is not None else 1),
             "dedupe_key": self.dedupe_key,
             "attempt_count": int(self.attempt_count or 0),

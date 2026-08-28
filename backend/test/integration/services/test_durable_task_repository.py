@@ -84,7 +84,7 @@ async def durable_task_schema(monkeypatch):
         await admin_engine.dispose()
 
 
-def _task_data(*, dedupe_key: str | None = None, recovery_strategy: str = "fail") -> dict:
+def _task_data(*, dedupe_key: str | None = None) -> dict:
     now = utc_now_naive()
     return {
         "name": "pytest durable task",
@@ -96,7 +96,6 @@ def _task_data(*, dedupe_key: str | None = None, recovery_strategy: str = "fail"
         "result": None,
         "error": None,
         "cancel_requested": 0,
-        "recovery_strategy": recovery_strategy,
         "handler_version": 1,
         "dedupe_key": dedupe_key,
         "attempt_count": 0,
@@ -138,24 +137,6 @@ async def test_concurrent_claim_has_single_owner_and_rejects_late_writer(durable
     persisted = await repo.get_by_id(task_id)
     assert persisted.status == "failed"
     assert persisted.error.startswith("worker_lease_expired")
-    assert persisted.worker_id is None
-
-
-async def test_restart_policy_requeues_expired_task(durable_task_schema) -> None:
-    task_id = uuid.uuid4().hex
-    repo = TaskRepository()
-    await repo.create(task_id, _task_data(dedupe_key=uuid.uuid4().hex, recovery_strategy="restart"))
-    now = utc_now_naive()
-
-    _, claimed = await repo.claim(task_id, worker_id="owner-a", lease_seconds=5, now=now)
-    assert claimed is True
-
-    reconciled = await repo.reconcile_expired_leases(now=now + timedelta(seconds=6))
-
-    assert reconciled == [(task_id, "pending", 1)]
-    persisted = await repo.get_by_id(task_id)
-    assert persisted.status == "pending"
-    assert persisted.dedupe_key is not None
     assert persisted.worker_id is None
 
 

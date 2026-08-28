@@ -37,7 +37,6 @@ def make_record(**overrides) -> FakeRecord:
         "result": None,
         "error": None,
         "cancel_requested": 0,
-        "recovery_strategy": "fail",
         "handler_version": 1,
         "dedupe_key": None,
         "attempt_count": 0,
@@ -123,7 +122,7 @@ class FakeRepo:
 
     async def release_interrupted_owner(self, task_id: str, *, worker_id: str, error: str, before_fail=None):
         self.release_calls.append(error)
-        self.record.status = "pending" if self.record.recovery_strategy == "restart" else "failed"
+        self.record.status = "failed"
         self.record.error = error
         return self.record.status
 
@@ -145,7 +144,6 @@ class FakeRepo:
 @dataclass
 class FakeDefinition:
     handler: Any
-    recovery_strategy: str = "fail"
     version: int = 1
     requires_knowledge: bool = False
 
@@ -381,7 +379,7 @@ async def test_heartbeat_error_cancels_handler_as_lost_lease(monkeypatch):
 
 
 async def test_parent_job_cancellation_waits_for_handler_exit(monkeypatch):
-    record = make_record(recovery_strategy="fail")
+    record = make_record()
     repo = FakeRepo(record)
     started = asyncio.Event()
     stopped = asyncio.Event()

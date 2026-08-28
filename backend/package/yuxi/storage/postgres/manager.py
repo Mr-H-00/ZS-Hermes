@@ -191,10 +191,6 @@ KNOWLEDGE_FILE_TASK_OWNER_SCHEMA_STATEMENTS = (
     """,
 )
 TASK_DURABLE_SCHEMA_STATEMENTS = (
-    "ALTER TABLE IF EXISTS tasks ADD COLUMN IF NOT EXISTS recovery_strategy VARCHAR(16)",
-    "UPDATE tasks SET recovery_strategy = 'fail' WHERE recovery_strategy IS NULL",
-    "ALTER TABLE IF EXISTS tasks ALTER COLUMN recovery_strategy SET DEFAULT 'fail'",
-    "ALTER TABLE IF EXISTS tasks ALTER COLUMN recovery_strategy SET NOT NULL",
     "ALTER TABLE IF EXISTS tasks ADD COLUMN IF NOT EXISTS handler_version INTEGER",
     "UPDATE tasks SET handler_version = 0 WHERE handler_version IS NULL",
     "ALTER TABLE IF EXISTS tasks ALTER COLUMN handler_version SET DEFAULT 1",

@@ -37,7 +37,7 @@
 
 ## 失败和修复
 
-图谱任务把可序列化 payload 持久化到 PostgreSQL，再由 ARQ worker 领取。Task 行的 attempt owner 与 lease 拒绝重复执行和迟到写入；图谱 Handler 使用 `fail` 恢复策略，worker 失联时任务明确失败，不在未知 Neo4j 或 Milvus 副作用上自动重放。任务失败或取消后：
+图谱任务把可序列化 payload 持久化到 PostgreSQL，再由 ARQ worker 领取。Task 行的 attempt owner 与 lease 拒绝重复执行和迟到写入；所有 Durable Task 在 owner 中断或 lease 过期后都会明确失败，不在未知 Neo4j 或 Milvus 副作用上自动重放。任务失败或取消后：
 
 1. 先保留任务错误和失败 chunk；
 2. 检查 PostgreSQL 的 chunk 与处理状态；

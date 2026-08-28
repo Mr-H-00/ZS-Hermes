@@ -40,7 +40,6 @@ class Task:
     result: Any | None = None
     error: str | None = None
     cancel_requested: bool = False
-    recovery_strategy: str = "fail"
     handler_version: int = 1
     dedupe_key: str | None = None
     attempt_count: int = 0
@@ -326,7 +325,6 @@ class Tasker:
             "result": None,
             "error": None,
             "cancel_requested": 0,
-            "recovery_strategy": definition.recovery_strategy,
             "handler_version": definition.version,
             "dedupe_key": dedupe_key,
             "attempt_count": 0,

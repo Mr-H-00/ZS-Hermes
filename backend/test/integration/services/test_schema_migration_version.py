@@ -149,15 +149,11 @@ async def test_business_v1_to_v2_adds_durable_task_contract_idempotently() -> No
             )
             row = (
                 await connection.execute(
-                    text(
-                        "SELECT status, error, recovery_strategy, handler_version, attempt_count "
-                        "FROM tasks WHERE id = 'legacy-running'"
-                    )
+                    text("SELECT status, error, handler_version, attempt_count FROM tasks WHERE id = 'legacy-running'")
                 )
             ).one()
 
         assert {
-            "recovery_strategy",
             "handler_version",
             "dedupe_key",
             "attempt_count",
@@ -166,7 +162,7 @@ async def test_business_v1_to_v2_adds_durable_task_contract_idempotently() -> No
             "lease_expires_at",
             "timeout_seconds",
         } <= columns
-        assert tuple(row) == ("running", None, "fail", 0, 0)
+        assert tuple(row) == ("running", None, 0, 0)
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 
@@ -239,12 +235,11 @@ async def test_unversioned_baseline_repairs_existing_legacy_task_table() -> None
             row = (
                 await connection.execute(
                     text(
-                        "SELECT status, error, recovery_strategy, handler_version, lease_expires_at "
-                        "FROM tasks WHERE id = 'legacy-pending'"
+                        "SELECT status, error, handler_version, lease_expires_at FROM tasks WHERE id = 'legacy-pending'"
                     )
                 )
             ).one()
-        assert tuple(row) == ("pending", None, "fail", 0, None)
+        assert tuple(row) == ("pending", None, 0, None)
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 

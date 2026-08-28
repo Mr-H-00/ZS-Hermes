@@ -14,7 +14,7 @@ PostgreSQL `tasks` 行拥有通用任务的持久执行意图、当前状态、�
 
 独立 `worker-dev` 从静态 registry 惰性加载领域 service Handler。worker 用唯一 attempt token 原子 claim pending Task；只有 lease 仍有效的当前 owner 可以更新进度、结果和终态。领域 callback 完成后以 PostgreSQL 实时时钟再次验证 lease，失权会回滚 owning transaction。共享 worker 显式提供 10 个 ARQ 槽，Durable Task 的数据库 claim 上限为 4，使长知识任务无法占满 AgentRun 容量。重复 ARQ 消息不能取得运行中任务，旧 owner 在 lease 过期后不能提交迟到结果。worker 的 Durable Task reconciler 与 ARQ、AgentRun reconciler 一同发布短 TTL readiness 事实。
 
-TaskDefinition 为每类任务固定 `restart` 或 `fail` 恢复策略。当前 shipping Handler 全部使用 fail；评估数据集与 Run 的增量 checkpoint 在 Task 行锁事务中验证 attempt，知识文件的 `parsing/indexing` 中间态绑定 Task 与 attempt owner。Task 失联时 failure hook 在 Task 终态事务内将仍属该 Task 的文件收敛为对应错误态；旧 attempt 不能提交迟到文件终态。数据集失联后通过显式 resume 创建新 Task。通用 runtime 保留 restart 状态转换供已经证明幂等且具备 fencing 的后续 Handler 使用，不持久化 Python 调用栈，也不猜测领域 checkpoint。
+Task 失联时统一失败，failure hook 在 Task 终态事务内将仍属该 Task 的文件收敛为对应错误态；旧 attempt 不能提交迟到文件终态。评估数据集与 Run 的增量 checkpoint 在 Task 行锁事务中验证 attempt，知识文件的 `parsing/indexing` 中间态绑定 Task 与 attempt owner。数据集失联后通过显式 resume 创建新 Task。通用 runtime 不持久化 Python 调用栈，也不猜测领域 checkpoint；只有领域 Handler 已证明副作用幂等并具备 fencing 时，才连同它的恢复语义引入自动重试。
 
 知识库 ingest/parse/index、图谱和评估 Handler 位于各自 service，HTTP 路由只提交序列化 payload。评估领域对象与 Task intent 同事务创建或关联；数据库唯一约束拥有活跃任务去重，终态释放 dedupe key。LITE 加载通用 runtime 与 registry metadata，但不 claim、取消、删除、裁剪或收敛 knowledge Task，也不导入 knowledge Handler。
 
@@ -37,7 +37,7 @@ business schema 与 knowledge schema 版本均为 2。storage-migrator 独占执
 
 ## 验证
 
-- `uv run --group test pytest -q test/unit -m 'not slow'`：1576 passed；覆盖提交顺序、发布失败保留 pending、数据库去重、Handler 重建、重复投递、timeout/cancel/shutdown、LITE capability boundary 和 worker/readiness 装配。
+- `uv run --group test pytest -q test/unit -m 'not slow'`：1604 passed；覆盖提交顺序、发布失败保留 pending、数据库去重、Handler 重建、重复投递、timeout/cancel/shutdown、LITE capability boundary 和 worker/readiness 装配。
 - 临时 PostgreSQL Schema 中运行 `test_schema_migration_version.py` 与 `test_durable_task_repository.py`：24 passed；覆盖 legacy baseline 与 handler version 0、business/knowledge 1→2、并发 claim/dedupe、数据库时钟、领域 callback 与文件行锁等待、迟到 owner、Durable Task 容量上限、所有 Task 终态 hook、评估 checkpoint fencing、超过 200 条任务的摘要和 LITE 不消费语义。
 - full-mode shipping worker path：临时 PostgreSQL 数据库与独立 Redis DB 中故障注入首次 ARQ publication 失败，提交进程退出后回读 Task 与 Dataset 均为 pending；随后启动真实 `arq server.worker_main.WorkerSettings`，由 worker startup publisher 将 Task 与 Dataset 收敛为 `success/completed`，`attempt_count=1` 且 owner 已释放。该两进程测试已接入 `system-tests.yml` 的 full-mode 阶段。
 - `uv run --group test ruff check package server test`：通过；本次修改 Python 文件的 `ruff format --check` 通过。

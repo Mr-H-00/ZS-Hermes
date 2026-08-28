@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from importlib import import_module
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from yuxi.services.task_service import TaskContext
@@ -11,17 +11,15 @@ if TYPE_CHECKING:
 TaskHandler = Callable[["TaskContext"], Awaitable[object]]
 TaskSuccessHandler = Callable[[object, object, object], Awaitable[None]]
 TaskFailureHandler = Callable[[object, object, str], Awaitable[None]]
-RecoveryStrategy = Literal["fail", "restart"]
 
 
 @dataclass(frozen=True)
 class TaskDefinition:
-    """描述可持久重建的任务 Handler 与失联恢复策略。"""
+    """描述可持久重建的任务 Handler。"""
 
     task_type: str
     module: str
     function: str
-    recovery_strategy: RecoveryStrategy = "fail"
     success_function: str | None = None
     failure_function: str | None = None
     version: int = 1

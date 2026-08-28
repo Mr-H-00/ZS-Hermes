@@ -359,19 +359,19 @@ class TaskRepository:
         before_fail: Callable[[Any, TaskRecord], Awaitable[None]] | None = None,
         now: datetime | None = None,
     ) -> str | None:
-        """优雅中断时按恢复策略重新排队或明确失败。"""
+        """优雅中断时明确失败并释放执行权。"""
         async with pg_manager.get_async_session_context() as session:
             record = await self._lock_task(session, task_id)
             current_time = await self._current_time(session, now)
             if not self._is_live_owner(record, worker_id=worker_id, now=current_time):
                 return None
-            if record.recovery_strategy != "restart" and before_fail is not None:
+            if before_fail is not None:
                 await before_fail(session, record)
                 current_time = await self._current_time(session, now)
                 if not self._is_live_owner(record, worker_id=worker_id, now=current_time):
                     await session.rollback()
                     return None
-            next_status = self._apply_interrupted_transition(record, error=error, now=current_time)
+            next_status = self._fail_interrupted_task(record, error=error, now=current_time)
             await session.flush()
             return next_status
 
@@ -397,9 +397,9 @@ class TaskRepository:
             reconciled: list[tuple[str, str, int]] = []
             for record in result.scalars().all():
                 error = "worker_lease_expired: 执行 worker 的 lease 已过期，任务副作用结果未知"
-                if record.recovery_strategy != "restart" and before_fail is not None:
+                if before_fail is not None:
                     await before_fail(session, record, error)
-                next_status = self._apply_interrupted_transition(
+                next_status = self._fail_interrupted_task(
                     record,
                     error=error,
                     now=current_time,
@@ -483,18 +483,12 @@ class TaskRepository:
         if clear_dedupe:
             record.dedupe_key = None
 
-    def _apply_interrupted_transition(self, record: TaskRecord, *, error: str, now: datetime) -> str:
-        if record.recovery_strategy == "restart" and not record.cancel_requested:
-            record.status = "pending"
-            record.message = "执行中断，等待重新投递"
-            record.error = error
-            self._clear_execution(record, clear_dedupe=False)
-        else:
-            record.status = "failed"
-            record.progress = 100.0
-            record.message = "执行中断，无法安全自动恢复"
-            record.error = error
-            record.completed_at = now
-            self._clear_execution(record, clear_dedupe=True)
+    def _fail_interrupted_task(self, record: TaskRecord, *, error: str, now: datetime) -> str:
+        record.status = "failed"
+        record.progress = 100.0
+        record.message = "执行中断，无法安全自动恢复"
+        record.error = error
+        record.completed_at = now
+        self._clear_execution(record, clear_dedupe=True)
         record.updated_at = now
         return record.status
