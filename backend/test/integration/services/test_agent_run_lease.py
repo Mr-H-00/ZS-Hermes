@@ -20,7 +20,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
 from yuxi.services import chat_service, run_worker
-from yuxi.storage.postgres.manager import AGENT_RUN_LEASE_SCHEMA_STATEMENTS, RUNTIME_SCOPE_SCHEMA_STATEMENTS
+from yuxi.storage.postgres.manager import (
+    AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
+    AGENT_RUN_LEASE_SCHEMA_STATEMENTS,
+    RUNTIME_SCOPE_SCHEMA_STATEMENTS,
+)
 from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, Project, SubagentThread, User
 from yuxi.utils.datetime_utils import utc_now_naive
 
@@ -32,7 +36,7 @@ async def lease_database():
     engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
     async with engine.begin() as connection:
         for _ in range(2):
-            for statement in AGENT_RUN_LEASE_SCHEMA_STATEMENTS:
+            for statement in (*AGENT_RUN_LEASE_SCHEMA_STATEMENTS, *AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS):
                 await connection.execute(text(statement))
         await connection.execute(text(RUNTIME_SCOPE_SCHEMA_STATEMENTS[-1]))
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -402,6 +406,80 @@ async def test_agent_run_lease_schema_evolution_is_idempotent(lease_database):
 
     assert columns == {"worker_id", "heartbeat_at", "lease_expires_at"}
     assert index_exists is True
+
+
+async def test_langfuse_trace_is_idempotent_and_lease_fenced(lease_database):
+    """Trace 只能由当前 attempt 固化，且重复事件不能改写既有绑定。"""
+    _, session_factory = lease_database
+    now = utc_now_naive()
+    owner = "worker-trace:attempt-owner"
+    run_id, thread_id, _ = await _create_run(session_factory)
+
+    try:
+        async with session_factory() as db:
+            run, acquired = await AgentRunRepository(db).mark_running(
+                run_id,
+                worker_id=owner,
+                lease_seconds=60,
+                now=now,
+            )
+            assert acquired is True
+            await db.commit()
+
+        async with session_factory() as db:
+            repository = AgentRunRepository(db)
+            await repository.set_langfuse_trace_id(
+                run_id,
+                "trace-1",
+                worker_id=owner,
+                now=now + timedelta(seconds=1),
+            )
+            await repository.set_langfuse_trace_id(
+                run_id,
+                "trace-1",
+                worker_id=owner,
+                now=now + timedelta(seconds=2),
+            )
+            await db.commit()
+
+        async with session_factory() as db:
+            with pytest.raises(ValueError, match="当前有效 AgentRun lease owner"):
+                await AgentRunRepository(db).set_langfuse_trace_id(
+                    run_id,
+                    "trace-1",
+                    worker_id="worker-trace:stale-attempt",
+                    now=now + timedelta(seconds=3),
+                )
+            await db.rollback()
+
+        async with session_factory() as db:
+            with pytest.raises(ValueError, match="已绑定不同"):
+                await AgentRunRepository(db).set_langfuse_trace_id(
+                    run_id,
+                    "trace-2",
+                    worker_id=owner,
+                    now=now + timedelta(seconds=4),
+                )
+            await db.rollback()
+
+        async with session_factory() as db:
+            persisted = await db.get(AgentRun, run_id)
+            columns = {
+                row.column_name
+                for row in (
+                    await db.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_name = 'agent_runs' AND column_name = 'langfuse_trace_id'"
+                        )
+                    )
+                )
+            }
+
+        assert persisted.langfuse_trace_id == "trace-1"
+        assert columns == {"langfuse_trace_id"}
+    finally:
+        await _cleanup_runs(session_factory, [thread_id])
 
 
 async def test_heartbeat_and_terminal_transition_require_exact_attempt_owner(

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Lock
+from urllib.parse import parse_qs, urlparse
 
 EXPECTED_OUTPUT = "DETERMINISTIC_AGENT_E2E_OK"
 EXPECTED_AUTHORIZATION = "Bearer ci-replay-key"
@@ -14,6 +17,9 @@ EXPECTED_PRELOADED_SKILL_MARKER = "# 图片生成技能"
 EXPECTED_PRELOADED_TOOL = "present_artifacts"
 EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
 EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
+BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
+BLOCKING_REQUEST_TOKENS: set[str] = set()
+BLOCKING_REQUEST_TOKENS_LOCK = Lock()
 
 
 def _validate_request(authorization: str | None, request: dict) -> str | None:
@@ -115,8 +121,15 @@ class ReplayHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path == "/health":
+        parsed = urlparse(self.path)
+        if parsed.path == "/health":
             self._write_json(200, {"status": "ok"})
+            return
+        if parsed.path == "/blocking-started":
+            token = (parse_qs(parsed.query).get("token") or [""])[0]
+            with BLOCKING_REQUEST_TOKENS_LOCK:
+                started = token in BLOCKING_REQUEST_TOKENS
+            self._write_json(200, {"started": started})
             return
         self._write_json(404, {"error": "not_found"})
 
@@ -136,6 +149,13 @@ class ReplayHandler(BaseHTTPRequestHandler):
         if request_error:
             self._write_json(422, {"error": request_error})
             return
+
+        serialized_messages = json.dumps(request["messages"], ensure_ascii=False)
+        blocking_match = re.search(rf"{BLOCK_BEFORE_RESPONSE_MARKER}:([0-9a-f-]+)", serialized_messages)
+        if blocking_match:
+            with BLOCKING_REQUEST_TOKENS_LOCK:
+                BLOCKING_REQUEST_TOKENS.add(blocking_match.group(1))
+            time.sleep(60)
 
         model = str(request["model"])
         self.send_response(200)

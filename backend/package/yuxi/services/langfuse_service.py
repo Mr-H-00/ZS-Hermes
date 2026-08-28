@@ -167,10 +167,8 @@ def get_trace_info(run_context: LangfuseRunContext | None) -> dict[str, Any]:
 
     metadata = run_context.metadata or {}
     trace_id = run_context.trace_id
-    if run_context.callbacks:
-        last_trace_id = getattr(run_context.callbacks[0], "last_trace_id", None)
-        if last_trace_id:
-            trace_id = last_trace_id
+    if not trace_id and run_context.callbacks:
+        trace_id = getattr(run_context.callbacks[0], "last_trace_id", None)
 
     if not trace_id:
         return {}
@@ -278,10 +276,8 @@ async def get_trace_url_async(
         return None
 
     trace_id = run_context.trace_id
-    if run_context.callbacks:
-        last_trace_id = getattr(run_context.callbacks[0], "last_trace_id", None)
-        if last_trace_id:
-            trace_id = last_trace_id
+    if not trace_id and run_context.callbacks:
+        trace_id = getattr(run_context.callbacks[0], "last_trace_id", None)
 
     if not trace_id:
         return None

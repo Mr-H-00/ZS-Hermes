@@ -847,7 +847,7 @@ async def get_agent_run_result(*, run_id: str, current_uid: str, db: AsyncSessio
         "agent_run_id": run.id,
         "request_id": run.request_id,
         "final_message_id": output_message.id if output_message else None,
-        "langfuse_trace_id": output_metadata.get("langfuse_trace_id"),
+        "langfuse_trace_id": getattr(run, "langfuse_trace_id", None) or output_metadata.get("langfuse_trace_id"),
         "token_usage": getattr(run, "token_usage", None) or {},
     }
     if run.error_type or run.error_message:
@@ -856,7 +856,7 @@ async def get_agent_run_result(*, run_id: str, current_uid: str, db: AsyncSessio
 
 
 async def get_agent_run_langfuse_link(*, run_id: str, current_uid: str, db: AsyncSession) -> dict:
-    """按用户可见 Run 的权威输出绑定解析 Langfuse 跳转地址。"""
+    """按用户可见 Run 自身的 trace 关联解析 Langfuse 跳转地址。"""
     result = await get_agent_run_result(run_id=run_id, current_uid=current_uid, db=db)
     if result.get("error", {}).get("type") == "run_not_found":
         raise HTTPException(status_code=404, detail="运行任务不存在")

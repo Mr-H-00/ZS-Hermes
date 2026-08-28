@@ -57,7 +57,12 @@ jobs:
           sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=${JWT_SECRET_KEY}/" .env
           sed -i "s/^API_KEY_DERIVATION_SECRET=.*/API_KEY_DERIVATION_SECRET=${API_KEY_DERIVATION_SECRET}/" .env
           sed -i "s/^SANDBOX_PROVISIONER_TOKEN=.*/SANDBOX_PROVISIONER_TOKEN=${SANDBOX_PROVISIONER_TOKEN}/" .env
-          grep -E "^(JWT_SECRET_KEY|API_KEY_DERIVATION_SECRET|SANDBOX_PROVISIONER_TOKEN)=.+" .env
+          cat >> .env <<'EOF'
+          LANGFUSE_PUBLIC_KEY=ci-langfuse-public-key
+          LANGFUSE_SECRET_KEY=ci-langfuse-secret-key
+          LANGFUSE_BASE_URL=http://api:8765
+          EOF
+          grep -E "^(JWT_SECRET_KEY|API_KEY_DERIVATION_SECRET|SANDBOX_PROVISIONER_TOKEN|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_BASE_URL)=.+" .env
       - name: Start focused runtime topology
         run: docker compose up -d --build postgres redis minio sandbox-provisioner api worker
       - name: Wait for truthful readiness

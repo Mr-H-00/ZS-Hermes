@@ -156,9 +156,13 @@ class _FakeContext:
 class _FakeSession:
     def __init__(self):
         self.commit_count = 0
+        self.rollback_count = 0
 
     async def commit(self):
         self.commit_count += 1
+
+    async def rollback(self):
+        self.rollback_count += 1
 
 
 class _FakeConvRepo:
@@ -245,6 +249,52 @@ def test_subagent_attachment_root_rejects_same_path_from_different_project() -> 
         )
 
 
+@pytest.mark.asyncio
+async def test_persist_agent_run_langfuse_trace_commits_before_execution(monkeypatch: pytest.MonkeyPatch):
+    calls: dict[str, object] = {}
+    db = _FakeSession()
+
+    class FakeRunRepository:
+        def __init__(self, session):
+            assert session is db
+
+        async def set_langfuse_trace_id(self, run_id, trace_id, *, worker_id):
+            calls.update(run_id=run_id, trace_id=trace_id, worker_id=worker_id)
+            return SimpleNamespace(id=run_id)
+
+    monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepository)
+
+    await svc._persist_agent_run_langfuse_trace(
+        db=db,
+        meta={"run_id": "run-1", "worker_id": "worker-1"},
+        run_context=SimpleNamespace(trace_id="trace-1"),
+    )
+
+    assert calls == {"run_id": "run-1", "trace_id": "trace-1", "worker_id": "worker-1"}
+    assert db.commit_count == 1
+    assert db.rollback_count == 0
+
+
+@pytest.mark.asyncio
+async def test_persist_agent_run_langfuse_trace_skips_when_langfuse_is_disabled(monkeypatch: pytest.MonkeyPatch):
+    db = _FakeSession()
+
+    class UnexpectedRepository:
+        def __init__(self, _session):
+            raise AssertionError("Langfuse 禁用时不应访问 AgentRun repository")
+
+    monkeypatch.setattr(svc, "AgentRunRepository", UnexpectedRepository)
+
+    await svc._persist_agent_run_langfuse_trace(
+        db=db,
+        meta={"run_id": "run-1", "worker_id": "worker-1"},
+        run_context=SimpleNamespace(trace_id=None),
+    )
+
+    assert db.commit_count == 0
+    assert db.rollback_count == 0
+
+
 def test_build_langfuse_run_context_reads_evaluation_from_invocation_meta(monkeypatch: pytest.MonkeyPatch):
     calls: dict[str, object] = {}
 
@@ -292,11 +342,30 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
     calls: dict[str, object] = {}
     db = _FakeSession()
 
+    class FakeRunRepository:
+        def __init__(self, session):
+            assert session is db
+
+        async def set_langfuse_trace_id(self, run_id, trace_id, *, worker_id):
+            calls["trace_binding"] = {
+                "run_id": run_id,
+                "trace_id": trace_id,
+                "worker_id": worker_id,
+            }
+            return SimpleNamespace(id=run_id)
+
+    monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepository)
+
     class FakeAgent:
         context_schema = _FakeContext
 
         async def stream_messages_with_state(self, messages, input_context=None, **kwargs):
-            assert db.commit_count == 1
+            assert db.commit_count == 2
+            assert calls["trace_binding"] == {
+                "run_id": "run-1",
+                "trace_id": "trace-seeded",
+                "worker_id": "worker-1",
+            }
             calls["stream_messages"] = messages
             calls["stream_input_context"] = input_context
             calls["stream_kwargs"] = kwargs
@@ -378,7 +447,7 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
             trace_id="trace-seeded",
         ),
         get_trace_info=lambda _run_context: {
-            "langfuse_trace_id": "trace-runtime",
+            "langfuse_trace_id": "trace-seeded",
             "langfuse_session_id": "thread-1",
         },
         flush_langfuse=lambda: calls.setdefault("flushed", True),
@@ -388,7 +457,7 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
     async for chunk in svc.stream_agent_chat(
         agent_slug="test-agent",
         thread_id="thread-1",
-        meta={"request_id": "req-1"},
+        meta={"request_id": "req-1", "run_id": "run-1", "worker_id": "worker-1"},
         input_message=build_chat_input_message("hello"),
         current_user=SimpleNamespace(id=1, uid="user-1", role="user", department_id="dept-1"),
         db=db,
@@ -401,7 +470,7 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
             "temperature": 0.1,
             "uid": "user-1",
             "thread_id": "thread-1",
-            "run_id": None,
+            "run_id": "run-1",
             "request_id": "req-1",
         }.items()
     )
@@ -415,7 +484,7 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
     assert "current.txt" in model_message.content
     assert "history.txt" in model_message.content
     assert calls["saved_state"]["trace_info"] == {
-        "langfuse_trace_id": "trace-runtime",
+        "langfuse_trace_id": "trace-seeded",
         "langfuse_session_id": "thread-1",
     }
     assert calls["saved_state"]["context"].thread_id == "thread-1"

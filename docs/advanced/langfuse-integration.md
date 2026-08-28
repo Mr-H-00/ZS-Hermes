@@ -49,7 +49,7 @@ docker compose up -d --force-recreate api worker
 4. 核对 trace 中的模型调用、工具调用、metadata 和耗时。
 5. 对助手消息提交一次测试反馈，再检查 `user-feedback` score。
 
-超级管理员还可以在 Yuxi 的调试面板中开启对话 Debug，从消息对应的 Run 入口打开 Langfuse trace。Yuxi 会先检查当前用户是否能看到这个 Run，再读取同一 Run 输出消息中的 trace ID；没有持久化 trace、Langfuse 未配置或 URL 不在允许来源时，页面会提示不可用，不会从相邻 Run 推测结果。
+超级管理员还可以在 Yuxi 的调试面板中开启对话 Debug，从消息对应的 Run 入口打开 Langfuse trace。Yuxi 会先检查当前用户是否能看到这个 Run，再读取 Run 自身的 trace ID；历史 Run 可以从其权威输出消息兼容读取。配置 Langfuse 的 Run 在模型执行前固化关联，因此执行中失败、取消或中断且没有最终助手消息时仍可跳转。没有持久化 trace、Langfuse 未配置或 URL 不在允许来源时，页面会提示不可用，不会从相邻 Run 推测结果。
 
 ## 常见问题
 

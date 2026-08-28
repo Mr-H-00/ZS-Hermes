@@ -77,6 +77,52 @@ async def test_schema_migration_lock_serializes_real_postgres_sessions() -> None
         await engine.dispose()
 
 
+async def test_business_v1_to_v2_migration_adds_trace_column_before_version_publication() -> None:
+    """相邻迁移必须先提交 AgentRun trace 列，再发布 business v2。"""
+    schema = f"pytest_schema_upgrade_{uuid.uuid4().hex[:16]}"
+    admin_engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+    scoped_engine = None
+
+    try:
+        async with admin_engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+
+        scoped_engine = create_async_engine(
+            os.environ["POSTGRES_URL"],
+            pool_pre_ping=True,
+            connect_args={"server_settings": {"search_path": schema}},
+        )
+        manager = _scoped_manager(scoped_engine)
+        async with scoped_engine.begin() as connection:
+            await connection.execute(text("CREATE TABLE agent_runs (id VARCHAR(64) PRIMARY KEY)"))
+
+        await manager.create_schema_version_table()
+        await manager.record_schema_version("business", 1)
+        await manager.migrate_business_schema_v1_to_v2()
+        await manager.migrate_business_schema_v1_to_v2()
+        await manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
+        await manager.require_current_schema(include_knowledge=False)
+
+        async with scoped_engine.connect() as connection:
+            column_exists = await connection.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = 'agent_runs' "
+                    "AND column_name = 'langfuse_trace_id')"
+                ),
+                {"schema": schema},
+            )
+
+        assert column_exists is True
+        assert await manager.get_schema_versions() == {"business": BUSINESS_SCHEMA_VERSION}
+    finally:
+        if scoped_engine is not None:
+            await scoped_engine.dispose()
+        async with admin_engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await admin_engine.dispose()
+
+
 async def test_schema_version_is_persisted_and_runtime_validation_fails_closed() -> None:
     """版本表缺失、错误和正确三种状态必须形成精确启动结论。"""
     schema = f"pytest_schema_version_{uuid.uuid4().hex[:16]}"

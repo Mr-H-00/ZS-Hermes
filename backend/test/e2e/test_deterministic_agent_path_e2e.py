@@ -25,6 +25,7 @@ EXPECTED_OUTPUT = "DETERMINISTIC_AGENT_E2E_OK"
 EXPECTED_PRELOADED_SKILL_MARKER = "# 图片生成技能"
 EXPECTED_PRELOADED_TOOL = "present_artifacts"
 EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
+BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
 PROVIDER_ID = "ci-replay"
 MODEL_SPEC = f"{PROVIDER_ID}:deterministic-chat"
 
@@ -124,6 +125,18 @@ async def _delete_provider(client: httpx.AsyncClient, headers: dict[str, str]) -
     assert response.status_code in {200, 404}, response.text
 
 
+async def _wait_for_blocking_replay(token: str) -> None:
+    """等待 replay 确认本次模型请求已开始但尚未返回任何消息。"""
+    async with httpx.AsyncClient(base_url="http://localhost:8765", timeout=5) as client:
+        for _ in range(100):
+            response = await client.get("/blocking-started", params={"token": token})
+            assert response.status_code == 200, response.text
+            if response.json().get("started") is True:
+                return
+            await asyncio.sleep(0.1)
+    pytest.fail("deterministic replay did not observe blocking model request")
+
+
 async def _run_deterministic(
     client: httpx.AsyncClient,
     headers: dict[str, str],
@@ -153,7 +166,13 @@ async def _run_deterministic(
     return run
 
 
-async def _create_agent(client: httpx.AsyncClient, headers: dict[str, str], uid: str) -> str:
+async def _create_agent(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    uid: str,
+    *,
+    system_prompt_suffix: str = "",
+) -> str:
     slug = f"ci-deterministic-{uuid.uuid4().hex[:8]}"
     response = await client.post(
         "/api/agent",
@@ -165,7 +184,7 @@ async def _create_agent(client: httpx.AsyncClient, headers: dict[str, str], uid:
             "config_json": {
                 "context": {
                     "model": MODEL_SPEC,
-                    "system_prompt": f"不要调用工具，只输出 {EXPECTED_OUTPUT}。",
+                    "system_prompt": f"不要调用工具，只输出 {EXPECTED_OUTPUT}。{system_prompt_suffix}",
                     "tools": [],
                     "knowledges": [],
                     "mcps": [],
@@ -196,10 +215,11 @@ async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
     try:
         row = await conn.fetchrow(
             """
-            SELECT ar.status, ar.request_id, ar.output_message_id,
+            SELECT ar.status, ar.request_id, ar.output_message_id, ar.langfuse_trace_id,
                    message.run_id AS output_run_id,
                    message.request_id AS output_request_id,
-                   message.content AS output_content
+                   message.content AS output_content,
+                   message.extra_metadata->>'langfuse_trace_id' AS output_trace_id
             FROM agent_runs ar
             LEFT JOIN messages message ON message.id = ar.output_message_id
             WHERE ar.id = $1
@@ -213,6 +233,9 @@ async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
         assert row["output_run_id"] == run_id
         assert row["output_request_id"] == request_id
         assert row["output_content"] == EXPECTED_OUTPUT
+        assert row["langfuse_trace_id"] == row["output_trace_id"]
+        if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
+            assert row["langfuse_trace_id"]
 
         tool_call = await conn.fetchrow(
             """
@@ -365,6 +388,107 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         run_completed = True
     finally:
         if run_id and not run_completed:
+            await cancel_run(e2e_client, e2e_headers, run_id)
+        if thread_id:
+            thread_delete = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)
+            assert thread_delete.status_code in {200, 404}, thread_delete.text
+        if agent_slug:
+            await delete_agent(e2e_client, e2e_headers, agent_slug)
+        await _delete_provider(e2e_client, e2e_headers)
+
+
+async def test_cancelled_run_keeps_trace_without_output_message(
+    e2e_client: httpx.AsyncClient,
+    e2e_headers: dict[str, str],
+) -> None:
+    """模型请求开始后取消时，Run trace 必须独立于最终 AIMessage 保留。"""
+    me_response = await e2e_client.get("/api/auth/me", headers=e2e_headers)
+    assert me_response.status_code == 200, me_response.text
+    uid = str(me_response.json()["uid"])
+
+    await _create_provider(e2e_client, e2e_headers)
+    agent_slug: str | None = None
+    thread_id: str | None = None
+    run_id: str | None = None
+    terminal = False
+    try:
+        blocking_token = str(uuid.uuid4())
+        agent_slug = await _create_agent(
+            e2e_client,
+            e2e_headers,
+            uid,
+            system_prompt_suffix=f"{BLOCK_BEFORE_RESPONSE_MARKER}:{blocking_token}",
+        )
+        thread_response = await e2e_client.post(
+            "/api/chat/thread",
+            json={
+                "agent_id": agent_slug,
+                "title": make_test_conversation_title("cancelled-trace"),
+                "metadata": make_test_conversation_metadata("cancelled-trace", e2e=True),
+            },
+            headers=e2e_headers,
+        )
+        assert thread_response.status_code == 200, thread_response.text
+        thread_payload = thread_response.json()
+        thread_id = str(thread_payload.get("thread_id") or thread_payload["id"])
+
+        request_id = f"deterministic-cancel-{uuid.uuid4()}"
+        run_response = await e2e_client.post(
+            "/api/agent-invocation/agent-call/runs",
+            json={
+                "agent_slug": agent_slug,
+                "messages": [{"role": "user", "content": f"只输出 {EXPECTED_OUTPUT}"}],
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "async_mode": True,
+            },
+            headers=e2e_headers,
+        )
+        assert run_response.status_code == 200, run_response.text
+        run_id = str(run_response.json()["run_id"])
+        assert str(run_response.json()["thread_id"]) == thread_id
+
+        await _wait_for_blocking_replay(blocking_token)
+        await cancel_run(e2e_client, e2e_headers, run_id)
+        run = await wait_for_run(e2e_client, e2e_headers, run_id)
+        assert run["status"] == "cancelled", run
+        terminal = True
+
+        conn = await asyncpg.connect(postgres_dsn())
+        try:
+            row = await conn.fetchrow(
+                """
+                SELECT ar.langfuse_trace_id, ar.output_message_id,
+                       count(message.id) FILTER (WHERE message.role = 'assistant') AS assistant_count,
+                       count(message.id) FILTER (
+                           WHERE message.role = 'assistant'
+                             AND (
+                                 message.run_id IS DISTINCT FROM ar.id
+                                 OR message.request_id IS DISTINCT FROM ar.request_id
+                             )
+                       ) AS misbound_assistant_count
+                FROM agent_runs ar
+                LEFT JOIN messages message ON message.conversation_id = ar.conversation_id
+                WHERE ar.id = $1
+                GROUP BY ar.langfuse_trace_id, ar.output_message_id
+                """,
+                run_id,
+            )
+        finally:
+            await conn.close()
+
+        assert row
+        assert row["langfuse_trace_id"]
+        assert row["output_message_id"] is None
+        assert row["assistant_count"] == 0
+        assert row["misbound_assistant_count"] == 0
+
+        result = await e2e_client.get(f"/api/agent/runs/{run_id}/result", headers=e2e_headers)
+        assert result.status_code == 200, result.text
+        assert result.json()["output"] == ""
+        assert result.json()["langfuse_trace_id"] == row["langfuse_trace_id"]
+    finally:
+        if run_id and not terminal:
             await cancel_run(e2e_client, e2e_headers, run_id)
         if thread_id:
             thread_delete = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)

@@ -981,6 +981,7 @@ class AgentRun(Base):
     last_event_id = Column(String(64), nullable=True, comment="Last Redis stream event ID")
     input_payload = Column(JSON, nullable=False, default=dict, comment="Original input payload")
     token_usage = Column(JSON_VALUE, nullable=False, default=dict, comment="Run token usage grouped by model")
+    langfuse_trace_id = Column(String(64), nullable=True, comment="Langfuse trace ID")
     error_type = Column(String(64), nullable=True, comment="Error type")
     error_message = Column(Text, nullable=True, comment="Error message")
     worker_id = Column(String(128), nullable=True, comment="稳定 worker identity 与 attempt UUID 组成的 owner token")
@@ -1028,6 +1029,7 @@ class AgentRun(Base):
             "last_event_id": self.last_event_id,
             "input_payload": self.input_payload or {},
             "token_usage": self.token_usage or {},
+            "langfuse_trace_id": self.langfuse_trace_id,
             "error_type": self.error_type,
             "error_message": self.error_message,
             "manifest": self.manifest,

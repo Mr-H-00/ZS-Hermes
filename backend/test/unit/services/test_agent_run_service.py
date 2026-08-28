@@ -1269,6 +1269,46 @@ async def test_get_agent_run_result_uses_output_message_id(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
+async def test_get_agent_run_result_prefers_run_trace_without_final_message(monkeypatch: pytest.MonkeyPatch):
+    run = SimpleNamespace(
+        id="run-1",
+        status="failed",
+        agent_slug="default-chatbot",
+        conversation_thread_id="thread-1",
+        conversation_id=10,
+        request_id="req-1",
+        output_message_id=None,
+        langfuse_trace_id="trace-run",
+        error_type="model_error",
+        error_message="failed before output",
+    )
+
+    class RunRepo:
+        def __init__(self, db):
+            del db
+
+        async def get_run_for_user(self, run_id: str, uid: str):
+            assert (run_id, uid) == ("run-1", "user-1")
+            return run
+
+    class RunOutputRepo:
+        def __init__(self, db):
+            del db
+
+        async def get_output_message(self, **_kwargs):
+            return None
+
+    monkeypatch.setattr(agent_run_service, "AgentRunRepository", RunRepo)
+    monkeypatch.setattr(agent_run_service, "AgentRunOutputRepository", RunOutputRepo)
+
+    payload = await agent_run_service.get_agent_run_result(run_id="run-1", current_uid="user-1", db=object())
+
+    assert payload["output"] == ""
+    assert payload["final_message_id"] is None
+    assert payload["langfuse_trace_id"] == "trace-run"
+
+
+@pytest.mark.asyncio
 async def test_get_agent_run_result_does_not_fallback_when_explicit_binding_is_invalid(
     monkeypatch: pytest.MonkeyPatch,
 ):

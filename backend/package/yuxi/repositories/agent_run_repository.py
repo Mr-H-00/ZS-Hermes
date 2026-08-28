@@ -275,6 +275,35 @@ class AgentRunRepository:
         await self.db.flush()
         return run
 
+    async def set_langfuse_trace_id(
+        self,
+        run_id: str,
+        trace_id: str,
+        *,
+        worker_id: str,
+        now: datetime | None = None,
+    ) -> AgentRun | None:
+        """由当前 attempt 在执行前幂等固化 Run 的 Langfuse trace。"""
+        normalized_trace_id = trace_id.strip()
+        if not normalized_trace_id:
+            raise ValueError("trace_id 不能为空")
+        if not worker_id.strip():
+            raise ValueError("worker_id 不能为空")
+
+        run = await self._lock_run(run_id)
+        if run is None:
+            return None
+
+        current_time = now or utc_now_naive()
+        self._require_lease_owner(run, worker_id=worker_id, now=current_time, action="固化 Langfuse trace")
+        if run.langfuse_trace_id and run.langfuse_trace_id != normalized_trace_id:
+            raise ValueError("AgentRun 已绑定不同的 Langfuse trace")
+
+        run.langfuse_trace_id = normalized_trace_id
+        run.updated_at = current_time
+        await self.db.flush()
+        return run
+
     async def set_output_message(
         self,
         run_id: str,

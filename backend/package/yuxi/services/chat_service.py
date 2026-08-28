@@ -147,6 +147,28 @@ def _build_langfuse_run_context(
     )
 
 
+async def _persist_agent_run_langfuse_trace(*, db, meta: dict, run_context: LangfuseRunContext) -> None:
+    """在模型执行前用独立短事务固化 Run 的 Langfuse trace。"""
+    run_id = meta.get("run_id")
+    worker_id = meta.get("worker_id")
+    trace_id = run_context.trace_id
+    if not run_id or not worker_id or not trace_id:
+        return
+
+    try:
+        run = await AgentRunRepository(db).set_langfuse_trace_id(
+            str(run_id),
+            str(trace_id),
+            worker_id=str(worker_id),
+        )
+        if run is None:
+            raise ValueError(f"AgentRun 不存在: {run_id}")
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
+
+
 def _normalize_agent_artifact_path(path: object, workdir_path: str | None) -> object:
     if not isinstance(path, str) or not workdir_path:
         return path
@@ -1055,6 +1077,7 @@ async def stream_agent_chat(
             message_type=message_type,
             meta=meta,
         )
+        await _persist_agent_run_langfuse_trace(db=db, meta=meta, run_context=langfuse_run)
 
         attachment_conversation = conversation
         if meta.get("run_type") == "subagent":
@@ -1403,6 +1426,7 @@ async def stream_agent_resume(
         message_type="resume",
         meta=meta,
     )
+    await _persist_agent_run_langfuse_trace(db=db, meta=meta, run_context=langfuse_run)
     trace_info: dict[str, Any] = {}
     last_agent_state_signature = ""
 
