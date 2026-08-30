@@ -108,6 +108,34 @@ test('active run 没有流式 AI 时保留持久化 AI', () => {
   )
 })
 
+test('同 request_id 的实时 User 将 Run 关联补入旧持久快照', () => {
+  const history = [
+    {
+      id: 41,
+      type: 'human',
+      request_id: 'request-1',
+      content: '快排',
+      extra_metadata: { request_id: 'request-1' }
+    }
+  ]
+  const ongoing = [
+    {
+      id: 'request-1',
+      type: 'human',
+      run_id: 'run-1',
+      content: '快排',
+      extra_metadata: { request_id: 'request-1', run_id: 'run-1' }
+    }
+  ]
+
+  const merged = mergeMessageDebugMessages(history, ongoing)
+
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].id, 41)
+  assert.equal(merged[0].run_id, 'run-1')
+  assert.equal(merged[0].extra_metadata.run_id, 'run-1')
+})
+
 test('active run 尚无持久化 AI 时保持流式 Human 到 AI 的顺序', () => {
   const ongoing = [
     { id: 'user-live', type: 'human', request_id: 'request-live' },

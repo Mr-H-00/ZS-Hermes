@@ -36,9 +36,29 @@ function messageRunId(message) {
 export function mergeMessageDebugMessages(history, ongoing) {
   const persisted = Array.isArray(history) ? history : []
   const live = Array.isArray(ongoing) ? ongoing : []
-  const persistedIds = new Set(persisted.map((message) => String(message?.id ?? '')))
+  const liveHumanByRequestId = new Map(
+    live
+      .filter((message) => message?.type === 'human')
+      .map((message) => [messageRequestId(message), message])
+      .filter(([requestId]) => requestId)
+  )
+  const mergedPersisted = persisted.map((message) => {
+    if (message?.type !== 'human' || messageRunId(message)) return message
+    const liveMessage = liveHumanByRequestId.get(messageRequestId(message))
+    const liveRunId = messageRunId(liveMessage)
+    if (!liveRunId) return message
+    return {
+      ...message,
+      run_id: liveRunId,
+      extra_metadata: {
+        ...(message.extra_metadata || {}),
+        run_id: liveRunId
+      }
+    }
+  })
+  const persistedIds = new Set(mergedPersisted.map((message) => String(message?.id ?? '')))
   const persistedRequestIds = new Set(
-    persisted
+    mergedPersisted
       .filter((message) => message?.type === 'human')
       .map(messageRequestId)
       .filter(Boolean)
@@ -47,7 +67,7 @@ export function mergeMessageDebugMessages(history, ongoing) {
     if (persistedIds.has(String(message?.id ?? ''))) return false
     return message?.type !== 'human' || !persistedRequestIds.has(messageRequestId(message))
   })
-  return [...persisted, ...pending]
+  return [...mergedPersisted, ...pending]
 }
 
 function modelAuditKey(message) {

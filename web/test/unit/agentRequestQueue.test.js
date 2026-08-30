@@ -68,6 +68,104 @@ test('agent_state SSE 使在途状态请求失效', () => {
   assert.equal(threadState.agentStateRequestVersion, 5)
 })
 
+test('Run init 将权威 run_id 绑定到实时 User Message', () => {
+  const threadState = {
+    pendingRequestId: 'request-1',
+    replyLoadingVisible: false,
+    contextCompressing: false,
+    onGoingConv: {
+      msgChunks: {
+        'request-1': [{ id: 'request-1', type: 'human', content: '快排' }]
+      }
+    }
+  }
+  const { handleStreamChunk } = useAgentStreamHandler({
+    getThreadState: () => threadState,
+    processApprovalInStream: () => false,
+    currentAgentId: { value: 'agent-1' },
+    supportsFiles: { value: false }
+  })
+
+  handleStreamChunk(
+    {
+      status: 'init',
+      run_id: 'stale-body-run',
+      stream_run_id: 'run-1',
+      stream_thread_id: 'thread-1',
+      request_id: 'request-1',
+      msg: { type: 'human', content: '快排' }
+    },
+    'thread-1'
+  )
+
+  const [message] = threadState.onGoingConv.msgChunks['request-1']
+  assert.equal(message.run_id, 'run-1')
+  assert.equal(message.extra_metadata.run_id, 'run-1')
+  assert.equal(message.extra_metadata.request_id, 'request-1')
+})
+
+test('缺少 SSE request_id 时不把 Run 关联到本地 pending User', () => {
+  const threadState = {
+    pendingRequestId: 'request-old',
+    replyLoadingVisible: false,
+    contextCompressing: false,
+    onGoingConv: { msgChunks: {} }
+  }
+  const { handleStreamChunk } = useAgentStreamHandler({
+    getThreadState: () => threadState,
+    processApprovalInStream: () => false,
+    currentAgentId: { value: 'agent-1' },
+    supportsFiles: { value: false }
+  })
+
+  handleStreamChunk(
+    {
+      status: 'init',
+      run_id: 'run-new',
+      msg: {
+        type: 'human',
+        content: '旧请求',
+        run_id: 'run-from-msg',
+        extra_metadata: { run_id: 'run-from-msg' }
+      }
+    },
+    'thread-1'
+  )
+
+  const [message] = threadState.onGoingConv.msgChunks['request-old']
+  assert.equal(message.run_id, undefined)
+  assert.equal(message.extra_metadata.run_id, undefined)
+})
+
+test('子线程 init 不继承父订阅 Run 关联', () => {
+  const threadState = {
+    pendingRequestId: 'request-child',
+    replyLoadingVisible: false,
+    contextCompressing: false,
+    onGoingConv: { msgChunks: {} }
+  }
+  const { handleStreamChunk } = useAgentStreamHandler({
+    getThreadState: () => threadState,
+    processApprovalInStream: () => false,
+    currentAgentId: { value: 'agent-1' },
+    supportsFiles: { value: false }
+  })
+
+  handleStreamChunk(
+    {
+      status: 'init',
+      request_id: 'request-child',
+      stream_run_id: 'parent-run',
+      stream_thread_id: 'parent-thread',
+      msg: { type: 'human', content: '子线程输入' }
+    },
+    'child-thread'
+  )
+
+  const [message] = threadState.onGoingConv.msgChunks['request-child']
+  assert.equal(message.run_id, undefined)
+})
+
 test('run_created 立即完成状态交接并订阅新 Run SSE', async () => {
   const threadState = {
     queuedRequests: [{ request_id: 'request-1', status: 'queued' }],
@@ -161,6 +259,7 @@ test('replacement Run SSE 的增量 chunk 会连续进入前端渲染处理', as
   const textEncoder = new TextEncoder()
   let runStreamController
   let replacementRun
+  let firstLoadingChunk
   let loadingChunkCount = 0
   let resolveFirstChunk
   let resolveSecondChunk
@@ -198,7 +297,10 @@ test('replacement Run SSE 的增量 chunk 会连续进入前端渲染处理', as
         const shouldStop = handleStreamChunk(chunk, threadId)
         if (chunk.status === 'loading') {
           loadingChunkCount += 1
-          if (loadingChunkCount === 1) resolveFirstChunk()
+          if (loadingChunkCount === 1) {
+            firstLoadingChunk = chunk
+            resolveFirstChunk()
+          }
           if (loadingChunkCount === 2) resolveSecondChunk()
         }
         return shouldStop
@@ -227,6 +329,8 @@ test('replacement Run SSE 的增量 chunk 会连续进入前端渲染处理', as
       threadState.onGoingConv.msgChunks['assistant-2'].map((chunk) => chunk.content),
       ['流式']
     )
+    assert.equal(firstLoadingChunk.stream_run_id, 'run-2')
+    assert.equal(firstLoadingChunk.stream_thread_id, 'thread-1')
 
     runStreamController.enqueue(
       textEncoder.encode(

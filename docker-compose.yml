@@ -242,6 +242,7 @@ services:
     container_name: web-dev
     volumes:
       - ./web/src:/app/src
+      - ./web/test:/app/test
       - ./web/public:/app/public
       - ./web/index.html:/app/index.html
       - ./web/vite.config.js:/app/vite.config.js
