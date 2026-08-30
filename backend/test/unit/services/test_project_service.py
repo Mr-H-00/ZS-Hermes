@@ -25,6 +25,9 @@ class _Db:
     async def commit(self):
         self.commits += 1
 
+    async def refresh(self, _item):
+        return None
+
     async def execute(self, _statement, _params=None):
         return None
 
@@ -75,9 +78,7 @@ async def test_linked_project_accepts_directory_below_projects(monkeypatch, tmp_
 
 
 @pytest.mark.parametrize("path", ["agents", "agents/skills", "projects"])
-async def test_linked_project_accepts_any_existing_non_root_directory(
-    monkeypatch, tmp_path: Path, path: str
-):
+async def test_linked_project_accepts_any_existing_non_root_directory(monkeypatch, tmp_path: Path, path: str):
     monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     (user_workspace_dir("user-1") / path).mkdir(parents=True, exist_ok=True)
@@ -239,3 +240,81 @@ async def test_history_candidates_only_expose_resolved_directory_shortcuts(monke
         ],
         "has_more": False,
     }
+
+
+async def test_rename_project_updates_only_active_selectable_project(monkeypatch):
+    project = SimpleNamespace(
+        name="Old",
+        updated_at=None,
+        to_dict=lambda: {"id": "project-1", "name": project.name},
+    )
+
+    class _ProjectRepository:
+        def __init__(self, _db):
+            pass
+
+        async def get_active_selectable_for_user(self, project_id, uid, *, for_update=False):
+            assert (project_id, uid, for_update) == ("project-1", "user-1", True)
+            return project
+
+    monkeypatch.setattr(svc, "ProjectRepository", _ProjectRepository)
+    db = _Db()
+
+    result = await svc.rename_project_view(
+        uid="user-1",
+        project_id="project-1",
+        name="  New name  ",
+        db=db,
+    )
+
+    assert result == {"id": "project-1", "name": "New name"}
+    assert db.commits == 1
+
+
+async def test_rename_project_rejects_missing_or_deleted_project(monkeypatch):
+    class _ProjectRepository:
+        def __init__(self, _db):
+            pass
+
+        async def get_active_selectable_for_user(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(svc, "ProjectRepository", _ProjectRepository)
+
+    with pytest.raises(HTTPException) as exc:
+        await svc.rename_project_view(uid="user-1", project_id="missing", name="New", db=_Db())
+
+    assert exc.value.status_code == 404
+
+
+async def test_rename_project_rejects_blank_name_before_write():
+    with pytest.raises(HTTPException) as exc:
+        await svc.rename_project_view(uid="user-1", project_id="project-1", name="   ", db=_Db())
+
+    assert exc.value.status_code == 422
+
+
+async def test_delete_project_soft_deletes_all_conversations_in_one_commit(monkeypatch):
+    project = SimpleNamespace(id="project-1")
+    calls = []
+
+    class _ProjectRepository:
+        def __init__(self, _db):
+            pass
+
+        async def get_active_selectable_for_user(self, project_id, uid, *, for_update=False):
+            assert (project_id, uid, for_update) == ("project-1", "user-1", True)
+            return project
+
+        async def soft_delete_with_conversations(self, actual_project, *, deleted_at):
+            calls.append((actual_project, deleted_at))
+            return 3
+
+    monkeypatch.setattr(svc, "ProjectRepository", _ProjectRepository)
+    db = _Db()
+
+    result = await svc.delete_project_view(uid="user-1", project_id="project-1", db=db)
+
+    assert result == {"message": "删除成功", "deleted_conversations": 3}
+    assert calls[0][0] is project
+    assert db.commits == 1

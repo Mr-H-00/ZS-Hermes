@@ -110,6 +110,8 @@ async def create_thread_view(
         existing = await conv_repo.get_conversation_by_creation_request_id(str(current_uid), normalized_request_id)
         if existing is not None:
             existing_project = await ProjectRepository(db).get_for_user(existing.project_id, str(current_uid))
+            if existing.status == "deleted" or existing_project is None or existing_project.status == "deleted":
+                raise HTTPException(status_code=409, detail="request_id 已用于已删除的 Conversation")
             if not _matches_thread_creation_intent(
                 existing,
                 existing_project,
@@ -124,8 +126,12 @@ async def create_thread_view(
     thread_metadata = dict(metadata or {})
     thread_metadata["backend_id"] = agent_item.backend_id
     if project_id:
-        project = await ProjectRepository(db).get_for_user(project_id, str(current_uid))
-        if project is None or project.selection_status != "selectable":
+        project = await ProjectRepository(db).get_active_selectable_for_user(
+            project_id,
+            str(current_uid),
+            for_update=True,
+        )
+        if project is None:
             raise HTTPException(status_code=404, detail="Project 不存在")
         try:
             Workdir.open_existing(str(current_uid), project.workdir_path)
@@ -181,6 +187,8 @@ async def create_thread_view(
             )
             await db.commit()
         existing_project = await ProjectRepository(db).get_for_user(conversation.project_id, str(current_uid))
+        if conversation.status == "deleted" or existing_project is None or existing_project.status == "deleted":
+            raise HTTPException(status_code=409, detail="request_id 已用于已删除的 Conversation")
         if not _matches_thread_creation_intent(
             conversation,
             existing_project,

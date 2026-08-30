@@ -20,7 +20,7 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
-BUSINESS_SCHEMA_VERSION = 1
+BUSINESS_SCHEMA_VERSION = 2
 KNOWLEDGE_SCHEMA_VERSION = 1
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
@@ -65,17 +65,36 @@ WORKDIR_PATH_SCHEMA_STATEMENTS = (
         selection_status VARCHAR(20) NOT NULL,
         workdir_path VARCHAR(512) NOT NULL,
         directory_mode VARCHAR(20) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        deleted_at TIMESTAMP WITHOUT TIME ZONE,
         idempotency_key VARCHAR(128),
         created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
         CONSTRAINT uq_projects_id_uid UNIQUE (id, uid),
         CONSTRAINT uq_projects_uid_idempotency_key UNIQUE (uid, idempotency_key),
         CONSTRAINT ck_projects_selection_status CHECK (selection_status IN ('implicit', 'selectable')),
-        CONSTRAINT ck_projects_directory_mode CHECK (directory_mode IN ('managed', 'linked'))
+        CONSTRAINT ck_projects_directory_mode CHECK (directory_mode IN ('managed', 'linked')),
+        CONSTRAINT ck_projects_status CHECK (status IN ('active', 'deleted'))
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_projects_uid ON projects(uid)",
     "CREATE INDEX IF NOT EXISTS ix_projects_selection_status ON projects(selection_status)",
+    "ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'",
+    "ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE",
+    "CREATE INDEX IF NOT EXISTS ix_projects_status ON projects(status)",
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_projects_status'
+              AND conrelid = 'projects'::regclass
+        ) THEN
+            ALTER TABLE projects
+            ADD CONSTRAINT ck_projects_status CHECK (status IN ('active', 'deleted'));
+        END IF;
+    END $$
+    """,
     "ALTER TABLE IF EXISTS projects DROP CONSTRAINT IF EXISTS uq_projects_uid_workdir_path",
     "ALTER TABLE IF EXISTS projects ALTER COLUMN name DROP NOT NULL",
     """

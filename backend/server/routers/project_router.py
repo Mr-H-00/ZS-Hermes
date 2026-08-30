@@ -7,8 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.utils.auth_middleware import get_db, get_required_user
 from yuxi.services.project_service import (
     create_project_view,
+    delete_project_view,
     list_history_candidates_view,
     list_projects_view,
+    rename_project_view,
 )
 from yuxi.storage.postgres.models_business import User
 
@@ -32,6 +34,14 @@ class ProjectCreate(BaseModel):
     request_id: str = Field(..., min_length=1, max_length=128)
     name: str
     workdir: ProjectWorkdirCreate
+
+
+class ProjectUpdate(BaseModel):
+    """Project 可修改字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
 
 
 @projects.get("")
@@ -69,6 +79,25 @@ async def list_history_candidates(
     db: AsyncSession = Depends(get_db),
 ):
     """列出可作为目录快捷选择的历史 Conversation。"""
-    return await list_history_candidates_view(
-        uid=str(current_user.uid), db=db, query=q, limit=limit, offset=offset
-    )
+    return await list_history_candidates_view(uid=str(current_user.uid), db=db, query=q, limit=limit, offset=offset)
+
+
+@projects.put("/{project_id}")
+async def rename_project(
+    project_id: str,
+    payload: ProjectUpdate,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """重命名当前用户的 Project。"""
+    return await rename_project_view(uid=str(current_user.uid), project_id=project_id, name=payload.name, db=db)
+
+
+@projects.delete("/{project_id}")
+async def delete_project(
+    project_id: str,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """软删除当前用户的 Project 及其中对话。"""
+    return await delete_project_view(uid=str(current_user.uid), project_id=project_id, db=db)

@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, provide, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { GithubOutlined } from '@ant-design/icons-vue'
+import { message } from 'ant-design-vue'
 import {
   BarChart3,
   ClipboardList,
@@ -30,6 +31,7 @@ import SettingsModal from '@/components/SettingsModal.vue'
 import ConversationNavSection from '@/components/ConversationNavSection.vue'
 import GlobalSearchModal from '@/components/GlobalSearchModal.vue'
 import { searchWorkspaceFiles } from '@/apis/workspace_api'
+import { projectApi } from '@/apis/project_api'
 
 const configStore = useConfigStore()
 const agentStore = useAgentStore()
@@ -55,6 +57,10 @@ const settingsInitialTab = ref('')
 
 const { sidebarCollapsed } = storeToRefs(chatUIStore)
 const conversationSearchOpen = ref(false)
+const projects = ref([])
+const projectsLoading = ref(false)
+const projectsError = ref('')
+const projectPendingId = ref(null)
 
 // Provide settings modal methods to child components
 const openSettingsModal = (tab) => {
@@ -230,9 +236,22 @@ const initAgentNavigation = async () => {
     if (!agentStore.isInitialized) {
       await agentStore.initialize()
     }
-    await chatThreadsStore.loadThreads()
+    await Promise.all([chatThreadsStore.loadThreads(), loadProjects()])
   } catch (error) {
     console.warn('加载对话导航失败:', error)
+  }
+}
+
+const loadProjects = async () => {
+  projectsLoading.value = true
+  projectsError.value = ''
+  try {
+    projects.value = (await projectApi.getProjects()) || []
+  } catch (error) {
+    projectsError.value = '项目加载失败'
+    console.warn('加载项目导航失败:', error)
+  } finally {
+    projectsLoading.value = false
   }
 }
 
@@ -296,6 +315,40 @@ const handleTogglePinChat = async (threadId) => {
     }
   } catch (error) {
     console.warn('更新置顶状态失败:', error)
+  }
+}
+
+const handleRenameProject = async ({ projectId, name }) => {
+  if (!projectId || projectPendingId.value) return
+  projectPendingId.value = projectId
+  try {
+    const updatedProject = await projectApi.renameProject(projectId, name)
+    projects.value = projects.value.map((project) =>
+      project.id === projectId ? updatedProject : project
+    )
+    message.success('项目已重命名')
+  } catch (error) {
+    message.error(error?.message || '重命名项目失败')
+  } finally {
+    projectPendingId.value = null
+  }
+}
+
+const handleDeleteProject = async (projectId) => {
+  if (!projectId || projectPendingId.value) return
+  projectPendingId.value = projectId
+  try {
+    await projectApi.deleteProject(projectId)
+    const removedThreadIds = chatThreadsStore.removeThreadsByProject(projectId)
+    projects.value = projects.value.filter((project) => project.id !== projectId)
+    if (removedThreadIds.includes(route.params.thread_id)) {
+      await router.replace({ name: 'AgentComp' })
+    }
+    message.success('项目及其中对话已删除，项目文件夹已保留')
+  } catch (error) {
+    message.error(error?.message || '删除项目失败')
+  } finally {
+    projectPendingId.value = null
   }
 }
 
@@ -416,12 +469,19 @@ provide('settingsModal', {
           class="sidebar-conversations"
           :current-chat-id="activeConversationThreadId"
           :chats-list="threads"
+          :projects="projects"
+          :projects-loading="projectsLoading"
+          :projects-error="projectsError"
+          :project-pending-id="projectPendingId"
           :has-more-chats="hasMoreThreads"
           :is-loading-more="isLoadingMoreThreads"
           @select-chat="handleSelectChat"
           @delete-chat="handleDeleteChat"
           @rename-chat="handleRenameChat"
           @toggle-pin="handleTogglePinChat"
+          @rename-project="handleRenameProject"
+          @delete-project="handleDeleteProject"
+          @retry-projects="loadProjects"
           @load-more-chats="() => chatThreadsStore.loadMoreThreads()"
         />
       </div>

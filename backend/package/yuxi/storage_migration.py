@@ -90,9 +90,15 @@ async def _converge_database_state(*, fail_nonterminal_runs: bool) -> None:
         await session.commit()
 
 
-def _require_supported_version(domain: str, actual: int | None, expected: int) -> None:
-    """只接受未版本化 legacy baseline 或当前精确版本。"""
-    if actual not in (None, expected):
+def _require_supported_version(
+    domain: str,
+    actual: int | None,
+    expected: int,
+    *,
+    upgrade_from: tuple[int, ...] = (),
+) -> None:
+    """接受未版本化 baseline、当前版本与显式可升级版本。"""
+    if actual is not None and actual != expected and actual not in upgrade_from:
         raise RuntimeError(f"Unsupported {domain} schema version: {actual}; expected {expected}")
 
 
@@ -116,7 +122,12 @@ async def main() -> None:
             await pg_manager.create_schema_version_table()
             versions = await pg_manager.get_schema_versions()
             business_version = versions.get("business")
-            _require_supported_version("business", business_version, BUSINESS_SCHEMA_VERSION)
+            _require_supported_version(
+                "business",
+                business_version,
+                BUSINESS_SCHEMA_VERSION,
+                upgrade_from=(1,),
+            )
             if not lite_mode_enabled():
                 _require_supported_version("knowledge", versions.get("knowledge"), KNOWLEDGE_SCHEMA_VERSION)
 
@@ -133,6 +144,9 @@ async def main() -> None:
             if business_version is None:
                 await pg_manager.ensure_business_schema()
                 await pg_manager.setup_langgraph_checkpointer()
+                await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
+            elif business_version < BUSINESS_SCHEMA_VERSION:
+                await pg_manager.ensure_business_schema()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
             if not lite_mode_enabled() and versions.get("knowledge") is None:

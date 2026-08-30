@@ -78,7 +78,9 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     try {
       const fetchedThreads = await threadApi.getThreads(agentId, PAGE_SIZE, 0)
       threads.value = fetchedThreads || []
-      hasMoreThreads.value = Boolean(fetchedThreads && fetchedThreads.length >= PAGE_SIZE)
+      hasMoreThreads.value = Boolean(
+        fetchedThreads && fetchedThreads.filter((thread) => !thread.is_pinned).length >= PAGE_SIZE
+      )
       if (
         currentThreadId.value &&
         !threads.value.find((thread) => thread.id === currentThreadId.value)
@@ -98,13 +100,15 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
 
     isLoadingMoreThreads.value = true
     try {
-      const fetchedThreads = await threadApi.getThreads(agentId, PAGE_SIZE, threads.value.length)
+      const nonPinnedOffset = threads.value.filter((thread) => !thread.is_pinned).length
+      const fetchedThreads = await threadApi.getThreads(agentId, PAGE_SIZE, nonPinnedOffset)
       if (fetchedThreads && fetchedThreads.length > 0) {
         // 后端分页会重复返回置顶项，这里只追加列表中尚不存在的线程。
         const existingIds = new Set(threads.value.map((thread) => thread.id))
         const newThreads = fetchedThreads.filter((thread) => !existingIds.has(thread.id))
         threads.value = [...threads.value, ...newThreads]
-        hasMoreThreads.value = newThreads.length >= PAGE_SIZE
+        hasMoreThreads.value =
+          fetchedThreads.filter((thread) => !thread.is_pinned).length >= PAGE_SIZE
       } else {
         hasMoreThreads.value = false
       }
@@ -150,6 +154,22 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     }
   }
 
+  const removeThreadsByProject = (projectId) => {
+    if (!projectId) return []
+    const removedIds = threads.value
+      .filter((thread) => thread.project_id === projectId)
+      .map((thread) => thread.id)
+    if (!removedIds.length) return []
+
+    const removedIdSet = new Set(removedIds)
+    threads.value = threads.value.filter((thread) => !removedIdSet.has(thread.id))
+    removedIds.forEach((threadId) => threadDraftStore.remove(threadId))
+    if (removedIdSet.has(currentThreadId.value)) {
+      setCurrentThreadId(null)
+    }
+    return removedIds
+  }
+
   const updateThread = async (threadId, title, isPinned, toolApprovalMode) => {
     if (!threadId) return
 
@@ -190,6 +210,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     loadMoreThreads,
     createThread,
     deleteThread,
+    removeThreadsByProject,
     updateThread
   }
 })

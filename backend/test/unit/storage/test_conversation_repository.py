@@ -104,6 +104,44 @@ async def test_list_conversations_excludes_invocation_sources(conversation_sessi
 
 
 @pytest.mark.asyncio
+async def test_list_conversations_paginates_only_non_pinned_items(conversation_session):
+    now = utc_now_naive()
+    pinned = Conversation(
+        thread_id="thread-pinned",
+        project_id="project-pinned",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Pinned",
+        status="active",
+        is_pinned=True,
+        created_at=now,
+        updated_at=now + timedelta(minutes=10),
+    )
+    regular = [
+        Conversation(
+            thread_id=f"thread-{index}",
+            project_id=f"project-{index}",
+            uid="user-a",
+            agent_id="agent-a",
+            title=f"Thread {index}",
+            status="active",
+            created_at=now,
+            updated_at=now + timedelta(minutes=index),
+        )
+        for index in range(4)
+    ]
+    conversation_session.add_all([pinned, *regular])
+    await conversation_session.commit()
+
+    repository = ConversationRepository(conversation_session)
+    first_page = await repository.list_conversations(uid="user-a", limit=2, offset=0)
+    second_page = await repository.list_conversations(uid="user-a", limit=2, offset=2)
+
+    assert [item.thread_id for item in first_page] == ["thread-pinned", "thread-3", "thread-2"]
+    assert [item.thread_id for item in second_page] == ["thread-pinned", "thread-1", "thread-0"]
+
+
+@pytest.mark.asyncio
 async def test_search_conversations_by_message_content_filters_user_status_and_tool_messages(conversation_session):
     now = utc_now_naive()
     active = Conversation(
