@@ -19,6 +19,8 @@ EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
 EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
 BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
 TOOL_ERROR_MARKER = "DETERMINISTIC_TOOL_ERROR"
+LARGE_TOOL_RESULT_MARKER = "DETERMINISTIC_LARGE_TOOL_RESULT"
+LARGE_TOOL_CALL_ID = "call-large-tool-result"
 BLOCKING_REQUEST_TOKENS: set[str] = set()
 BLOCKING_REQUEST_TOKENS_LOCK = Lock()
 
@@ -48,10 +50,22 @@ def _validate_request(authorization: str | None, request: dict) -> str | None:
     }
     if EXPECTED_PRELOADED_TOOL not in tool_names:
         return "preloaded_tool_missing"
+    if LARGE_TOOL_RESULT_MARKER in serialized_messages and "execute" not in tool_names:
+        return "execute_tool_missing"
     tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
     if tool_messages and not any(
-        message.get("tool_call_id") == EXPECTED_TOOL_CALL_ID
-        and (EXPECTED_TOOL_RESULT_MARKER in str(message.get("content", "")) or TOOL_ERROR_MARKER in serialized_messages)
+        (
+            message.get("tool_call_id") == EXPECTED_TOOL_CALL_ID
+            and (
+                EXPECTED_TOOL_RESULT_MARKER in str(message.get("content", ""))
+                or TOOL_ERROR_MARKER in serialized_messages
+            )
+        )
+        or (
+            LARGE_TOOL_RESULT_MARKER in serialized_messages
+            and message.get("tool_call_id") == LARGE_TOOL_CALL_ID
+            and "Tool result too large" in str(message.get("content", ""))
+        )
         for message in tool_messages
     ):
         return "tool_execution_result_missing"
@@ -59,6 +73,7 @@ def _validate_request(authorization: str | None, request: dict) -> str | None:
 
 
 def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
+    serialized_messages = json.dumps(messages, ensure_ascii=False)
     common = {
         "id": "chatcmpl-yuxi-deterministic",
         "object": "chat.completion.chunk",
@@ -84,6 +99,16 @@ def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
             },
         ]
 
+    large_result = LARGE_TOOL_RESULT_MARKER in serialized_messages
+    tool_call_id = LARGE_TOOL_CALL_ID if large_result else EXPECTED_TOOL_CALL_ID
+    tool_name = "execute" if large_result else EXPECTED_PRELOADED_TOOL
+    if large_result:
+        tool_arguments = json.dumps({"command": "yes X | head -c 13000"})
+    elif TOOL_ERROR_MARKER in serialized_messages:
+        tool_arguments = "{}"
+    else:
+        tool_arguments = '{"filepaths": []}'
+
     return [
         {
             **common,
@@ -95,15 +120,11 @@ def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
                         "tool_calls": [
                             {
                                 "index": 0,
-                                "id": EXPECTED_TOOL_CALL_ID,
+                                "id": tool_call_id,
                                 "type": "function",
                                 "function": {
-                                    "name": EXPECTED_PRELOADED_TOOL,
-                                    "arguments": (
-                                        "{}"
-                                        if TOOL_ERROR_MARKER in json.dumps(messages, ensure_ascii=False)
-                                        else '{"filepaths": []}'
-                                    ),
+                                    "name": tool_name,
+                                    "arguments": tool_arguments,
                                 },
                             }
                         ],

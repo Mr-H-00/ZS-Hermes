@@ -447,7 +447,7 @@ def test_root_tool_audit_event_rejects_unrouted_subagent_namespace() -> None:
     )
 
 
-def test_running_tool_audit_only_accepts_current_error_state_for_enrichment() -> None:
+def test_tool_state_only_enriches_running_error_awaiting_terminal() -> None:
     running = SimpleNamespace(execution_status="running", extra_metadata={})
     awaiting_error = SimpleNamespace(
         execution_status="running",
@@ -458,12 +458,16 @@ def test_running_tool_audit_only_accepts_current_error_state_for_enrichment() ->
     assert not svc._should_reconcile_tool_state(running, {"status": "success"})
     assert not svc._should_reconcile_tool_state(awaiting_error, {"status": "success"})
     assert svc._should_reconcile_tool_state(awaiting_error, {"status": "error"})
-    assert svc._should_reconcile_tool_state(completed, {"status": "success"})
+    assert not svc._should_reconcile_tool_state(completed, {"status": "success"})
+    assert not svc._should_reconcile_tool_state(
+        completed,
+        {"status": "success", "content": "Tool result too large, saved in the filesystem"},
+    )
 
 
 @pytest.mark.asyncio
-async def test_state_reconcile_uses_latest_tool_message_for_current_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """完整 checkpoint 复用 tool_call_id 时只对账最后一次 ToolMessage。"""
+async def test_state_reconcile_uses_latest_awaiting_error_for_current_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """完整 checkpoint 复用 tool_call_id 时只用最后一条错误补全未关闭审计。"""
 
     class FakeDB:
         async def commit(self):
@@ -477,8 +481,8 @@ async def test_state_reconcile_uses_latest_tool_message_for_current_run(monkeypa
             return SimpleNamespace(
                 values={
                     "messages": [
-                        ToolMessage(content="old output", tool_call_id="shared-call"),
-                        ToolMessage(content="current output", tool_call_id="shared-call"),
+                        ToolMessage(content="old error", tool_call_id="shared-call", status="error"),
+                        ToolMessage(content="current error", tool_call_id="shared-call", status="error"),
                     ]
                 }
             )
@@ -502,8 +506,8 @@ async def test_state_reconcile_uses_latest_tool_message_for_current_run(monkeypa
             return [
                 SimpleNamespace(
                     operation_id="shared-call",
-                    execution_status="completed",
-                    extra_metadata={},
+                    execution_status="running",
+                    extra_metadata={"awaiting_run_terminal": True},
                 )
             ]
 
@@ -529,7 +533,7 @@ async def test_state_reconcile_uses_latest_tool_message_for_current_run(monkeypa
         worker_id="worker-current",
     )
 
-    assert reconciled == ["current output"]
+    assert reconciled == ["current error"]
 
 
 @pytest.mark.asyncio

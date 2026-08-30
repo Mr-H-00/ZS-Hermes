@@ -28,6 +28,8 @@ EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
 EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
 BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
 TOOL_ERROR_MARKER = "DETERMINISTIC_TOOL_ERROR"
+LARGE_TOOL_RESULT_MARKER = "DETERMINISTIC_LARGE_TOOL_RESULT"
+LARGE_TOOL_CALL_ID = "call-large-tool-result"
 PROVIDER_ID = "ci-replay"
 MODEL_SPEC = f"{PROVIDER_ID}:deterministic-chat"
 
@@ -160,6 +162,23 @@ async def _wait_for_running_model_audit(run_id: str) -> None:
     finally:
         await conn.close()
     pytest.fail("running Model audit was not committed before cancellation")
+
+
+async def _wait_for_runtime_cleanup(run_id: str) -> None:
+    """等待终态 Run 释放 runtime ownership 后再创建 resume。"""
+    conn = await asyncpg.connect(postgres_dsn())
+    try:
+        for _ in range(100):
+            cleanup_pending = await conn.fetchval(
+                "SELECT runtime_cleanup_pending FROM agent_runs WHERE id = $1",
+                run_id,
+            )
+            if cleanup_pending is False:
+                return
+            await asyncio.sleep(0.1)
+    finally:
+        await conn.close()
+    pytest.fail("terminal Run did not finish runtime cleanup")
 
 
 async def _run_deterministic(
@@ -575,6 +594,125 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         if run_id and not run_completed:
             await cancel_run(e2e_client, e2e_headers, run_id)
         if thread_id:
+            thread_delete = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)
+            assert thread_delete.status_code in {200, 404}, thread_delete.text
+        if agent_slug:
+            await delete_agent(e2e_client, e2e_headers, agent_slug)
+        await _delete_provider(e2e_client, e2e_headers)
+
+
+async def test_resume_with_offloaded_tool_result_publishes_stream_owned_audit(
+    e2e_client: httpx.AsyncClient,
+    e2e_headers: dict[str, str],
+) -> None:
+    """审批恢复后的大结果 State 不得覆盖已关闭的原始 Tool 审计。"""
+    me_response = await e2e_client.get("/api/auth/me", headers=e2e_headers)
+    assert me_response.status_code == 200, me_response.text
+    uid = str(me_response.json()["uid"])
+
+    await _create_provider(e2e_client, e2e_headers)
+    agent_slug: str | None = None
+    thread_id: str | None = None
+    workdir_path: str | None = None
+    active_run_id: str | None = None
+    try:
+        agent_slug = await _create_agent(
+            e2e_client,
+            e2e_headers,
+            uid,
+            system_prompt_suffix=LARGE_TOOL_RESULT_MARKER,
+        )
+        thread_response = await e2e_client.post(
+            "/api/chat/thread",
+            json={
+                "agent_id": agent_slug,
+                "title": make_test_conversation_title("offloaded-tool-resume"),
+                "metadata": make_test_conversation_metadata("offloaded-tool-resume", e2e=True),
+            },
+            headers=e2e_headers,
+        )
+        assert thread_response.status_code == 200, thread_response.text
+        thread_payload = thread_response.json()
+        thread_id = str(thread_payload.get("thread_id") or thread_payload["id"])
+        workdir_path = str(thread_payload["workdir_path"])
+
+        initial_response = await e2e_client.post(
+            "/api/agent/runs",
+            json={
+                "query": f"只输出 {EXPECTED_OUTPUT}",
+                "agent_slug": agent_slug,
+                "thread_id": thread_id,
+                "meta": {"request_id": f"deterministic-large-parent-{uuid.uuid4()}"},
+            },
+            headers=e2e_headers,
+        )
+        assert initial_response.status_code == 200, initial_response.text
+        parent_run_id = str(initial_response.json()["run_id"])
+        active_run_id = parent_run_id
+        parent_run = await wait_for_run(e2e_client, e2e_headers, parent_run_id)
+        assert parent_run["status"] == "interrupted", parent_run
+        assert parent_run["error_type"] == "human_approval_required", parent_run
+        await _wait_for_runtime_cleanup(parent_run_id)
+
+        resume_request_id = f"deterministic-large-resume-{uuid.uuid4()}"
+        resume_response = await e2e_client.post(
+            "/api/agent/runs",
+            json={
+                "agent_slug": agent_slug,
+                "thread_id": thread_id,
+                "meta": {"request_id": resume_request_id},
+                "resume": {"decisions": [{"type": "approve"}]},
+                "created_by_run_id": parent_run_id,
+            },
+            headers=e2e_headers,
+        )
+        assert resume_response.status_code == 200, resume_response.text
+        resume_run_id = str(resume_response.json()["run_id"])
+        active_run_id = resume_run_id
+        await consume_events(e2e_client, e2e_headers, resume_run_id)
+        resume_run = await wait_for_run(e2e_client, e2e_headers, resume_run_id)
+        assert resume_run["status"] == "completed", resume_run
+        assert resume_run["output_message_id"] is not None, resume_run
+
+        result = await e2e_client.get(f"/api/agent/runs/{resume_run_id}/result", headers=e2e_headers)
+        assert result.status_code == 200, result.text
+        assert result.json()["output"] == EXPECTED_OUTPUT
+
+        conn = await asyncpg.connect(postgres_dsn())
+        try:
+            audit = await conn.fetchrow(
+                """
+                SELECT execution_status, content, extra_metadata
+                FROM messages
+                WHERE run_id = $1 AND message_type = 'tool_audit' AND operation_id = $2
+                """,
+                resume_run_id,
+                LARGE_TOOL_CALL_ID,
+            )
+        finally:
+            await conn.close()
+        assert audit
+        assert audit["execution_status"] == "completed"
+        assert len(audit["content"]) > 3 * 1024 * 4
+        raw_metadata = audit["extra_metadata"]
+        metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
+        assert metadata["tool_name"] == "execute"
+        assert metadata["output"]["content"] == audit["content"]
+
+        sandbox = ProvisionerSandboxBackend(thread_id=thread_id, uid=uid, workdir_path=workdir_path)
+        offloaded = sandbox.read(f"/home/gem/user-data/{workdir_path}/outputs/large_tool_results/{LARGE_TOOL_CALL_ID}")
+        assert offloaded.error is None, offloaded
+        assert offloaded.file_data and audit["content"].startswith(offloaded.file_data["content"])
+        assert offloaded.next_offset is not None
+        active_run_id = None
+    finally:
+        if active_run_id:
+            await cancel_run(e2e_client, e2e_headers, active_run_id)
+        if thread_id:
+            try:
+                get_sandbox_provider().release(thread_id, uid=uid, workdir_path=workdir_path)
+            except Exception:
+                pass
             thread_delete = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)
             assert thread_delete.status_code in {200, 404}, thread_delete.text
         if agent_slug:

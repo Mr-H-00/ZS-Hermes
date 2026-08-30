@@ -1939,8 +1939,8 @@ def _is_root_tool_audit_event(event: dict[str, Any], thread_id: str) -> bool:
 
 
 def _should_reconcile_tool_state(audit: Any, tool_message: dict[str, Any]) -> bool:
-    """禁止用历史 ToolMessage 完成仍在运行的当前 operation。"""
+    """只用终态 State 补全仍等待 Run 裁决的 Tool error。"""
     if audit.execution_status != "running":
-        return True
+        return False
     metadata = audit.extra_metadata if isinstance(audit.extra_metadata, dict) else {}
     return metadata.get("awaiting_run_terminal") is True and tool_message.get("status") == "error"
