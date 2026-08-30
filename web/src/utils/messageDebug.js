@@ -205,13 +205,24 @@ export function buildMessageDebugEntries(messages) {
 
     if (type === 'tool') {
       const toolName = message?.name || message?.tool_name || message?.function?.name
-      const content = summarizeContent(message.content, 180)
+      const content = summarizeContent(message.content, 140)
+      const error = summarizeContent(message.error_message, 140)
+      const input = summarizeContent(
+        message?.tool_input ? JSON.stringify(message.tool_input) : '',
+        120
+      )
+      let auditDetail = ''
+      if (error) auditDetail = `错误: ${error}`
+      else if (content) auditDetail = `输出: ${content}`
+      else if (input) auditDetail = `输入: ${input}`
+      const historyDetail = [toolName ? `工具: ${toolName}` : '', content]
+        .filter(Boolean)
+        .join(' | ')
       return {
         ...common,
         role: 'tool',
-        roleLabel: 'Tool',
-        summary:
-          [toolName ? `工具: ${toolName}` : '', content].filter(Boolean).join(' | ') || '[工具结果]'
+        roleLabel: operationId && toolName ? `Tool · ${toolName}` : 'Tool',
+        summary: (operationId ? auditDetail : historyDetail) || '[工具执行]'
       }
     }
 
@@ -241,8 +252,8 @@ export function buildMessageDebugEntries(messages) {
   })
 }
 
-/** 格式化后端 monotonic Model 耗时，不从 wall-clock 推导。 */
-export function formatModelAuditDuration(durationMs) {
+/** 格式化后端 monotonic Model/Tool 耗时，不从 wall-clock 推导。 */
+export function formatAuditDuration(durationMs) {
   if (!Number.isFinite(durationMs) || durationMs < 0) return ''
   if (durationMs < 1000) return `${durationMs} ms`
   if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 2 : 1)} s`
@@ -253,7 +264,7 @@ export function formatModelAuditDuration(durationMs) {
 }
 
 /** 仅在面板和页面可见且 Run 确实执行中时轮询审计。 */
-export function shouldPollModelAudits({ panelActive, pageVisible, runActive, activeRunId }) {
+export function shouldPollMessageAudits({ panelActive, pageVisible, runActive, activeRunId }) {
   return Boolean(panelActive && pageVisible && runActive && activeRunId)
 }
 

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.storage.minio.client import normalize_public_minio_url
 from yuxi.storage.postgres.models_business import (
-    MODEL_AUDIT_MESSAGE_TYPE,
+    AUDIT_MESSAGE_TYPES,
     Agent,
     Conversation,
     ConversationStats,
@@ -428,7 +428,7 @@ class DashboardRepository:
             .join(Agent, Conversation.agent_id == Agent.slug)
             .where(
                 *valid_filters,
-                or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                or_(Message.message_type.is_(None), Message.message_type.notin_(AUDIT_MESSAGE_TYPES)),
             )
         )
         total_users_result = await self.db_session.execute(select(func.count(User.id)).where(User.is_deleted == 0))
@@ -522,7 +522,7 @@ class DashboardRepository:
                 .join(Agent, Conversation.agent_id == Agent.slug)
                 .where(
                     Message.role == "assistant",
-                    or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                    or_(Message.message_type.is_(None), Message.message_type.notin_(AUDIT_MESSAGE_TYPES)),
                     Message.created_at >= query_start_time,
                     Message.extra_metadata.isnot(None),
                     Conversation.status.notin_(("deleted", "subagent")),
@@ -571,7 +571,7 @@ class DashboardRepository:
                     .join(Agent, Conversation.agent_id == Agent.slug)
                     .where(
                         Message.created_at >= query_start_time,
-                        or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                        or_(Message.message_type.is_(None), Message.message_type.notin_(AUDIT_MESSAGE_TYPES)),
                         Message.extra_metadata.isnot(None),
                         Message.extra_metadata["usage_metadata"].isnot(None),
                         Conversation.status.notin_(("deleted", "subagent")),
@@ -731,7 +731,7 @@ class DashboardRepository:
             .join(Agent, Conversation.agent_id == Agent.slug)
             .where(
                 *conversation_filters,
-                or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                or_(Message.message_type.is_(None), Message.message_type.notin_(AUDIT_MESSAGE_TYPES)),
             )
         )
         message_summary_row = message_summary_result.one()
@@ -781,7 +781,7 @@ class DashboardRepository:
             .where(
                 Message.created_at >= query_start_time,
                 Message.created_at <= query_now,
-                or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                or_(Message.message_type.is_(None), Message.message_type.notin_(AUDIT_MESSAGE_TYPES)),
                 *conversation_filters,
             )
             .group_by(message_date)

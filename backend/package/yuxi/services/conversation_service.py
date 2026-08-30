@@ -10,6 +10,7 @@ from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import INVOCATION_CONVERSATION_SOURCES, ConversationRepository
 from yuxi.repositories.model_message_audit_repository import ModelMessageAuditRepository
 from yuxi.repositories.project_repository import ProjectRepository
+from yuxi.repositories.tool_message_audit_repository import ToolMessageAuditRepository
 from yuxi.services.attachment_service import serialize_attachment
 from yuxi.services.project_service import create_implicit_project
 from yuxi.services.workdir_service import ensure_conversation_workdir_available, resolve_conversation_workdir_path
@@ -41,6 +42,22 @@ async def get_thread_model_audits_view(
     )
     messages = await ModelMessageAuditRepository(db).list_for_conversation(conversation.id)
     return {"audits": [_serialize_model_audit(message) for message in messages]}
+
+
+async def get_thread_message_audits_view(
+    *,
+    thread_id: str,
+    current_uid: str,
+    db: AsyncSession,
+) -> dict[str, list[dict[str, Any]]]:
+    """返回当前用户线程内的完整 Model/Tool 审计时间线。"""
+    conversation = await require_user_conversation(
+        ConversationRepository(db),
+        thread_id,
+        str(current_uid),
+    )
+    messages = await ToolMessageAuditRepository(db).list_timeline_for_conversation(conversation.id)
+    return {"audits": [_serialize_message_audit(message) for message in messages]}
 
 
 async def create_thread_view(
@@ -496,6 +513,13 @@ def _serialize_tool_call(tool_call: Any) -> dict[str, Any]:
     }
 
 
+def _serialize_message_audit(message: Any) -> dict[str, Any]:
+    """将 Message 审计事实分派到显式 Model/Tool DTO。"""
+    if message.role == "tool":
+        return _serialize_tool_audit(message)
+    return _serialize_model_audit(message)
+
+
 def _serialize_model_audit(message: Any) -> dict[str, Any]:
     """将 Model 审计事实收敛为前端调试 DTO。"""
     metadata = message.extra_metadata if isinstance(message.extra_metadata, dict) else {}
@@ -525,4 +549,37 @@ def _serialize_model_audit(message: Any) -> dict[str, Any]:
         "model_run_id": model_run_id if isinstance(model_run_id, str) else None,
         "content_blocks": content_blocks if isinstance(content_blocks, list) else [],
         "tool_calls": [_serialize_tool_call(tool_call) for tool_call in message.tool_calls],
+    }
+
+
+def _serialize_tool_audit(message: Any) -> dict[str, Any]:
+    """将 ToolMessage 审计事实收敛为前端调试 DTO。"""
+    metadata = message.extra_metadata if isinstance(message.extra_metadata, dict) else {}
+    namespace = metadata.get("namespace")
+    finished_sequence = metadata.get("finished_sequence")
+    if not isinstance(finished_sequence, int) or isinstance(finished_sequence, bool):
+        finished_sequence = None
+    return {
+        "id": message.id,
+        "type": "tool",
+        "content": message.content,
+        "created_at": format_utc_datetime(message.created_at),
+        "run_id": message.run_id,
+        "request_id": message.request_id,
+        "message_type": message.message_type,
+        "operation_id": message.operation_id,
+        "tool_call_id": metadata.get("tool_call_id"),
+        "tool_name": metadata.get("tool_name"),
+        "tool_input": dict(metadata["input"]) if isinstance(metadata.get("input"), dict) else {},
+        "tool_output": metadata.get("output"),
+        "error_message": metadata.get("error_message"),
+        "source_model_operation_id": metadata.get("source_model_operation_id"),
+        "started_at": format_utc_datetime(message.started_at),
+        "finished_at": format_utc_datetime(message.finished_at),
+        "duration_ms": message.duration_ms,
+        "sequence": message.sequence,
+        "finished_sequence": finished_sequence,
+        "execution_status": message.execution_status,
+        "usage": None,
+        "namespace": [item for item in namespace if isinstance(item, str)] if isinstance(namespace, list) else [],
     }

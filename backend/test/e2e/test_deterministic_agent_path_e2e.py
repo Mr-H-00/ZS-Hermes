@@ -27,6 +27,7 @@ EXPECTED_PRELOADED_TOOL = "present_artifacts"
 EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
 EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
 BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
+TOOL_ERROR_MARKER = "DETERMINISTIC_TOOL_ERROR"
 PROVIDER_ID = "ci-replay"
 MODEL_SPEC = f"{PROVIDER_ID}:deterministic-chat"
 
@@ -282,9 +283,33 @@ async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
         assert all(item["duration_ms"] is not None and item["duration_ms"] >= 0 for item in model_audits)
         assert all(item["usage"] for item in model_audits)
 
+        tool_audit = await conn.fetchrow(
+            """
+            SELECT operation_id, sequence, execution_status, started_at, finished_at, duration_ms,
+                   content, usage, extra_metadata
+            FROM messages
+            WHERE run_id = $1 AND message_type = 'tool_audit' AND role = 'tool'
+            """,
+            run_id,
+        )
+        assert tool_audit
+        assert tool_audit["operation_id"] == EXPECTED_TOOL_CALL_ID
+        assert model_audits[0]["sequence"] < tool_audit["sequence"] < model_audits[1]["sequence"]
+        assert tool_audit["execution_status"] == "completed"
+        assert tool_audit["started_at"] and tool_audit["finished_at"]
+        assert tool_audit["duration_ms"] is not None and tool_audit["duration_ms"] >= 0
+        assert tool_audit["content"] and EXPECTED_TOOL_RESULT_MARKER in tool_audit["content"]
+        assert tool_audit["usage"] is None
+        raw_tool_metadata = tool_audit["extra_metadata"]
+        tool_metadata = json.loads(raw_tool_metadata) if isinstance(raw_tool_metadata, str) else raw_tool_metadata
+        assert tool_metadata["tool_name"] == EXPECTED_PRELOADED_TOOL
+        assert tool_metadata["input"] == {"filepaths": []}
+        assert tool_metadata["source_model_operation_id"] == model_audits[0]["operation_id"]
+
         tool_call = await conn.fetchrow(
             """
-            SELECT tc.langgraph_tool_call_id, tc.tool_name, tc.status, tc.tool_output
+            SELECT tc.langgraph_tool_call_id, tc.tool_name, tc.status, tc.tool_output,
+                   message.operation_id AS source_model_operation_id
             FROM tool_calls tc
             JOIN messages message ON message.id = tc.message_id
             WHERE message.run_id = $1
@@ -309,6 +334,7 @@ async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
         assert tool_call["tool_name"] == EXPECTED_PRELOADED_TOOL
         assert tool_call["status"] == "success"
         assert tool_call["tool_output"]
+        assert tool_call["source_model_operation_id"] == model_audits[0]["operation_id"]
     finally:
         await conn.close()
 
@@ -512,6 +538,15 @@ async def test_deterministic_agent_path_reaches_persisted_result(
         assert EXPECTED_TOOL_RESULT_MARKER in tool_call["tool_call_result"]["content"]
         assert any(message.get("content") == EXPECTED_OUTPUT for message in history)
 
+        audit_response = await e2e_client.get(f"/api/chat/thread/{thread_id}/audits", headers=e2e_headers)
+        assert audit_response.status_code == 200, audit_response.text
+        audit_timeline = [item for item in audit_response.json()["audits"] if item["run_id"] == run_id]
+        assert [item["type"] for item in audit_timeline] == ["ai", "tool", "ai"]
+        assert [item["sequence"] for item in audit_timeline] == sorted(item["sequence"] for item in audit_timeline)
+        assert audit_timeline[1]["tool_call_id"] == EXPECTED_TOOL_CALL_ID
+        assert audit_timeline[1]["tool_input"] == {"filepaths": []}
+        assert EXPECTED_TOOL_RESULT_MARKER in audit_timeline[1]["content"]
+
         first_run_id = run_id
         second_request_id = f"deterministic-followup-{uuid.uuid4()}"
         second_response = await e2e_client.post(
@@ -539,6 +574,73 @@ async def test_deterministic_agent_path_reaches_persisted_result(
     finally:
         if run_id and not run_completed:
             await cancel_run(e2e_client, e2e_headers, run_id)
+        if thread_id:
+            thread_delete = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)
+            assert thread_delete.status_code in {200, 404}, thread_delete.text
+        if agent_slug:
+            await delete_agent(e2e_client, e2e_headers, agent_slug)
+        await _delete_provider(e2e_client, e2e_headers)
+
+
+async def test_deterministic_tool_error_is_persisted_by_tool_message(
+    e2e_client: httpx.AsyncClient,
+    e2e_headers: dict[str, str],
+) -> None:
+    """真实 worker 将 ToolNode 受控错误保存为 failed ToolMessage 与兼容 ToolCall。"""
+    me_response = await e2e_client.get("/api/auth/me", headers=e2e_headers)
+    assert me_response.status_code == 200, me_response.text
+    uid = str(me_response.json()["uid"])
+
+    await _create_provider(e2e_client, e2e_headers)
+    agent_slug: str | None = None
+    thread_id: str | None = None
+    try:
+        agent_slug = await _create_agent(
+            e2e_client,
+            e2e_headers,
+            uid,
+            system_prompt_suffix=TOOL_ERROR_MARKER,
+        )
+        thread_response = await e2e_client.post(
+            "/api/chat/thread",
+            json={
+                "agent_id": agent_slug,
+                "title": make_test_conversation_title("tool-audit-error"),
+                "metadata": make_test_conversation_metadata("tool-audit-error", e2e=True),
+            },
+            headers=e2e_headers,
+        )
+        assert thread_response.status_code == 200, thread_response.text
+        thread_id = str(thread_response.json().get("thread_id") or thread_response.json()["id"])
+
+        run = await _run_deterministic(
+            e2e_client,
+            e2e_headers,
+            agent_slug=agent_slug,
+            thread_id=thread_id,
+        )
+        conn = await asyncpg.connect(postgres_dsn())
+        try:
+            row = await conn.fetchrow(
+                """
+                SELECT audit.execution_status, audit.content, audit.duration_ms,
+                       tool_call.status AS tool_call_status, tool_call.error_message
+                FROM messages audit
+                LEFT JOIN tool_calls tool_call
+                  ON tool_call.id = (audit.extra_metadata->>'compatibility_tool_call_id')::integer
+                WHERE audit.run_id = $1 AND audit.message_type = 'tool_audit'
+                """,
+                run["id"],
+            )
+        finally:
+            await conn.close()
+
+        assert row
+        assert row["execution_status"] == "failed"
+        assert row["duration_ms"] is not None and row["duration_ms"] >= 0
+        assert row["tool_call_status"] == "error"
+        assert row["error_message"]
+    finally:
         if thread_id:
             thread_delete = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)
             assert thread_delete.status_code in {200, 404}, thread_delete.text

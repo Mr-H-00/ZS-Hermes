@@ -18,6 +18,7 @@ EXPECTED_PRELOADED_TOOL = "present_artifacts"
 EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
 EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
 BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
+TOOL_ERROR_MARKER = "DETERMINISTIC_TOOL_ERROR"
 BLOCKING_REQUEST_TOKENS: set[str] = set()
 BLOCKING_REQUEST_TOKENS_LOCK = Lock()
 
@@ -50,7 +51,7 @@ def _validate_request(authorization: str | None, request: dict) -> str | None:
     tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
     if tool_messages and not any(
         message.get("tool_call_id") == EXPECTED_TOOL_CALL_ID
-        and EXPECTED_TOOL_RESULT_MARKER in str(message.get("content", ""))
+        and (EXPECTED_TOOL_RESULT_MARKER in str(message.get("content", "")) or TOOL_ERROR_MARKER in serialized_messages)
         for message in tool_messages
     ):
         return "tool_execution_result_missing"
@@ -98,7 +99,11 @@ def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
                                 "type": "function",
                                 "function": {
                                     "name": EXPECTED_PRELOADED_TOOL,
-                                    "arguments": '{"filepaths": []}',
+                                    "arguments": (
+                                        "{}"
+                                        if TOOL_ERROR_MARKER in json.dumps(messages, ensure_ascii=False)
+                                        else '{"filepaths": []}'
+                                    ),
                                 },
                             }
                         ],

@@ -23,6 +23,7 @@ from yuxi.services.conversation_service import (
     create_thread_view,
     delete_thread_view,
     get_thread_history_view,
+    get_thread_message_audits_view,
     get_thread_model_audits_view,
     list_threads_view,
     mark_thread_viewed_view,
@@ -115,6 +116,26 @@ async def get_thread_model_audits(
     except Exception as exc:
         logger.error(f"获取 Model 审计出错: {exc}, {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="获取 Model 审计出错") from exc
+
+
+@chat.get("/thread/{thread_id}/audits")
+async def get_thread_message_audits(
+    thread_id: str,
+    current_user: User = Depends(get_superadmin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """读取超级管理员自身线程内的 Model/Tool 生命周期审计。"""
+    try:
+        return await get_thread_message_audits_view(
+            thread_id=thread_id,
+            current_uid=str(current_user.uid),
+            db=db,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"获取 Message 审计出错: {exc}, {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="获取 Message 审计出错") from exc
 
 
 @chat.get("/thread/{thread_id}/state")

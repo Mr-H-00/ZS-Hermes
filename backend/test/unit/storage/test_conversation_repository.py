@@ -116,7 +116,17 @@ async def test_model_audit_messages_are_hidden_from_history_and_message_count(co
         operation_id="model-1",
         execution_status="completed",
     )
-    conversation_session.add_all([stats, visible_message, audit_message])
+    tool_audit = Message(
+        conversation_id=conversation.id,
+        role="tool",
+        content="hidden tool output",
+        message_type="tool_audit",
+        operation_id="tool-1",
+        started_at=now,
+        sequence=2,
+        execution_status="completed",
+    )
+    conversation_session.add_all([stats, visible_message, audit_message, tool_audit])
     await conversation_session.commit()
 
     repo = ConversationRepository(conversation_session)

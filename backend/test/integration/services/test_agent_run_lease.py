@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
 from yuxi.repositories.model_message_audit_repository import ModelMessageAuditRepository
+from yuxi.repositories.tool_message_audit_repository import ToolMessageAuditRepository
 from yuxi.services import chat_service, run_worker
 from yuxi.storage.postgres.manager import (
     AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
@@ -27,7 +28,15 @@ from yuxi.storage.postgres.manager import (
     MODEL_MESSAGE_AUDIT_SCHEMA_STATEMENTS,
     RUNTIME_SCOPE_SCHEMA_STATEMENTS,
 )
-from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, Project, SubagentThread, User
+from yuxi.storage.postgres.models_business import (
+    AgentRun,
+    Conversation,
+    Message,
+    Project,
+    SubagentThread,
+    ToolCall,
+    User,
+)
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -251,6 +260,8 @@ async def _cleanup_runs(session_factory, thread_ids: list[str]) -> None:
             (await db.scalars(select(Conversation.id).where(Conversation.thread_id.in_(thread_ids)))).all()
         )
         if conversation_ids:
+            message_ids = select(Message.id).where(Message.conversation_id.in_(conversation_ids))
+            await db.execute(delete(ToolCall).where(ToolCall.message_id.in_(message_ids)))
             await db.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
         await db.execute(delete(AgentRun).where(AgentRun.conversation_thread_id.in_(thread_ids)))
         await db.execute(delete(SubagentThread).where(SubagentThread.child_thread_id.in_(thread_ids)))
@@ -393,8 +404,189 @@ async def test_model_audit_lifecycle_is_idempotent_and_lease_fenced(lease_databa
         await _cleanup_runs(session_factory, [thread_id])
 
 
-async def test_terminal_failure_closes_running_model_audit(lease_database):
-    """Run 终态 owning transaction 不得留下 running Model 行。"""
+async def test_tool_audit_lifecycle_owns_compatibility_projection_and_is_lease_fenced(lease_database):
+    """ToolMessage 保存真实执行事实，ToolCall 只作为同源兼容投影。"""
+    _engine, session_factory = lease_database
+    now = utc_now_naive()
+    owner = "tool-audit-owner"
+    run_id, thread_id, _message_id = await _create_run(
+        session_factory,
+        status="running",
+        worker_id=owner,
+        lease_expires_at=now + timedelta(minutes=1),
+    )
+    try:
+        async with session_factory() as db:
+            run = await db.get(AgentRun, run_id)
+            model_repo = ModelMessageAuditRepository(db)
+            model_message, _created = await model_repo.start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="model-with-tool",
+                sequence=3,
+                started_at=now,
+                metadata={"tool_calls": [{"id": "call-tool-1", "name": "search", "args": {"q": "Yuxi"}}]},
+            )
+            await model_repo.finish(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                operation_id="model-with-tool",
+                content="",
+                finished_at=now + timedelta(milliseconds=50),
+                duration_ms=50,
+                usage={"input_tokens": 2, "output_tokens": 1},
+            )
+
+            repository = ToolMessageAuditRepository(db)
+            tool_message, created = await repository.start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                tool_call_id="call-tool-1",
+                tool_name="search",
+                tool_input={"q": "effective Yuxi"},
+                sequence=5,
+                started_at=now + timedelta(milliseconds=60),
+            )
+            duplicate, duplicate_created = await repository.start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                tool_call_id="call-tool-1",
+                tool_name="search",
+                tool_input={"q": "effective Yuxi"},
+                sequence=5,
+                started_at=now + timedelta(milliseconds=70),
+            )
+            completed = await repository.complete(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                tool_call_id="call-tool-1",
+                output={"id": None, "type": "tool", "content": "result", "status": "success"},
+                content="result",
+                finished_at=now + timedelta(milliseconds=160),
+                duration_ms=100,
+                finished_sequence=6,
+            )
+            replayed = await repository.complete(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                tool_call_id="call-tool-1",
+                output={
+                    "id": "state-id",
+                    "name": "search",
+                    "type": "tool",
+                    "content": "result",
+                    "status": "success",
+                },
+                content="result",
+                finished_at=now + timedelta(milliseconds=200),
+                duration_ms=140,
+                finished_sequence=7,
+            )
+            tool_call = (
+                await db.execute(
+                    select(ToolCall)
+                    .join(Message, ToolCall.message_id == Message.id)
+                    .where(
+                        Message.run_id == run_id,
+                        ToolCall.langgraph_tool_call_id == "call-tool-1",
+                    )
+                )
+            ).scalar_one()
+
+            assert created is True
+            assert duplicate_created is False
+            assert duplicate.id == tool_message.id == completed.id == replayed.id
+            assert completed.role == "tool"
+            assert completed.message_type == "tool_audit"
+            assert completed.execution_status == "completed"
+            assert completed.content == "result"
+            assert completed.duration_ms == 100
+            assert completed.extra_metadata["input"] == {"q": "effective Yuxi"}
+            assert completed.extra_metadata["source_model_operation_id"] == "model-with-tool"
+            assert tool_call.message_id == model_message.id
+            assert tool_call.tool_input == {"q": "effective Yuxi"}
+            assert tool_call.tool_output == "result"
+            assert tool_call.status == "success"
+
+            with pytest.raises(ValueError, match="不同结果覆盖"):
+                await repository.complete(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id=thread_id,
+                    worker_id=owner,
+                    tool_call_id="call-tool-1",
+                    output={
+                        "id": "state-id",
+                        "type": "tool",
+                        "content": "result",
+                        "artifact": {"version": 2},
+                        "status": "success",
+                    },
+                    content="result",
+                    finished_at=now + timedelta(milliseconds=250),
+                    duration_ms=190,
+                    finished_sequence=8,
+                )
+
+            with pytest.raises(ValueError, match="无法关联"):
+                await repository.start(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id=thread_id,
+                    worker_id=owner,
+                    tool_call_id="call-without-model",
+                    tool_name="search",
+                    tool_input={},
+                    sequence=9,
+                    started_at=now,
+                )
+
+            with pytest.raises(ValueError, match="重复 Tool start"):
+                await repository.start(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id=thread_id,
+                    worker_id=owner,
+                    tool_call_id="call-tool-1",
+                    tool_name="search",
+                    tool_input={"q": "different"},
+                    sequence=5,
+                    started_at=now,
+                )
+            await db.commit()
+
+        async with session_factory() as db:
+            run = await db.get(AgentRun, run_id)
+            with pytest.raises(ValueError, match="lease owner"):
+                await ToolMessageAuditRepository(db).start(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id=thread_id,
+                    worker_id="other-owner",
+                    tool_call_id="call-tool-2",
+                    tool_name="search",
+                    tool_input={},
+                    sequence=8,
+                    started_at=now,
+                )
+    finally:
+        await _cleanup_runs(session_factory, [thread_id])
+
+
+async def test_terminal_failure_closes_running_model_and_tool_audits(lease_database):
+    """Run 终态 owning transaction 不得留下 running Model/Tool 行。"""
     _engine, session_factory = lease_database
     now = utc_now_naive()
     owner = "model-audit-terminal-owner"
@@ -407,13 +599,25 @@ async def test_terminal_failure_closes_running_model_audit(lease_database):
     try:
         async with session_factory() as db:
             run = await db.get(AgentRun, run_id)
-            audit, _created = await ModelMessageAuditRepository(db).start(
+            model_audit, _created = await ModelMessageAuditRepository(db).start(
                 run_id=run_id,
                 request_id=run.request_id,
                 thread_id=thread_id,
                 worker_id=owner,
                 operation_id="model-operation-running",
                 sequence=11,
+                started_at=now,
+                metadata={"tool_calls": [{"id": "tool-operation-running", "name": "search", "args": {"q": "pending"}}]},
+            )
+            tool_audit, _created = await ToolMessageAuditRepository(db).start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                tool_call_id="tool-operation-running",
+                tool_name="search",
+                tool_input={"q": "pending"},
+                sequence=12,
                 started_at=now,
             )
             terminal_run, changed = await AgentRunRepository(db).set_terminal_status(
@@ -427,9 +631,166 @@ async def test_terminal_failure_closes_running_model_audit(lease_database):
             await db.commit()
             assert terminal_run is not None
             assert changed is True
-            await db.refresh(audit)
-            assert audit.execution_status == "failed"
-            assert audit.finished_at == now + timedelta(seconds=1)
+            await db.refresh(model_audit)
+            await db.refresh(tool_audit)
+            tool_call = (
+                await db.execute(
+                    select(ToolCall)
+                    .join(Message, ToolCall.message_id == Message.id)
+                    .where(
+                        Message.run_id == run_id,
+                        ToolCall.langgraph_tool_call_id == "tool-operation-running",
+                    )
+                )
+            ).scalar_one()
+            assert model_audit.execution_status == "failed"
+            assert tool_audit.execution_status == "failed"
+            assert model_audit.finished_at == now + timedelta(seconds=1)
+            assert tool_audit.finished_at == now + timedelta(seconds=1)
+            assert tool_call.status == "error"
+            assert tool_call.error_message == "Tool 审计由 Run 终态收敛为 failed"
+    finally:
+        await _cleanup_runs(session_factory, [thread_id])
+
+
+async def test_interrupted_tool_keeps_pending_projection_for_resume(lease_database):
+    """裸 tool-error 随 Run interrupted 收敛后，同一 tool_call_id 可在 resume 继续。"""
+    _engine, session_factory = lease_database
+    now = utc_now_naive()
+    parent_owner = "tool-interrupt-parent"
+    resume_owner = "tool-interrupt-resume"
+    parent_id, thread_id, _message_id = await _create_run(
+        session_factory,
+        status="running",
+        worker_id=parent_owner,
+        lease_expires_at=now + timedelta(minutes=1),
+    )
+    try:
+        async with session_factory() as db:
+            parent = await db.get(AgentRun, parent_id)
+            model_message, _created = await ModelMessageAuditRepository(db).start(
+                run_id=parent_id,
+                request_id=parent.request_id,
+                thread_id=thread_id,
+                worker_id=parent_owner,
+                operation_id="interrupt-model",
+                sequence=2,
+                started_at=now,
+                metadata={"tool_calls": [{"id": "interrupt-tool", "name": "ask_user_question", "args": {}}]},
+            )
+            repository = ToolMessageAuditRepository(db)
+            parent_tool, _created = await repository.start(
+                run_id=parent_id,
+                request_id=parent.request_id,
+                thread_id=thread_id,
+                worker_id=parent_owner,
+                tool_call_id="interrupt-tool",
+                tool_name="ask_user_question",
+                tool_input={"questions": [{"question": "继续吗"}]},
+                sequence=4,
+                started_at=now + timedelta(milliseconds=10),
+            )
+            error_time = now + timedelta(milliseconds=20)
+            await repository.observe_error(
+                run_id=parent_id,
+                request_id=parent.request_id,
+                thread_id=thread_id,
+                worker_id=parent_owner,
+                tool_call_id="interrupt-tool",
+                error_message="Interrupt",
+                finished_at=error_time,
+                duration_ms=10,
+                finished_sequence=5,
+            )
+            _run, changed = await AgentRunRepository(db).set_terminal_status(
+                parent_id,
+                status="interrupted",
+                error_type="ask_user_question_required",
+                worker_id=parent_owner,
+                now=now + timedelta(seconds=1),
+            )
+            assert changed is True
+            await db.commit()
+
+            await db.refresh(parent_tool)
+            parent_tool_call = await db.get(
+                ToolCall,
+                parent_tool.extra_metadata["compatibility_tool_call_id"],
+            )
+            assert parent_tool.execution_status == "interrupted"
+            assert parent_tool.finished_at == error_time
+            assert parent_tool.duration_ms == 10
+            assert parent_tool_call.status == "pending"
+            assert parent_tool_call.message_id == model_message.id
+            parent_tool_call_id = parent_tool_call.id
+
+        resume_id = str(uuid.uuid4())
+        resume_request_id = f"resume-{uuid.uuid4()}"
+        async with session_factory() as db:
+            parent = await db.get(AgentRun, parent_id)
+            input_message = Message(
+                conversation_id=parent.conversation_id,
+                role="user",
+                content="继续",
+                request_id=resume_request_id,
+                delivery_status="dispatched",
+            )
+            db.add(input_message)
+            await db.flush()
+            db.add(
+                AgentRun(
+                    id=resume_id,
+                    conversation_thread_id=thread_id,
+                    runtime_scope_id=thread_id,
+                    agent_slug=parent.agent_slug,
+                    uid=parent.uid,
+                    request_id=resume_request_id,
+                    conversation_id=parent.conversation_id,
+                    input_message_id=input_message.id,
+                    input_payload={},
+                    status="running",
+                    run_type="resume",
+                    created_by_run_id=parent_id,
+                    worker_id=resume_owner,
+                    heartbeat_at=now,
+                    lease_expires_at=now + timedelta(minutes=1),
+                )
+            )
+            await db.flush()
+            repository = ToolMessageAuditRepository(db)
+            resumed_tool, _created = await repository.start(
+                run_id=resume_id,
+                request_id=resume_request_id,
+                thread_id=thread_id,
+                worker_id=resume_owner,
+                tool_call_id="interrupt-tool",
+                tool_name="ask_user_question",
+                tool_input={"questions": [{"question": "继续吗"}]},
+                sequence=2,
+                started_at=now + timedelta(seconds=2),
+            )
+            await repository.complete(
+                run_id=resume_id,
+                request_id=resume_request_id,
+                thread_id=thread_id,
+                worker_id=resume_owner,
+                tool_call_id="interrupt-tool",
+                output={"type": "tool", "content": "已继续", "status": "success"},
+                content="已继续",
+                finished_at=now + timedelta(seconds=3),
+                duration_ms=1000,
+                finished_sequence=3,
+            )
+            await db.commit()
+
+            resumed_tool_call = await db.get(
+                ToolCall,
+                resumed_tool.extra_metadata["compatibility_tool_call_id"],
+            )
+            assert resumed_tool.execution_status == "completed"
+            assert resumed_tool_call.id == parent_tool_call_id
+            assert resumed_tool_call.status == "success"
+            assert resumed_tool_call.tool_output == "已继续"
     finally:
         await _cleanup_runs(session_factory, [thread_id])
 
@@ -897,8 +1258,21 @@ async def test_expired_owner_cannot_finish_or_publish_retry_before_reconciliatio
                 operation_id="expired-model-operation",
                 sequence=3,
                 started_at=now,
+                metadata={"tool_calls": [{"id": "expired-tool-operation", "name": "search", "args": {"q": "unknown"}}]},
             )
             audit_id = audit.id
+            tool_audit, _created = await ToolMessageAuditRepository(db).start(
+                run_id=run_id,
+                request_id=run.request_id,
+                thread_id=thread_id,
+                worker_id=owner,
+                tool_call_id="expired-tool-operation",
+                tool_name="search",
+                tool_input={"q": "unknown"},
+                sequence=4,
+                started_at=now,
+            )
+            tool_audit_id = tool_audit.id
             await db.commit()
 
         async with session_factory() as db:
@@ -926,6 +1300,11 @@ async def test_expired_owner_cannot_finish_or_publish_retry_before_reconciliatio
             persisted_run = await db.get(AgentRun, run_id)
             persisted_message = await db.get(Message, message_id)
             persisted_audit = await db.get(Message, audit_id)
+            persisted_tool_audit = await db.get(Message, tool_audit_id)
+            persisted_tool_call = await db.get(
+                ToolCall,
+                persisted_tool_audit.extra_metadata["compatibility_tool_call_id"],
+            )
 
         assert acquired is True
         assert released is False
@@ -936,6 +1315,8 @@ async def test_expired_owner_cannot_finish_or_publish_retry_before_reconciliatio
         assert persisted_run.error_type == "worker_lease_expired"
         assert persisted_message.delivery_status == "failed"
         assert persisted_audit.execution_status == "abandoned"
+        assert persisted_tool_audit.execution_status == "abandoned"
+        assert persisted_tool_call.status == "error"
     finally:
         await _cleanup_runs(session_factory, [thread_id])
 
@@ -964,12 +1345,36 @@ async def test_pending_cancel_is_terminal_and_durable_cancel_wins_completion_rac
             await db.commit()
 
         async with session_factory() as db:
-            _, acquired = await AgentRunRepository(db).mark_running(
+            running_run, acquired = await AgentRunRepository(db).mark_running(
                 running_run_id,
                 worker_id=owner,
                 lease_seconds=60,
                 now=now,
             )
+            await ModelMessageAuditRepository(db).start(
+                run_id=running_run_id,
+                request_id=running_run.request_id,
+                thread_id=running_thread_id,
+                worker_id=owner,
+                operation_id="cancelled-model-operation",
+                sequence=2,
+                started_at=now,
+                metadata={
+                    "tool_calls": [{"id": "cancelled-tool-operation", "name": "search", "args": {"q": "cancel"}}]
+                },
+            )
+            running_tool_audit, _created = await ToolMessageAuditRepository(db).start(
+                run_id=running_run_id,
+                request_id=running_run.request_id,
+                thread_id=running_thread_id,
+                worker_id=owner,
+                tool_call_id="cancelled-tool-operation",
+                tool_name="search",
+                tool_input={"q": "cancel"},
+                sequence=3,
+                started_at=now,
+            )
+            running_tool_audit_id = running_tool_audit.id
             await db.commit()
         async with session_factory() as db:
             running_uid = (await db.get(AgentRun, running_run_id)).uid
@@ -1002,6 +1407,11 @@ async def test_pending_cancel_is_terminal_and_durable_cancel_wins_completion_rac
             pending_message = await db.get(Message, pending_message_id)
             running_persisted = await db.get(AgentRun, running_run_id)
             running_message = await db.get(Message, running_message_id)
+            running_tool_audit = await db.get(Message, running_tool_audit_id)
+            running_tool_call = await db.get(
+                ToolCall,
+                running_tool_audit.extra_metadata["compatibility_tool_call_id"],
+            )
 
         assert pending.status == "cancelled"
         assert pending_cancelled_ids == [pending_run_id]
@@ -1016,6 +1426,8 @@ async def test_pending_cancel_is_terminal_and_durable_cancel_wins_completion_rac
         assert cancelled is True
         assert running_persisted.status == "cancelled"
         assert running_message.delivery_status == "cancelled"
+        assert running_tool_audit.execution_status == "interrupted"
+        assert running_tool_call.status == "error"
     finally:
         await _cleanup_runs(session_factory, [pending_thread_id, running_thread_id])
 

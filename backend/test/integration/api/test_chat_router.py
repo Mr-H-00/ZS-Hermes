@@ -56,10 +56,11 @@ async def _upload_project_file(
 async def test_chat_endpoints_require_authentication(test_client):
     assert (await test_client.get("/api/chat/threads")).status_code == 401
     assert (await test_client.get(f"/api/chat/thread/{uuid.uuid4()}/model-audits")).status_code == 401
+    assert (await test_client.get(f"/api/chat/thread/{uuid.uuid4()}/audits")).status_code == 401
     assert (await test_client.get("/api/agent")).status_code == 401
 
 
-async def test_thread_model_audits_return_persisted_facts_without_leaking_into_history(
+async def test_thread_message_audits_return_persisted_facts_without_leaking_into_history(
     test_client,
     standard_user,
     admin_headers,
@@ -72,12 +73,22 @@ async def test_thread_model_audits_return_persisted_facts_without_leaking_into_h
         headers=standard_headers,
     )
     assert owner_forbidden.status_code == 403, owner_forbidden.text
+    message_audit_forbidden = await test_client.get(
+        f"/api/chat/thread/{standard_thread_id}/audits",
+        headers=standard_headers,
+    )
+    assert message_audit_forbidden.status_code == 403, message_audit_forbidden.text
 
     cross_user = await test_client.get(
         f"/api/chat/thread/{standard_thread_id}/model-audits",
         headers=admin_headers,
     )
     assert cross_user.status_code == 404, cross_user.text
+    message_audit_cross_user = await test_client.get(
+        f"/api/chat/thread/{standard_thread_id}/audits",
+        headers=admin_headers,
+    )
+    assert message_audit_cross_user.status_code == 404, message_audit_cross_user.text
 
     thread_id = await _create_thread_for_user(test_client, admin_headers)
     run_id = f"run-{uuid.uuid4()}"
@@ -154,6 +165,33 @@ async def test_thread_model_audits_return_persisted_facts_without_leaking_into_h
                 ),
             ],
         )
+        await conn.execute(
+            """
+            INSERT INTO messages
+                (conversation_id, role, content, message_type, delivery_status, extra_metadata, run_id,
+                 request_id, operation_id, started_at, finished_at, duration_ms, sequence,
+                 execution_status, usage)
+            VALUES ($1, 'tool', '查询结果', 'tool_audit', 'complete', $2::jsonb, $3, $4, 'call-1',
+                    $5, $6, 400, 6, 'completed', NULL)
+            """,
+            conversation["id"],
+            json.dumps(
+                {
+                    "tool_call_id": "call-1",
+                    "tool_name": "search",
+                    "input": {"q": "Yuxi"},
+                    "output": {"type": "tool", "content": "查询结果", "status": "success"},
+                    "source_model_operation_id": "operation-1",
+                    "finished_sequence": 7,
+                    "private_internal_field": "must-not-leak",
+                },
+                ensure_ascii=False,
+            ),
+            run_id,
+            request_id,
+            started_at + timedelta(seconds=1),
+            started_at + timedelta(milliseconds=1400),
+        )
     finally:
         await conn.close()
 
@@ -168,6 +206,17 @@ async def test_thread_model_audits_return_persisted_facts_without_leaking_into_h
     assert audits[1]["usage"]["total_tokens"] == 10
     assert audits[1]["content_blocks"] == [{"type": "text", "text": "第二次模型输出"}]
     assert "private_internal_field" not in response.text
+
+    timeline_response = await test_client.get(f"/api/chat/thread/{thread_id}/audits", headers=admin_headers)
+    assert timeline_response.status_code == 200, timeline_response.text
+    timeline = timeline_response.json()["audits"]
+    assert [audit["operation_id"] for audit in timeline] == ["operation-1", "call-1", "operation-2"]
+    assert [audit["type"] for audit in timeline] == ["ai", "tool", "ai"]
+    assert timeline[1]["tool_name"] == "search"
+    assert timeline[1]["tool_input"] == {"q": "Yuxi"}
+    assert timeline[1]["content"] == "查询结果"
+    assert timeline[1]["duration_ms"] == 400
+    assert "private_internal_field" not in timeline_response.text
 
     history = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=admin_headers)
     assert history.status_code == 200, history.text

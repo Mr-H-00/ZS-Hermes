@@ -35,6 +35,8 @@ MAX_LOGIN_FAILED_ATTEMPTS = 5
 LOGIN_LOCK_DURATION_SECONDS = 300
 AGENT_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled", "interrupted")
 MODEL_AUDIT_MESSAGE_TYPE = "model_audit"
+TOOL_AUDIT_MESSAGE_TYPE = "tool_audit"
+AUDIT_MESSAGE_TYPES = (MODEL_AUDIT_MESSAGE_TYPE, TOOL_AUDIT_MESSAGE_TYPE)
 AGENT_RUN_SHAPE_CONSTRAINT_NAME = "ck_agent_runs_nonterminal_shape"
 AGENT_RUN_SHAPE_CONSTRAINT_SQL = """
 status IN ('completed', 'failed', 'cancelled', 'interrupted')

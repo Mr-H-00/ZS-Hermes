@@ -4,12 +4,12 @@ import test from 'node:test'
 import {
   buildMessageDebugEntries,
   extractMessageToolNames,
-  formatModelAuditDuration,
+  formatAuditDuration,
   groupMessageDebugEntries,
   mergeMessageDebugAudits,
   mergeMessageDebugMessages,
   resolveLangfuseRunUrl,
-  shouldPollModelAudits
+  shouldPollMessageAudits
 } from '../../src/utils/messageDebug.js'
 
 test('消息调试条目保持后端数组顺序并保留独立工具消息', () => {
@@ -251,12 +251,77 @@ test('实时 Model 投影只按同一 Run 的 operation id 合并', () => {
   assert.equal(entry.executionStatus, 'running')
 })
 
-test('Model monotonic 耗时在分钟边界正确进位', () => {
-  assert.equal(formatModelAuditDuration(675), '675 ms')
-  assert.equal(formatModelAuditDuration(1120), '1.12 s')
-  assert.equal(formatModelAuditDuration(60_000), '1m 0s')
-  assert.equal(formatModelAuditDuration(119_600), '2m 0s')
-  assert.equal(formatModelAuditDuration(null), '')
+test('Model 与 Tool 审计按 sequence 形成交错时间线并展示真实工具事实', () => {
+  const messages = [{ id: 'user-1', type: 'human', run_id: 'run-1', content: '查询' }]
+  const audits = [
+    {
+      id: 10,
+      type: 'ai',
+      run_id: 'run-1',
+      operation_id: 'model-1',
+      sequence: 3,
+      execution_status: 'completed'
+    },
+    {
+      id: 11,
+      type: 'tool',
+      run_id: 'run-1',
+      operation_id: 'call-1',
+      tool_name: 'search',
+      tool_input: { q: 'Yuxi' },
+      content: '查询结果',
+      sequence: 6,
+      duration_ms: 125,
+      execution_status: 'completed'
+    },
+    {
+      id: 12,
+      type: 'ai',
+      run_id: 'run-1',
+      operation_id: 'model-2',
+      sequence: 9,
+      execution_status: 'running'
+    }
+  ]
+
+  const merged = mergeMessageDebugAudits(messages, audits)
+  const entries = buildMessageDebugEntries(merged)
+
+  assert.deepEqual(
+    entries.map((entry) => entry.operationId || entry.id),
+    ['user-1', 'model-1', 'call-1', 'model-2']
+  )
+  assert.equal(entries[2].role, 'tool')
+  assert.equal(entries[2].roleLabel, 'Tool · search')
+  assert.equal(entries[2].summary, '输出: 查询结果')
+  assert.equal(entries[2].durationMs, 125)
+  assert.equal(entries[2].executionStatus, 'completed')
+})
+
+test('失败 Tool 审计展示错误而不把 running wall-clock 推算成耗时', () => {
+  const [entry] = buildMessageDebugEntries([
+    {
+      id: 11,
+      type: 'tool',
+      run_id: 'run-1',
+      operation_id: 'call-error',
+      tool_name: 'search',
+      tool_input: { q: 'Yuxi' },
+      error_message: 'provider unavailable',
+      execution_status: 'failed'
+    }
+  ])
+
+  assert.equal(entry.summary, '错误: provider unavailable')
+  assert.equal(entry.durationMs, null)
+})
+
+test('Model/Tool monotonic 耗时在分钟边界正确进位', () => {
+  assert.equal(formatAuditDuration(675), '675 ms')
+  assert.equal(formatAuditDuration(1120), '1.12 s')
+  assert.equal(formatAuditDuration(60_000), '1m 0s')
+  assert.equal(formatAuditDuration(119_600), '2m 0s')
+  assert.equal(formatAuditDuration(null), '')
 })
 
 test('审计轮询只在面板、页面和 Run 都活跃时启用', () => {
@@ -267,11 +332,11 @@ test('审计轮询只在面板、页面和 Run 都活跃时启用', () => {
     activeRunId: 'run-1'
   }
 
-  assert.equal(shouldPollModelAudits(active), true)
-  assert.equal(shouldPollModelAudits({ ...active, panelActive: false }), false)
-  assert.equal(shouldPollModelAudits({ ...active, pageVisible: false }), false)
-  assert.equal(shouldPollModelAudits({ ...active, runActive: false }), false)
-  assert.equal(shouldPollModelAudits({ ...active, activeRunId: null }), false)
+  assert.equal(shouldPollMessageAudits(active), true)
+  assert.equal(shouldPollMessageAudits({ ...active, panelActive: false }), false)
+  assert.equal(shouldPollMessageAudits({ ...active, pageVisible: false }), false)
+  assert.equal(shouldPollMessageAudits({ ...active, runActive: false }), false)
+  assert.equal(shouldPollMessageAudits({ ...active, activeRunId: null }), false)
 })
 
 test('工具名称按多种消息字段解析并去重', () => {

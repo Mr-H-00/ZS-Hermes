@@ -5,13 +5,15 @@
 import json
 import uuid as uuid_lib
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from yuxi.storage.postgres.models_business import (
+    AUDIT_MESSAGE_TYPES,
     MODEL_AUDIT_MESSAGE_TYPE,
+    TOOL_AUDIT_MESSAGE_TYPE,
     UNVIEWED_RUN_MARKER,
     Conversation,
     ConversationStats,
@@ -28,7 +30,12 @@ MESSAGE_SEARCH_SNIPPET_RADIUS = 72
 MESSAGE_SEARCH_SNIPPET_MAX_LENGTH = 180
 MESSAGE_SEARCH_SNIPPETS_PER_THREAD = 2
 MESSAGE_SEARCH_ROLES = ("user", "assistant")
-MESSAGE_SEARCH_EXCLUDED_TYPES = ("tool_call", "tool_result", MODEL_AUDIT_MESSAGE_TYPE)
+MESSAGE_SEARCH_EXCLUDED_TYPES = (
+    "tool_call",
+    "tool_result",
+    MODEL_AUDIT_MESSAGE_TYPE,
+    TOOL_AUDIT_MESSAGE_TYPE,
+)
 INVOCATION_CONVERSATION_SOURCES = ("agent_call", "agent_evaluation")
 
 # ==== 历史对话检索参数 ====
@@ -366,8 +373,11 @@ class ConversationRepository:
                 Message.conversation_id == conversation_id,
                 or_(
                     Message.message_type.is_(None),
-                    Message.message_type != MODEL_AUDIT_MESSAGE_TYPE,
-                    Message.tool_calls.any(),
+                    Message.message_type.notin_(AUDIT_MESSAGE_TYPES),
+                    and_(
+                        Message.message_type == MODEL_AUDIT_MESSAGE_TYPE,
+                        Message.tool_calls.any(),
+                    ),
                 ),
             )
             .order_by(Message.created_at.asc())
@@ -908,7 +918,7 @@ class ConversationRepository:
             result = await self.db.execute(
                 select(func.count()).where(
                     Message.conversation_id == conversation_id,
-                    or_(Message.message_type.is_(None), Message.message_type != MODEL_AUDIT_MESSAGE_TYPE),
+                    or_(Message.message_type.is_(None), Message.message_type.notin_(AUDIT_MESSAGE_TYPES)),
                 )
             )
             message_count = result.scalar()

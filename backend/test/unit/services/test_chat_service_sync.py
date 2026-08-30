@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from langchain.messages import AIMessage, HumanMessage
+from langchain.messages import AIMessage, HumanMessage, ToolMessage
 
 from yuxi.agents import context as agent_context
 from yuxi.workspace import paths as workspace_paths
@@ -113,6 +113,14 @@ async def test_resolve_agent_runtime_includes_subagents_only_when_requested(monk
 
 
 class _EmptyModelAuditRepo:
+    def __init__(self, _db):
+        pass
+
+    async def list_for_run(self, _run_id: str):
+        return []
+
+
+class _EmptyToolAuditRepo:
     def __init__(self, _db):
         pass
 
@@ -333,6 +341,7 @@ async def test_save_messages_from_langgraph_state_backfills_run_output_message(m
 
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
     monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
+    monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     await svc.save_messages_from_langgraph_state(
         agent_instance=FakeAgent(),
@@ -401,6 +410,7 @@ async def test_state_fallback_does_not_rebind_hidden_message_from_previous_run(m
     conv_repo.source_ids.add("old-model-audit")
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
     monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
+    monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     await svc.save_messages_from_langgraph_state(
         agent_instance=FakeAgent(),
@@ -415,6 +425,111 @@ async def test_state_fallback_does_not_rebind_hidden_message_from_previous_run(m
 
     assert [message["content"] for message in conv_repo.saved_messages] == ["current answer"]
     assert captured == {"worker-current": 1}
+
+
+def test_root_tool_audit_event_rejects_unrouted_subagent_namespace() -> None:
+    assert svc._is_root_tool_audit_event(
+        {"method": "tools", "namespace": [], "data": {}},
+        "root-thread",
+    )
+    assert not svc._is_root_tool_audit_event(
+        {"method": "tools", "namespace": ["child:task"], "data": {}},
+        "root-thread",
+    )
+    assert not svc._is_root_tool_audit_event(
+        {
+            "method": "tools",
+            "namespace": ["child:task"],
+            "thread_id": "child-thread",
+            "data": {},
+        },
+        "root-thread",
+    )
+
+
+def test_running_tool_audit_only_accepts_current_error_state_for_enrichment() -> None:
+    running = SimpleNamespace(execution_status="running", extra_metadata={})
+    awaiting_error = SimpleNamespace(
+        execution_status="running",
+        extra_metadata={"awaiting_run_terminal": True},
+    )
+    completed = SimpleNamespace(execution_status="completed", extra_metadata={})
+
+    assert not svc._should_reconcile_tool_state(running, {"status": "success"})
+    assert not svc._should_reconcile_tool_state(awaiting_error, {"status": "success"})
+    assert svc._should_reconcile_tool_state(awaiting_error, {"status": "error"})
+    assert svc._should_reconcile_tool_state(completed, {"status": "success"})
+
+
+@pytest.mark.asyncio
+async def test_state_reconcile_uses_latest_tool_message_for_current_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """完整 checkpoint 复用 tool_call_id 时只对账最后一次 ToolMessage。"""
+
+    class FakeDB:
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+    class FakeGraph:
+        async def aget_state(self, _config):
+            return SimpleNamespace(
+                values={
+                    "messages": [
+                        ToolMessage(content="old output", tool_call_id="shared-call"),
+                        ToolMessage(content="current output", tool_call_id="shared-call"),
+                    ]
+                }
+            )
+
+    class FakeAgent:
+        async def get_graph(self, *, context):
+            return FakeGraph()
+
+    class FakeRunRepo:
+        def __init__(self, _db):
+            pass
+
+        async def lock_output_persistence(self, *_args, **_kwargs):
+            return SimpleNamespace(conversation_id=1)
+
+    class FakeToolAuditRepo:
+        def __init__(self, _db):
+            pass
+
+        async def list_for_run(self, _run_id):
+            return [
+                SimpleNamespace(
+                    operation_id="shared-call",
+                    execution_status="completed",
+                    extra_metadata={},
+                )
+            ]
+
+    reconciled: list[str] = []
+
+    async def reconcile_tool(_conv_repo, **kwargs):
+        reconciled.append(kwargs["msg_dict"]["content"])
+
+    fake_db = FakeDB()
+    monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
+    monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
+    monkeypatch.setattr(svc, "ToolMessageAuditRepository", FakeToolAuditRepo)
+    monkeypatch.setattr(svc, "_reconcile_tool_audit_message", reconcile_tool)
+
+    await svc.save_messages_from_langgraph_state(
+        agent_instance=FakeAgent(),
+        thread_id="thread-1",
+        conv_repo=_FakeConvRepo(fake_db),
+        config_dict={},
+        context=object(),
+        run_id="run-current",
+        request_id="request-current",
+        worker_id="worker-current",
+    )
+
+    assert reconciled == ["current output"]
 
 
 @pytest.mark.asyncio
@@ -475,6 +590,7 @@ async def test_completed_run_rejects_unmatched_final_state_message(monkeypatch: 
     fake_db = FakeDB()
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
     monkeypatch.setattr(svc, "ModelMessageAuditRepository", FakeAuditRepo)
+    monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     with pytest.raises(ValueError, match="最终 State AIMessage"):
         await svc.save_messages_from_langgraph_state(
@@ -491,7 +607,7 @@ async def test_completed_run_rejects_unmatched_final_state_message(monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_tool_call_interrupt_keeps_intermediate_model_audit_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tool_call_interrupt_ignores_historical_same_id_tool_message(monkeypatch: pytest.MonkeyPatch) -> None:
     audit_message = SimpleNamespace(
         id=12,
         operation_id="tool-model",
@@ -517,11 +633,12 @@ async def test_tool_call_interrupt_keeps_intermediate_model_audit_hidden(monkeyp
             return SimpleNamespace(
                 values={
                     "messages": [
+                        ToolMessage(content="historical output", tool_call_id="call-1"),
                         AIMessage(
                             content="",
                             id="tool-model",
                             tool_calls=[{"id": "call-1", "name": "search", "args": {}}],
-                        )
+                        ),
                     ]
                 }
             )
@@ -562,6 +679,7 @@ async def test_tool_call_interrupt_keeps_intermediate_model_audit_hidden(monkeyp
     conv_repo = _FakeConvRepo(fake_db)
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
     monkeypatch.setattr(svc, "ModelMessageAuditRepository", FakeAuditRepo)
+    monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     committed = await svc.save_messages_from_langgraph_state(
         agent_instance=FakeAgent(),
@@ -624,6 +742,7 @@ async def test_interrupt_persists_message_and_terminal_status_in_one_commit(
     fake_db = FakeDB()
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
     monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
+    monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     terminal_committed = await svc.save_messages_from_langgraph_state(
         agent_instance=FakeAgent(),

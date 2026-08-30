@@ -14,8 +14,8 @@
             class="action-btn"
             :disabled="isAuditLoading || !threadId"
             :aria-busy="isAuditLoading"
-            title="刷新 Model 审计"
-            @click="refreshModelAudits"
+            title="刷新 Model/Tool 审计"
+            @click="refreshMessageAudits"
           >
             <LoaderCircle v-if="isAuditLoading" :size="13" class="audit-loading-icon" />
             <RefreshCw v-else :size="13" />
@@ -73,8 +73,8 @@
 
     <div v-if="auditLoadError" class="audit-error" role="status">
       <TriangleAlert :size="14" aria-hidden="true" />
-      <span>Model 审计读取失败，当前仍展示已有消息。</span>
-      <button type="button" @click="refreshModelAudits">重试</button>
+      <span>Model/Tool 审计读取失败，当前仍展示已有消息。</span>
+      <button type="button" @click="refreshMessageAudits">重试</button>
     </div>
 
     <!-- 消息列表主体 -->
@@ -85,7 +85,7 @@
         <span class="empty-text">
           {{
             isAuditLoading
-              ? '正在读取 Model 审计...'
+              ? '正在读取 Model/Tool 审计...'
               : searchQuery
                 ? '未找到匹配的消息'
                 : '当前会话暂无消息数据'
@@ -170,9 +170,9 @@
                 <span
                   v-if="item.durationMs !== null"
                   class="duration-badge"
-                  title="后端 monotonic clock 记录的 Model 耗时"
+                  title="后端 monotonic clock 记录的 Model/Tool 耗时"
                 >
-                  {{ formatModelAuditDuration(item.durationMs) }}
+                  {{ formatAuditDuration(item.durationMs) }}
                 </span>
                 <span v-if="item.tokenSummary" class="token-badge" :title="item.tokenTooltip">
                   {{ item.tokenSummary }}
@@ -237,11 +237,11 @@ import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
 import {
   buildMessageDebugEntries,
-  formatModelAuditDuration,
+  formatAuditDuration,
   groupMessageDebugEntries,
   mergeMessageDebugAudits,
   resolveLangfuseRunUrl,
-  shouldPollModelAudits
+  shouldPollMessageAudits
 } from '@/utils/messageDebug'
 
 const props = defineProps({
@@ -272,7 +272,7 @@ const expandedItemIds = ref(new Set())
 const isAllCopied = ref(false)
 const copiedItemId = ref('')
 const openingLangfuseRunIds = ref(new Set())
-const modelAudits = ref([])
+const messageAudits = ref([])
 const isAuditLoading = ref(false)
 const auditLoadError = ref(false)
 const pageVisible = ref(document.visibilityState === 'visible')
@@ -280,15 +280,15 @@ let auditPollTimer = null
 let auditRequestGeneration = 0
 let auditRequestInFlight = false
 
-const loadModelAudits = async (silent = false) => {
+const loadMessageAudits = async (silent = false) => {
   if (!props.threadId || auditRequestInFlight) return
   const generation = ++auditRequestGeneration
   auditRequestInFlight = true
   if (!silent) isAuditLoading.value = true
   try {
-    const result = await agentApi.getThreadModelAudits(props.threadId)
+    const result = await agentApi.getThreadMessageAudits(props.threadId)
     if (generation !== auditRequestGeneration) return
-    modelAudits.value = Array.isArray(result?.audits) ? result.audits : []
+    messageAudits.value = Array.isArray(result?.audits) ? result.audits : []
     auditLoadError.value = false
   } catch {
     if (generation === auditRequestGeneration) auditLoadError.value = true
@@ -300,7 +300,7 @@ const loadModelAudits = async (silent = false) => {
   }
 }
 
-const refreshModelAudits = () => loadModelAudits(false)
+const refreshMessageAudits = () => loadMessageAudits(false)
 
 const stopAuditPolling = () => {
   if (auditPollTimer) window.clearInterval(auditPollTimer)
@@ -320,20 +320,20 @@ watch(
     auditRequestInFlight = false
     isAuditLoading.value = false
     if (threadId !== previous[0]) {
-      modelAudits.value = []
+      messageAudits.value = []
       auditLoadError.value = false
     }
     if (!active || !threadId || !isPageVisible) return
-    refreshModelAudits()
+    refreshMessageAudits()
     if (
-      shouldPollModelAudits({
+      shouldPollMessageAudits({
         panelActive: active,
         pageVisible: isPageVisible,
         runActive,
         activeRunId
       })
     ) {
-      auditPollTimer = window.setInterval(() => loadModelAudits(true), 2000)
+      auditPollTimer = window.setInterval(() => loadMessageAudits(true), 2000)
     }
   },
   { immediate: true }
@@ -408,7 +408,7 @@ const formatRunId = (runId) => {
 
 // 普通历史保持原契约；调试视图按稳定 operation 合并专用 PG 审计。
 const timelineItems = computed(() =>
-  buildMessageDebugEntries(mergeMessageDebugAudits(props.messages, modelAudits.value)).map((item) => {
+  buildMessageDebugEntries(mergeMessageDebugAudits(props.messages, messageAudits.value)).map((item) => {
     const usage = item.usage
     const tokenCounts = usageTokenCounts(usage)
     return {
@@ -430,7 +430,11 @@ const filterTabs = computed(() => {
     { key: 'human', label: '用户', count: all.filter((i) => i.role === 'human').length },
     { key: 'ai', label: 'AI', count: all.filter((i) => i.role === 'ai').length },
     { key: 'tool', label: '工具', count: all.filter((i) => i.role === 'tool').length },
-    { key: 'error', label: '错误', count: all.filter((i) => i.role === 'error').length },
+    {
+      key: 'error',
+      label: '错误',
+      count: all.filter((i) => i.role === 'error' || i.executionStatus === 'failed').length
+    },
     { key: 'system', label: '系统', count: all.filter((i) => i.role === 'system').length }
   ]
 })
@@ -439,7 +443,9 @@ const filterTabs = computed(() => {
 const filteredTimelineItems = computed(() => {
   let list = timelineItems.value
 
-  if (currentFilter.value !== 'all') {
+  if (currentFilter.value === 'error') {
+    list = list.filter((item) => item.role === 'error' || item.executionStatus === 'failed')
+  } else if (currentFilter.value !== 'all') {
     list = list.filter((item) => item.role === currentFilter.value)
   }
 

@@ -177,6 +177,18 @@ async def dashboard_db():
             created_at=now,
             extra_metadata={"usage_metadata": {"input_tokens": 100, "output_tokens": 100}},
         )
+        hidden_tool_audit = Message(
+            conversation=conv2,
+            role="tool",
+            content="Intermediate tool output",
+            message_type="tool_audit",
+            operation_id="tool-audit-1",
+            started_at=now,
+            sequence=2,
+            execution_status="completed",
+            created_at=now,
+            extra_metadata={"usage_metadata": {"input_tokens": 100, "output_tokens": 100}},
+        )
         removed_agent_message = Message(
             conversation=missing_agent_conversation,
             role="assistant",
@@ -224,6 +236,7 @@ async def dashboard_db():
                 msg3,
                 msg4,
                 hidden_model_audit,
+                hidden_tool_audit,
                 removed_agent_message,
                 tool1,
                 removed_agent_tool,

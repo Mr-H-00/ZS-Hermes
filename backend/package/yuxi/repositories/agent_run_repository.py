@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.storage.postgres.models_business import (
     AGENT_RUN_TERMINAL_STATUSES,
-    MODEL_AUDIT_MESSAGE_TYPE,
+    AUDIT_MESSAGE_TYPES,
+    TOOL_AUDIT_MESSAGE_TYPE,
     AgentRun,
     AgentRunAttempt,
     Message,
     SubagentThread,
+    ToolCall,
 )
 from yuxi.utils.datetime_utils import utc_now_naive
 
@@ -572,7 +574,7 @@ class AgentRunRepository:
             run.lease_expires_at = None
             run.runtime_cleanup_pending = run.run_type != "subagent"
             await self._project_input_delivery_status(run)
-            await self._close_running_model_audits(run.id, execution_status="abandoned", now=current_time)
+            await self._close_running_audits(run.id, execution_status="abandoned", now=current_time)
             await self._close_open_attempts(
                 run.id,
                 outcome="lease_expired",
@@ -608,7 +610,7 @@ class AgentRunRepository:
             # quiescence proof 已证明旧 runtime 不存在，无需再创建异步清理任务。
             run.runtime_cleanup_pending = False
             await self._project_input_delivery_status(run)
-            await self._close_running_model_audits(run.id, execution_status="abandoned", now=current_time)
+            await self._close_running_audits(run.id, execution_status="abandoned", now=current_time)
             await self._close_open_attempts(
                 run.id,
                 outcome="failed",
@@ -776,7 +778,12 @@ class AgentRunRepository:
             "cancelled": "interrupted",
             "interrupted": "interrupted",
         }[status]
-        await self._close_running_model_audits(run.id, execution_status=audit_status, now=current_time)
+        await self._close_running_audits(
+            run.id,
+            execution_status=audit_status,
+            now=current_time,
+            preserve_pending_tool_calls=status == "interrupted",
+        )
         await self._finish_open_attempt(
             run.id,
             worker_id=worker_id,
@@ -802,22 +809,46 @@ class AgentRunRepository:
         )
         return list(result.scalars().all())
 
-    async def _close_running_model_audits(
+    async def _close_running_audits(
         self,
         run_id: str,
         *,
         execution_status: str,
         now: datetime,
+        preserve_pending_tool_calls: bool = False,
     ) -> None:
-        """在 Run owning transaction 内关闭尚无 finish 事实的 Model 审计行。"""
+        """在 Run owning transaction 内关闭尚无 terminal 事实的 Model/Tool 审计行。"""
+        running_tools = await self.db.execute(
+            select(Message.extra_metadata).where(
+                Message.run_id == run_id,
+                Message.message_type == TOOL_AUDIT_MESSAGE_TYPE,
+                Message.execution_status == "running",
+            )
+        )
+        tool_metadata = {
+            metadata["compatibility_tool_call_id"]: metadata
+            for metadata in running_tools.scalars().all()
+            if isinstance(metadata, dict) and isinstance(metadata.get("compatibility_tool_call_id"), int)
+        }
+        if tool_metadata and not preserve_pending_tool_calls:
+            tool_calls = await self.db.scalars(select(ToolCall).where(ToolCall.id.in_(tool_metadata)))
+            for tool_call in tool_calls:
+                metadata = tool_metadata[tool_call.id]
+                tool_call.status = "error"
+                tool_call.error_message = metadata.get("error_message") or (
+                    f"Tool 审计由 Run 终态收敛为 {execution_status}"
+                )
         await self.db.execute(
             update(Message)
             .where(
                 Message.run_id == run_id,
-                Message.message_type == MODEL_AUDIT_MESSAGE_TYPE,
+                Message.message_type.in_(AUDIT_MESSAGE_TYPES),
                 Message.execution_status == "running",
             )
-            .values(execution_status=execution_status, finished_at=now)
+            .values(
+                execution_status=execution_status,
+                finished_at=func.coalesce(Message.finished_at, now),
+            )
         )
 
     async def _project_input_delivery_status(self, run: AgentRun) -> None:
