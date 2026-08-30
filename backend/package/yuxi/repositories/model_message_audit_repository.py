@@ -7,9 +7,10 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from yuxi.repositories.agent_run_repository import AgentRunRepository
-from yuxi.storage.postgres.models_business import MODEL_AUDIT_MESSAGE_TYPE, Message
+from yuxi.storage.postgres.models_business import AgentRun, MODEL_AUDIT_MESSAGE_TYPE, Message
 
 
 class ModelMessageAuditRepository:
@@ -140,6 +141,21 @@ class ModelMessageAuditRepository:
             .order_by(Message.sequence.asc(), Message.id.asc())
         )
         return list(result.scalars().all())
+
+    async def list_for_conversation(self, conversation_id: int) -> list[Message]:
+        """按 Run 和 ProtocolEvent 顺序返回 Conversation 的 Model 审计。"""
+        result = await self.db.execute(
+            select(Message)
+            .join(AgentRun, AgentRun.id == Message.run_id)
+            .options(selectinload(Message.tool_calls))
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.operation_id.is_not(None),
+                Message.role == "assistant",
+            )
+            .order_by(AgentRun.created_at.asc(), AgentRun.id.asc(), Message.sequence.asc(), Message.id.asc())
+        )
+        return list(result.scalars().unique().all())
 
     async def _get(self, run_id: str, operation_id: str) -> Message | None:
         result = await self.db.execute(

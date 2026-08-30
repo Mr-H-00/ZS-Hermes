@@ -12,6 +12,18 @@
           <button
             type="button"
             class="action-btn"
+            :disabled="isAuditLoading || !threadId"
+            :aria-busy="isAuditLoading"
+            title="刷新 Model 审计"
+            @click="refreshModelAudits"
+          >
+            <LoaderCircle v-if="isAuditLoading" :size="13" class="audit-loading-icon" />
+            <RefreshCw v-else :size="13" />
+            <span>{{ isAuditLoading ? '读取中' : '刷新审计' }}</span>
+          </button>
+          <button
+            type="button"
+            class="action-btn"
             :title="isAllExpanded ? '全部折叠' : '全部展开'"
             @click="toggleExpandAll"
           >
@@ -59,12 +71,25 @@
       </div>
     </div>
 
+    <div v-if="auditLoadError" class="audit-error" role="status">
+      <TriangleAlert :size="14" aria-hidden="true" />
+      <span>Model 审计读取失败，当前仍展示已有消息。</span>
+      <button type="button" @click="refreshModelAudits">重试</button>
+    </div>
+
     <!-- 消息列表主体 -->
     <div class="timeline-container">
       <div v-if="filteredTimelineItems.length === 0" class="empty-timeline">
-        <Clock :size="24" class="empty-icon" />
+        <LoaderCircle v-if="isAuditLoading" :size="24" class="empty-icon audit-loading-icon" />
+        <Clock v-else :size="24" class="empty-icon" />
         <span class="empty-text">
-          {{ searchQuery ? '未找到匹配的消息' : '当前会话暂无消息数据' }}
+          {{
+            isAuditLoading
+              ? '正在读取 Model 审计...'
+              : searchQuery
+                ? '未找到匹配的消息'
+                : '当前会话暂无消息数据'
+          }}
         </span>
       </div>
 
@@ -119,9 +144,36 @@
             <div class="item-header" @click="toggleItemExpand(item.id)">
               <component :is="item.icon" :size="15" class="role-icon" />
               <span :class="['role-pill', `pill-${item.role}`]">{{ item.roleLabel }}</span>
+              <span
+                v-if="item.executionStatus"
+                :class="['status-badge', `status-${item.executionStatus}`]"
+              >
+                {{ formatExecutionStatus(item.executionStatus) }}
+              </span>
               <span class="header-summary" :title="item.summary">{{ item.summary }}</span>
 
               <div class="header-right">
+                <span
+                  v-if="item.sequence !== null"
+                  class="sequence-badge"
+                  :title="`ProtocolEvent 起始序号 ${item.sequence}`"
+                >
+                  #{{ item.sequence }}
+                </span>
+                <span
+                  v-if="item.startedAt || item.finishedAt"
+                  class="time-badge"
+                  :title="formatAuditTimeTooltip(item)"
+                >
+                  {{ formatAuditTimeLabel(item) }}
+                </span>
+                <span
+                  v-if="item.durationMs !== null"
+                  class="duration-badge"
+                  title="后端 monotonic clock 记录的 Model 耗时"
+                >
+                  {{ formatModelAuditDuration(item.durationMs) }}
+                </span>
                 <span v-if="item.tokenSummary" class="token-badge" :title="item.tokenTooltip">
                   {{ item.tokenSummary }}
                 </span>
@@ -157,7 +209,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Bot,
   Bug,
@@ -169,6 +221,7 @@ import {
   ExternalLink,
   FoldVertical,
   LoaderCircle,
+  RefreshCw,
   Search,
   Settings2,
   TriangleAlert,
@@ -181,16 +234,36 @@ import { message } from 'ant-design-vue'
 import JsonTreeViewer from '@/components/common/JsonTreeViewer.vue'
 import { agentApi } from '@/apis/agent_api'
 import { copyTextToClipboard } from '@/utils/clipboard'
+import { formatDateTime } from '@/utils/time'
 import {
   buildMessageDebugEntries,
+  formatModelAuditDuration,
   groupMessageDebugEntries,
-  resolveLangfuseRunUrl
+  mergeMessageDebugAudits,
+  resolveLangfuseRunUrl,
+  shouldPollModelAudits
 } from '@/utils/messageDebug'
 
 const props = defineProps({
   messages: {
     type: Array,
     default: () => []
+  },
+  threadId: {
+    type: String,
+    default: null
+  },
+  active: {
+    type: Boolean,
+    default: false
+  },
+  activeRunId: {
+    type: String,
+    default: null
+  },
+  runActive: {
+    type: Boolean,
+    default: false
   }
 })
 const currentFilter = ref('all')
@@ -199,18 +272,123 @@ const expandedItemIds = ref(new Set())
 const isAllCopied = ref(false)
 const copiedItemId = ref('')
 const openingLangfuseRunIds = ref(new Set())
+const modelAudits = ref([])
+const isAuditLoading = ref(false)
+const auditLoadError = ref(false)
+const pageVisible = ref(document.visibilityState === 'visible')
+let auditPollTimer = null
+let auditRequestGeneration = 0
+let auditRequestInFlight = false
+
+const loadModelAudits = async (silent = false) => {
+  if (!props.threadId || auditRequestInFlight) return
+  const generation = ++auditRequestGeneration
+  auditRequestInFlight = true
+  if (!silent) isAuditLoading.value = true
+  try {
+    const result = await agentApi.getThreadModelAudits(props.threadId)
+    if (generation !== auditRequestGeneration) return
+    modelAudits.value = Array.isArray(result?.audits) ? result.audits : []
+    auditLoadError.value = false
+  } catch {
+    if (generation === auditRequestGeneration) auditLoadError.value = true
+  } finally {
+    if (generation === auditRequestGeneration) {
+      auditRequestInFlight = false
+      if (!silent) isAuditLoading.value = false
+    }
+  }
+}
+
+const refreshModelAudits = () => loadModelAudits(false)
+
+const stopAuditPolling = () => {
+  if (auditPollTimer) window.clearInterval(auditPollTimer)
+  auditPollTimer = null
+}
+
+const handlePageVisibilityChange = () => {
+  pageVisible.value = document.visibilityState === 'visible'
+}
+document.addEventListener('visibilitychange', handlePageVisibilityChange)
+
+watch(
+  () => [props.threadId, props.active, props.activeRunId, props.runActive, pageVisible.value],
+  ([threadId, active, activeRunId, runActive, isPageVisible], previous = []) => {
+    stopAuditPolling()
+    auditRequestGeneration += 1
+    auditRequestInFlight = false
+    isAuditLoading.value = false
+    if (threadId !== previous[0]) {
+      modelAudits.value = []
+      auditLoadError.value = false
+    }
+    if (!active || !threadId || !isPageVisible) return
+    refreshModelAudits()
+    if (
+      shouldPollModelAudits({
+        panelActive: active,
+        pageVisible: isPageVisible,
+        runActive,
+        activeRunId
+      })
+    ) {
+      auditPollTimer = window.setInterval(() => loadModelAudits(true), 2000)
+    }
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  auditRequestGeneration += 1
+  stopAuditPolling()
+  document.removeEventListener('visibilitychange', handlePageVisibilityChange)
+})
+
+const executionStatusLabels = {
+  running: '运行中',
+  completed: '已完成',
+  failed: '失败',
+  interrupted: '已中断',
+  abandoned: '已放弃'
+}
+
+const formatExecutionStatus = (status) => executionStatusLabels[status] || status
+
+const formatAuditTimeLabel = (item) => {
+  const value = item.finishedAt || item.startedAt
+  if (!value) return ''
+  let prefix = '开始'
+  if (item.finishedAt) prefix = item.executionStatus === 'completed' ? '完成' : '关闭'
+  return `${prefix} ${formatDateTime(value, 'HH:mm:ss')}`
+}
+
+const formatAuditTimeTooltip = (item) =>
+  [
+    item.startedAt ? `开始：${formatDateTime(item.startedAt, 'YYYY-MM-DD HH:mm:ss')}` : '',
+    item.finishedAt ? `结束：${formatDateTime(item.finishedAt, 'YYYY-MM-DD HH:mm:ss')}` : '',
+    item.operationId ? `Operation：${item.operationId}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+const usageTokenCounts = (usage) => {
+  const prompt = usage?.prompt_tokens ?? usage?.input_tokens ?? usage?.prompt ?? usage?.input ?? 0
+  const completion =
+    usage?.completion_tokens ?? usage?.output_tokens ?? usage?.completion ?? usage?.output ?? 0
+  return {
+    prompt,
+    completion,
+    total: usage?.total_tokens ?? usage?.total ?? prompt + completion
+  }
+}
 
 // 格式化 Tokens 显示
 const formatTokens = (usage) => {
   if (!usage) return ''
-  const total = usage.total_tokens ?? usage.total ?? 0
-  const prompt = usage.prompt_tokens ?? usage.prompt ?? 0
-  const completion = usage.completion_tokens ?? usage.completion ?? 0
-
+  const { total, prompt, completion } = usageTokenCounts(usage)
   if (!total && !prompt && !completion) return ''
-  if (total >= 1000) {
-    return `${(total / 1000).toFixed(1)}k tokens`
-  }
+  if (total >= 1000) return `${(total / 1000).toFixed(1)}k tokens`
   return `${total} tokens`
 }
 
@@ -228,16 +406,17 @@ const formatRunId = (runId) => {
   return `${runId.slice(0, 8)}…${runId.slice(-6)}`
 }
 
-// 原始历史数组由后端拥有顺序；这里只补充显示字段，不再按聊天轮次重新分组。
+// 普通历史保持原契约；调试视图按稳定 operation 合并专用 PG 审计。
 const timelineItems = computed(() =>
-  buildMessageDebugEntries(props.messages).map((item) => {
+  buildMessageDebugEntries(mergeMessageDebugAudits(props.messages, modelAudits.value)).map((item) => {
     const usage = item.usage
+    const tokenCounts = usageTokenCounts(usage)
     return {
       ...item,
       icon: roleIcons[item.role] || Clock,
       tokenSummary: formatTokens(usage),
       tokenTooltip: usage
-        ? `输入: ${usage.prompt_tokens || 0}, 输出: ${usage.completion_tokens || 0}, 总计: ${usage.total_tokens || 0}`
+        ? `输入: ${tokenCounts.prompt}, 输出: ${tokenCounts.completion}, 总计: ${tokenCounts.total}`
         : ''
     }
   })
@@ -388,6 +567,7 @@ const copyAllTimelineJson = async () => {
   height: 100%;
   background: var(--gray-0);
   overflow: hidden;
+  container-type: inline-size;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
@@ -454,10 +634,20 @@ const copyAllTimelineJson = async () => {
   cursor: pointer;
   transition: all 0.12s ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--gray-50);
     border-color: var(--gray-400);
     color: var(--gray-1000);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--main-color);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    color: var(--gray-400);
+    cursor: wait;
   }
 
   .copied-icon {
@@ -542,6 +732,42 @@ const copyAllTimelineJson = async () => {
     &::placeholder {
       color: var(--gray-400);
     }
+  }
+}
+
+.audit-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-warning-100);
+  background: var(--color-warning-50);
+  color: var(--color-warning-900);
+  font-size: 12px;
+
+  span {
+    min-width: 0;
+    flex: 1;
+  }
+
+  button {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border: 1px solid var(--color-warning-100);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+
+.audit-loading-icon {
+  animation: audit-loading-spin 0.8s linear infinite;
+}
+
+@keyframes audit-loading-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -745,6 +971,39 @@ const copyAllTimelineJson = async () => {
   }
 }
 
+.status-badge {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+
+  &.status-running {
+    background: var(--color-info-50);
+    color: var(--color-info-700);
+  }
+
+  &.status-completed {
+    background: var(--color-success-50);
+    color: var(--color-success-700);
+  }
+
+  &.status-failed {
+    background: var(--color-error-50);
+    color: var(--color-error-700);
+  }
+
+  &.status-interrupted,
+  &.status-abandoned {
+    background: var(--color-warning-50);
+    color: var(--color-warning-900);
+  }
+}
+
 .header-summary {
   flex: 1;
   min-width: 0;
@@ -763,14 +1022,31 @@ const copyAllTimelineJson = async () => {
   flex-shrink: 0;
 }
 
+.sequence-badge,
+.time-badge,
+.duration-badge,
 .token-badge {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 11px;
   padding: 2px 5px;
   border-radius: 4px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.sequence-badge,
+.duration-badge,
+.token-badge {
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.duration-badge {
+  color: var(--gray-800);
+}
+
+.token-badge {
   background: var(--gray-150);
   color: var(--gray-700);
-  white-space: nowrap;
 }
 
 .item-icon-btn {
@@ -798,5 +1074,95 @@ const copyAllTimelineJson = async () => {
 
 .item-body {
   padding: 0 12px 10px 35px;
+}
+
+@container (max-width: 420px) {
+  .debug-panel-toolbar {
+    gap: 6px;
+  }
+
+  .toolbar-top-row,
+  .toolbar-bottom-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbar-actions {
+    width: 100%;
+  }
+
+  .action-btn {
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+    padding: 0 5px;
+
+    span {
+      display: none;
+    }
+  }
+
+  .role-filter-chips {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .filter-chip {
+    flex-shrink: 0;
+  }
+
+  .search-box {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+  }
+
+  .run-group-header {
+    padding-inline: 8px;
+  }
+
+  .run-langfuse-btn span {
+    display: none;
+  }
+
+  .item-header {
+    display: grid;
+    grid-template-columns: 15px minmax(0, 1fr) auto;
+    gap: 4px 6px;
+    padding-inline: 8px;
+  }
+
+  .role-icon {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .role-pill {
+    grid-column: 2;
+    grid-row: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .status-badge {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .header-summary {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+
+  .header-right {
+    grid-column: 2 / 4;
+    grid-row: 3;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .item-body {
+    padding-left: 29px;
+  }
 }
 </style>

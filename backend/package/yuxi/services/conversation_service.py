@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import INVOCATION_CONVERSATION_SOURCES, ConversationRepository
+from yuxi.repositories.model_message_audit_repository import ModelMessageAuditRepository
 from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.services.attachment_service import serialize_attachment
 from yuxi.services.project_service import create_implicit_project
@@ -19,66 +20,27 @@ from yuxi.workspace.paths import ensure_bound_user_workdir
 from yuxi.workspace.workdir import Workdir
 
 
-def _thread_status(run_id: str | None, run_status: str | None, last_viewed_run_id: str | None) -> str:
-    """将线程最新顶层 run 与查看记录映射为侧边栏三态。
-
-    loading: 顶层 run 进行中；ready: run 已终态且未查看；done: 无 run 或已查看。
-    """
-    if run_id is None:
-        return "done"
-    if run_status not in AGENT_RUN_TERMINAL_STATUSES:
-        return "loading"
-    if run_id == last_viewed_run_id:
-        return "done"
-    return "ready"
-
-
-async def _serialize_thread(
-    conversation: Any,
-    *,
-    thread_status: str,
-    db,
-    workdir_path: str | None = None,
-) -> dict:
-    """序列化线程，列表调用方可传入已联查的 Project Workdir。"""
-    return {
-        "id": conversation.thread_id,
-        "uid": conversation.uid,
-        "agent_id": conversation.agent_id,
-        "title": conversation.title,
-        "is_pinned": bool(conversation.is_pinned),
-        "project_id": conversation.project_id,
-        "workdir_path": workdir_path
-        or await resolve_conversation_workdir_path(conversation=conversation, uid=str(conversation.uid), db=db),
-        "created_at": conversation.created_at.isoformat(),
-        "updated_at": conversation.updated_at.isoformat(),
-        "metadata": conversation.extra_metadata or {},
-        "thread_status": thread_status,
-    }
-
-
-def _matches_thread_creation_intent(conversation, project, *, agent_slug: str, project_id: str | None) -> bool:
-    """判断已有 Conversation 是否匹配当前幂等创建意图。"""
-    same_project_intent = (
-        conversation.project_id == project_id
-        if project_id
-        else project is not None and project.selection_status == "implicit"
-    )
-    return conversation.agent_id == agent_slug and same_project_intent
-
-
-def _format_naive_utc_isoformat(value: Any) -> str | None:
-    """将数据库中的 naive UTC 时间序列化为带 Z 后缀的 ISO 字符串。"""
-    if value is None:
-        return None
-    return value.isoformat() + "Z"
-
-
 async def require_user_conversation(conv_repo: ConversationRepository, thread_id: str, uid: str):
     conversation = await conv_repo.get_conversation_by_thread_id(thread_id)
     if not conversation or conversation.uid != str(uid) or conversation.status == "deleted":
         raise HTTPException(status_code=404, detail="对话线程不存在")
     return conversation
+
+
+async def get_thread_model_audits_view(
+    *,
+    thread_id: str,
+    current_uid: str,
+    db: AsyncSession,
+) -> dict[str, list[dict[str, Any]]]:
+    """返回当前用户线程内的完整 Model 审计时间线。"""
+    conversation = await require_user_conversation(
+        ConversationRepository(db),
+        thread_id,
+        str(current_uid),
+    )
+    messages = await ModelMessageAuditRepository(db).list_for_conversation(conversation.id)
+    return {"audits": [_serialize_model_audit(message) for message in messages]}
 
 
 async def create_thread_view(
@@ -458,20 +420,109 @@ async def get_thread_history_view(
             msg_dict["run_finished_at"] = _format_naive_utc_isoformat(finished_at)
 
         if msg.tool_calls:
-            msg_dict["tool_calls"] = [
-                {
-                    "id": tc.langgraph_tool_call_id or str(tc.id),
-                    "name": tc.tool_name,
-                    "function": {"name": tc.tool_name},
-                    "args": tc.tool_input or {},
-                    "tool_call_result": {"content": (tc.tool_output or "")} if tc.status == "success" else None,
-                    "status": tc.status,
-                    "error_message": tc.error_message,
-                }
-                for tc in msg.tool_calls
-            ]
+            msg_dict["tool_calls"] = [_serialize_tool_call(tool_call) for tool_call in msg.tool_calls]
 
         history.append(msg_dict)
 
     logger.info(f"Loaded {len(history)} messages with feedback for thread {thread_id}")
     return {"history": history}
+
+
+def _thread_status(run_id: str | None, run_status: str | None, last_viewed_run_id: str | None) -> str:
+    """将线程最新顶层 run 与查看记录映射为侧边栏三态。
+
+    loading: 顶层 run 进行中；ready: run 已终态且未查看；done: 无 run 或已查看。
+    """
+    if run_id is None:
+        return "done"
+    if run_status not in AGENT_RUN_TERMINAL_STATUSES:
+        return "loading"
+    if run_id == last_viewed_run_id:
+        return "done"
+    return "ready"
+
+
+async def _serialize_thread(
+    conversation: Any,
+    *,
+    thread_status: str,
+    db,
+    workdir_path: str | None = None,
+) -> dict:
+    """序列化线程，列表调用方可传入已联查的 Project Workdir。"""
+    return {
+        "id": conversation.thread_id,
+        "uid": conversation.uid,
+        "agent_id": conversation.agent_id,
+        "title": conversation.title,
+        "is_pinned": bool(conversation.is_pinned),
+        "project_id": conversation.project_id,
+        "workdir_path": workdir_path
+        or await resolve_conversation_workdir_path(conversation=conversation, uid=str(conversation.uid), db=db),
+        "created_at": conversation.created_at.isoformat(),
+        "updated_at": conversation.updated_at.isoformat(),
+        "metadata": conversation.extra_metadata or {},
+        "thread_status": thread_status,
+    }
+
+
+def _matches_thread_creation_intent(conversation, project, *, agent_slug: str, project_id: str | None) -> bool:
+    """判断已有 Conversation 是否匹配当前幂等创建意图。"""
+    same_project_intent = (
+        conversation.project_id == project_id
+        if project_id
+        else project is not None and project.selection_status == "implicit"
+    )
+    return conversation.agent_id == agent_slug and same_project_intent
+
+
+def _format_naive_utc_isoformat(value: Any) -> str | None:
+    """将数据库中的 naive UTC 时间序列化为带 Z 后缀的 ISO 字符串。"""
+    if value is None:
+        return None
+    return value.isoformat() + "Z"
+
+
+def _serialize_tool_call(tool_call: Any) -> dict[str, Any]:
+    """序列化普通历史和审计共用的 ToolCall 结构。"""
+    return {
+        "id": tool_call.langgraph_tool_call_id or str(tool_call.id),
+        "name": tool_call.tool_name,
+        "function": {"name": tool_call.tool_name},
+        "args": tool_call.tool_input or {},
+        "tool_call_result": {"content": tool_call.tool_output or ""} if tool_call.status == "success" else None,
+        "status": tool_call.status,
+        "error_message": tool_call.error_message,
+    }
+
+
+def _serialize_model_audit(message: Any) -> dict[str, Any]:
+    """将 Model 审计事实收敛为前端调试 DTO。"""
+    metadata = message.extra_metadata if isinstance(message.extra_metadata, dict) else {}
+    namespace = metadata.get("namespace")
+    content_blocks = metadata.get("content")
+    finished_sequence = metadata.get("finished_sequence")
+    if not isinstance(finished_sequence, int) or isinstance(finished_sequence, bool):
+        finished_sequence = None
+    model_run_id = metadata.get("model_run_id")
+    return {
+        "id": message.id,
+        "type": "ai",
+        "content": message.content,
+        "created_at": format_utc_datetime(message.created_at),
+        "run_id": message.run_id,
+        "request_id": message.request_id,
+        "message_type": message.message_type,
+        "operation_id": message.operation_id,
+        "started_at": format_utc_datetime(message.started_at),
+        "finished_at": format_utc_datetime(message.finished_at),
+        "duration_ms": message.duration_ms,
+        "sequence": message.sequence,
+        "finished_sequence": finished_sequence,
+        "execution_status": message.execution_status,
+        "usage": dict(message.usage) if isinstance(message.usage, dict) else None,
+        "namespace": [item for item in namespace if isinstance(item, str)] if isinstance(namespace, list) else [],
+        "model_run_id": model_run_id if isinstance(model_run_id, str) else None,
+        "content_blocks": content_blocks if isinstance(content_blocks, list) else [],
+        "tool_calls": [_serialize_tool_call(tool_call) for tool_call in message.tool_calls],
+    }

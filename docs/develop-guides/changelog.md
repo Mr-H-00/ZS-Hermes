@@ -12,7 +12,7 @@ beta2 延续 beta1 的存储与数据库迁移边界。从 v0.7.1 或更早版�
 
 - Project Workdir 内的 `write_file` 与 `edit_file` 在默认审批模式下可自动放行；Project 外写入和 `execute` 继续要求审批，Sandbox 文件权限边界不变。
 - 修复文件夹上传未保留相对目录结构和文件统计的问题，并完善知识库真实文件夹管理、历史虚拟目录迁移与大规模列表性能。
-- Agent 交付物支持选择保存目录，Office/PDF 预览链路和对话绑定模型优先级得到修复；调试面板按真实 Run 分组并可精确跳转 Langfuse trace。AgentRun 会在模型执行前直接固化 trace 关联，没有最终输出的失败、取消或中断运行也可定位；每次可见 Model 调用按 start/finish 生命周期增量保存独立 AIMessage、原始顺序、观察时间、状态、耗时和可靠 usage，运行中的审计不进入普通历史，终态 ToolCall 刷新展示与最终输出保持兼容。business schema 由 storage migrator 按 v1→v2→v3 相邻升级。
+- Agent 交付物支持选择保存目录，Office/PDF 预览链路和对话绑定模型优先级得到修复；调试面板按真实 Run 分组并可精确跳转 Langfuse trace。AgentRun 会在模型执行前直接固化 trace 关联，没有最终输出的失败、取消或中断运行也可定位；每次可见 Model 调用按 start/finish 生命周期增量保存独立 AIMessage、原始顺序、观察时间、状态、耗时和可靠 usage，运行中的审计不进入普通历史，终态 ToolCall 刷新展示与最终输出保持兼容。调试面板通过独立权限读接口展示 Model 状态、事件顺序、真实起止时间、monotonic 耗时和 usage，并在活跃 Run 期间低频刷新。business schema 由 storage migrator 按 v1→v2→v3 相邻升级。
 - Dashboard、用户管理分页、知识库 OCR 配置和数据库 schema 迁移入口完成收敛，减少大数据量和升级场景中的不一致。
 - pnpm 升级到 11.24.0、uv 升级到 0.12.6，并刷新 Web、docs、backend 与 CLI 锁文件；生产依赖审计无已知漏洞。
 - Vue 图标依赖从已废弃的 `lucide-vue-next` 迁移到官方 `@lucide/vue` 1.34.0，现有图标名称、尺寸和样式保持兼容。

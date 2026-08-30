@@ -7,15 +7,25 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
+import os
 import uuid
+from datetime import datetime, timedelta
 from pathlib import PurePosixPath
 
+import asyncpg
 import pytest
 from PIL import Image
 
 from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+
+
+def _postgres_dsn() -> str:
+    return os.getenv("POSTGRES_URL", "postgresql+asyncpg://postgres:postgres@postgres:5432/yuxi").replace(
+        "+asyncpg", ""
+    )
 
 
 async def _upload_project_file(
@@ -45,7 +55,123 @@ async def _upload_project_file(
 
 async def test_chat_endpoints_require_authentication(test_client):
     assert (await test_client.get("/api/chat/threads")).status_code == 401
+    assert (await test_client.get(f"/api/chat/thread/{uuid.uuid4()}/model-audits")).status_code == 401
     assert (await test_client.get("/api/agent")).status_code == 401
+
+
+async def test_thread_model_audits_return_persisted_facts_without_leaking_into_history(
+    test_client,
+    standard_user,
+    admin_headers,
+):
+    standard_headers = standard_user["headers"]
+    standard_thread_id = await _create_thread_for_user(test_client, standard_headers)
+
+    owner_forbidden = await test_client.get(
+        f"/api/chat/thread/{standard_thread_id}/model-audits",
+        headers=standard_headers,
+    )
+    assert owner_forbidden.status_code == 403, owner_forbidden.text
+
+    cross_user = await test_client.get(
+        f"/api/chat/thread/{standard_thread_id}/model-audits",
+        headers=admin_headers,
+    )
+    assert cross_user.status_code == 404, cross_user.text
+
+    thread_id = await _create_thread_for_user(test_client, admin_headers)
+    run_id = f"run-{uuid.uuid4()}"
+    request_id = f"request-{uuid.uuid4()}"
+    started_at = datetime(2026, 8, 30, 1, 0, 0)
+
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        conversation = await conn.fetchrow(
+            "SELECT id, uid, agent_id FROM conversations WHERE thread_id = $1",
+            thread_id,
+        )
+        assert conversation
+        await conn.execute(
+            """
+            INSERT INTO agent_runs
+                (id, conversation_thread_id, runtime_scope_id, agent_slug, uid, status,
+                 request_id, conversation_id, run_type, input_payload, token_usage, origin_metadata,
+                 started_at, finished_at)
+            VALUES ($1, $2, $2, $3, $4, 'completed', $5, $6, 'chat', '{}'::jsonb, '{}'::jsonb,
+                    '{}'::jsonb, $7, $8)
+            """,
+            run_id,
+            thread_id,
+            conversation["agent_id"],
+            conversation["uid"],
+            request_id,
+            conversation["id"],
+            started_at,
+            started_at + timedelta(seconds=3),
+        )
+        await conn.executemany(
+            """
+            INSERT INTO messages
+                (conversation_id, role, content, message_type, delivery_status, extra_metadata, run_id,
+                 request_id, operation_id, started_at, finished_at, duration_ms, sequence,
+                 execution_status, usage)
+            VALUES ($1, 'assistant', $2, 'model_audit', 'complete', $3::jsonb, $4, $5, $6, $7, $8,
+                    $9, $10, 'completed', $11::jsonb)
+            """,
+            [
+                (
+                    conversation["id"],
+                    "第二次模型输出",
+                    json.dumps(
+                        {
+                            "finished_sequence": 9,
+                            "content": [{"type": "text", "text": "第二次模型输出"}],
+                            "private_internal_field": "must-not-leak",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    run_id,
+                    request_id,
+                    "operation-2",
+                    started_at + timedelta(seconds=2),
+                    started_at + timedelta(seconds=3),
+                    1000,
+                    7,
+                    json.dumps({"prompt_tokens": 8, "completion_tokens": 2, "total_tokens": 10}),
+                ),
+                (
+                    conversation["id"],
+                    "第一次模型输出",
+                    json.dumps({"finished_sequence": 5}),
+                    run_id,
+                    request_id,
+                    "operation-1",
+                    started_at,
+                    started_at + timedelta(seconds=1),
+                    1000,
+                    3,
+                    json.dumps({"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}),
+                ),
+            ],
+        )
+    finally:
+        await conn.close()
+
+    response = await test_client.get(f"/api/chat/thread/{thread_id}/model-audits", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    audits = response.json()["audits"]
+    assert [audit["operation_id"] for audit in audits] == ["operation-1", "operation-2"]
+    assert audits[0]["sequence"] == 3
+    assert audits[0]["duration_ms"] == 1000
+    assert audits[0]["started_at"] == "2026-08-30T01:00:00Z"
+    assert audits[0]["finished_at"] == "2026-08-30T01:00:01Z"
+    assert audits[1]["usage"]["total_tokens"] == 10
+    assert audits[1]["content_blocks"] == [{"type": "text", "text": "第二次模型输出"}]
+    assert "private_internal_field" not in response.text
+
+    history = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=admin_headers)
+    assert history.status_code == 200, history.text
+    assert history.json()["history"] == []
 
 
 async def test_image_upload_composites_transparent_png_pixels_on_white(test_client, admin_headers):
