@@ -58,7 +58,7 @@ Yuxi is a strong fit for teams that need private deployment, organizational acce
 **1. Clone and initialize**
 
 ```bash
-git clone --branch v0.7.2.beta2 --depth 1 https://github.com/xerrors/Yuxi.git
+git clone --branch v0.7.2 --depth 1 https://github.com/xerrors/Yuxi.git
 cd Yuxi
 
 # Linux/macOS

@@ -37,12 +37,12 @@ Yuxi 面向需要自己掌握数据、模型和权限的团队：
 
 ### 前置条件
 
-安装 [Docker Engine](https://docs.docker.com/get-docker/) 和 Docker Compose，并准备一个可用的大模型 API。当前仓库默认配置对应 `v0.7.2.beta2`，仍处于 Beta 阶段。
+安装 [Docker Engine](https://docs.docker.com/get-docker/) 和 Docker Compose，并准备一个可用的大模型 API。当前仓库默认配置对应 `v0.7.2`，仍处于 Beta 阶段。
 
 ### 1. 获取代码并初始化
 
 ```bash
-git clone --branch v0.7.2.beta2 --depth 1 https://github.com/xerrors/Yuxi.git
+git clone --branch v0.7.2 --depth 1 https://github.com/xerrors/Yuxi.git
 cd Yuxi
 
 # Linux/macOS
