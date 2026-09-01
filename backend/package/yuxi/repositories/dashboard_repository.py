@@ -366,7 +366,6 @@ class DashboardRepository:
         conversation_stats = []
         satisfaction_stats = []
         tool_usage = []
-        top_agents = []
         for agent in agents:
             conversation_count = conversation_counts.get(agent.slug, 0)
             total_feedbacks, positive_feedbacks = feedback_by_agent.get(agent.slug, (0, 0))
@@ -380,22 +379,12 @@ class DashboardRepository:
                 }
             )
             tool_usage.append({"agent_id": agent.slug, "tool_usage_count": tool_counts.get(agent.slug, 0)})
-            top_agents.append(
-                {
-                    "agent_id": agent.slug,
-                    "agent_avatar": normalize_public_minio_url(agent.icon) if agent.icon else None,
-                    "conversation_count": conversation_count,
-                    "satisfaction_rate": satisfaction_rate,
-                }
-            )
 
-        top_agents.sort(key=lambda row: row["conversation_count"], reverse=True)
         return {
             "total_agents": len(agents),
             "agent_conversation_counts": conversation_stats,
             "agent_satisfaction_rates": satisfaction_stats,
             "agent_tool_usage": tool_usage,
-            "top_performing_agents": top_agents[:5],
             "agent_names": {agent.slug: agent.name for agent in agents},
         }
 

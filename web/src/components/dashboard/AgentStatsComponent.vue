@@ -38,50 +38,6 @@
       </a-col>
     </a-row>
 
-    <!-- 表现排行榜 -->
-    <a-divider />
-    <div class="top-performers">
-      <h4>表现最佳智能体 TOP 5</h4>
-      <a-table
-        :columns="performerColumns"
-        :data-source="topPerformers"
-        size="small"
-        :pagination="false"
-      >
-        <template #bodyCell="{ column, record, index }">
-          <template v-if="column.key === 'rank'">
-            <div class="rank-display">
-              <span class="rank-number" :class="{ featured: index < 3 }">{{ index + 1 }}</span>
-            </div>
-          </template>
-          <template v-if="column.key === 'agent_id'">
-            <div class="agent-cell">
-              <FallbackAvatar
-                :src="record.agent_avatar"
-                :default-src="generatePixelAvatar(record.agent_id)"
-                :name="resolveAgentName(record.agent_id)"
-                :seed="record.agent_id"
-                kind="agent"
-                :size="24"
-                shape="rounded"
-                decorative
-              />
-              <span class="agent-name" :title="resolveAgentName(record.agent_id)">
-                {{ resolveAgentName(record.agent_id) }}
-              </span>
-            </div>
-          </template>
-          <template v-if="column.key === 'satisfaction_rate'">
-            <span class="satisfaction-value" :class="getSatisfactionTone(record.satisfaction_rate)">
-              {{ record.satisfaction_rate }}%
-            </span>
-          </template>
-          <template v-if="column.key === 'conversation_count'">
-            <span class="metric-value">{{ record.conversation_count }}</span>
-          </template>
-        </template>
-      </a-table>
-    </div>
   </a-card>
 </template>
 
@@ -91,9 +47,7 @@ import * as echarts from 'echarts'
 import { getColorByIndex } from '@/utils/chartColors'
 import { useThemeStore } from '@/stores/theme'
 import { formatNumber } from '@/utils/dashboard'
-import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import { Bot, MessageSquare, Wrench } from '@lucide/vue'
-import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import DashboardMetricCard from './DashboardMetricCard.vue'
 
 // CSS 变量解析工具函数
@@ -120,33 +74,6 @@ const props = defineProps({
 const conversationToolChartRef = ref(null)
 let conversationToolChart = null
 
-// 表格列定义
-const performerColumns = [
-  {
-    title: '排名',
-    key: 'rank',
-    width: '80px',
-    align: 'center'
-  },
-  {
-    title: '智能体',
-    key: 'agent_id',
-    width: '30%'
-  },
-  {
-    title: '满意度',
-    key: 'satisfaction_rate',
-    width: '25%',
-    align: 'center'
-  },
-  {
-    title: '对话数',
-    key: 'conversation_count',
-    width: '20%',
-    align: 'center'
-  }
-]
-
 // 计算属性
 const totalConversations = computed(() => {
   const conversationCounts = props.agentStats?.agent_conversation_counts || []
@@ -158,19 +85,9 @@ const totalToolUsage = computed(() => {
   return toolUsage.reduce((sum, item) => sum + item.tool_usage_count, 0)
 })
 
-const topPerformers = computed(() => {
-  return props.agentStats?.top_performing_agents || []
-})
-
 const agentNames = computed(() => props.agentStats?.agent_names || {})
 
 const resolveAgentName = (agentId) => agentNames.value[agentId] || agentId
-
-const getSatisfactionTone = (value) => {
-  if (value >= 80) return 'success'
-  if (value >= 60) return 'warning'
-  return 'error'
-}
 
 // 初始化对话数和工具调用数合并图表
 const initConversationToolChart = () => {
@@ -371,100 +288,3 @@ defineExpose({
   cleanup
 })
 </script>
-
-<style scoped lang="less">
-.agent-cell {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.satisfaction-value {
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-
-  &.success {
-    color: var(--color-success-700);
-  }
-
-  &.warning {
-    color: var(--color-warning-700);
-  }
-
-  &.error {
-    color: var(--color-error-700);
-  }
-}
-
-.metric-value {
-  font-weight: 500;
-  color: var(--gray-1000);
-  font-size: 14px;
-}
-
-/* 排名显示样式 */
-.rank-display {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  .rank-number {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background-color: var(--gray-50);
-    border-radius: 50%;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--gray-600);
-    border: 1px solid var(--gray-150);
-  }
-
-  .rank-number.featured {
-    background-color: var(--main-20);
-    border-color: var(--main-100);
-    color: var(--main-color);
-  }
-}
-
-.agent-name {
-  display: inline-block;
-  max-width: 100%;
-  color: var(--gray-900);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-  white-space: nowrap;
-}
-
-// AgentStatsComponent 特有的样式
-.top-performers,
-.metrics-comparison {
-  h4 {
-    margin-bottom: 16px;
-    font-weight: 600;
-    color: var(--gray-1000);
-    font-size: 16px;
-  }
-
-  h5 {
-    margin-bottom: 12px;
-    color: var(--gray-600);
-    font-weight: 500;
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-}
-
-:deep(.ant-progress-bg) {
-  transition: all 0.3s ease;
-}
-</style>

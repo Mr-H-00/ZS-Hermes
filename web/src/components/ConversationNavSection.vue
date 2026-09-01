@@ -2,7 +2,10 @@
   <section class="conversation-nav-section" :class="{ collapsed }">
     <div v-if="showHistory && !collapsed" class="history-panel">
       <div class="conversation-list">
-        <section class="history-group project-history-group">
+        <section
+          v-if="projectsLoading || projectsError || projectGroups.length"
+          class="history-group project-history-group"
+        >
           <button
             type="button"
             class="history-label"
@@ -86,7 +89,6 @@
                     </div>
                   </CollapseTransition>
                 </section>
-                <div v-if="!projectGroups.length" class="list-state">暂无项目</div>
               </template>
             </div>
           </CollapseTransition>

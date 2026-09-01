@@ -41,7 +41,6 @@ class AgentAnalytics(BaseModel):
     agent_conversation_counts: list[dict]
     agent_satisfaction_rates: list[dict]
     agent_tool_usage: list[dict]
-    top_performing_agents: list[dict]
     agent_names: dict[str, str] = {}
 
 

@@ -32,7 +32,7 @@ class DashboardService:
         return await self.repo.get_tool_call_stats(now=now)
 
     async def get_agent_analytics(self) -> dict[str, Any]:
-        """汇总智能体对话、满意度与工具使用排行。"""
+        """汇总智能体对话、满意度与工具使用情况。"""
         return await self.repo.get_agent_analytics()
 
     async def get_feedbacks(self, *, rating: str | None = None, agent_id: str | None = None) -> list[dict[str, Any]]:
