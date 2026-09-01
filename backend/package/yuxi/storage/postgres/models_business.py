@@ -51,6 +51,8 @@ OR (
      AND subagent_thread_relation_id IS NOT NULL))
 )
 """
+PROJECT_STATUS_CONSTRAINT_NAME = "ck_projects_status"
+PROJECT_STATUS_CONSTRAINT_SQL = "status IN ('active', 'deleted')"
 
 
 # 新建线程的初始已查看标记，用于区分"尚无任何 Run"与"上线前的历史会话"，
@@ -67,7 +69,7 @@ class Project(Base):
         UniqueConstraint("uid", "idempotency_key", name="uq_projects_uid_idempotency_key"),
         CheckConstraint("selection_status IN ('implicit', 'selectable')", name="ck_projects_selection_status"),
         CheckConstraint("directory_mode IN ('managed', 'linked')", name="ck_projects_directory_mode"),
-        CheckConstraint("status IN ('active', 'deleted')", name="ck_projects_status"),
+        CheckConstraint(PROJECT_STATUS_CONSTRAINT_SQL, name=PROJECT_STATUS_CONSTRAINT_NAME),
     )
 
     id = Column(String(64), primary_key=True, comment="Project UUID")

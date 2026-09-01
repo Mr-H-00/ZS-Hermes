@@ -114,6 +114,8 @@ def _patch_repos(
     existing_relation=None,
     created_relation=None,
     relation_by_id=None,
+    parent_status: str = "active",
+    active_project: bool = True,
 ):
     captured = captured if captured is not None else {}
     parent_run = parent_run or _parent_run()
@@ -129,6 +131,7 @@ def _patch_repos(
         uid="user-1",
         thread_id="parent-thread",
         project_id="project-1",
+        status=parent_status,
     )
 
     class RunRepo:
@@ -175,6 +178,9 @@ def _patch_repos(
             return None
 
         async def lock_conversation_by_thread_id(self, thread_id: str):
+            if thread_id == parent_conversation.thread_id:
+                captured["locked_conversation_thread_id"] = thread_id
+                return parent_conversation
             return await self.get_conversation_by_thread_id(thread_id)
 
         async def get_conversation_by_id(self, conversation_id: int):
@@ -228,18 +234,21 @@ def _patch_repos(
             assert uid == "user-1"
             return relation_by_id
 
+    class ProjectRepo:
+        def __init__(self, _db):
+            pass
+
+        async def lock_active_for_user(self, project_id: str, uid: str):
+            captured["project_lock"] = {
+                "project_id": project_id,
+                "uid": uid,
+            }
+            return SimpleNamespace(id=project_id, status="active") if active_project else None
+
     monkeypatch.setattr(service_module, "AgentRunRepository", RunRepo)
     monkeypatch.setattr(service_module, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(service_module, "ProjectRepository", ProjectRepo)
     monkeypatch.setattr(service_module, "SubagentThreadRepository", ThreadRepo)
-
-    async def resolve_binding(*, conversation, uid, db):
-        del uid, db
-        return (
-            "projects/11111111-1111-4111-8111-111111111111",
-            SimpleNamespace(id=conversation.project_id),
-        )
-
-    monkeypatch.setattr(service_module, "resolve_conversation_workdir_binding", resolve_binding)
 
 
 def _patch_run_record_creation(
@@ -406,6 +415,11 @@ async def test_subagent_run_service_creates_child_relation_run_and_enqueue(monke
     assert child_conversation.project_id == "project-1"
     assert captured["conversation"]["project_id"] == "project-1"
     assert captured["conversation"]["metadata"]["parent_conversation_id"] == 10
+    assert captured["project_lock"] == {
+        "project_id": "project-1",
+        "uid": "user-1",
+    }
+    assert captured["locked_conversation_thread_id"] == "parent-thread"
     assert captured["relation"] == {
         "uid": "user-1",
         "parent_conversation_id": 10,
@@ -458,6 +472,72 @@ async def test_subagent_run_service_continues_existing_relation(monkeypatch: pyt
     assert captured["create_run_record"]["input_message"].raw_message()["type"] == "human"
     assert captured["create_run_record"]["input_message"].raw_message()["content"] == "continue"
     assert captured["enqueued"] == "child-run-2"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("parent_status", "active_project", "message"),
+    [
+        ("deleted", True, "父运行任务的 Conversation 不存在"),
+        ("active", False, "父运行任务的 Project 不存在"),
+    ],
+)
+async def test_subagent_run_service_rejects_deleted_parent_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    parent_status: str,
+    active_project: bool,
+    message: str,
+):
+    db = _FakeDB()
+    captured: dict[str, object] = {}
+    _patch_repos(
+        monkeypatch,
+        captured=captured,
+        parent_status=parent_status,
+        active_project=active_project,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        await SubagentRunService(db)._ensure_thread_relation(
+            child_thread_id="child-thread",
+            uid="user-1",
+            agent_item=_agent(),
+            creator_run=_parent_run(),
+            continuing=False,
+        )
+
+    assert "conversation" not in captured
+
+
+@pytest.mark.asyncio
+async def test_subagent_run_service_rejects_deleted_existing_child_conversation(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db = _FakeDB()
+    captured: dict[str, object] = {}
+    _patch_repos(
+        monkeypatch,
+        captured=captured,
+        existing_relation=_relation(),
+        child_conversation=SimpleNamespace(
+            id=20,
+            uid="user-1",
+            agent_id="worker",
+            status="deleted",
+            project_id="project-1",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="子智能体线程不存在"):
+        await SubagentRunService(db)._ensure_thread_relation(
+            child_thread_id="child-thread",
+            uid="user-1",
+            agent_item=_agent(),
+            creator_run=_parent_run(),
+            continuing=True,
+        )
+
+    assert "conversation" not in captured
 
 
 @pytest.mark.asyncio

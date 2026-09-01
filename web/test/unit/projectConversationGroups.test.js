@@ -49,6 +49,40 @@ test('无项目时全部对话仍可在其他对话与最近视图读取', () =>
   assert.equal(result.sortedConversations[0].id, 'thread-1')
 })
 
+test('最近视图保持按创建时间排序且不受更新时间影响', () => {
+  const conversations = [
+    {
+      id: 'older-renamed',
+      created_at: '2026-08-29T10:00:00Z',
+      updated_at: '2026-09-01T10:00:00Z'
+    },
+    {
+      id: 'newer-created',
+      created_at: '2026-08-30T10:00:00Z',
+      updated_at: '2026-08-30T10:00:00Z'
+    }
+  ]
+
+  const result = buildProjectConversationGroups([], conversations)
+
+  assert.deepEqual(
+    result.sortedConversations.map((conversation) => conversation.id),
+    ['newer-created', 'older-renamed']
+  )
+})
+
+test('页面内创建的 Project 会写入共享侧边栏导航 Owner', () => {
+  const layoutSource = readFileSync(new URL('../../src/layouts/AppLayout.vue', import.meta.url), 'utf8')
+  const selectionSource = readFileSync(
+    new URL('../../src/components/ProjectSelectionSection.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(layoutSource, /useProjectsStore\(\)/)
+  assert.match(selectionSource, /useProjectsStore\(\)/)
+  assert.match(selectionSource, /projectsStore\.upsertProject\(project\)/)
+})
+
 test('对话选择与操作菜单使用并列按钮语义', () => {
   const source = readFileSync(
     new URL('../../src/components/ConversationNavItem.vue', import.meta.url),

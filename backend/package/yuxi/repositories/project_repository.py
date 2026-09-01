@@ -25,19 +25,30 @@ class ProjectRepository:
         """按用户读取 Project。"""
         return await self.db.scalar(select(Project).where(Project.id == project_id, Project.uid == str(uid)))
 
-    async def get_active_selectable_for_user(
-        self, project_id: str, uid: str, *, for_update: bool = False
-    ) -> Project | None:
-        """读取当前用户可管理的 active selectable Project。"""
-        statement = select(Project).where(
-            Project.id == project_id,
-            Project.uid == str(uid),
-            Project.selection_status == "selectable",
-            Project.status == "active",
+    async def lock_active_for_user(self, project_id: str, uid: str) -> Project | None:
+        """锁定当前用户的 active Project。"""
+        return await self.db.scalar(
+            select(Project)
+            .where(
+                Project.id == project_id,
+                Project.uid == str(uid),
+                Project.status == "active",
+            )
+            .with_for_update()
         )
-        if for_update:
-            statement = statement.with_for_update()
-        return await self.db.scalar(statement)
+
+    async def lock_active_selectable_for_user(self, project_id: str, uid: str) -> Project | None:
+        """锁定当前用户可管理的 active selectable Project。"""
+        return await self.db.scalar(
+            select(Project)
+            .where(
+                Project.id == project_id,
+                Project.uid == str(uid),
+                Project.selection_status == "selectable",
+                Project.status == "active",
+            )
+            .with_for_update()
+        )
 
     async def get_by_idempotency_key(self, idempotency_key: str, uid: str) -> Project | None:
         """按用户和幂等键读取 Project。"""

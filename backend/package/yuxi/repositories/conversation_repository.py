@@ -189,7 +189,10 @@ class ConversationRepository:
     async def lock_conversation_by_thread_id(self, thread_id: str) -> Conversation | None:
         """锁定线程根记录，串行化同一对话的调度决策。"""
         result = await self.db.execute(
-            select(Conversation).where(Conversation.thread_id == thread_id).with_for_update()
+            select(Conversation)
+            .where(Conversation.thread_id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 

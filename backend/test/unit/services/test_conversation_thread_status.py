@@ -262,8 +262,8 @@ async def test_explicit_project_creation_locks_project_until_commit(monkeypatch)
         def __init__(self, _db):
             pass
 
-        async def get_active_selectable_for_user(self, project_id, uid, *, for_update=False):
-            lock_calls.append((project_id, uid, for_update))
+        async def lock_active_selectable_for_user(self, project_id, uid):
+            lock_calls.append((project_id, uid, True))
             return project
 
     class _ConversationRepository:

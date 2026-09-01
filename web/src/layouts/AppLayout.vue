@@ -21,6 +21,7 @@ import { useChatThreadsStore } from '@/stores/chatThreads'
 import { useChatUIStore } from '@/stores/chatUI'
 import { useDatabaseStore } from '@/stores/database'
 import { useInfoStore } from '@/stores/info'
+import { useProjectsStore } from '@/stores/projects'
 import { useRuntimeCapabilitiesStore } from '@/stores/runtimeCapabilities'
 import { useTaskerStore } from '@/stores/tasker'
 import { useUserStore } from '@/stores/user'
@@ -39,11 +40,13 @@ const chatThreadsStore = useChatThreadsStore()
 const chatUIStore = useChatUIStore()
 const databaseStore = useDatabaseStore()
 const infoStore = useInfoStore()
+const projectsStore = useProjectsStore()
 const runtimeCapabilitiesStore = useRuntimeCapabilitiesStore()
 const taskerStore = useTaskerStore()
 const userStore = useUserStore()
 const { activeCount: activeCountRef, isDrawerOpen } = storeToRefs(taskerStore)
 const { knowledgeEnabled } = storeToRefs(runtimeCapabilitiesStore)
+const { projects, isLoading: projectsLoading, error: projectsError } = storeToRefs(projectsStore)
 const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, threadCreationInFlight } =
   storeToRefs(chatThreadsStore)
 
@@ -57,9 +60,6 @@ const settingsInitialTab = ref('')
 
 const { sidebarCollapsed } = storeToRefs(chatUIStore)
 const conversationSearchOpen = ref(false)
-const projects = ref([])
-const projectsLoading = ref(false)
-const projectsError = ref('')
 const projectPendingId = ref(null)
 
 // Provide settings modal methods to child components
@@ -243,15 +243,10 @@ const initAgentNavigation = async () => {
 }
 
 const loadProjects = async () => {
-  projectsLoading.value = true
-  projectsError.value = ''
   try {
-    projects.value = (await projectApi.getProjects()) || []
+    await projectsStore.loadProjects()
   } catch (error) {
-    projectsError.value = '项目加载失败'
     console.warn('加载项目导航失败:', error)
-  } finally {
-    projectsLoading.value = false
   }
 }
 
@@ -323,9 +318,7 @@ const handleRenameProject = async ({ projectId, name }) => {
   projectPendingId.value = projectId
   try {
     const updatedProject = await projectApi.renameProject(projectId, name)
-    projects.value = projects.value.map((project) =>
-      project.id === projectId ? updatedProject : project
-    )
+    projectsStore.replaceProject(updatedProject)
     message.success('项目已重命名')
   } catch (error) {
     message.error(error?.message || '重命名项目失败')
@@ -340,7 +333,7 @@ const handleDeleteProject = async (projectId) => {
   try {
     await projectApi.deleteProject(projectId)
     const removedThreadIds = chatThreadsStore.removeThreadsByProject(projectId)
-    projects.value = projects.value.filter((project) => project.id !== projectId)
+    projectsStore.removeProject(projectId)
     if (removedThreadIds.includes(route.params.thread_id)) {
       await router.replace({ name: 'AgentComp' })
     }

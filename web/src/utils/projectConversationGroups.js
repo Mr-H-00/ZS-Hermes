@@ -1,9 +1,9 @@
 const conversationTimestamp = (conversation) => {
-  const timestamp = Date.parse(conversation.updated_at || conversation.created_at || '')
+  const timestamp = Date.parse(conversation.created_at || '')
   return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
-export const sortSidebarConversations = (conversations) =>
+const sortSidebarConversations = (conversations) =>
   [...conversations].sort((left, right) => {
     if (left.is_pinned !== right.is_pinned) return left.is_pinned ? -1 : 1
     return conversationTimestamp(right) - conversationTimestamp(left)

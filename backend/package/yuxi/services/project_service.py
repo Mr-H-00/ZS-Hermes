@@ -34,9 +34,12 @@ def _normalize_project_name(name: str | None, *, required: bool) -> str | None:
     return normalized_name or None
 
 
-def _matches_creation_intent(project: Project, *, name: str, workdir_path: str) -> bool:
-    """判断已有 Project 是否匹配当前创建意图。"""
-    return project.name == name and project.directory_mode == "linked" and project.workdir_path == workdir_path
+def _require_matching_creation_intent(project: Project, *, name: str, workdir_path: str) -> None:
+    """要求已有 Project 仍有效且匹配当前幂等创建意图。"""
+    if project.status == "deleted":
+        raise HTTPException(status_code=409, detail="request_id 已用于已删除的 Project")
+    if project.name != name or project.directory_mode != "linked" or project.workdir_path != workdir_path:
+        raise HTTPException(status_code=409, detail="request_id 已用于其他 Project 创建意图")
 
 
 async def create_project_record(
@@ -106,21 +109,19 @@ async def create_project_view(
         raise HTTPException(status_code=422, detail="request_id 不能为空")
     if directory_mode != "linked" or not (workdir_path or "").strip():
         raise HTTPException(status_code=422, detail="手动创建项目必须选择目录")
-    existing = await ProjectRepository(db).get_by_idempotency_key(normalized_request_id, str(uid))
+    repository = ProjectRepository(db)
+    existing = await repository.get_by_idempotency_key(normalized_request_id, str(uid))
     normalized_name = _normalize_project_name(name, required=True)
     try:
         normalized_path = normalize_linked_workdir_path(workdir_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if existing is not None:
-        if existing.status == "deleted":
-            raise HTTPException(status_code=409, detail="request_id 已用于已删除的 Project")
-        if not _matches_creation_intent(
+        _require_matching_creation_intent(
             existing,
             name=normalized_name,
             workdir_path=normalized_path,
-        ):
-            raise HTTPException(status_code=409, detail="request_id 已用于其他 Project 创建意图")
+        )
         return existing.to_dict()
 
     try:
@@ -136,17 +137,14 @@ async def create_project_view(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        replay = await ProjectRepository(db).get_by_idempotency_key(normalized_request_id, str(uid))
+        replay = await repository.get_by_idempotency_key(normalized_request_id, str(uid))
         if replay is None:
             raise HTTPException(status_code=409, detail="Project 创建冲突")
-        if replay.status == "deleted":
-            raise HTTPException(status_code=409, detail="request_id 已用于已删除的 Project")
-        if not _matches_creation_intent(
+        _require_matching_creation_intent(
             replay,
             name=normalized_name,
             workdir_path=normalized_path,
-        ):
-            raise HTTPException(status_code=409, detail="request_id 已用于其他 Project 创建意图")
+        )
         project = replay
     return project.to_dict()
 
@@ -161,7 +159,7 @@ async def rename_project_view(*, uid: str, project_id: str, name: str, db) -> di
     """重命名当前用户的 selectable Project。"""
     normalized_name = _normalize_project_name(name, required=True)
     repository = ProjectRepository(db)
-    project = await repository.get_active_selectable_for_user(project_id, str(uid), for_update=True)
+    project = await repository.lock_active_selectable_for_user(project_id, str(uid))
     if project is None:
         raise HTTPException(status_code=404, detail="Project 不存在")
 
@@ -175,7 +173,7 @@ async def rename_project_view(*, uid: str, project_id: str, name: str, db) -> di
 async def delete_project_view(*, uid: str, project_id: str, db) -> dict:
     """软删除 Project 及其 Conversation，保留 Workdir 字节。"""
     repository = ProjectRepository(db)
-    project = await repository.get_active_selectable_for_user(project_id, str(uid), for_update=True)
+    project = await repository.lock_active_selectable_for_user(project_id, str(uid))
     if project is None:
         raise HTTPException(status_code=404, detail="Project 不存在")
 

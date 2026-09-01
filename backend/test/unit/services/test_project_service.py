@@ -253,8 +253,8 @@ async def test_rename_project_updates_only_active_selectable_project(monkeypatch
         def __init__(self, _db):
             pass
 
-        async def get_active_selectable_for_user(self, project_id, uid, *, for_update=False):
-            assert (project_id, uid, for_update) == ("project-1", "user-1", True)
+        async def lock_active_selectable_for_user(self, project_id, uid):
+            assert (project_id, uid) == ("project-1", "user-1")
             return project
 
     monkeypatch.setattr(svc, "ProjectRepository", _ProjectRepository)
@@ -276,7 +276,7 @@ async def test_rename_project_rejects_missing_or_deleted_project(monkeypatch):
         def __init__(self, _db):
             pass
 
-        async def get_active_selectable_for_user(self, *_args, **_kwargs):
+        async def lock_active_selectable_for_user(self, *_args, **_kwargs):
             return None
 
     monkeypatch.setattr(svc, "ProjectRepository", _ProjectRepository)
@@ -302,8 +302,8 @@ async def test_delete_project_soft_deletes_all_conversations_in_one_commit(monke
         def __init__(self, _db):
             pass
 
-        async def get_active_selectable_for_user(self, project_id, uid, *, for_update=False):
-            assert (project_id, uid, for_update) == ("project-1", "user-1", True)
+        async def lock_active_selectable_for_user(self, project_id, uid):
+            assert (project_id, uid) == ("project-1", "user-1")
             return project
 
         async def soft_delete_with_conversations(self, actual_project, *, deleted_at):

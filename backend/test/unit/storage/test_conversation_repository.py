@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yuxi.repositories.conversation_repository import (
@@ -45,6 +46,45 @@ def test_normalize_title_trims_spaces():
     normalized = repo._normalize_title("   hello world   ")
 
     assert normalized == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_lock_conversation_refreshes_cached_lifecycle_state(tmp_path):
+    """加锁读取必须刷新同一 Session 中已缓存的生命周期状态。"""
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'conversation-lock.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    try:
+        async with factory() as reader, factory() as writer:
+            conversation = Conversation(
+                thread_id="thread-refresh-lock",
+                project_id="project-refresh-lock",
+                uid="user-a",
+                agent_id="agent-a",
+                title="Refresh lock",
+                status="active",
+            )
+            reader.add(conversation)
+            await reader.commit()
+
+            repository = ConversationRepository(reader)
+            cached = await repository.get_conversation_by_id(conversation.id)
+            assert cached is conversation
+            assert cached.status == "active"
+
+            await writer.execute(
+                update(Conversation).where(Conversation.id == conversation.id).values(status="deleted")
+            )
+            await writer.commit()
+
+            locked = await repository.lock_conversation_by_thread_id(conversation.thread_id)
+
+            assert locked is conversation
+            assert locked.status == "deleted"
+    finally:
+        await engine.dispose()
 
 
 def _seed_invocation_excluding_conversations() -> tuple[Conversation, Conversation, Conversation, datetime]:
