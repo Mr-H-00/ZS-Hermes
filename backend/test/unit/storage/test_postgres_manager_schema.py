@@ -56,6 +56,15 @@ def test_project_uid_foreign_key_has_schema_convergence_name():
     assert [constraint.name for constraint in projects.foreign_key_constraints] == ["fk_projects_uid_users"]
 
 
+def test_project_lifecycle_columns_and_constraint_are_in_fresh_schema():
+    """Fresh schema 与升级收敛必须共享 Project 软删除契约。"""
+    projects = BusinessBase.metadata.tables["projects"]
+
+    assert projects.c.status.nullable is False
+    assert "deleted_at" in projects.c
+    assert "ck_projects_status" in {constraint.name for constraint in projects.constraints}
+
+
 class _RecordingConnection:
     def __init__(self):
         self.statements: list[str] = []
@@ -123,6 +132,9 @@ async def test_ensure_business_schema_backfills_subagent_thread_columns_before_d
     assert statements.index("created_by_parent_run_id") < statements.index(
         "DROP COLUMN IF EXISTS created_by_parent_run_id"
     )
+    assert "ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'" in statements
+    assert "ADD COLUMN IF NOT EXISTS deleted_at" in statements
+    assert "ADD CONSTRAINT ck_projects_status" in statements
 
 
 @pytest.mark.asyncio

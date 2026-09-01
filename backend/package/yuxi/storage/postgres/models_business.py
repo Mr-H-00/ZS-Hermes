@@ -51,6 +51,8 @@ OR (
      AND subagent_thread_relation_id IS NOT NULL))
 )
 """
+PROJECT_STATUS_CONSTRAINT_NAME = "ck_projects_status"
+PROJECT_STATUS_CONSTRAINT_SQL = "status IN ('active', 'deleted')"
 
 
 # 新建线程的初始已查看标记，用于区分"尚无任何 Run"与"上线前的历史会话"，
@@ -67,6 +69,7 @@ class Project(Base):
         UniqueConstraint("uid", "idempotency_key", name="uq_projects_uid_idempotency_key"),
         CheckConstraint("selection_status IN ('implicit', 'selectable')", name="ck_projects_selection_status"),
         CheckConstraint("directory_mode IN ('managed', 'linked')", name="ck_projects_directory_mode"),
+        CheckConstraint(PROJECT_STATUS_CONSTRAINT_SQL, name=PROJECT_STATUS_CONSTRAINT_NAME),
     )
 
     id = Column(String(64), primary_key=True, comment="Project UUID")
@@ -81,6 +84,8 @@ class Project(Base):
     selection_status = Column(String(20), nullable=False, index=True, comment="implicit/selectable")
     workdir_path = Column(String(512), nullable=False, comment="UserWorkspace-relative Workdir path")
     directory_mode = Column(String(20), nullable=False, comment="managed/linked")
+    status = Column(String(20), nullable=False, default="active", server_default="active", index=True)
+    deleted_at = Column(DateTime, nullable=True, comment="软删除时间")
     idempotency_key = Column(String(128), nullable=True, comment="幂等创建键")
     created_at = Column(DateTime, default=utc_now_naive, server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -98,6 +103,8 @@ class Project(Base):
             "selection_status": self.selection_status,
             "workdir_path": self.workdir_path,
             "directory_mode": self.directory_mode,
+            "status": self.status,
+            "deleted_at": format_utc_datetime(self.deleted_at),
             "created_at": format_utc_datetime(self.created_at),
             "updated_at": format_utc_datetime(self.updated_at),
         }

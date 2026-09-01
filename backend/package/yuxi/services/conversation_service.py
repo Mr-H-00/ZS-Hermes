@@ -57,14 +57,23 @@ async def _serialize_thread(
     }
 
 
-def _matches_thread_creation_intent(conversation, project, *, agent_slug: str, project_id: str | None) -> bool:
-    """判断已有 Conversation 是否匹配当前幂等创建意图。"""
+def _require_matching_thread_creation_intent(
+    conversation,
+    project,
+    *,
+    agent_slug: str,
+    project_id: str | None,
+) -> None:
+    """要求已有 Conversation 仍有效且匹配当前幂等创建意图。"""
+    if conversation.status == "deleted" or project is None or project.status == "deleted":
+        raise HTTPException(status_code=409, detail="request_id 已用于已删除的 Conversation")
     same_project_intent = (
         conversation.project_id == project_id
         if project_id
         else project is not None and project.selection_status == "implicit"
     )
-    return conversation.agent_id == agent_slug and same_project_intent
+    if conversation.agent_id != agent_slug or not same_project_intent:
+        raise HTTPException(status_code=409, detail="request_id 已用于其他 Conversation 创建意图")
 
 
 def _format_naive_utc_isoformat(value: Any) -> str | None:
@@ -105,18 +114,18 @@ async def create_thread_view(
         raise HTTPException(status_code=404, detail="智能体不存在")
 
     conv_repo = ConversationRepository(db)
+    project_repo = ProjectRepository(db)
     normalized_request_id = str(request_id or "").strip() or None
     if normalized_request_id:
         existing = await conv_repo.get_conversation_by_creation_request_id(str(current_uid), normalized_request_id)
         if existing is not None:
-            existing_project = await ProjectRepository(db).get_for_user(existing.project_id, str(current_uid))
-            if not _matches_thread_creation_intent(
+            existing_project = await project_repo.get_for_user(existing.project_id, str(current_uid))
+            _require_matching_thread_creation_intent(
                 existing,
                 existing_project,
                 agent_slug=agent_item.slug,
                 project_id=project_id,
-            ):
-                raise HTTPException(status_code=409, detail="request_id 已用于其他 Conversation 创建意图")
+            )
             await ensure_conversation_workdir_available(conversation=existing, uid=str(current_uid), db=db)
             return await _serialize_thread(existing, thread_status="done", db=db)
 
@@ -124,8 +133,11 @@ async def create_thread_view(
     thread_metadata = dict(metadata or {})
     thread_metadata["backend_id"] = agent_item.backend_id
     if project_id:
-        project = await ProjectRepository(db).get_for_user(project_id, str(current_uid))
-        if project is None or project.selection_status != "selectable":
+        project = await project_repo.lock_active_selectable_for_user(
+            project_id,
+            str(current_uid),
+        )
+        if project is None:
             raise HTTPException(status_code=404, detail="Project 不存在")
         try:
             Workdir.open_existing(str(current_uid), project.workdir_path)
@@ -142,9 +154,7 @@ async def create_thread_view(
             await db.rollback()
             if not normalized_request_id:
                 raise
-            project = await ProjectRepository(db).get_by_idempotency_key(
-                f"thread:{normalized_request_id}", str(current_uid)
-            )
+            project = await project_repo.get_by_idempotency_key(f"thread:{normalized_request_id}", str(current_uid))
             if project is None or project.selection_status != "implicit":
                 raise HTTPException(status_code=409, detail="request_id 已用于其他 Conversation 创建意图")
     try:
@@ -164,7 +174,7 @@ async def create_thread_view(
             raise
         conversation = await conv_repo.get_conversation_by_creation_request_id(str(current_uid), normalized_request_id)
         if conversation is None:
-            implicit_project = await ProjectRepository(db).get_by_idempotency_key(
+            implicit_project = await project_repo.get_by_idempotency_key(
                 f"thread:{normalized_request_id}", str(current_uid)
             )
             if implicit_project is None or project_id:
@@ -180,14 +190,13 @@ async def create_thread_view(
                 creation_request_id=normalized_request_id,
             )
             await db.commit()
-        existing_project = await ProjectRepository(db).get_for_user(conversation.project_id, str(current_uid))
-        if not _matches_thread_creation_intent(
+        existing_project = await project_repo.get_for_user(conversation.project_id, str(current_uid))
+        _require_matching_thread_creation_intent(
             conversation,
             existing_project,
             agent_slug=agent_item.slug,
             project_id=project_id,
-        ):
-            raise HTTPException(status_code=409, detail="request_id 已用于其他 Conversation 创建意图")
+        )
         project = existing_project
 
     try:

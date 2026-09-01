@@ -149,7 +149,12 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
         initialize=lambda: calls.append("initialize"),
         schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
         create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
-        get_schema_versions=lambda: _async_value({"business": 1, "knowledge": 1}),
+        get_schema_versions=lambda: _async_value(
+            {
+                "business": storage_migration.BUSINESS_SCHEMA_VERSION,
+                "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION,
+            }
+        ),
         record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
@@ -185,10 +190,60 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
         "business_schema",
         "knowledge_schema",
         "checkpoint",
-        "version:business:1",
-        "version:knowledge:1",
+        f"version:business:{storage_migration.BUSINESS_SCHEMA_VERSION}",
+        f"version:knowledge:{storage_migration.KNOWLEDGE_SCHEMA_VERSION}",
     }.isdisjoint(calls)
     assert "converge:False" in calls
+
+
+@pytest.mark.asyncio
+async def test_business_v1_schema_is_converged_and_versioned_as_current(monkeypatch):
+    calls: list[str] = []
+    sessions = [_Session(), _Session(), _Session()]
+
+    @asynccontextmanager
+    async def session_context():
+        yield sessions.pop(0)
+
+    manager = SimpleNamespace(
+        initialize=lambda: calls.append("initialize"),
+        schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
+        create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
+        get_schema_versions=lambda: _async_value(
+            {"business": 1, "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION}
+        ),
+        record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
+        create_business_tables=lambda: _record(calls, "create_business"),
+        create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
+        ensure_business_schema=lambda: _record(calls, "business_schema"),
+        ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
+        setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
+        get_async_session_context=session_context,
+        close=lambda: _record(calls, "close"),
+    )
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(
+        storage_migration,
+        "read_v071_workdir_plan",
+        lambda _db: _async_value(V071WorkdirMigrationPlan(False, (), ())),
+    )
+    monkeypatch.setattr(storage_migration, "_legacy_skill_roots_exist", lambda: False)
+    monkeypatch.setattr(storage_migration, "_legacy_system_config_exists", lambda: False)
+    monkeypatch.setattr(storage_migration, "runtime_storage_requires_quiescence", lambda: False)
+    monkeypatch.setattr(
+        storage_migration,
+        "_converge_database_state",
+        lambda *, fail_nonterminal_runs: _record(calls, f"converge:{fail_nonterminal_runs}"),
+    )
+    monkeypatch.setattr(storage_migration, "migrate_shared_skills", lambda _db: _record(calls, "skills"))
+    monkeypatch.setattr(storage_migration, "mark_v071_skills_migrated", lambda: calls.append("mark_skills"))
+    monkeypatch.setattr(storage_migration, "migrate_runtime_storage_identity", lambda: calls.append("runtime_identity"))
+
+    await storage_migration.main()
+
+    assert "business_schema" in calls
+    assert f"version:business:{storage_migration.BUSINESS_SCHEMA_VERSION}" in calls
+    assert {"create_business", "checkpoint", "knowledge_schema"}.isdisjoint(calls)
 
 
 @pytest.mark.asyncio
@@ -235,8 +290,12 @@ async def test_lite_migration_does_not_create_knowledge_schema(monkeypatch):
 
     await storage_migration.main()
 
-    assert "version:business:1" in calls
-    assert {"create_knowledge", "knowledge_schema", "version:knowledge:1"}.isdisjoint(calls)
+    assert f"version:business:{storage_migration.BUSINESS_SCHEMA_VERSION}" in calls
+    assert {
+        "create_knowledge",
+        "knowledge_schema",
+        f"version:knowledge:{storage_migration.KNOWLEDGE_SCHEMA_VERSION}",
+    }.isdisjoint(calls)
 
 
 @pytest.mark.asyncio
@@ -279,7 +338,7 @@ async def test_failed_business_migration_does_not_record_version(monkeypatch):
         await storage_migration.main()
 
     assert "business_schema" in calls
-    assert "version:business:1" not in calls
+    assert f"version:business:{storage_migration.BUSINESS_SCHEMA_VERSION}" not in calls
     assert "create_knowledge" not in calls
     assert calls[-1] == "close"
 

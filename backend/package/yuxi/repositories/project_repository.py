@@ -1,6 +1,8 @@
 """Project 持久化 Repository。"""
 
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.repositories.conversation_repository import INVOCATION_CONVERSATION_SOURCES
@@ -23,6 +25,31 @@ class ProjectRepository:
         """按用户读取 Project。"""
         return await self.db.scalar(select(Project).where(Project.id == project_id, Project.uid == str(uid)))
 
+    async def lock_active_for_user(self, project_id: str, uid: str) -> Project | None:
+        """锁定当前用户的 active Project。"""
+        return await self.db.scalar(
+            select(Project)
+            .where(
+                Project.id == project_id,
+                Project.uid == str(uid),
+                Project.status == "active",
+            )
+            .with_for_update()
+        )
+
+    async def lock_active_selectable_for_user(self, project_id: str, uid: str) -> Project | None:
+        """锁定当前用户可管理的 active selectable Project。"""
+        return await self.db.scalar(
+            select(Project)
+            .where(
+                Project.id == project_id,
+                Project.uid == str(uid),
+                Project.selection_status == "selectable",
+                Project.status == "active",
+            )
+            .with_for_update()
+        )
+
     async def get_by_idempotency_key(self, idempotency_key: str, uid: str) -> Project | None:
         """按用户和幂等键读取 Project。"""
         return await self.db.scalar(
@@ -33,7 +60,11 @@ class ProjectRepository:
         """列出用户可选择的 Project。"""
         result = await self.db.execute(
             select(Project)
-            .where(Project.uid == str(uid), Project.selection_status == "selectable")
+            .where(
+                Project.uid == str(uid),
+                Project.selection_status == "selectable",
+                Project.status == "active",
+            )
             .order_by(Project.updated_at.desc(), Project.id.desc())
         )
         return list(result.scalars().all())
@@ -42,7 +73,11 @@ class ProjectRepository:
         """列出用户已选择 Project 的去重 Workdir 路径。"""
         result = await self.db.execute(
             select(Project.workdir_path)
-            .where(Project.uid == str(uid), Project.selection_status == "selectable")
+            .where(
+                Project.uid == str(uid),
+                Project.selection_status == "selectable",
+                Project.status == "active",
+            )
             .distinct()
         )
         return list(result.scalars().all())
@@ -55,6 +90,7 @@ class ProjectRepository:
             .where(
                 Conversation.uid == str(uid),
                 Conversation.status == "active",
+                Project.status == "active",
                 (
                     Conversation.extra_metadata.is_(None)
                     | Conversation.extra_metadata["source"].as_string().is_(None)
@@ -64,3 +100,16 @@ class ProjectRepository:
             .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
         )
         return list(result.all())
+
+    async def soft_delete_with_conversations(self, project: Project, *, deleted_at: datetime) -> int:
+        """在调用方事务内软删除 Project 及其全部 Conversation。"""
+        result = await self.db.execute(
+            update(Conversation)
+            .where(Conversation.uid == project.uid, Conversation.project_id == project.id)
+            .values(status="deleted", updated_at=deleted_at)
+        )
+        project.status = "deleted"
+        project.deleted_at = deleted_at
+        project.updated_at = deleted_at
+        await self.db.flush()
+        return int(result.rowcount or 0)

@@ -232,10 +232,75 @@ async def test_create_thread_view_rejects_client_attachment_metadata():
         )
 
 
+async def test_explicit_project_creation_locks_project_until_commit(monkeypatch):
+    project = SimpleNamespace(
+        id="project-1",
+        uid="user-1",
+        status="active",
+        selection_status="selectable",
+        directory_mode="linked",
+        workdir_path="clients/acme",
+    )
+    conversation = SimpleNamespace(thread_id="thread-1")
+    lock_calls = []
+
+    class _Db:
+        async def execute(self, _statement):
+            return SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(uid="user-1"))
+
+        async def commit(self):
+            return None
+
+    class _AgentRepository:
+        def __init__(self, _db):
+            pass
+
+        async def get_visible_by_slug(self, **_kwargs):
+            return SimpleNamespace(slug="main", backend_id="ChatbotAgent")
+
+    class _ProjectRepository:
+        def __init__(self, _db):
+            pass
+
+        async def lock_active_selectable_for_user(self, project_id, uid):
+            lock_calls.append((project_id, uid, True))
+            return project
+
+    class _ConversationRepository:
+        def __init__(self, _db):
+            pass
+
+        async def add_conversation(self, **_kwargs):
+            return conversation
+
+    async def serialize_thread(*_args, **_kwargs):
+        return {"id": "thread-1"}
+
+    monkeypatch.setattr(svc, "AgentRepository", _AgentRepository)
+    monkeypatch.setattr(svc, "ProjectRepository", _ProjectRepository)
+    monkeypatch.setattr(svc, "ConversationRepository", _ConversationRepository)
+    monkeypatch.setattr(svc.Workdir, "open_existing", lambda *_args: None)
+    monkeypatch.setattr(svc, "_serialize_thread", serialize_thread)
+
+    result = await svc.create_thread_view(
+        agent_slug="main",
+        request_id=None,
+        title="title",
+        metadata={},
+        project_id="project-1",
+        db=_Db(),
+        current_uid="user-1",
+    )
+
+    assert result == {"id": "thread-1"}
+    assert lock_calls == [("project-1", "user-1", True)]
+
+
 async def test_create_thread_replay_restores_managed_workdir(monkeypatch):
     project = SimpleNamespace(
         id="project-1",
         uid="user-1",
+        status="active",
         selection_status="implicit",
         directory_mode="managed",
         workdir_path="projects/11111111-1111-4111-8111-111111111111",
