@@ -12,7 +12,7 @@ Owner：backend/package/yuxi/services/project_service.py
 
 Project 保存 `active/deleted` 状态与删除时间。重命名只更新当前用户的 active selectable Project 名称；删除在一个 PostgreSQL 事务中锁定 Project，把该 Project 及其全部 Conversation 标记为 deleted，并保留 Workdir 目录及其中字节。显式 Project 下创建 Conversation 时取得同一 Project 行锁并持有到 Conversation 提交，使创建与删除按锁顺序线性化，不能留下 active Conversation 绑定 deleted Project。删除后的 Project 不进入选择列表，相关 Conversation 不进入普通历史、搜索或运行入口；同一幂等创建键继续指向已删除记录，不能静默复活。
 
-侧边栏提供“项目”和“最近”两个视图并默认使用项目视图。项目视图复用 `/api/projects` 与线程列表中的不可变 `project_id`，先按 Project 列表顺序展示 selectable Project 及其 Conversation，再展示由 implicit 或不可见 Project 承载的“其他对话”。项目可折叠并通过行内菜单重命名或删除；删除确认明确说明对话会删除、项目文件夹会保留。最近视图保留置顶、时间排序、线程状态、对话操作和加载更多语义。线程分页的 `limit/offset` 只计非置顶 Conversation，响应每页重复附带全部置顶项；前端以已加载非置顶数量推进 offset，并以当页非置顶数量判断是否还有下一页。
+侧边栏同时提供“项目”和“最近”两个分组，“项目”位于“最近”上方。两个分组复用 `/api/projects` 与线程列表中的不可变 `project_id`：项目分组按 Project 列表顺序展示 selectable Project 及其 Conversation，最近分组只展示由 implicit 或不可见 Project 承载的其他对话，并在 Project 元数据加载完成前不提交分类结果。两个分组与具体 Project 均可折叠；Project 通过行内菜单重命名或删除，删除确认明确说明对话会删除、项目文件夹会保留。最近分组保留置顶、时间排序、线程状态、对话操作和加载更多语义。线程分页的 `limit/offset` 只计非置顶 Conversation，响应每页重复附带全部置顶项；前端以已加载非置顶数量推进 offset，并以当页非置顶数量判断是否还有下一页。
 
 Project 持久化拥有名称与生命周期，Conversation 持久化拥有线程状态，Project Workdir 只保存 UserWorkspace 相对路径。前端不复制 Project 名称到 Conversation，不从路径或名称推断归属。
 
@@ -37,8 +37,8 @@ Project 持久化拥有名称与生命周期，Conversation 持久化拥有线�
 | 当前用户可重命名 active selectable Project | Project repository/service 与 HTTP 依赖 | Project unit；真实 HTTP integration 回读名称 | 空白名称、跨用户、deleted Project 拒绝 | Passed |
 | 删除原子软删除 Project 与全部 Conversation | Project repository/service 与 PostgreSQL | 真实 HTTP integration 后重新查询 Project、Conversation 与列表 | 跨用户与重复删除返回 404 | Passed |
 | Project 删除不修改 Workdir 字节 | Project service 与 `yuxi.workspace` | integration 删除后回读哨兵目录 | linked Workdir 保持存在 | Passed |
-| 项目分组先于其他对话且最近视图可切换 | Conversation 导航组件与 Project/Thread API | 前端 unit；Playwright DOM 顺序回读、切换、重命名与最终截图 | 空 Project、implicit Conversation、deleted Project、长名称、置顶项跨页、键盘操作菜单 | Passed |
+| 项目分组位于最近分组上方且两者同时展示，最近只包含其他对话 | Conversation 导航组件与 Project/Thread API | 前端 unit；Playwright DOM 顺序、分类结果、折叠动画与最终截图 | Project 加载中或失败、空 Project、implicit Conversation、deleted Project、长名称、置顶项跨页、键盘操作菜单 | Passed |
 | Project 删除与 Conversation 创建线性化 | Project 行锁与 Conversation 创建事务 | service guard unit；隔离 PostgreSQL 并发事务回读 | 创建持锁时删除等待，最终 Project 与新 Conversation 同为 deleted | Passed |
 | Schema 从 business v1 收敛到 v2 | storage-migrator 与 PostgreSQL schema version | 完整后端 unit 1565 passed；隔离数据库迁移与真实 API 启动 | 未知未来版本 fail-closed；迁移失败不提前记录版本 | Passed |
 
-最终页面验证使用真实 Vue 页面、本任务专属 Docker PostgreSQL 与真实 FastAPI，浅色 1440×1000 视口无 console error。截图作为 PR 外部素材保存，不进入仓库；验证完成后专属容器、卷、网络与镜像均已删除。
+最终页面验证使用真实 Vue 页面、Docker PostgreSQL 与真实 FastAPI；分组并列展示、FolderOpen/FolderClosed 状态和折叠动画在浅色、深色 1440×900 视口完成回读。截图作为 PR 外部素材保存，不进入仓库。

@@ -39,17 +39,16 @@ test('项目视图按项目顺序分组并把 implicit 对话放在最后', () =
   )
 })
 
-test('无项目时全部对话仍可在其他对话与最近视图读取', () => {
+test('无项目时全部对话仍可在最近分组读取', () => {
   const conversations = [{ id: 'thread-1', project_id: 'implicit', created_at: '2026-08-30' }]
 
   const result = buildProjectConversationGroups([], conversations)
 
   assert.deepEqual(result.groups, [])
   assert.equal(result.otherConversations[0].id, 'thread-1')
-  assert.equal(result.sortedConversations[0].id, 'thread-1')
 })
 
-test('最近视图保持按创建时间排序且不受更新时间影响', () => {
+test('最近分组保持按创建时间排序且不受更新时间影响', () => {
   const conversations = [
     {
       id: 'older-renamed',
@@ -66,13 +65,51 @@ test('最近视图保持按创建时间排序且不受更新时间影响', () =>
   const result = buildProjectConversationGroups([], conversations)
 
   assert.deepEqual(
-    result.sortedConversations.map((conversation) => conversation.id),
+    result.otherConversations.map((conversation) => conversation.id),
     ['newer-created', 'older-renamed']
   )
 })
 
+test('侧边栏同时展示项目和最近分组，最近只展示其他对话', () => {
+  const source = readFileSync(
+    new URL('../../src/components/ConversationNavSection.vue', import.meta.url),
+    'utf8'
+  )
+  const projectHeadingIndex = source.indexOf('<span>项目</span>')
+  const recentHeadingIndex = source.indexOf('<span>最近</span>')
+  const recentSectionStart = source.indexOf('<section class="history-group recent-history-group">')
+  const recentSection = source.slice(
+    recentSectionStart,
+    source.indexOf('</section>', recentSectionStart)
+  )
+
+  assert.ok(projectHeadingIndex >= 0)
+  assert.ok(projectHeadingIndex < recentHeadingIndex)
+  assert.ok(recentSectionStart >= 0)
+  assert.match(recentSection, /v-if="projectsLoading"[^>]*>正在加载对话/)
+  assert.match(recentSection, /v-else-if="projectsError"[^>]*>项目加载失败，暂时无法分类对话/)
+  assert.match(recentSection, /v-for="chat in otherConversations"/)
+  assert.match(source, /<FolderOpen v-if="isProjectExpanded\(group\.project\.id\)"/)
+  assert.match(source, /<FolderClosed v-else/)
+  assert.equal(source.match(/<CollapseTransition>/g)?.length, 3)
+  assert.doesNotMatch(source, /v-show=/)
+  assert.match(source, /\.project-history-group\s*{\s*margin-bottom: 16px;/)
+  assert.match(source, /\.collapse-icon\s*{[\s\S]*?opacity: 0;/)
+  assert.match(
+    source,
+    /&:hover,[\s\S]*?&:focus-visible\s*{[\s\S]*?\.collapse-icon\s*{\s*opacity: 1;/
+  )
+  assert.doesNotMatch(
+    source,
+    /view-switch|viewMode|project-chevron|project-count|<span>其他对话<\/span>/
+  )
+})
+
 test('页面内创建的 Project 会写入共享侧边栏导航 Owner', () => {
-  const layoutSource = readFileSync(new URL('../../src/layouts/AppLayout.vue', import.meta.url), 'utf8')
+  const layoutSource = readFileSync(
+    new URL('../../src/layouts/AppLayout.vue', import.meta.url),
+    'utf8'
+  )
   const selectionSource = readFileSync(
     new URL('../../src/components/ProjectSelectionSection.vue', import.meta.url),
     'utf8'

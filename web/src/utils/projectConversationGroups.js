@@ -31,7 +31,6 @@ export const buildProjectConversationGroups = (projects, conversations) => {
       project,
       conversations: conversationsByProject.get(project.id)
     })),
-    otherConversations,
-    sortedConversations
+    otherConversations
   }
 }

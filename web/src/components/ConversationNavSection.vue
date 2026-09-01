@@ -1,146 +1,128 @@
 <template>
   <section class="conversation-nav-section" :class="{ collapsed }">
     <div v-if="showHistory && !collapsed" class="history-panel">
-      <div class="view-switch" role="group" aria-label="对话展示方式">
-        <button
-          type="button"
-          :class="{ active: viewMode === 'projects' }"
-          :aria-pressed="viewMode === 'projects'"
-          @click="viewMode = 'projects'"
-        >
-          项目
-        </button>
-        <button
-          type="button"
-          :class="{ active: viewMode === 'recent' }"
-          :aria-pressed="viewMode === 'recent'"
-          @click="viewMode = 'recent'"
-        >
-          最近
-        </button>
-      </div>
-
-      <div v-if="viewMode === 'projects'" class="conversation-list project-list">
-        <div v-if="projectsLoading" class="list-state">正在加载项目...</div>
-        <div v-else-if="projectsError" class="list-state list-error" role="alert">
-          <span>项目加载失败</span>
-          <button type="button" @click="$emit('retry-projects')">重试</button>
-        </div>
-        <template v-else>
-          <section v-for="group in projectGroups" :key="group.project.id" class="project-group">
-            <div class="project-row" :class="{ pending: projectPendingId === group.project.id }">
-              <button
-                type="button"
-                class="project-toggle"
-                :aria-expanded="isProjectExpanded(group.project.id)"
-                @click="toggleProject(group.project.id)"
-              >
-                <ChevronRight
-                  :size="14"
-                  class="project-chevron"
-                  :class="{ expanded: isProjectExpanded(group.project.id) }"
-                />
-                <Folder :size="17" />
-                <span class="project-name">{{ group.project.name }}</span>
-                <span class="project-count">{{ group.conversations.length }}</span>
-              </button>
-              <a-dropdown :trigger="['click']" :disabled="projectPendingId === group.project.id">
-                <template #overlay>
-                  <a-menu>
-                    <a-menu-item
-                      key="rename"
-                      :icon="h(SquarePen, { size: 14 })"
-                      @click="renameProject(group.project)"
-                      >重命名项目</a-menu-item
-                    >
-                    <a-menu-item
-                      key="delete"
-                      danger
-                      :icon="h(Trash2, { size: 14 })"
-                      @click="confirmDeleteProject(group.project)"
-                      >删除项目</a-menu-item
-                    >
-                  </a-menu>
-                </template>
-                <button type="button" class="project-more" aria-label="项目操作" @click.stop>
-                  <MoreVertical :size="16" />
-                </button>
-              </a-dropdown>
-            </div>
-            <div v-show="isProjectExpanded(group.project.id)" class="project-conversations">
-              <ConversationNavItem
-                v-for="chat in group.conversations"
-                :key="chat.id"
-                :chat="chat"
-                :current-chat-id="currentChatId"
-                nested
-                @select-chat="$emit('select-chat', $event)"
-                @delete-chat="$emit('delete-chat', $event)"
-                @rename-chat="$emit('rename-chat', $event)"
-                @toggle-pin="$emit('toggle-pin', $event)"
-              />
-              <div v-if="!group.conversations.length" class="project-empty">暂无对话</div>
-            </div>
-          </section>
-
-          <section v-if="otherConversations.length" class="other-conversations">
-            <button
-              type="button"
-              class="other-heading"
-              :aria-expanded="otherExpanded"
-              @click="otherExpanded = !otherExpanded"
-            >
-              <ChevronRight
-                :size="14"
-                class="project-chevron"
-                :class="{ expanded: otherExpanded }"
-              />
-              <MessagesSquare :size="17" />
-              <span>其他对话</span>
-              <span class="project-count">{{ otherConversations.length }}</span>
-            </button>
-            <div v-show="otherExpanded">
-              <ConversationNavItem
-                v-for="chat in otherConversations"
-                :key="chat.id"
-                :chat="chat"
-                :current-chat-id="currentChatId"
-                nested
-                @select-chat="$emit('select-chat', $event)"
-                @delete-chat="$emit('delete-chat', $event)"
-                @rename-chat="$emit('rename-chat', $event)"
-                @toggle-pin="$emit('toggle-pin', $event)"
-              />
-            </div>
-          </section>
-
-          <div v-if="!projectGroups.length && !otherConversations.length" class="list-state">
-            暂无项目或对话
-          </div>
+      <div class="conversation-list">
+        <section class="history-group project-history-group">
           <button
-            v-if="hasMoreChats"
             type="button"
-            class="load-more-btn"
-            :disabled="isLoadingMore"
-            @click="$emit('load-more-chats')"
+            class="history-label"
+            :aria-expanded="projectsExpanded"
+            @click="projectsExpanded = !projectsExpanded"
           >
-            {{ isLoadingMore ? '加载中...' : '加载更多' }}
+            <span>项目</span>
+            <ChevronDown
+              :size="14"
+              class="collapse-icon"
+              :class="{ collapsed: !projectsExpanded }"
+            />
           </button>
-        </template>
-      </div>
+          <CollapseTransition>
+            <div v-if="projectsExpanded" class="project-list">
+              <div v-if="projectsLoading" class="list-state">正在加载项目...</div>
+              <div v-else-if="projectsError" class="list-state list-error" role="alert">
+                <span>项目加载失败</span>
+                <button type="button" @click="$emit('retry-projects')">重试</button>
+              </div>
+              <template v-else>
+                <section
+                  v-for="group in projectGroups"
+                  :key="group.project.id"
+                  class="project-group"
+                >
+                  <div
+                    class="project-row"
+                    :class="{ pending: projectPendingId === group.project.id }"
+                  >
+                    <button
+                      type="button"
+                      class="project-toggle"
+                      :aria-expanded="isProjectExpanded(group.project.id)"
+                      @click="toggleProject(group.project.id)"
+                    >
+                      <FolderOpen v-if="isProjectExpanded(group.project.id)" :size="17" />
+                      <FolderClosed v-else :size="17" />
+                      <span class="project-name">{{ group.project.name }}</span>
+                    </button>
+                    <a-dropdown
+                      :trigger="['click']"
+                      :disabled="projectPendingId === group.project.id"
+                    >
+                      <template #overlay>
+                        <a-menu>
+                          <a-menu-item
+                            key="rename"
+                            :icon="h(SquarePen, { size: 14 })"
+                            @click="renameProject(group.project)"
+                            >重命名项目</a-menu-item
+                          >
+                          <a-menu-item
+                            key="delete"
+                            danger
+                            :icon="h(Trash2, { size: 14 })"
+                            @click="confirmDeleteProject(group.project)"
+                            >删除项目</a-menu-item
+                          >
+                        </a-menu>
+                      </template>
+                      <button type="button" class="project-more" aria-label="项目操作" @click.stop>
+                        <MoreVertical :size="16" />
+                      </button>
+                    </a-dropdown>
+                  </div>
+                  <CollapseTransition>
+                    <div v-if="isProjectExpanded(group.project.id)" class="project-conversations">
+                      <ConversationNavItem
+                        v-for="chat in group.conversations"
+                        :key="chat.id"
+                        :chat="chat"
+                        :current-chat-id="currentChatId"
+                        nested
+                        @select-chat="$emit('select-chat', $event)"
+                        @delete-chat="$emit('delete-chat', $event)"
+                        @rename-chat="$emit('rename-chat', $event)"
+                        @toggle-pin="$emit('toggle-pin', $event)"
+                      />
+                      <div v-if="!group.conversations.length" class="project-empty">暂无对话</div>
+                    </div>
+                  </CollapseTransition>
+                </section>
+                <div v-if="!projectGroups.length" class="list-state">暂无项目</div>
+              </template>
+            </div>
+          </CollapseTransition>
+        </section>
 
-      <div v-else class="conversation-list">
-        <ConversationNavItem
-          v-for="chat in sortedChats"
-          :key="chat.id"
-          :chat="chat"
-          :current-chat-id="currentChatId"
-          @select-chat="$emit('select-chat', $event)"
-          @delete-chat="$emit('delete-chat', $event)"
-          @rename-chat="$emit('rename-chat', $event)"
-          @toggle-pin="$emit('toggle-pin', $event)"
-        />
-        <div v-if="!sortedChats.length" class="list-state">暂无对话历史</div>
+        <section class="history-group recent-history-group">
+          <button
+            type="button"
+            class="history-label"
+            :aria-expanded="recentExpanded"
+            @click="recentExpanded = !recentExpanded"
+          >
+            <span>最近</span>
+            <ChevronDown :size="14" class="collapse-icon" :class="{ collapsed: !recentExpanded }" />
+          </button>
+          <CollapseTransition>
+            <div v-if="recentExpanded" class="recent-list" :aria-busy="projectsLoading">
+              <div v-if="projectsLoading" class="list-state">正在加载对话...</div>
+              <div v-else-if="projectsError" class="list-state">项目加载失败，暂时无法分类对话</div>
+              <template v-else>
+                <ConversationNavItem
+                  v-for="chat in otherConversations"
+                  :key="chat.id"
+                  :chat="chat"
+                  :current-chat-id="currentChatId"
+                  @select-chat="$emit('select-chat', $event)"
+                  @delete-chat="$emit('delete-chat', $event)"
+                  @rename-chat="$emit('rename-chat', $event)"
+                  @toggle-pin="$emit('toggle-pin', $event)"
+                />
+                <div v-if="!otherConversations.length" class="list-state">暂无对话历史</div>
+              </template>
+            </div>
+          </CollapseTransition>
+        </section>
+
         <button
           v-if="hasMoreChats"
           type="button"
@@ -158,8 +140,9 @@
 <script setup>
 import { computed, h, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { ChevronRight, Folder, MessagesSquare, MoreVertical, SquarePen, Trash2 } from '@lucide/vue'
+import { ChevronDown, FolderClosed, FolderOpen, MoreVertical, SquarePen, Trash2 } from '@lucide/vue'
 import ConversationNavItem from '@/components/ConversationNavItem.vue'
+import CollapseTransition from '@/components/common/CollapseTransition.vue'
 import { buildProjectConversationGroups } from '@/utils/projectConversationGroups'
 
 const props = defineProps({
@@ -185,15 +168,14 @@ const emit = defineEmits([
   'delete-project',
   'retry-projects'
 ])
-const viewMode = ref('projects')
+const projectsExpanded = ref(true)
+const recentExpanded = ref(true)
 const collapsedProjects = ref(new Set())
-const otherExpanded = ref(true)
 const groupedNavigation = computed(() =>
   buildProjectConversationGroups(props.projects, props.chatsList)
 )
 const projectGroups = computed(() => groupedNavigation.value.groups)
 const otherConversations = computed(() => groupedNavigation.value.otherConversations)
-const sortedChats = computed(() => groupedNavigation.value.sortedConversations)
 
 const isProjectExpanded = (projectId) => !collapsedProjects.value.has(projectId)
 const toggleProject = (projectId) => {
@@ -258,38 +240,38 @@ const confirmDeleteProject = (project) => {
   flex: 1;
   flex-direction: column;
 }
-.view-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-  margin: 0 4px 6px;
-  padding: 2px;
-  border: 1px solid var(--gray-100);
-  border-radius: 8px;
-  background: var(--gray-25);
-  button {
-    height: 26px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--gray-500);
-    cursor: pointer;
-    font-size: 12px;
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
-    &:hover {
-      color: var(--gray-800);
+.history-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-600);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  &:hover,
+  &:focus-visible {
+    .collapse-icon {
+      opacity: 1;
     }
-    &:focus-visible {
-      outline: 2px solid var(--main-300);
-      outline-offset: 1px;
-    }
-    &.active {
-      background: var(--gray-0);
-      color: var(--gray-900);
-      font-weight: 600;
-    }
+  }
+  &:focus-visible {
+    outline: 2px solid var(--main-300);
+    outline-offset: -2px;
+  }
+}
+.collapse-icon {
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    transform 0.2s ease;
+  &.collapsed {
+    transform: rotate(-90deg);
   }
 }
 .conversation-list {
@@ -299,8 +281,10 @@ const confirmDeleteProject = (project) => {
   padding-right: 2px;
   scrollbar-width: thin;
 }
-.project-group + .project-group,
-.other-conversations {
+.project-history-group {
+  margin-bottom: 16px;
+}
+.project-group + .project-group {
   margin-top: 2px;
 }
 .project-row {
@@ -320,8 +304,7 @@ const confirmDeleteProject = (project) => {
     pointer-events: none;
   }
 }
-.project-toggle,
-.other-heading {
+.project-toggle {
   display: flex;
   min-width: 0;
   flex: 1;
@@ -341,25 +324,11 @@ const confirmDeleteProject = (project) => {
     outline-offset: -2px;
   }
 }
-.project-chevron {
-  flex: 0 0 auto;
-  color: var(--gray-400);
-  transition: transform 0.15s ease;
-  &.expanded {
-    transform: rotate(90deg);
-  }
-}
-.project-name,
-.other-heading span:not(.project-count) {
+.project-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.project-count {
-  margin-left: auto;
-  color: var(--gray-400);
-  font-size: 11px;
 }
 .project-more {
   display: inline-flex;
@@ -384,10 +353,6 @@ const confirmDeleteProject = (project) => {
   padding: 3px 8px 7px 30px;
   color: var(--gray-400);
   font-size: 12px;
-}
-.other-heading {
-  width: 100%;
-  color: var(--gray-600);
 }
 .list-state {
   padding: 18px 8px;
@@ -420,6 +385,14 @@ const confirmDeleteProject = (project) => {
 @media (hover: none) {
   .project-more {
     opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-list,
+  .project-conversations,
+  .recent-list,
+  .collapse-icon {
+    transition-duration: 0.01ms !important;
   }
 }
 </style>
