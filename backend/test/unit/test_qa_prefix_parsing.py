@@ -78,6 +78,24 @@ class TestPrefixFenceBoundary:
         assert "注释里的文本" in chunks[0]
 
 
+class TestAtxHeadingBoundary:
+    """只有合法 ATX 标题才能结束问答，井号代码行必须保留。"""
+
+    def test_prefix_answer_keeps_hash_prefixed_code(self):
+        md = 'Q: 如何输出？\nA: 使用标准库：\n#include <stdio.h>\nprintf("hi");'
+
+        pairs = qa._extract_pairs_by_prefix(md)
+
+        assert pairs == [("如何输出？", '使用标准库：\n#include <stdio.h>\nprintf("hi");')]
+
+    def test_heading_answer_keeps_hash_prefixed_code(self):
+        md = '# 如何输出？\n使用标准库：\n#include <stdio.h>\nprintf("hi");'
+
+        pairs = qa._extract_pairs_from_markdown_headings(md)
+
+        assert pairs == [("如何输出？", '使用标准库：\n#include <stdio.h>\nprintf("hi");')]
+
+
 class TestOrphanAnswer:
     """答案前缀行必须归属活跃问题，前言中的孤儿答案不得污染后续问答对。"""
 

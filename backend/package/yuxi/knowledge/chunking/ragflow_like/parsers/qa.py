@@ -115,10 +115,10 @@ def _extract_pairs_from_markdown_tables(markdown_content: str) -> list[tuple[str
 
 
 def _md_question_level(line: str) -> tuple[int, str]:
-    match = re.match(r"^#*", line)
+    match = re.match(r"^(#{1,6})(?:[ \t]+|$)", line)
     if not match:
         return 0, line
-    return len(match.group(0)), line.lstrip("#").lstrip()
+    return len(match.group(1)), line[match.end() :]
 
 
 def _update_fence_state(line: str, fence: str) -> str:
@@ -184,7 +184,7 @@ def _extract_pairs_by_prefix(markdown_content: str) -> list[tuple[str, str]]:
     question = ""
     answer_lines: list[str] = []
 
-    heading_re = re.compile(r"^#{1,6}\s*")
+    heading_re = re.compile(r"^#{1,6}(?:[ \t]+|$)")
     question_re = re.compile(r"^(?:Q|Question|问|问题)\s*[:：]\s*(.*)$", flags=re.IGNORECASE)
     answer_re = re.compile(r"^(?:A|Answer|答|回答)\s*[:：]\s*(.*)$", flags=re.IGNORECASE)
     fence = ""
@@ -337,12 +337,14 @@ def _split_long_qa_chunks(chunks: list[str], max_chars: int = _QA_CHUNK_MAX_CHAR
             result.append(text)
             continue
 
-        # 结构分隔符是紧邻已知答案前缀的 tab：问题本身可能含 tab，按首个任意 tab 切会截断问题
-        sep_pos = -1
-        for marker in ("\t回答：", "\tAnswer: "):
-            sep_pos = text.find(marker)
-            if sep_pos != -1:
-                break
+        # 分隔符必须与序列化问题的语言一致，避免问题正文中的异语言答案标记被误认成结构边界
+        if text.startswith("问题："):
+            marker = "\t回答："
+        elif text.startswith("Question: "):
+            marker = "\tAnswer: "
+        else:
+            marker = ""
+        sep_pos = text.find(marker) if marker else -1
         if sep_pos == -1:
             # 非标准 QA 格式，直接硬切兜底
             result.extend(_hard_split_text(text, max_chars))

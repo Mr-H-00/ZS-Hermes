@@ -106,6 +106,15 @@ class TestSplitLongQaChunks:
             assert len(chunk) <= _EMBEDDING_CHAR_LIMIT
             assert chunk.startswith(question + "\t回答：")
 
+    def test_question_marker_from_other_language_is_not_separator(self):
+        # 英文序列化只能由 Answer 分隔；问题正文中的中文回答标记属于问题内容
+        question = "Question: how is\t回答： represented?"
+        result = _split([question + "\tAnswer: " + "long answer. " * 800])
+        assert len(result) > 1
+        for chunk in result:
+            assert len(chunk) <= _EMBEDDING_CHAR_LIMIT
+            assert chunk.startswith(question + "\tAnswer: ")
+
     def test_tab_chunk_without_answer_marker_hard_split(self):
         # 含 tab 但无已知答案前缀的 chunk 仍属非标准格式，硬切兜底
         result = _split(["左列\t右列" * 1000])
