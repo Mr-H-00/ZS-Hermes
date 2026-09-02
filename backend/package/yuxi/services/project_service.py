@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.storage.postgres.models_business import Project
 from yuxi.utils.datetime_utils import utc_now_naive
-from yuxi.workspace.paths import normalize_linked_workdir_path
+from yuxi.workspace.paths import allocate_default_user_workdir_path, normalize_linked_workdir_path
 from yuxi.workspace.workdir import Workdir
 
 MAX_PROJECT_NAME_LENGTH = 255
@@ -63,7 +63,7 @@ async def create_project_record(
     if directory_mode == "managed":
         if workdir_path is not None:
             raise HTTPException(status_code=422, detail="managed Project 不接受 workdir_path")
-        normalized_path = f"projects/{project_id}"
+        normalized_path = allocate_default_user_workdir_path(str(uid), project_id)
     else:
         if workdir_path is None:
             raise HTTPException(status_code=422, detail="linked Project 必须指定 workdir_path")
