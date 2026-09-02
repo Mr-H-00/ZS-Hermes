@@ -20,7 +20,7 @@ Task 失联时统一失败，failure hook 在 Task 终态事务内将仍属该 T
 
 知识库 ingest/parse/index、图谱和评估 Handler 位于各自 service，HTTP 路由只提交序列化 payload。评估领域对象与 Task intent 同事务创建或关联；数据库唯一约束拥有活跃任务去重，终态释放 dedupe key。LITE 加载通用 runtime 与 registry metadata，但不 claim、取消、删除、裁剪或收敛 knowledge Task，也不导入 knowledge Handler。
 
-business schema 版本为 3，knowledge schema 版本为 2。storage-migrator 独占执行幂等升级；business v1/v2 统一收敛 Durable Task 与 Project 生命周期结构，避免两个历史 v2 分支遗漏任一组 DDL。既有 Task 保留非终态和取消意图并标记 `handler_version=0`，只有该明确 legacy 版本使用当前 failure hook；其他未知 Handler 版本 fail-closed。full worker 使用当前类型的 failure hook 原子收敛，LITE 不消费。knowledge 1→2 为文件增加 Task/attempt owner 字段，并把升级前无法归属 attempt 的 `parsing/indexing` 行一次性改为对应错误态；未版本化 baseline 创建当前结构后记录当前版本。
+business schema 版本为 4，knowledge schema 版本为 2。storage-migrator 独占执行幂等升级；business v1/v2/v3 统一收敛 Durable Task、Project 生命周期与用户定时 Agent 结构，避免历史分支遗漏任一组 DDL。既有 Task 保留非终态和取消意图并标记 `handler_version=0`，只有该明确 legacy 版本使用当前 failure hook；其他未知 Handler 版本 fail-closed。full worker 使用当前类型的 failure hook 原子收敛，LITE 不消费。knowledge 1→2 为文件增加 Task/attempt owner 字段，并把升级前无法归属 attempt 的 `parsing/indexing` 行一次性改为对应错误态；未版本化 baseline 创建当前结构后记录当前版本。
 
 ## 替代方案
 
@@ -40,7 +40,7 @@ business schema 版本为 3，knowledge schema 版本为 2。storage-migrator �
 ## 验证
 
 - `uv run --group test pytest -q test/unit -m 'not slow'`：1664 passed；覆盖提交顺序、发布失败保留 pending、容量释放接力、数据库去重、Handler 重建、legacy v0/未知版本边界、重复投递、进度消息、timeout/cancel/shutdown、Milvus 阻塞调用 offload、缺失可选 MinIO bucket 时的幂等清理、LITE capability boundary 和 worker/readiness 装配。
-- 临时 PostgreSQL Schema 中运行 `test_schema_migration_version.py` 与 `test_durable_task_repository.py`；覆盖 legacy baseline 与 handler version 0、business v1/v2→v3、knowledge 1→2、并发 claim/dedupe、数据库时钟、领域 callback 与文件行锁等待、迟到 owner、Durable Task 容量上限、所有 Task 终态 hook、评估 checkpoint fencing、超过 200 条任务的摘要和 LITE 不消费语义。
+- 临时 PostgreSQL Schema 中运行 `test_schema_migration_version.py` 与 `test_durable_task_repository.py`；覆盖 legacy baseline 与 handler version 0、business v1/v2/v3→v4、knowledge 1→2、并发 claim/dedupe、数据库时钟、领域 callback 与文件行锁等待、迟到 owner、Durable Task 容量上限、所有 Task 终态 hook、评估 checkpoint fencing、超过 200 条任务的摘要和 LITE 不消费语义。
 - full-mode shipping worker path：临时 PostgreSQL 数据库与独立 Redis DB 中故障注入首次 ARQ publication 失败，提交进程退出后回读 Task 与 Dataset 均为 pending；随后启动真实 `arq server.worker_main.WorkerSettings`，由 worker startup publisher 将 Task 与 Dataset 收敛为 `success/completed`，`attempt_count=1` 且 owner 已释放。同一阶段还通过真实 worker 失败收敛验证 Dataset failure hook，并启动真实 Milvus，从 HTTP 提交知识文件后回读 Task 与文件最终状态。该多进程测试已接入 `system-tests.yml` 的 full-mode 阶段。
 - `uv run --group test ruff check package server test`：通过；本次修改 Python 文件的 `ruff format --check` 通过。
 - `python3 scripts/verify_engineering_contracts.py` 与 `python3 -m unittest scripts.test_verify_engineering_contracts`：通过，61 tests passed。

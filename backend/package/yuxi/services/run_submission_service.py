@@ -18,6 +18,7 @@ from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.agent_run_request_repository import AgentRunRequestRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
+from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.services.agent_request_queue_service import finalize_intake, intake_request
 from yuxi.services.input_message_service import AgentRunInputMessage
 from yuxi.services.project_service import create_implicit_project
@@ -50,6 +51,7 @@ class RunSubmissionCommand:
     queue_policy: str = "enqueue"
     create_conversation: bool = False
     conversation_title: str | None = None
+    conversation_project_id: str | None = None
     agent_kind: str = "main"
 
 
@@ -125,10 +127,19 @@ async def submit_run_command(
             raise HTTPException(status_code=404, detail="对话线程不存在")
         try:
             async with db.begin_nested():
-                project = await create_implicit_project(
-                    uid=str(current_user.uid),
-                    db=db,
-                )
+                project = None
+                if command.conversation_project_id:
+                    project = await ProjectRepository(db).lock_active_for_user(
+                        command.conversation_project_id,
+                        str(current_user.uid),
+                    )
+                    if project is None:
+                        raise HTTPException(status_code=404, detail="Project 不存在或不可访问")
+                else:
+                    project = await create_implicit_project(
+                        uid=str(current_user.uid),
+                        db=db,
+                    )
                 conversation = await conversation_repo.add_conversation(
                     uid=str(current_user.uid),
                     agent_id=agent_item.slug,

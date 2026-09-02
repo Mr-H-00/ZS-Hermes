@@ -1278,6 +1278,12 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
     async def fake_task_reconciliation_loop():
         calls.append("task_reconciliation_loop")
 
+    async def fake_recover_scheduled_dispatches():
+        calls.append("recover_scheduled_dispatches")
+
+    async def fake_claim_and_dispatch_due_jobs():
+        calls.append("claim_and_dispatch_due_jobs")
+
     monkeypatch.setattr(run_worker.pg_manager, "initialize", fake_initialize)
     monkeypatch.setattr(run_worker.pg_manager, "require_current_schema", fake_require_current_schema)
     monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", fake_session_ctx)
@@ -1297,6 +1303,8 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
     monkeypatch.setattr(run_worker, "_reconcile_agent_run_leases_forever", fake_reconciliation_loop)
     monkeypatch.setattr(run_worker, "reconcile_and_publish_tasks", fake_reconcile_and_publish_tasks)
     monkeypatch.setattr(run_worker, "_reconcile_durable_tasks_forever", fake_task_reconciliation_loop)
+    monkeypatch.setattr(run_worker, "recover_scheduled_dispatches", fake_recover_scheduled_dispatches)
+    monkeypatch.setattr(run_worker, "claim_and_dispatch_due_jobs", fake_claim_and_dispatch_due_jobs)
     options_module = importlib.import_module("yuxi.config.options")
     monkeypatch.setattr(options_module, "ensure_options_in_db", fake_ensure_options_in_db)
 
@@ -1317,6 +1325,8 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
         "recover_pending_dispatches",
         "reconcile_and_publish_tasks",
         "publish_task_reconciliation_health",
+        "recover_scheduled_dispatches",
+        "claim_and_dispatch_due_jobs",
         "publish_reconciliation_health",
         "reconciliation_loop",
         "task_reconciliation_loop",

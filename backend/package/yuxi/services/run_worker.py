@@ -46,6 +46,10 @@ from yuxi.services.task_queue_service import (
     reconcile_and_publish_tasks,
 )
 from yuxi.services.task_service import TASKER_DEFAULT_TIMEOUT_SECONDS, process_task
+from yuxi.services.scheduled_agent_service import (
+    claim_and_dispatch_due_jobs,
+    recover_scheduled_dispatches,
+)
 from yuxi.services.workdir_service import (
     AuthorizedWorkdir,
     resolve_authorized_workdir,
@@ -1406,6 +1410,8 @@ async def _reconcile_agent_run_leases_forever() -> None:
             if cleaned_ids:
                 logger.warning(f"Reconciled pending runtime cleanups: count={len(cleaned_ids)}")
             await recover_pending_dispatches()
+            await recover_scheduled_dispatches()
+            await claim_and_dispatch_due_jobs()
             await _publish_reconciliation_health()
         except asyncio.CancelledError:
             raise
@@ -1484,6 +1490,8 @@ async def _worker_startup(ctx):
     await recover_pending_dispatches()
     await reconcile_and_publish_tasks()
     await _publish_task_reconciliation_health()
+    await recover_scheduled_dispatches()
+    await claim_and_dispatch_due_jobs()
     await _publish_reconciliation_health()
     ctx[_RECONCILIATION_TASK_KEY] = asyncio.create_task(_reconcile_agent_run_leases_forever())
     ctx[_TASK_RECONCILIATION_TASK_KEY] = asyncio.create_task(_reconcile_durable_tasks_forever())

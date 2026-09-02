@@ -14,7 +14,7 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 
 - `web`：Vue 3 / Vite 前端，挂载 `web/src` 并热重载。
 - `api`：FastAPI API 服务，挂载 `backend/server`、`backend/package` 和测试目录并热重载。
-- `worker`：ARQ worker，执行已经派发的 AgentRun 与注册的通用后台 Task；两类任务分别使用独立的 PostgreSQL 状态模型、attempt ownership、heartbeat 与失联收敛。
+- `worker`：ARQ worker，执行已经派发的 AgentRun 与注册的 Durable Task，并周期触发用户自建 Agent 定时任务；三者分别使用 PostgreSQL 中的运行租约、任务租约和调度锁闭合并发与恢复。
 - `storage-migrator`：Compose 中唯一修改 Yuxi 数据库 Schema 的一次性迁移进程，同时处理受支持的历史存储切换；API 与 worker 等待其成功后只校验 Schema 版本。
 - `sandbox-provisioner`：为智能体工具执行提供隔离沙盒。
 - `postgres`：业务数据、知识库元数据、请求队列、AgentRun 与 LangGraph checkpoint。
@@ -52,11 +52,12 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 - `config` 区分系统级配置和用户级配置。PostgreSQL 持久化系统配置和用户配置；Redis 只保存带版本失效的短缓存，旧 `base.toml` 只作为一次性迁移来源。
 - `utils` 只放跨领域且足够通用的日志、时间、SSE 和轻量工具；`filepreview.py` 提供不依赖存储、领域或 HTTP 的格式识别、文本渲染和 Office 转换原语。
 
-### 两类后台任务
+### 后台任务
 
-项目中存在两套领域状态不同、但共享 PostgreSQL 事实与 Redis/ARQ 投递模式的后台执行机制，不应合并状态模型：
+项目中存在三套领域状态不同、但共享 PostgreSQL 事实与 Redis/ARQ 投递模式的后台机制，不应合并状态模型：
 
 - AgentRun：拥有 Conversation、Message、LangGraph interrupt、线程 FIFO 和 execution tree 语义，通过专用 Run/Attempt 表维护状态、输出与租约。
+- 用户定时 Agent：任务定义和 occurrence 独立持久化；worker 锁定到期任务后复用统一 AgentRun Request/Run 链路，排队与执行状态仍由 AgentRunRequest 和 AgentRun 拥有。
 - Durable Task：用于知识库解析、评估和图谱构建。API 只提交持久 `task_type + handler_version + payload`；`worker` 从 registry 惰性加载领域 Handler，并通过 Task 行的唯一 owner、heartbeat 和 lease 执行。知识文件中间态绑定 Task/attempt owner，失联 failure hook 与 Task 终态同事务收敛文件错误态；PG pending 行由启动与周期 publisher 补发。共享 ARQ worker 明确提供 10 个执行槽，Durable Task 的 PG claim 上限为 4，至少保留 6 个槽供 AgentRun。LITE 不加载或消费知识 Handler。
 
 测试代码位于 `backend/test`，按 `unit`、`integration`、`e2e` 分层。新增或修改后端行为时，测试应放在最能覆盖真实风险的层级。

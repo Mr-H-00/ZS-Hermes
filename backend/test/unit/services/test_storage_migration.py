@@ -196,8 +196,27 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
     assert "converge:False" in calls
 
 
+def test_business_schema_accepts_previous_versions_for_idempotent_upgrade():
+    storage_migration._require_supported_version(
+        "business",
+        2,
+        storage_migration.BUSINESS_SCHEMA_VERSION,
+        upgrade_from=(1, 2, 3),
+    )
+
+
+def test_schema_migration_rejects_unknown_version():
+    with pytest.raises(RuntimeError, match="Unsupported business schema version"):
+        storage_migration._require_supported_version(
+            "business",
+            storage_migration.BUSINESS_SCHEMA_VERSION + 1,
+            storage_migration.BUSINESS_SCHEMA_VERSION,
+            upgrade_from=(1, 2, 3),
+        )
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("business_version", [1, 2])
+@pytest.mark.parametrize("business_version", [1, 2, 3])
 async def test_previous_business_schema_is_converged_and_versioned_as_current(monkeypatch, business_version: int):
     calls: list[str] = []
     sessions = [_Session(), _Session(), _Session()]
