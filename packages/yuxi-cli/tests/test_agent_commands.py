@@ -150,7 +150,7 @@ def test_agent_list_human_output_removes_terminal_control_sequences(tmp_path):
                 ]
             }
 
-    console = _console(force_terminal=True)
+    console = _console()
     run_agent_list(_store(tmp_path), None, console, client_factory=UnsafeClient)
 
     output = _output(console)

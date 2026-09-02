@@ -241,6 +241,24 @@ async def test_dashboard_service_basic_stats(dashboard_db):
     assert len(feedbacks) == 1
 
 
+async def test_agent_analytics_omits_removed_top_performers_contract(dashboard_db):
+    """智能体统计保留概览字段且不再生成 TOP 5 排行。"""
+    analytics = await DashboardService(dashboard_db).get_agent_analytics()
+
+    assert set(analytics) == {
+        "total_agents",
+        "agent_conversation_counts",
+        "agent_satisfaction_rates",
+        "agent_tool_usage",
+        "agent_names",
+    }
+    assert analytics["total_agents"] == 2
+    assert analytics["agent_names"] == {
+        "agent-helper": "Helper Agent",
+        "agent-coder": "Coder Agent",
+    }
+
+
 async def test_dashboard_service_thread_analytics(dashboard_db):
     service = DashboardService(dashboard_db)
     analytics = await service.get_thread_analytics(time_range="7days")

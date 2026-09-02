@@ -5,14 +5,20 @@ from functools import partial
 from yuxi.config.runtime import lite_mode_enabled
 from yuxi.repositories.task_repository import TaskRepository
 from yuxi.services.run_queue_service import get_arq_pool
-from yuxi.services.task_registry import get_task_definition, list_task_definitions
+from yuxi.services.task_registry import get_failure_task_definition, get_task_definition, list_task_definitions
 from yuxi.utils.logging_config import logger
 
 TASK_LEASE_SECONDS = 30.0
 TASK_HEARTBEAT_SECONDS = 10.0
 TASK_RECONCILIATION_SECONDS = 30.0
-TASK_RECONCILIATION_HEALTH_KEY = "yuxi:worker:health:durable-task-reconciliation-v1"
+TASK_RECONCILIATION_HEALTH_KEY = "yuxi:worker:health:durable-task-reconciliation-v1:full"
+TASK_RECONCILIATION_LITE_HEALTH_KEY = "yuxi:worker:health:durable-task-reconciliation-v1:lite"
 TASK_RECONCILIATION_HEALTH_TTL_SECONDS = int(TASK_RECONCILIATION_SECONDS * 2 + 5)
+
+
+def get_task_reconciliation_health_key() -> str:
+    """返回与当前 worker 能力模式绑定的 Durable Task 健康 key。"""
+    return TASK_RECONCILIATION_LITE_HEALTH_KEY if lite_mode_enabled() else TASK_RECONCILIATION_HEALTH_KEY
 
 
 async def publish_task(task_id: str) -> None:
@@ -25,17 +31,15 @@ async def finalize_task_failure(session, record, error: str) -> None:
     """在 Task 失败事务内执行已注册的领域收敛。"""
     handler_version = 1 if record.handler_version is None else int(record.handler_version)
     try:
-        definition = get_task_definition(record.type, handler_version)
+        definition = get_failure_task_definition(record.type, handler_version)
     except ValueError:
-        try:
-            definition = get_task_definition(record.type)
-        except ValueError:
-            logger.error(
-                "Cannot finalize unknown durable task: task_id=%s, type=%s",
-                record.id,
-                record.type,
-            )
-            return
+        logger.error(
+            "Cannot finalize unknown durable task: task_id=%s, type=%s, handler_version=%s",
+            record.id,
+            record.type,
+            handler_version,
+        )
+        return
     if lite_mode_enabled() and definition.requires_knowledge:
         return
     handler = definition.load_failure_handler()
@@ -73,20 +77,28 @@ async def publish_pending_tasks(*, limit: int = 200) -> list[str]:
             logger.error("Cannot publish unknown durable task: task_id=%s, type=%s", record.id, record.type)
             await repository.fail_pending(record.id, error=str(exc))
             continue
+        handler_version = 1 if record.handler_version is None else int(record.handler_version)
         if lite_mode_enabled() and current_definition.requires_knowledge:
             continue
         if record.cancel_requested:
-            failure_handler = current_definition.load_failure_handler()
+            try:
+                failure_definition = get_failure_task_definition(record.type, handler_version)
+            except ValueError:
+                failure_definition = None
+            failure_handler = failure_definition.load_failure_handler() if failure_definition is not None else None
             before_cancel = partial(failure_handler, error="任务已取消") if failure_handler is not None else None
             await repository.request_cancel(record.id, before_cancel=before_cancel)
             continue
-        handler_version = 1 if record.handler_version is None else int(record.handler_version)
         try:
             get_task_definition(record.type, handler_version)
         except ValueError as exc:
             error = str(exc)
             logger.error("Cannot rebuild durable task: task_id=%s, type=%s", record.id, record.type)
-            failure_handler = current_definition.load_failure_handler()
+            try:
+                failure_definition = get_failure_task_definition(record.type, handler_version)
+            except ValueError:
+                failure_definition = None
+            failure_handler = failure_definition.load_failure_handler() if failure_definition is not None else None
             before_fail = partial(failure_handler, error=error) if failure_handler is not None else None
             await repository.fail_pending(record.id, error=error, before_fail=before_fail)
             continue

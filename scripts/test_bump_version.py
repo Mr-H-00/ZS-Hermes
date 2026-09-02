@@ -23,13 +23,13 @@ class BumpVersionScriptTests(unittest.TestCase):
             ),
             "web/package.json": '{\n  "version": "0.7.2.beta1"\n}\n',
             "docker-compose.yml": "\n".join(
-                f"image: {name}:${{YUXI_VERSION:-0.7.2.beta1}}"
+                f"image: ${{COMPOSE_PROJECT_NAME:-yuxi}}-{name}:${{YUXI_VERSION:-0.7.2.beta1}}"
                 for name in (
-                    "yuxi-api",
-                    "yuxi-api",
-                    "yuxi-api",
-                    "yuxi-sandbox-provisioner",
-                    "yuxi-web",
+                    "api",
+                    "api",
+                    "api",
+                    "sandbox-provisioner",
+                    "web",
                 )
             )
             + "\n",

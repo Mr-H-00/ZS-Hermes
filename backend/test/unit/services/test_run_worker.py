@@ -13,6 +13,7 @@ import pytest
 import yuxi.services.run_worker as run_worker
 from arq.worker import RetryJob
 from yuxi.config import options as config_options
+from yuxi.services import task_service
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +32,38 @@ class _RaisingAsyncIter:
 
     async def __anext__(self):
         raise self._exc
+
+
+def test_durable_task_outer_timeout_tracks_configured_worker_default():
+    durable_function = next(
+        function
+        for function in run_worker.WorkerSettings.functions
+        if getattr(function, "name", getattr(function, "__name__", None)) == "process_task"
+    )
+
+    assert task_service.tasker.default_timeout_seconds == task_service.TASKER_DEFAULT_TIMEOUT_SECONDS
+    assert durable_function.timeout_s == task_service.TASKER_DEFAULT_TIMEOUT_SECONDS + 30
+
+
+def test_durable_task_shipping_worker_accepts_default_above_24_hours():
+    env = os.environ.copy()
+    env["TASKER_DEFAULT_TIMEOUT_SECONDS"] = "172800"
+    script = """
+from yuxi.services.run_worker import WorkerSettings
+from yuxi.services.task_service import tasker
+
+durable = next(
+    function
+    for function in WorkerSettings.functions
+    if getattr(function, "name", getattr(function, "__name__", None)) == "process_task"
+)
+assert tasker.default_timeout_seconds == 172800
+assert durable.timeout_s == 172830
+"""
+
+    completed = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 0, completed.stderr
 
 
 class _BytesAsyncIter:

@@ -67,7 +67,8 @@ test('评估基准三级页包含题目和评估结果 Tab 并按当前基准过
   assert.match(source, /placeholder="筛选当前页题目"/)
   assert.match(source, /WrapText/)
   assert.match(source, /resultFilterOptions/)
-  assert.match(source, /resultFilter: resultFilter\.value/)
+  assert.match(source, /const filter = resultFilter\.value/)
+  assert.match(source, /resultFilter: filter/)
   assert.match(source, /:bordered="false"/)
   assert.match(source, /label: getRunName\(run\)/)
   assert.match(source, /const getRunName = \(run\) => run\?\.name \|\| run\?\.run_name \|\| '未命名测试'/)
@@ -92,7 +93,8 @@ test('评估基准三级页包含题目和评估结果 Tab 并按当前基准过
   )
   assert.match(source, /response\.data\.filter\(\(run\) => run\.dataset_id === datasetId\.value\)/)
   assert.match(source, /evaluationApi\.getDataset\(kbId\.value, datasetId\.value, page, pageSize\)/)
-  assert.match(source, /evaluationApi\.getRunResults\(kbId\.value, selectedRunId\.value/)
+  assert.match(source, /const runId = selectedRunId\.value/)
+  assert.match(source, /evaluationApi\.getRunResults\(kbId\.value, runId/)
   assert.match(source, /query: \{ section: 'evaluation' \}/)
   assert.match(source, /:scroll="\{ x: 1080 \}"/)
   assert.match(source, /:scroll="\{ x: 1390 \}"/)
@@ -104,6 +106,34 @@ test('评估基准三级页包含题目和评估结果 Tab 并按当前基准过
   )
   assert.doesNotMatch(workspaceSource, /\.evaluation-row-actions \{\s*display: none;/)
   assert.doesNotMatch(source, /evaluation-detail-overlay/)
+})
+
+test('评估详情源码包含所选运行的串行轮询与迟到响应守卫', () => {
+  const source = readSource('../../src/views/EvaluationBenchmarkDetailView.vue')
+
+  assert.match(source, /selectedRun\.value\?\.status === 'running'/)
+  assert.match(source, /activeTab\.value === 'results' && terminalRefreshPending/)
+  assert.match(source, /if \(runsRefreshInFlight\) return/)
+  assert.match(source, /runsRefreshInFlight = true/)
+  assert.match(source, /window\.setTimeout\(\(\) => \{\s*refreshTimer = null\s*loadRuns\(true\)/)
+  assert.match(source, /if \(disposed\) return/)
+  assert.match(source, /const requestedRunId = silent \? selectedRunId\.value : String\(route\.query\.run \|\| ''\)/)
+  assert.match(
+    source,
+    /else \{\s*selectedRunId\.value = ''\s*resultRequestId \+= 1\s*results\.value = \[\]\s*resultsLoading\.value = false/
+  )
+  assert.match(source, /if \(silent && resultsLoading\.value\) return/)
+  assert.match(source, /if \(disposed \|\| requestId !== resultRequestId\) return/)
+  assert.match(source, /terminalRefreshAfterRequestId = resultRequestId/)
+  assert.match(source, /requestId > terminalRefreshAfterRequestId/)
+  assert.match(source, /terminalRefreshPending = false\s*syncRefreshTimer\(\)/)
+  assert.match(source, /results\.value\.length === 0 \|\| terminalRefreshPending/)
+  assert.match(source, /await loadResults\(page, resultPagination\.pageSize, silent\)/)
+  assert.match(
+    source,
+    /const handleRunSelection = async \(runId\) => \{[\s\S]*?resultRequestId \+= 1[\s\S]*?syncRefreshTimer\(\)[\s\S]*?Promise\.all/
+  )
+  assert.match(source, /onUnmounted\(\(\) => \{\s*disposed = true\s*resultRequestId \+= 1\s*stopRefreshTimer\(\)/)
 })
 
 test('新建评估在没有已完成基准时禁用且不伪造成功', () => {

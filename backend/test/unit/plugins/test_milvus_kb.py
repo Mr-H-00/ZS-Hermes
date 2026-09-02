@@ -466,7 +466,7 @@ async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
     patch_file_repository(monkeypatch, file_repo)
     kb = MilvusKB.__new__(MilvusKB)
 
-    def get_collection(kb_id):
+    async def get_collection(kb_id):
         del kb_id
         return None
 
@@ -478,6 +478,56 @@ async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
     assert file_repo.records["file-1"].chunk_count == 0
     assert file_repo.records["file-1"].token_count == 0
     assert file_repo.update_calls == [("file-1", "db", {"chunk_count": 0, "token_count": 0})]
+
+
+async def test_collection_lifecycle_calls_are_offloaded_from_event_loop(monkeypatch):
+    kb = MilvusKB.__new__(MilvusKB)
+    kb.collections = {}
+    kb.connection_alias = "test-alias"
+    event_loop_thread = threading.get_ident()
+    call_threads: list[int] = []
+    collection = object()
+
+    def create_collection(_kb_id, _embedding_model_spec):
+        call_threads.append(threading.get_ident())
+        return collection
+
+    class LoadableCollection:
+        def load(self):
+            call_threads.append(threading.get_ident())
+
+    def has_collection(*_args, **_kwargs):
+        call_threads.append(threading.get_ident())
+        return False
+
+    monkeypatch.setattr(kb, "_create_kb_instance_sync", create_collection)
+    monkeypatch.setattr(milvus_module.utility, "has_collection", has_collection)
+
+    assert await kb._create_kb_instance("db", EMBEDDING_MODEL_SPEC) is collection
+    await kb._initialize_kb_instance(LoadableCollection())
+    assert await kb._get_existing_milvus_collection("db") is None
+
+    assert len(call_threads) == 3
+    assert all(thread_id != event_loop_thread for thread_id in call_threads)
+
+
+async def test_milvus_chunk_delete_is_offloaded_from_event_loop():
+    kb = MilvusKB.__new__(MilvusKB)
+    event_loop_thread = threading.get_ident()
+    call_threads: list[int] = []
+
+    class FakeCollection:
+        def query(self, **_kwargs):
+            call_threads.append(threading.get_ident())
+            return [{"id": "chunk-1"}]
+
+        def delete(self, _expr):
+            call_threads.append(threading.get_ident())
+
+    await kb._delete_file_chunks_from_milvus(FakeCollection(), "file-1")
+
+    assert len(call_threads) == 2
+    assert all(thread_id != event_loop_thread for thread_id in call_threads)
 
 
 async def test_insert_chunks_to_stores_inserts_current_batch(monkeypatch):

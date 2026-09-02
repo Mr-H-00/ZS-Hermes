@@ -253,7 +253,7 @@
 </template>
 
 <script setup>
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -304,6 +304,12 @@ const resultKeyword = ref('')
 const resultFilter = ref('all')
 const resultAutoWrap = ref(false)
 const resultPagination = reactive({ current: 1, pageSize: 50, total: 0 })
+let refreshTimer = null
+let resultRequestId = 0
+let terminalRefreshAfterRequestId = 0
+let terminalRefreshPending = false
+let runsRefreshInFlight = false
+let disposed = false
 
 const annotationFilterOptions = [
   { value: 'all', label: '全部标注' },
@@ -444,59 +450,135 @@ const loadQuestions = async (page = 1, pageSize = questionPagination.pageSize) =
   }
 }
 
-const loadRuns = async () => {
-  runsLoading.value = true
-  try {
-    const response = await evaluationApi.listRuns(kbId.value)
-    if (response?.message !== 'success' || !Array.isArray(response.data)) {
-      throw new Error('评估记录数据格式错误')
-    }
-    datasetRuns.value = response.data.filter((run) => run.dataset_id === datasetId.value)
-    const requestedRunId = String(route.query.run || '')
-    selectedRunId.value =
-      datasetRuns.value.find((run) => run.run_id === requestedRunId)?.run_id ||
-      datasetRuns.value[0]?.run_id ||
-      ''
-    if (activeTab.value === 'results' && selectedRunId.value) await loadResults()
-  } catch (error) {
-    console.error('加载基准评估记录失败:', error)
-    message.error(error.message || '加载基准评估记录失败')
-  } finally {
-    runsLoading.value = false
+const stopRefreshTimer = () => {
+  if (refreshTimer) window.clearTimeout(refreshTimer)
+  refreshTimer = null
+}
+
+const syncRefreshTimer = () => {
+  const shouldRefresh =
+    selectedRun.value?.status === 'running' ||
+    (activeTab.value === 'results' && terminalRefreshPending)
+  if (disposed || !shouldRefresh) {
+    stopRefreshTimer()
+    return
+  }
+  if (runsRefreshInFlight) return
+  if (!refreshTimer) {
+    refreshTimer = window.setTimeout(() => {
+      refreshTimer = null
+      loadRuns(true)
+    }, 3000)
   }
 }
 
-const loadResults = async (page = 1, pageSize = resultPagination.pageSize) => {
+const loadRuns = async (silent = false) => {
+  if (runsRefreshInFlight) return
+  runsRefreshInFlight = true
+  if (!silent) runsLoading.value = true
+  try {
+    const response = await evaluationApi.listRuns(kbId.value)
+    if (disposed) return
+    if (response?.message !== 'success' || !Array.isArray(response.data)) {
+      throw new Error('评估记录数据格式错误')
+    }
+    const selectedRunIdBeforeRefresh = selectedRunId.value
+    const selectedRunWasRunning = selectedRun.value?.status === 'running'
+    datasetRuns.value = response.data.filter((run) => run.dataset_id === datasetId.value)
+    const requestedRunId = silent ? selectedRunId.value : String(route.query.run || '')
+    const matchedRunId = datasetRuns.value.find((run) => run.run_id === requestedRunId)?.run_id
+    if (matchedRunId) selectedRunId.value = matchedRunId
+    else if (!silent) selectedRunId.value = datasetRuns.value[0]?.run_id || ''
+    else {
+      selectedRunId.value = ''
+      resultRequestId += 1
+      results.value = []
+      resultsLoading.value = false
+      resultPagination.total = 0
+      terminalRefreshPending = false
+    }
+    if (
+      silent &&
+      selectedRunWasRunning &&
+      selectedRunIdBeforeRefresh === selectedRunId.value &&
+      selectedRun.value &&
+      selectedRun.value.status !== 'running'
+    ) {
+      terminalRefreshPending = true
+      terminalRefreshAfterRequestId = resultRequestId
+    }
+    if (activeTab.value === 'results' && selectedRunId.value) {
+      const page = silent ? resultPagination.current : 1
+      await loadResults(page, resultPagination.pageSize, silent)
+    }
+  } catch (error) {
+    if (disposed) return
+    console.error('加载基准评估记录失败:', error)
+    if (!silent) message.error(error.message || '加载基准评估记录失败')
+  } finally {
+    runsRefreshInFlight = false
+    if (!silent) runsLoading.value = false
+    syncRefreshTimer()
+  }
+}
+
+const loadResults = async (page = 1, pageSize = resultPagination.pageSize, silent = false) => {
   if (!selectedRunId.value) {
     results.value = []
     return
   }
-  resultsLoading.value = true
+  if (silent && resultsLoading.value) return
+  if (!silent) {
+    resultPagination.current = page
+    resultPagination.pageSize = pageSize
+  }
+  const requestId = ++resultRequestId
+  const runId = selectedRunId.value
+  const filter = resultFilter.value
+  if (!silent) resultsLoading.value = true
   try {
-    const response = await evaluationApi.getRunResults(kbId.value, selectedRunId.value, {
+    const response = await evaluationApi.getRunResults(kbId.value, runId, {
       page,
       pageSize,
-      resultFilter: resultFilter.value
+      resultFilter: filter
     })
+    if (disposed || requestId !== resultRequestId) return
     if (response?.message !== 'success' || !response.data) throw new Error('评估结果数据格式错误')
     results.value = response.data.items || []
     resultPagination.current = response.data.pagination?.current_page || page
     resultPagination.pageSize = response.data.pagination?.page_size || pageSize
     resultPagination.total = response.data.pagination?.total || 0
+    if (
+      terminalRefreshPending &&
+      requestId > terminalRefreshAfterRequestId &&
+      runId === selectedRunId.value
+    ) {
+      terminalRefreshPending = false
+      syncRefreshTimer()
+    }
   } catch (error) {
+    if (disposed || requestId !== resultRequestId) return
     console.error('加载逐题评估结果失败:', error)
-    message.error(error.message || '加载逐题评估结果失败')
-    results.value = []
+    if (!silent) {
+      message.error(error.message || '加载逐题评估结果失败')
+      results.value = []
+    }
   } finally {
-    resultsLoading.value = false
+    if (!silent && requestId === resultRequestId) resultsLoading.value = false
   }
 }
 
 const handleRunSelection = async (runId) => {
   selectedRunId.value = runId
+  resultRequestId += 1
+  terminalRefreshPending = false
+  results.value = []
   resultPagination.current = 1
-  await router.replace({ query: { ...route.query, view: 'results', run: runId } })
-  await loadResults()
+  syncRefreshTimer()
+  await Promise.all([
+    router.replace({ query: { ...route.query, view: 'results', run: runId } }),
+    loadResults()
+  ])
 }
 
 const handleResultFilterChange = () => {
@@ -535,6 +617,7 @@ const backToKnowledgeEvaluation = () =>
 const handleActiveTabChange = async (tab) => {
   if (!tabs.some((item) => item.key === tab)) return
   activeTab.value = tab
+  syncRefreshTimer()
 
   const query = { ...route.query, view: tab }
   if (tab !== 'results') {
@@ -543,7 +626,13 @@ const handleActiveTabChange = async (tab) => {
     query.run = selectedRunId.value
   }
   await router.replace({ query })
-  if (tab === 'results' && selectedRunId.value && results.value.length === 0) await loadResults()
+  if (
+    tab === 'results' &&
+    selectedRunId.value &&
+    (results.value.length === 0 || terminalRefreshPending)
+  ) {
+    await loadResults()
+  }
 }
 
 watch(
@@ -558,6 +647,11 @@ onMounted(async () => {
   store.kbId = kbId.value
   await Promise.all([store.getDatabaseInfo(kbId.value, true), loadQuestions(), loadRuns()])
   loading.value = false
+})
+onUnmounted(() => {
+  disposed = true
+  resultRequestId += 1
+  stopRefreshTimer()
 })
 </script>
 

@@ -197,6 +197,7 @@ import {
 } from '@lucide/vue'
 import { projectApi } from '@/apis/project_api'
 import WorkspacePathPicker from '@/components/WorkspacePathPicker.vue'
+import { useProjectsStore } from '@/stores/projects'
 import { AUTO_PROJECT_ID, filterProjects, formatRelativeTime } from '@/utils/projectSelection'
 
 const props = defineProps({
@@ -204,6 +205,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:modelValue'])
+const projectsStore = useProjectsStore()
 
 const projects = ref([])
 const dropdownOpen = ref(false)
@@ -258,6 +260,7 @@ const addAndSelectProject = (project) => {
   const projectId = project.id
   if (!projectId) throw new Error('创建结果缺少 project id')
   projects.value = [project, ...projects.value.filter((item) => item.id !== projectId)]
+  projectsStore.upsertProject(project)
   selectProject(projectId)
 }
 

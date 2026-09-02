@@ -74,6 +74,20 @@ async def test_dashboard_rejects_invalid_query_ranges(test_client, admin_headers
     assert [response.status_code for response in responses] == [422, 422, 422]
 
 
+async def test_agent_stats_http_omits_removed_top_performers_contract(test_client, admin_headers):
+    """智能体统计 HTTP 契约保留概览字段且不再发布 TOP 5 排行。"""
+    response = await test_client.get("/api/dashboard/stats/agents", headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    assert set(response.json()) == {
+        "total_agents",
+        "agent_conversation_counts",
+        "agent_satisfaction_rates",
+        "agent_tool_usage",
+        "agent_names",
+    }
+
+
 async def test_admin_can_fetch_stats(test_client, admin_headers):
     """Test that the timeseries stats endpoint returns consistent values."""
     response = await test_client.get(

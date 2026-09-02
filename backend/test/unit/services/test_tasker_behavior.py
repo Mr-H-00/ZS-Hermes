@@ -16,6 +16,16 @@ from yuxi.services.task_service import TaskContext, Tasker, process_task
 from yuxi.utils.datetime_utils import format_utc_datetime, utc_now_naive
 
 
+@pytest.fixture(autouse=True)
+def disable_pending_publication(monkeypatch: pytest.MonkeyPatch) -> None:
+    """默认隔离任务完成后的下一批发布，专项测试再覆盖它。"""
+
+    async def no_pending_tasks(*, limit: int = 200) -> list[str]:
+        return []
+
+    monkeypatch.setattr(task_service, "publish_pending_tasks", no_pending_tasks)
+
+
 class FakeRecord(SimpleNamespace):
     def to_dict(self) -> dict[str, Any]:
         data = vars(self).copy()
@@ -264,15 +274,33 @@ async def test_task_context_throttles_progress_and_rejects_lost_lease(monkeypatc
     context = TaskContext(record.id, "owner", {"value": 1})
 
     await context.set_progress(10)
-    await context.set_progress(11)
+    await context.set_progress(11, "第二步")
     await context.set_progress(12)
 
     assert context.payload == {"value": 1}
-    assert [update["progress"] for update in repo.updates] == [10, 12]
+    assert [update["progress"] for update in repo.updates] == [10, 11]
+    assert repo.updates[-1]["message"] == "第二步"
 
     repo.live_owner = False
     with pytest.raises(asyncio.CancelledError, match="lease was lost"):
         await context.set_message("迟到更新")
+
+
+async def test_task_context_tracks_messages_written_outside_progress_updates(monkeypatch):
+    record = make_record(status="running", worker_id="owner")
+    repo = FakeRepo(record)
+    monkeypatch.setattr(task_service, "TaskRepository", lambda: repo)
+    context = TaskContext(record.id, "owner")
+
+    await context.set_progress(10, "A")
+    await context.set_message("B")
+    await context.set_progress(11, "A")
+
+    assert repo.updates == [
+        {"progress": 10.0, "message": "A"},
+        {"message": "B"},
+        {"progress": 11.0, "message": "A"},
+    ]
 
 
 async def test_process_task_rebuilds_handler_and_persists_success(monkeypatch):
@@ -294,6 +322,55 @@ async def test_process_task_rebuilds_handler_and_persists_success(monkeypatch):
     assert repo.record.status == "success"
     assert repo.finish_calls[-1]["result"] == {"ok": True}
     assert repo.record.attempt_count == 1
+
+
+async def test_process_task_uses_failure_hook_when_success_hook_cannot_load(monkeypatch):
+    record = make_record(type="dataset_generation")
+    repo = FakeRepo(record)
+    failure_calls: list[str] = []
+
+    async def failure_hook(_session, _record, error: str):
+        failure_calls.append(error)
+
+    class BrokenSuccessDefinition(FakeDefinition):
+        def load_success_handler(self):
+            raise ImportError("success hook missing")
+
+        def load_failure_handler(self):
+            return failure_hook
+
+    monkeypatch.setattr(task_service, "TaskRepository", lambda: repo)
+    monkeypatch.setattr(task_service, "get_task_definition", lambda *_args: BrokenSuccessDefinition(None))
+
+    await process_task({"worker_id": "worker-1"}, record.id)
+
+    assert repo.record.status == "failed"
+    assert repo.finish_calls[-1]["message"] == "任务 Handler 无法加载"
+    before_finish = repo.finish_calls[-1]["before_finish"]
+    assert before_finish is not None
+    await before_finish(object(), record)
+    assert failure_calls == ["success hook missing"]
+
+
+async def test_process_task_republishes_pending_tasks_after_slot_release(monkeypatch):
+    record = make_record()
+    repo = FakeRepo(record)
+    publication_limits: list[int] = []
+
+    async def handler(_context: TaskContext):
+        return {"ok": True}
+
+    async def publish_pending(*, limit: int = 200) -> list[str]:
+        publication_limits.append(limit)
+        return []
+
+    monkeypatch.setattr(task_service, "TaskRepository", lambda: repo)
+    monkeypatch.setattr(task_service, "get_task_definition", lambda *_args: FakeDefinition(handler))
+    monkeypatch.setattr(task_service, "publish_pending_tasks", publish_pending)
+
+    await process_task({"worker_id": "worker-1"}, record.id)
+
+    assert publication_limits == [task_service.DURABLE_TASK_MAX_RUNNING]
 
 
 async def test_lite_worker_does_not_claim_knowledge_task(monkeypatch):
@@ -433,10 +510,46 @@ async def test_pending_cancel_becomes_terminal_without_worker(monkeypatch):
     tasker = Tasker()
     tasker._repo = repo
 
-    monkeypatch.setattr(task_service, "get_task_definition", lambda *_args: FakeDefinition(None))
+    monkeypatch.setattr(task_service, "get_failure_task_definition", lambda *_args: FakeDefinition(None))
     task = await tasker.cancel_task("task-1")
 
     assert task is not None
     assert task.status == "cancelled"
     assert task.cancel_requested is True
     assert await tasker.delete_task("task-1") is True
+
+
+async def test_unknown_nonlegacy_handler_version_does_not_run_current_failure_hook(monkeypatch):
+    record = make_record(type="knowledge_parse", handler_version=2)
+    repo = FakeRepo(record)
+    tasker = Tasker()
+    tasker._repo = repo
+    cancel_calls: list[str] = []
+
+    async def cancel_hook(_record):
+        cancel_calls.append("called")
+
+    def get_failure_definition(_task_type: str, handler_version: int):
+        if handler_version != 1:
+            raise ValueError("unsupported version")
+        return FakeDefinition(None)
+
+    monkeypatch.setattr(task_service, "lite_mode_enabled", lambda: False)
+    monkeypatch.setattr(task_service, "get_failure_task_definition", get_failure_definition)
+    monkeypatch.setattr(FakeDefinition, "load_failure_handler", lambda _self: cancel_hook)
+
+    assert await tasker.cancel_task(record.id) is None
+    assert cancel_calls == []
+    assert record.cancel_requested == 0
+
+
+def test_task_timeout_accepts_existing_values_above_24_hours():
+    assert Tasker(default_timeout_seconds=172800.0)._resolve_timeout_seconds(None) == 172800.0
+
+
+def test_task_timeout_override_cannot_exceed_worker_default():
+    tasker = Tasker(default_timeout_seconds=60.0)
+
+    assert tasker._resolve_timeout_seconds(30.0) == 30.0
+    with pytest.raises(ValueError, match="cannot exceed the worker default"):
+        tasker._resolve_timeout_seconds(61.0)

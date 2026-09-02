@@ -12,15 +12,19 @@ from typing import Any
 
 from yuxi.config.runtime import lite_mode_enabled
 from yuxi.repositories.task_repository import TERMINAL_TASK_STATUSES, TaskRepository
-from yuxi.services.task_queue_service import TASK_HEARTBEAT_SECONDS, TASK_LEASE_SECONDS, publish_task
-from yuxi.services.task_registry import get_task_definition
+from yuxi.services.task_queue_service import (
+    TASK_HEARTBEAT_SECONDS,
+    TASK_LEASE_SECONDS,
+    publish_pending_tasks,
+    publish_task,
+)
+from yuxi.services.task_registry import get_failure_task_definition, get_task_definition
 from yuxi.utils.datetime_utils import utc_isoformat, utc_now_naive
 from yuxi.utils.logging_config import logger
 
 TERMINAL_STATUSES = TERMINAL_TASK_STATUSES
 PROGRESS_PERSIST_DELTA = 2.0
 TASKER_DEFAULT_TIMEOUT_SECONDS = float(os.getenv("TASKER_DEFAULT_TIMEOUT_SECONDS", 6 * 60 * 60))
-TASKER_MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 DURABLE_TASK_MAX_RUNNING = 4
 
 
@@ -66,23 +70,28 @@ class TaskContext:
         self.cancellation_reason: str | None = None
         self._cancel_requested = False
         self._last_persisted_progress: float | None = None
+        self._last_persisted_message: str | None = None
         self._repo = TaskRepository()
 
     async def set_progress(self, progress: float, message: str | None = None) -> None:
         normalized = max(0.0, min(float(progress), 100.0))
-        if (
+        progress_is_throttled = (
             self._last_persisted_progress is not None
             and abs(normalized - self._last_persisted_progress) < PROGRESS_PERSIST_DELTA
-        ):
+        )
+        if progress_is_throttled and (message is None or message == self._last_persisted_message):
             return
         data: dict[str, Any] = {"progress": normalized}
         if message is not None:
             data["message"] = message
         await self._update(data)
         self._last_persisted_progress = normalized
+        if message is not None:
+            self._last_persisted_message = message
 
     async def set_message(self, message: str) -> None:
         await self._update({"message": message})
+        self._last_persisted_message = message
 
     async def set_result(self, result: Any) -> None:
         await self._update({"result": result})
@@ -248,9 +257,9 @@ class Tasker:
         if current is not None:
             handler_version = 1 if current.handler_version is None else int(current.handler_version)
             try:
-                definition = get_task_definition(current.type, handler_version)
+                definition = get_failure_task_definition(current.type, handler_version)
             except ValueError:
-                definition = get_task_definition(current.type)
+                return None
             if lite_mode_enabled() and definition.requires_knowledge:
                 return None
             failure_handler = definition.load_failure_handler()
@@ -336,13 +345,16 @@ class Tasker:
     def _resolve_timeout_seconds(self, timeout_seconds: float | None) -> float:
         if timeout_seconds is None:
             return self.default_timeout_seconds
-        return self._validate_timeout_seconds(timeout_seconds)
+        resolved = self._validate_timeout_seconds(timeout_seconds)
+        if resolved > self.default_timeout_seconds:
+            raise ValueError("Task timeout cannot exceed the worker default timeout")
+        return resolved
 
     @staticmethod
     def _validate_timeout_seconds(timeout_seconds: float) -> float:
         timeout_seconds = float(timeout_seconds)
-        if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= TASKER_MAX_TIMEOUT_SECONDS:
-            raise ValueError(f"Task timeout must be between 0 and {TASKER_MAX_TIMEOUT_SECONDS} seconds")
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("Task timeout must be a positive finite number of seconds")
         return timeout_seconds
 
     @staticmethod
@@ -401,6 +413,14 @@ async def _finish_task_failure(
     )
 
 
+async def _publish_pending_after_slot_release() -> None:
+    """释放 Durable Task 槽后接力唤醒 pending intent。"""
+    try:
+        await publish_pending_tasks(limit=DURABLE_TASK_MAX_RUNNING)
+    except Exception:
+        logger.error("Failed to publish pending tasks after slot release", exc_info=True)
+
+
 async def process_task(ctx: dict[str, Any], task_id: str) -> None:
     """从 PG Task 意图重建并执行一个注册 Handler。"""
     repo = TaskRepository()
@@ -435,8 +455,8 @@ async def process_task(ctx: dict[str, Any], task_id: str) -> None:
 
     failure_handler = None
     try:
-        success_handler = definition.load_success_handler()
         failure_handler = definition.load_failure_handler()
+        success_handler = definition.load_success_handler()
         handler = definition.load_handler()
     except Exception as exc:
         await _finish_task_failure(
@@ -448,6 +468,7 @@ async def process_task(ctx: dict[str, Any], task_id: str) -> None:
             error=str(exc),
             failure_handler=failure_handler,
         )
+        await _publish_pending_after_slot_release()
         return
 
     context = TaskContext(task_id, owner, record.payload or {})
@@ -521,6 +542,7 @@ async def process_task(ctx: dict[str, Any], task_id: str) -> None:
     finally:
         heartbeat.cancel()
         await asyncio.gather(heartbeat, return_exceptions=True)
+        await _publish_pending_after_slot_release()
 
 
 tasker = Tasker()

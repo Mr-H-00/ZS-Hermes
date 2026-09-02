@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.storage.postgres.models_business import Project
+from yuxi.utils.datetime_utils import utc_now_naive
 from yuxi.workspace.paths import normalize_linked_workdir_path
 from yuxi.workspace.workdir import Workdir
 
@@ -33,9 +34,12 @@ def _normalize_project_name(name: str | None, *, required: bool) -> str | None:
     return normalized_name or None
 
 
-def _matches_creation_intent(project: Project, *, name: str, workdir_path: str) -> bool:
-    """判断已有 Project 是否匹配当前创建意图。"""
-    return project.name == name and project.directory_mode == "linked" and project.workdir_path == workdir_path
+def _require_matching_creation_intent(project: Project, *, name: str, workdir_path: str) -> None:
+    """要求已有 Project 仍有效且匹配当前幂等创建意图。"""
+    if project.status == "deleted":
+        raise HTTPException(status_code=409, detail="request_id 已用于已删除的 Project")
+    if project.name != name or project.directory_mode != "linked" or project.workdir_path != workdir_path:
+        raise HTTPException(status_code=409, detail="request_id 已用于其他 Project 创建意图")
 
 
 async def create_project_record(
@@ -105,19 +109,19 @@ async def create_project_view(
         raise HTTPException(status_code=422, detail="request_id 不能为空")
     if directory_mode != "linked" or not (workdir_path or "").strip():
         raise HTTPException(status_code=422, detail="手动创建项目必须选择目录")
-    existing = await ProjectRepository(db).get_by_idempotency_key(normalized_request_id, str(uid))
+    repository = ProjectRepository(db)
+    existing = await repository.get_by_idempotency_key(normalized_request_id, str(uid))
     normalized_name = _normalize_project_name(name, required=True)
     try:
         normalized_path = normalize_linked_workdir_path(workdir_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if existing is not None:
-        if not _matches_creation_intent(
+        _require_matching_creation_intent(
             existing,
             name=normalized_name,
             workdir_path=normalized_path,
-        ):
-            raise HTTPException(status_code=409, detail="request_id 已用于其他 Project 创建意图")
+        )
         return existing.to_dict()
 
     try:
@@ -133,15 +137,14 @@ async def create_project_view(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        replay = await ProjectRepository(db).get_by_idempotency_key(normalized_request_id, str(uid))
+        replay = await repository.get_by_idempotency_key(normalized_request_id, str(uid))
         if replay is None:
             raise HTTPException(status_code=409, detail="Project 创建冲突")
-        if not _matches_creation_intent(
+        _require_matching_creation_intent(
             replay,
             name=normalized_name,
             workdir_path=normalized_path,
-        ):
-            raise HTTPException(status_code=409, detail="request_id 已用于其他 Project 创建意图")
+        )
         project = replay
     return project.to_dict()
 
@@ -150,6 +153,36 @@ async def list_projects_view(*, uid: str, db) -> list[dict]:
     """列出当前用户可选择的 Project。"""
     projects = await ProjectRepository(db).list_selectable_for_user(str(uid))
     return [project.to_dict() for project in projects]
+
+
+async def rename_project_view(*, uid: str, project_id: str, name: str, db) -> dict:
+    """重命名当前用户的 selectable Project。"""
+    normalized_name = _normalize_project_name(name, required=True)
+    repository = ProjectRepository(db)
+    project = await repository.lock_active_selectable_for_user(project_id, str(uid))
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project 不存在")
+
+    project.name = normalized_name
+    project.updated_at = utc_now_naive()
+    await db.commit()
+    await db.refresh(project)
+    return project.to_dict()
+
+
+async def delete_project_view(*, uid: str, project_id: str, db) -> dict:
+    """软删除 Project 及其 Conversation，保留 Workdir 字节。"""
+    repository = ProjectRepository(db)
+    project = await repository.lock_active_selectable_for_user(project_id, str(uid))
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project 不存在")
+
+    deleted_conversations = await repository.soft_delete_with_conversations(
+        project,
+        deleted_at=utc_now_naive(),
+    )
+    await db.commit()
+    return {"message": "删除成功", "deleted_conversations": deleted_conversations}
 
 
 async def list_history_candidates_view(*, uid: str, db, query: str = "", limit: int = 20, offset: int = 0) -> dict:

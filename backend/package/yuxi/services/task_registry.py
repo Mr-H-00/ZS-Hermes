@@ -113,3 +113,10 @@ def get_task_definition(task_type: str, handler_version: int = 1) -> TaskDefinit
             f"Unsupported handler version for {task_type}: {handler_version}; expected {definition.version}"
         )
     return definition
+
+
+def get_failure_task_definition(task_type: str, handler_version: int) -> TaskDefinition:
+    """只为迁移生成的 legacy v0 复用当前 failure hook。"""
+    if handler_version == 0:
+        return get_task_definition(task_type)
+    return get_task_definition(task_type, handler_version)

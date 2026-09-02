@@ -40,12 +40,12 @@ from yuxi.services.run_queue_service import (
     wait_for_cancel_signal,
 )
 from yuxi.services.task_queue_service import (
-    TASK_RECONCILIATION_HEALTH_KEY,
     TASK_RECONCILIATION_HEALTH_TTL_SECONDS,
     TASK_RECONCILIATION_SECONDS,
+    get_task_reconciliation_health_key,
     reconcile_and_publish_tasks,
 )
-from yuxi.services.task_service import TASKER_MAX_TIMEOUT_SECONDS, process_task
+from yuxi.services.task_service import TASKER_DEFAULT_TIMEOUT_SECONDS, process_task
 from yuxi.services.workdir_service import (
     AuthorizedWorkdir,
     resolve_authorized_workdir,
@@ -1432,7 +1432,7 @@ async def _publish_task_reconciliation_health() -> None:
     """续租 worker 的 Durable Task 收敛与 pending 补发能力。"""
     redis = await get_redis_client()
     await redis.set(
-        TASK_RECONCILIATION_HEALTH_KEY,
+        get_task_reconciliation_health_key(),
         WORKER_ID,
         ex=TASK_RECONCILIATION_HEALTH_TTL_SECONDS,
     )
@@ -1511,7 +1511,7 @@ async def _worker_shutdown(ctx):
 class WorkerSettings:
     functions = [
         process_agent_run,
-        func(process_task, timeout=TASKER_MAX_TIMEOUT_SECONDS + 30),
+        func(process_task, timeout=TASKER_DEFAULT_TIMEOUT_SECONDS + 30),
     ]
     max_jobs = 10
     max_tries = 2

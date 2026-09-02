@@ -189,7 +189,10 @@ class ConversationRepository:
     async def lock_conversation_by_thread_id(self, thread_id: str) -> Conversation | None:
         """锁定线程根记录，串行化同一对话的调度决策。"""
         result = await self.db.execute(
-            select(Conversation).where(Conversation.thread_id == thread_id).with_for_update()
+            select(Conversation)
+            .where(Conversation.thread_id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
@@ -401,32 +404,19 @@ class ConversationRepository:
         result = await self.db.execute(pinned_query)
         pinned_conversations = list(result.scalars().all())
 
-        # Then, get non-pinned conversations with limit/offset
-        remaining_limit = None
-        remaining_offset = offset
-
+        # limit/offset 只作用于非置顶对话，避免重复附带的置顶项改变分页游标。
+        non_pinned_query = (
+            select(Conversation)
+            .options(joinedload(Conversation.project))
+            .where(*base_conditions)
+            .where(~Conversation.is_pinned)
+            .order_by(Conversation.updated_at.desc())
+            .offset(offset)
+        )
         if limit is not None:
-            # Calculate how many slots are taken by pinned conversations
-            pinned_count = len(pinned_conversations)
-            if pinned_count >= limit:
-                # All slots taken by pinned conversations
-                return pinned_conversations[:limit]
-            remaining_limit = limit - pinned_count
-
-        if remaining_limit is not None and remaining_limit > 0:
-            non_pinned_query = (
-                select(Conversation)
-                .options(joinedload(Conversation.project))
-                .where(*base_conditions)
-                .where(~Conversation.is_pinned)
-                .order_by(Conversation.updated_at.desc())
-                .limit(remaining_limit)
-                .offset(remaining_offset)
-            )
-            result = await self.db.execute(non_pinned_query)
-            non_pinned_conversations = list(result.scalars().all())
-        else:
-            non_pinned_conversations = []
+            non_pinned_query = non_pinned_query.limit(limit)
+        result = await self.db.execute(non_pinned_query)
+        non_pinned_conversations = list(result.scalars().all())
 
         return pinned_conversations + non_pinned_conversations
 

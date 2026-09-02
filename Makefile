@@ -19,6 +19,10 @@ reset:
 		echo "Error: .env file not found. Please create it from .env.template"; \
 		exit 1; \
 	fi
+	@if [ -n "$$YUXI_STATE_DIR" ] || grep -Eq '^[[:space:]]*YUXI_STATE_DIR[[:space:]]*=[[:space:]]*[^[:space:]#]' .env; then \
+		echo "Refusing to delete an external YUXI_STATE_DIR; stop the slot and remove its exact state directory explicitly." >&2; \
+		exit 1; \
+	fi
 	docker compose down
 	rm -rf docker/volumes
 	docker compose up -d
@@ -34,7 +38,7 @@ up-lite:
 	LITE_MODE=true docker compose up -d postgres redis minio api worker web
 
 logs:
-	@docker logs --tail=50 api-dev
+	@docker compose logs --tail=50 api
 	@echo "\n\nBranch: $$(git branch --show-current)"
 	@echo "Commit ID: $$(git rev-parse HEAD)"
 	@echo "System: $$(uname -a)"

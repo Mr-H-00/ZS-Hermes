@@ -12,6 +12,8 @@ from yuxi.storage.postgres.models_business import (
     AGENT_RUN_SHAPE_CONSTRAINT_NAME,
     AGENT_RUN_SHAPE_CONSTRAINT_SQL,
     AGENT_RUN_TERMINAL_STATUSES,
+    PROJECT_STATUS_CONSTRAINT_NAME,
+    PROJECT_STATUS_CONSTRAINT_SQL,
     UNVIEWED_RUN_MARKER,
 )
 from yuxi.storage.postgres.models_business import Base as BusinessBase
@@ -20,7 +22,7 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
-BUSINESS_SCHEMA_VERSION = 2
+BUSINESS_SCHEMA_VERSION = 3
 KNOWLEDGE_SCHEMA_VERSION = 2
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
@@ -57,7 +59,7 @@ AGENT_RUN_FACT_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_agent_run_attempts_open ON agent_run_attempts(run_id, finished_at)",
 )
 WORKDIR_PATH_SCHEMA_STATEMENTS = (
-    """
+    f"""
     CREATE TABLE IF NOT EXISTS projects (
         id VARCHAR(64) PRIMARY KEY,
         uid VARCHAR(64) NOT NULL CONSTRAINT fk_projects_uid_users REFERENCES users(uid) ON DELETE CASCADE,
@@ -65,17 +67,36 @@ WORKDIR_PATH_SCHEMA_STATEMENTS = (
         selection_status VARCHAR(20) NOT NULL,
         workdir_path VARCHAR(512) NOT NULL,
         directory_mode VARCHAR(20) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        deleted_at TIMESTAMP WITHOUT TIME ZONE,
         idempotency_key VARCHAR(128),
         created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
         CONSTRAINT uq_projects_id_uid UNIQUE (id, uid),
         CONSTRAINT uq_projects_uid_idempotency_key UNIQUE (uid, idempotency_key),
         CONSTRAINT ck_projects_selection_status CHECK (selection_status IN ('implicit', 'selectable')),
-        CONSTRAINT ck_projects_directory_mode CHECK (directory_mode IN ('managed', 'linked'))
+        CONSTRAINT ck_projects_directory_mode CHECK (directory_mode IN ('managed', 'linked')),
+        CONSTRAINT {PROJECT_STATUS_CONSTRAINT_NAME} CHECK ({PROJECT_STATUS_CONSTRAINT_SQL})
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_projects_uid ON projects(uid)",
     "CREATE INDEX IF NOT EXISTS ix_projects_selection_status ON projects(selection_status)",
+    "ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'",
+    "ALTER TABLE IF EXISTS projects ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITHOUT TIME ZONE",
+    "CREATE INDEX IF NOT EXISTS ix_projects_status ON projects(status)",
+    f"""
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = '{PROJECT_STATUS_CONSTRAINT_NAME}'
+              AND conrelid = 'projects'::regclass
+        ) THEN
+            ALTER TABLE projects
+            ADD CONSTRAINT {PROJECT_STATUS_CONSTRAINT_NAME} CHECK ({PROJECT_STATUS_CONSTRAINT_SQL});
+        END IF;
+    END $$
+    """,
     "ALTER TABLE IF EXISTS projects DROP CONSTRAINT IF EXISTS uq_projects_uid_workdir_path",
     "ALTER TABLE IF EXISTS projects ALTER COLUMN name DROP NOT NULL",
     """
@@ -461,13 +482,6 @@ class PostgresManager(metaclass=SingletonMeta):
             await conn.run_sync(BusinessBase.metadata.create_all)
         logger.info("PostgreSQL business tables created/checked")
 
-    async def upgrade_business_schema_v1_to_v2(self) -> None:
-        """为通用 Task 增加持久执行权、租约和去重字段。"""
-        self._check_initialized()
-        async with self.async_engine.begin() as conn:
-            for statement in TASK_DURABLE_SCHEMA_STATEMENTS:
-                await conn.execute(text(statement))
-
     async def upgrade_knowledge_schema_v1_to_v2(self) -> None:
         """为知识文件处理中间态增加 Durable Task attempt owner。"""
         self._check_initialized()
@@ -524,10 +538,10 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS processing_params JSONB",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS is_folder BOOLEAN",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS error_message TEXT",
+            "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
             *KNOWLEDGE_FILE_TASK_OWNER_SCHEMA_STATEMENTS,
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
             "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS updated_by VARCHAR(64)",
-            "ALTER TABLE IF EXISTS knowledge_files ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
             "ALTER TABLE IF EXISTS evaluation_datasets ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
             "ALTER TABLE IF EXISTS evaluation_datasets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
             "ALTER TABLE IF EXISTS evaluation_datasets ADD COLUMN IF NOT EXISTS build_metadata JSONB",

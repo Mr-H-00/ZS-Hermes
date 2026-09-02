@@ -95,13 +95,10 @@ def _require_supported_version(
     actual: int | None,
     expected: int,
     *,
-    previous: int | None = None,
+    upgrade_from: tuple[int, ...] = (),
 ) -> None:
-    """只接受未版本化 baseline、当前版本或显式相邻升级来源。"""
-    supported = {None, expected}
-    if previous is not None:
-        supported.add(previous)
-    if actual not in supported:
+    """接受未版本化 baseline、当前版本与显式可升级版本。"""
+    if actual not in (None, expected, *upgrade_from):
         raise RuntimeError(f"Unsupported {domain} schema version: {actual}; expected {expected}")
 
 
@@ -129,14 +126,15 @@ async def main() -> None:
                 "business",
                 business_version,
                 BUSINESS_SCHEMA_VERSION,
-                previous=BUSINESS_SCHEMA_VERSION - 1,
+                upgrade_from=(1, 2),
             )
+            knowledge_version = versions.get("knowledge")
             if not lite_mode_enabled():
                 _require_supported_version(
                     "knowledge",
-                    versions.get("knowledge"),
+                    knowledge_version,
                     KNOWLEDGE_SCHEMA_VERSION,
-                    previous=KNOWLEDGE_SCHEMA_VERSION - 1,
+                    upgrade_from=(1,),
                 )
 
             if business_version is None:
@@ -149,19 +147,17 @@ async def main() -> None:
                     await rewrite_v071_workdir_paths(session)
                     await verify_workdir_bindings(session)
                     await session.commit()
-            if business_version is None:
+            if business_version is None or business_version < BUSINESS_SCHEMA_VERSION:
                 await pg_manager.ensure_business_schema()
-                await pg_manager.setup_langgraph_checkpointer()
-                await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
-            elif business_version == BUSINESS_SCHEMA_VERSION - 1:
-                await pg_manager.upgrade_business_schema_v1_to_v2()
+                if business_version is None:
+                    await pg_manager.setup_langgraph_checkpointer()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
-            if not lite_mode_enabled() and versions.get("knowledge") is None:
+            if not lite_mode_enabled() and knowledge_version is None:
                 await pg_manager.create_knowledge_tables()
                 await pg_manager.ensure_knowledge_schema()
                 await pg_manager.record_schema_version("knowledge", KNOWLEDGE_SCHEMA_VERSION)
-            elif not lite_mode_enabled() and versions.get("knowledge") == KNOWLEDGE_SCHEMA_VERSION - 1:
+            elif not lite_mode_enabled() and knowledge_version == 1:
                 await pg_manager.upgrade_knowledge_schema_v1_to_v2()
                 await pg_manager.record_schema_version("knowledge", KNOWLEDGE_SCHEMA_VERSION)
 

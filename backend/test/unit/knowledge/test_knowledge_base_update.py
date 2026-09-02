@@ -1,4 +1,5 @@
 import types
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -178,7 +179,7 @@ async def test_create_database_persists_allowed_record_fields(tmp_path, monkeypa
         return False
 
     monkeypatch.setattr(manager, "database_name_exists", database_name_available)
-    monkeypatch.setattr(manager, "_get_or_create_kb_instance", lambda _kb_type: kb)
+    monkeypatch.setattr(manager, "_get_or_create_kb_instance", AsyncMock(return_value=kb))
     monkeypatch.setattr(
         "yuxi.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         classmethod(lambda cls, _kb_type: True),

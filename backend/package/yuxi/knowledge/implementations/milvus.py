@@ -342,7 +342,11 @@ class MilvusKB(KnowledgeBase):
             raise
 
     async def _create_kb_instance(self, kb_id: str, embedding_model_spec: str | None) -> Any:
-        """创建 Milvus 集合"""
+        """在线程中创建或加载 Milvus 集合，避免阻塞 worker heartbeat。"""
+        return await asyncio.to_thread(self._create_kb_instance_sync, kb_id, embedding_model_spec)
+
+    def _create_kb_instance_sync(self, kb_id: str, embedding_model_spec: str | None) -> Any:
+        """同步创建或加载 Milvus 集合。"""
         logger.info(f"Creating Milvus collection for {kb_id}")
 
         if not embedding_model_spec:
@@ -465,7 +469,7 @@ class MilvusKB(KnowledgeBase):
     async def _initialize_kb_instance(self, instance: Any) -> None:
         """初始化 Milvus 集合（加载到内存）"""
         try:
-            instance.load()
+            await asyncio.to_thread(instance.load)
             logger.info("Milvus collection loaded into memory")
         except Exception as e:
             logger.warning(f"Failed to load collection into memory: {e}")
@@ -497,14 +501,18 @@ class MilvusKB(KnowledgeBase):
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
 
-    def _get_existing_milvus_collection(self, kb_id: str) -> Collection | None:
+    async def _get_existing_milvus_collection(self, kb_id: str) -> Collection | None:
         """获取已存在的集合，不因删除操作创建新集合。"""
         collection = self.collections.get(kb_id)
         if collection is not None:
             return collection
-        if not utility.has_collection(kb_id, using=self.connection_alias):
-            return None
-        return Collection(name=kb_id, using=self.connection_alias)
+
+        def load_existing_collection() -> Collection | None:
+            if not utility.has_collection(kb_id, using=self.connection_alias):
+                return None
+            return Collection(name=kb_id, using=self.connection_alias)
+
+        return await asyncio.to_thread(load_existing_collection)
 
     def _split_text_into_chunks(self, text: str, file_id: str, filename: str, params: dict) -> list[dict]:
         """将文本分割成块"""
@@ -607,17 +615,18 @@ class MilvusKB(KnowledgeBase):
 
     async def _delete_file_chunks_from_milvus(self, collection: Collection, file_id: str) -> None:
         expr = f'file_id == "{file_id}"'
-        results = collection.query(expr=expr, output_fields=["id"], limit=1)
 
-        if not results:
-            logger.info(f"File {file_id} not found in Milvus, skipping delete operation")
-            return
-
-        def _delete_from_milvus():
+        def delete_from_milvus() -> bool:
+            results = collection.query(expr=expr, output_fields=["id"], limit=1)
+            if not results:
+                return False
             collection.delete(expr)
-            logger.info(f"Deleted chunks for file {file_id} from Milvus")
+            return True
 
-        await asyncio.to_thread(_delete_from_milvus)
+        if await asyncio.to_thread(delete_from_milvus):
+            logger.info(f"Deleted chunks for file {file_id} from Milvus")
+        else:
+            logger.info(f"File {file_id} not found in Milvus, skipping delete operation")
 
     async def _hydrate_chunk_sources(self, kb_id: str, chunks: list[dict]) -> None:
         file_ids = sorted(
@@ -1304,7 +1313,7 @@ class MilvusKB(KnowledgeBase):
             except Exception as e:
                 logger.error(f"Failed to delete graph data for file {file_id}: {e}")
         await chunk_repo.delete_by_file_id(file_id)
-        collection = self._get_existing_milvus_collection(kb_id)
+        collection = await self._get_existing_milvus_collection(kb_id)
 
         if collection:
             # 先查询文件是否存在，避免不必要的删除操作

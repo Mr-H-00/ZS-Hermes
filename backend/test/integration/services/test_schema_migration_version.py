@@ -118,12 +118,17 @@ async def test_schema_migration_lock_serializes_real_postgres_sessions() -> None
         await engine.dispose()
 
 
-async def test_business_v1_to_v2_adds_durable_task_contract_idempotently() -> None:
-    """相邻升级保留 legacy 非终态，并用 handler_version=0 交给 full worker 收敛。"""
+async def test_business_schema_converges_both_v2_branches_idempotently() -> None:
+    """合并后的收敛同时补齐 Durable Task 与 Project 生命周期结构。"""
     schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_task_schema")
 
     try:
+        await manager.create_business_tables()
         async with scoped_engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE projects DROP CONSTRAINT ck_projects_status"))
+            await connection.execute(text("ALTER TABLE projects DROP COLUMN deleted_at"))
+            await connection.execute(text("ALTER TABLE projects DROP COLUMN status"))
+            await connection.execute(text("DROP TABLE tasks"))
             await connection.execute(text(LEGACY_TASK_TABLE_SQL))
             await connection.execute(
                 text(
@@ -132,11 +137,11 @@ async def test_business_v1_to_v2_adds_durable_task_contract_idempotently() -> No
                 )
             )
 
-        await manager.upgrade_business_schema_v1_to_v2()
-        await manager.upgrade_business_schema_v1_to_v2()
+        await manager.ensure_business_schema()
+        await manager.ensure_business_schema()
 
         async with scoped_engine.connect() as connection:
-            columns = set(
+            task_columns = set(
                 (
                     await connection.execute(
                         text(
@@ -152,6 +157,28 @@ async def test_business_v1_to_v2_adds_durable_task_contract_idempotently() -> No
                     text("SELECT status, error, handler_version, attempt_count FROM tasks WHERE id = 'legacy-running'")
                 )
             ).one()
+            project_columns = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema = :schema AND table_name = 'projects'"
+                        ),
+                        {"schema": schema},
+                    )
+                ).scalars()
+            )
+            project_constraints = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT constraint_name FROM information_schema.table_constraints "
+                            "WHERE table_schema = :schema AND table_name = 'projects'"
+                        ),
+                        {"schema": schema},
+                    )
+                ).scalars()
+            )
 
         assert {
             "handler_version",
@@ -161,8 +188,11 @@ async def test_business_v1_to_v2_adds_durable_task_contract_idempotently() -> No
             "heartbeat_at",
             "lease_expires_at",
             "timeout_seconds",
-        } <= columns
+        } <= task_columns
         assert tuple(row) == ("running", None, 0, 0)
+        assert {"status", "deleted_at"} <= project_columns
+        assert "ck_projects_status" in project_constraints
+        assert BUSINESS_SCHEMA_VERSION == 3
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 
@@ -209,6 +239,46 @@ async def test_knowledge_v1_to_v2_adds_file_attempt_owner_idempotently() -> None
             "service_interrupted: 旧执行实例中断，处理结果未知，请重试",
         )
         assert KNOWLEDGE_SCHEMA_VERSION == 2
+    finally:
+        await _drop_isolated_schema(schema, admin_engine, scoped_engine)
+
+
+async def test_unversioned_knowledge_baseline_adds_timestamp_before_owner_convergence() -> None:
+    """未版本化的旧表缺少 updated_at 时仍能收敛中间态。"""
+    schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_knowledge_baseline")
+    try:
+        await manager.create_knowledge_tables()
+        async with scoped_engine.begin() as connection:
+            await connection.execute(
+                text("INSERT INTO knowledge_bases (kb_id, name, kb_type) VALUES ('legacy-kb', 'legacy', 'milvus')")
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO knowledge_files (file_id, kb_id, filename, status) "
+                    "VALUES ('legacy-file', 'legacy-kb', 'legacy.txt', 'indexing')"
+                )
+            )
+            await connection.execute(text("ALTER TABLE knowledge_files DROP COLUMN processing_task_id"))
+            await connection.execute(text("ALTER TABLE knowledge_files DROP COLUMN processing_owner"))
+            await connection.execute(text("ALTER TABLE knowledge_files DROP COLUMN updated_at"))
+
+        await manager.create_knowledge_tables()
+        await manager.ensure_knowledge_schema()
+
+        async with scoped_engine.connect() as connection:
+            row = (
+                await connection.execute(
+                    text(
+                        "SELECT status, error_message, updated_at, processing_task_id, processing_owner "
+                        "FROM knowledge_files WHERE file_id = 'legacy-file'"
+                    )
+                )
+            ).one()
+        assert row.status == "error_indexing"
+        assert row.error_message == "service_interrupted: 旧执行实例中断，处理结果未知，请重试"
+        assert row.updated_at is not None
+        assert row.processing_task_id is None
+        assert row.processing_owner is None
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 

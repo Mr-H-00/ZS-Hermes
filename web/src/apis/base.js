@@ -64,7 +64,7 @@ function publicErrorMessage(url, status, headers, requiresAuth) {
       : '账户已锁定，请稍后再试'
   }
   if (status === 429) return '请求过于频繁，请稍后重试'
-  if (status >= 500) return '服务器内部错误，请使用 docker logs api-dev 查看详细日志'
+  if (status >= 500) return '服务器内部错误，请使用 docker compose logs api 查看详细日志'
   return `请求失败: ${status}`
 }
 

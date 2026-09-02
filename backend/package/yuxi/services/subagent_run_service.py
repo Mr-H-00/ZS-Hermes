@@ -22,9 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.agents.tool_approval import DEFAULT_TOOL_APPROVAL_MODE
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
+from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.repositories.subagent_thread_repository import SubagentThreadRepository
 from yuxi.services.input_message_service import AgentRunInputMessage
-from yuxi.services.workdir_service import resolve_conversation_workdir_binding
 from yuxi.storage.postgres.models_business import Agent, AgentRun, SubagentThread
 from yuxi.utils.datetime_utils import format_utc_datetime
 from yuxi.utils.hash_utils import hash_id, subagent_child_thread_id
@@ -99,6 +99,7 @@ class SubagentRunService:
         self.db = db
         self.run_repo = AgentRunRepository(db)
         self.conv_repo = ConversationRepository(db)
+        self.project_repo = ProjectRepository(db)
         self.thread_repo = SubagentThreadRepository(db)
 
     async def start(
@@ -337,11 +338,21 @@ class SubagentRunService:
         parent_conversation = await self.conv_repo.get_conversation_by_id(creator_run.conversation_id)
         if parent_conversation is None or parent_conversation.uid != str(uid):
             raise ValueError("父运行任务的 Conversation 不存在")
-        _parent_workdir_path, parent_project = await resolve_conversation_workdir_binding(
-            conversation=parent_conversation,
-            uid=str(uid),
-            db=self.db,
+        parent_project = await self.project_repo.lock_active_for_user(
+            parent_conversation.project_id,
+            str(uid),
         )
+        if parent_project is None:
+            raise ValueError("父运行任务的 Project 不存在")
+        parent_conversation = await self.conv_repo.lock_conversation_by_thread_id(creator_run.conversation_thread_id)
+        if (
+            parent_conversation is None
+            or parent_conversation.id != creator_run.conversation_id
+            or parent_conversation.uid != str(uid)
+            or parent_conversation.status == "deleted"
+            or parent_conversation.project_id != parent_project.id
+        ):
+            raise ValueError("父运行任务的 Conversation 不存在")
         parent_project_id = parent_project.id
 
         existing = await self.thread_repo.get_by_child_thread_for_user(child_thread_id, uid)
@@ -353,7 +364,11 @@ class SubagentRunService:
                 creator_run=creator_run,
             )
             child_conversation = await self.conv_repo.get_conversation_by_id(existing.child_conversation_id)
-            if child_conversation is None or child_conversation.uid != str(uid):
+            if (
+                child_conversation is None
+                or child_conversation.uid != str(uid)
+                or child_conversation.status == "deleted"
+            ):
                 raise ValueError("子智能体线程不存在")
             if child_conversation.project_id != parent_project_id:
                 raise ValueError("子智能体线程与父对话的 Workdir 不一致")

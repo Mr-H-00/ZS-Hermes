@@ -34,9 +34,9 @@ def cleanup_test_sandboxes():
     yield
 
 
-def _gate_identity() -> tuple[str, str]:
+def _gate_identity(kind: str = "success") -> tuple[str, str]:
     suffix = os.getenv("DURABLE_TASK_GATE_ID", "local").replace("-", "_")[:24]
-    return f"kb_task_worker_{suffix}", f"durable-task-worker-{suffix}"
+    return f"kb_task_worker_{suffix}_{kind}", f"durable-task-worker-{suffix}-{kind}"
 
 
 async def _delete_gate_facts(kb_id: str) -> None:
@@ -98,5 +98,43 @@ async def test_shipping_worker_startup_recovers_pending_publication() -> None:
         assert task.attempt_count == 1
         assert task.worker_id is None
         assert (dataset.build_metadata or {}).get("task_id") == task_id
+    finally:
+        await _delete_gate_facts(kb_id)
+
+
+async def test_shipping_worker_failure_runs_domain_hook() -> None:
+    """真实 worker 失败必须在同一终态事务中收敛数据集领域状态。"""
+    kb_id, dataset_name = _gate_identity("failure")
+    await _delete_gate_facts(kb_id)
+    async with pg_manager.get_async_session_context() as session:
+        session.add(KnowledgeBase(kb_id=kb_id, name=dataset_name, kb_type="dify"))
+
+    submitted = await EvaluationService().generate_dataset(
+        kb_id=kb_id,
+        name=dataset_name,
+        description="deterministic failure-hook path",
+        count=1,
+        neighbors_count=1,
+        concurrency_count=1,
+        llm_model_spec="unused:model",
+        created_by="integration",
+    )
+
+    try:
+        for _attempt in range(150):
+            task = await TaskRepository().get_by_id(submitted["task_id"])
+            dataset = await EvaluationRepository().get_dataset(submitted["dataset_id"])
+            metadata = dataset.build_metadata or {}
+            if task and task.status == "failed" and metadata.get("status") == "failed":
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("Durable Task failure hook did not converge through the shipping worker")
+
+        assert task.attempt_count == 1
+        assert task.worker_id is None
+        assert metadata.get("task_id") == task.id
+        assert metadata.get("progress") == 100
+        assert metadata.get("error_message")
     finally:
         await _delete_gate_facts(kb_id)

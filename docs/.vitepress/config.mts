@@ -106,6 +106,7 @@ export default defineConfig({
         text: '开发指南',
         items: [
           { text: '参与贡献', link: '/develop-guides/contributing' },
+          { text: '并行工作树与隔离环境', link: '/develop-guides/parallel-worktree-environments' },
           { text: '文档编写与维护', link: '/develop-guides/documentation-guidelines' },
           { text: '开发路线图', link: '/develop-guides/roadmap' },
           { text: '版本变更记录', link: '/develop-guides/changelog' },

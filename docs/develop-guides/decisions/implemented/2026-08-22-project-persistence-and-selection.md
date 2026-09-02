@@ -16,7 +16,7 @@ Owner：backend/package/yuxi/services/project_service.py
 
 所有 Conversation 只绑定不可变 `project_id`，并通过非空列与 `(project_id, uid)` 复合外键拒绝缺失或跨用户绑定；Conversation 不保存 `workdir_path`。v0.7.1 发布 schema 尚无该路径列，因此一次性迁移直接为每个顶层 Conversation 创建 implicit managed Project，SubAgent Conversation 继承父 Conversation 的 Project，不保留当前开发分支曾引入的 path-only 中间态。统一 resolver 始终从 Project 读取 Workdir。AgentRun 不保存 `project_id`；Resume 使用原 Conversation，SubAgent Conversation 继承父 Conversation 的绑定。
 
-新建对话草稿态提供“自动创建新项目”、选择已有 Project、新建 Project和添加历史项目。默认项在首次发送时创建 implicit managed Project；用户显式打开“新建 Project”时必须从 Workspace 选择一个目录并创建 selectable linked Project，不再暴露 managed/linked 模式选项。除 Workspace 根目录外的任意已有目录都可选择，也可在统一 Workspace 选择器中即时新建目录。“添加历史项目”只把所选 Conversation 的统一解析 Workdir 预填到同一个新建表单，不创建、不修改 Conversation，也不使用对话标题作为 Project 名称；用户命名并确认后仍调用普通 Project 创建接口。项目选择只在 Conversation 创建前出现，已有 Conversation 不可改绑。Project 删除、GC、左侧分组、多 Workdir、ACL 和跨用户共享不属于一期。
+新建对话草稿态提供“自动创建新项目”、选择已有 Project、新建 Project和添加历史项目。默认项在首次发送时创建 implicit managed Project；用户显式打开“新建 Project”时必须从 Workspace 选择一个目录并创建 selectable linked Project，不再暴露 managed/linked 模式选项。除 Workspace 根目录外的任意已有目录都可选择，也可在统一 Workspace 选择器中即时新建目录。“添加历史项目”只把所选 Conversation 的统一解析 Workdir 预填到同一个新建表单，不创建、不修改 Conversation，也不使用对话标题作为 Project 名称；用户命名并确认后仍调用普通 Project 创建接口。项目选择只在 Conversation 创建前出现，已有 Conversation 不可改绑。Project 的重命名、软删除和侧边栏分组由 [Project 对话分组与生命周期管理](./2026-08-30-project-conversation-sidebar-management.md) 继续拥有；GC、多 Workdir、ACL 和跨用户共享不属于当前范围。
 
 统一 Workspace tree 从 Project repository 读取当前用户 selectable Project 的 Workdir。`/projects` 子树只返回这些目录、其祖先和其内部内容；implicit Project 与未归属任何 selectable Project 的匿名目录不返回。若 `projects` 根本身被选为 Project，则其完整子树可见。该规则同样作用于递归 tree，不在前端按 UUID 外观猜测。
 
@@ -42,7 +42,7 @@ Owner：backend/package/yuxi/services/project_service.py
 | 测试清理以 Project 为 Workdir Owner | 并发 Project 绑定期间误删目录，或删除最后一个 Conversation 时误删 selectable Project | 用户级 Project-Workdir 事务锁与测试清理器 | 真实 PostgreSQL 清理、锁竞争与保留测试 | 重叠 Project 拒绝；等待清理子目录的 linked 创建在删目录后重新校验并失败；selectable Project 保留 | Passed |
 | 历史对话仅提供解析后的目录快捷选择 | 候选点击产生 Project，或新旧 Conversation 路径解析不一致 | ProjectRepository、Project UI | Project service unit、前端 unit 与真实页面 | 同目录候选去重；内部/非 active Conversation 不返回；名称保持为空 | Passed |
 | 前端只在新对话显示紧凑选择器，发送与附件共享一次线程创建 | 已有对话可改绑，响应丢失重试重复创建，或旧异步响应覆盖新状态 | AgentChatComponent 与 Project UI | 前端 lint、85 unit、build；Playwright 默认/展开/375px/暗色页面，无 console error | single-flight reset、稳定 request ID、延迟响应上下文 guard、创建期间禁止切换 | Passed |
-| 左侧列表与 runtime 生命周期不因共享 Project 合并 | 对话被错误分组，或共享 Project 的顶层 Run 共享 Sandbox | Conversation 列表与 AgentRun runtime scope | 完整 backend/frontend unit 与真实页面检查 | 共享 Project 的对话仍各自显示；Run 不冗余 project_id | Passed |
+| 最近视图与 runtime 生命周期不因共享 Project 合并 | 最近视图错误合并 Conversation，或共享 Project 的顶层 Run 共享 Sandbox | Conversation 列表与 AgentRun runtime scope | 完整 backend/frontend unit 与真实页面检查 | 项目视图只组织入口；Run 不冗余 project_id | Passed |
 
 ## 后果
 
@@ -53,7 +53,7 @@ Owner：backend/package/yuxi/services/project_service.py
 - Project Workdir 路径不再唯一；多个业务 Project 可以显式共享同一目录，运行和文件变化也因此共享。
 - `/projects` 下尚未归属 selectable Project 的匿名目录由后端统一 tree 隐藏；目录存在与可见性不能由前端目录名推断。
 - 线程列表联查 Project，避免侧边栏按线程逐条解析 Workdir。
-- Project 删除、GC、改绑、左侧分组、多 Workdir、ACL 和跨用户共享继续留给独立需求。
+- Project 改绑、GC、多 Workdir、ACL 和跨用户共享继续留给独立需求。
 
 ## 风险
 
