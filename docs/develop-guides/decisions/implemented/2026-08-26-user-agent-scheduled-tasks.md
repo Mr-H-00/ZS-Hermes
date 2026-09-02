@@ -30,7 +30,7 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 
 ## 后果
 
-任务定义和 occurrence 成为 PostgreSQL 业务事实，调度复用现有 worker 健康与 AgentRun 生命周期。合并后的 business schema 版本为 4，storage-migrator 将已有 v3 的 Durable Task 或定时任务分支收敛为同时包含两套结构的当前版本；功能同时增加 `croniter` 依赖。任务删除保留历史 Conversation、Message 和 AgentRun；账号删除会清理任务与调度 occurrence，但已进入普通运行链路的 Conversation、Message 和 AgentRun 仍按各自生命周期处理。
+任务定义和 occurrence 成为 PostgreSQL 业务事实，调度复用现有 worker 健康与 AgentRun 生命周期。定时任务表属于 business schema v3，支持的升级来源由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义；功能同时增加 `croniter` 依赖。任务删除保留历史 Conversation、Message 和 AgentRun；账号删除会清理任务与调度 occurrence，但已进入普通运行链路的 Conversation、Message 和 AgentRun 仍按各自生命周期处理。
 
 前端只保留列表、同页编辑器、频率转换和自动保存 Owner。非法草稿不会发送请求；未知创建结果使用同一 `request_id` 重放原始意图，恢复 `job_id` 后再 PATCH 后续编辑。保存与导航共用一个 drain，在全部变更收敛前不能离开。Run now 收到服务端结果后才释放请求 ID；无法无损映射的 Cron 保持为自定义表达式。
 
@@ -43,7 +43,7 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 | 创建与 Run now 在响应丢失后可以安全重放 | 重复长期任务或手动 occurrence | autosave + scheduled service + PostgreSQL unique/primary key | web unit + router unit + `python -m pytest -q test/integration/api/test_scheduled_agent_api.py` | 同一 ID 与同一意图返回原记录；创建响应丢失后继续编辑会先原样恢复创建结果再 PATCH；同一 ID 改变创建配置或目标任务返回 409 | Passed |
 | 触发记录不复制 Request/Run 终态 | 镜像状态漂移后永久阻塞后续任务 | ScheduledAgentRun + AgentRunRequest + AgentRun 查询 | service unit + PostgreSQL integration | AgentRun 终态后重叠判断恢复为 false | Passed |
 | occurrence 提交后进入统一 Request/Run 与 worker 链路 | ARQ 先于持久事实，或只创建任务不执行 | scheduled service + submit_run_command + worker | `python -m pytest -q test/e2e/test_deterministic_agent_path_e2e.py::test_scheduled_task_run_now_reaches_exact_conversation_and_result` | E2E 回读 Run 终态、输出和同一 thread 历史，并清理测试创建的 Job、Conversation、Project 与工作区目录 | Passed |
-| business schema v1/v2/v3 可以幂等升级，账号软删除同步清理任务数据 | 历史数据库无法升级、丢失既有数据或删除账号后恢复旧任务 | storage migration + UserRepository + PostgreSQL constraints | `python -m pytest -q test/integration/services/test_schema_migration_version.py test/integration/services/test_scheduled_agent_repository.py` | 隔离 v3 schema 重复升级后保留 User 与 Project 并建立最终调度约束；未知未来版本被拒绝；真实软删除后 Job 与 occurrence 均不存在 | Passed |
+| business schema v2 可以幂等升级，账号软删除同步清理任务数据 | 0.7.2 数据库无法升级、丢失既有数据或删除账号后恢复旧任务 | storage migration + UserRepository + PostgreSQL constraints | `python -m pytest -q test/integration/services/test_schema_migration_version.py test/integration/services/test_scheduled_agent_repository.py` | 隔离 v2 schema 重复升级后保留既有 Task 并建立最终调度约束；未知版本被拒绝；真实软删除后 Job 与 occurrence 均不存在 | Passed |
 | 暂停不补跑，恢复从当前时间计算下一次触发 | 恢复后立即执行暂停期旧时间 | scheduled service | service unit + PostgreSQL integration | `false → true` 后 `next_run_at` 晚于当前时间 | Passed |
 | 无人值守任务默认不完全信任工具 | 未显式授权即执行敏感工具 | router + service + editor | router/service unit + HTTP integration | 省略审批字段时持久化为 `default` | Passed |
 | 列表、同页编辑、自动保存和历史跳转可用 | 保存丢失或跳入相邻对话 | ScheduledAgentsView + ScheduledAgentEditor | frequency/autosave unit、lint、build、真实浏览器与 API 回读 | create 在途的新编辑继续保存；PATCH 失败或非法编辑阻止导航；历史必须同时具有 thread 与可用标记 | Passed |

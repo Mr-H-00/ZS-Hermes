@@ -20,7 +20,7 @@ beta2 延续 beta1 的存储与数据库迁移边界。从 v0.7.1 或更早版�
 
 ## 0.7.3 （当前）
 
-- 通用后台 Task 从 API 进程内 coroutine 队列迁至 PostgreSQL 执行意图与 ARQ worker：注册 Handler 通过 owner/heartbeat/lease 执行，数据库去重阻止并发重复提交，失联任务明确失败；容量释放时接力唤醒下一批 pending intent，full/LITE worker 分别发布能力健康租约，迁移生成的 legacy v0 之外不复用未知版本 failure hook。知识执行器与 Milvus 同步 RPC 移出共享 worker 事件循环；合并后的 business schema v4 同时收敛 Durable Task、Project 生命周期与用户定时 Agent 结构。
+- 通用后台 Task 从 API 进程内 coroutine 队列迁至 PostgreSQL 执行意图与 ARQ worker：注册 Handler 通过 owner/heartbeat/lease 执行，数据库去重阻止并发重复提交，失联任务明确失败；容量释放时接力唤醒下一批 pending intent，full/LITE worker 分别发布能力健康租约，迁移生成的 legacy v0 之外不复用未知版本 failure hook。知识执行器与 Milvus 同步 RPC 移出共享 worker 事件循环；business schema v3 从 0.7.2 的 v2 一次收敛 Durable Task、Project 生命周期与用户定时 Agent 结构。
 
 ## v0.7.2.beta1 (2026-08-23)
 

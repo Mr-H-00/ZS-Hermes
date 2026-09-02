@@ -126,7 +126,7 @@ async def main() -> None:
                 "business",
                 business_version,
                 BUSINESS_SCHEMA_VERSION,
-                upgrade_from=(1, 2, 3),
+                upgrade_from=(2,),
             )
             knowledge_version = versions.get("knowledge")
             if not lite_mode_enabled():

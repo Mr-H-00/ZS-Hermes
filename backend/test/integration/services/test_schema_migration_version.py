@@ -11,7 +11,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from yuxi.storage.postgres.manager import BUSINESS_SCHEMA_VERSION, KNOWLEDGE_SCHEMA_VERSION, PostgresManager
-from yuxi.storage.postgres.models_business import Base
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -119,16 +118,15 @@ async def test_schema_migration_lock_serializes_real_postgres_sessions() -> None
         await engine.dispose()
 
 
-async def test_business_schema_converges_both_v2_branches_idempotently() -> None:
-    """合并后的收敛同时补齐 Durable Task 与 Project 生命周期结构。"""
+async def test_business_v2_to_v3_converges_current_schema_idempotently() -> None:
+    """0.7.2 business v2 升级后补齐当前 Task 与定时 Agent 结构。"""
     schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_task_schema")
 
     try:
         await manager.create_business_tables()
         async with scoped_engine.begin() as connection:
-            await connection.execute(text("ALTER TABLE projects DROP CONSTRAINT ck_projects_status"))
-            await connection.execute(text("ALTER TABLE projects DROP COLUMN deleted_at"))
-            await connection.execute(text("ALTER TABLE projects DROP COLUMN status"))
+            await connection.execute(text("DROP TABLE scheduled_agent_runs"))
+            await connection.execute(text("DROP TABLE scheduled_agent_jobs"))
             await connection.execute(text("DROP TABLE tasks"))
             await connection.execute(text(LEGACY_TASK_TABLE_SQL))
             await connection.execute(
@@ -158,23 +156,62 @@ async def test_business_schema_converges_both_v2_branches_idempotently() -> None
                     text("SELECT status, error, handler_version, attempt_count FROM tasks WHERE id = 'legacy-running'")
                 )
             ).one()
-            project_columns = set(
+            scheduled_tables = set(
                 (
                     await connection.execute(
                         text(
-                            "SELECT column_name FROM information_schema.columns "
-                            "WHERE table_schema = :schema AND table_name = 'projects'"
+                            "SELECT table_name FROM information_schema.tables "
+                            "WHERE table_schema = :schema "
+                            "AND table_name IN ('scheduled_agent_jobs', 'scheduled_agent_runs')"
                         ),
                         {"schema": schema},
                     )
                 ).scalars()
             )
-            project_constraints = set(
+            scheduled_columns = {
+                (row.table_name, row.column_name)
+                for row in (
+                    await connection.execute(
+                        text(
+                            "SELECT table_name, column_name FROM information_schema.columns "
+                            "WHERE table_schema = :schema "
+                            "AND table_name IN ('scheduled_agent_jobs', 'scheduled_agent_runs')"
+                        ),
+                        {"schema": schema},
+                    )
+                )
+            }
+            scheduled_constraints = {
+                row.conname: row.definition
+                for row in (
+                    await connection.execute(
+                        text(
+                            """
+                            SELECT con.conname, pg_get_constraintdef(con.oid) AS definition
+                            FROM pg_constraint AS con
+                            JOIN pg_namespace AS ns ON ns.oid = con.connamespace
+                            WHERE ns.nspname = :schema
+                              AND con.conname IN (
+                                  'fk_scheduled_agent_jobs_project_uid',
+                                  'uq_scheduled_agent_jobs_uid_creation_request',
+                                  'scheduled_agent_runs_job_id_fkey',
+                                  'uq_scheduled_agent_runs_job_occurrence',
+                                  'uq_scheduled_agent_runs_request',
+                                  'uq_scheduled_agent_runs_thread'
+                              )
+                            """
+                        ),
+                        {"schema": schema},
+                    )
+                )
+            }
+            scheduled_indexes = set(
                 (
                     await connection.execute(
                         text(
-                            "SELECT constraint_name FROM information_schema.table_constraints "
-                            "WHERE table_schema = :schema AND table_name = 'projects'"
+                            "SELECT indexname FROM pg_indexes "
+                            "WHERE schemaname = :schema "
+                            "AND tablename IN ('scheduled_agent_jobs', 'scheduled_agent_runs')"
                         ),
                         {"schema": schema},
                     )
@@ -191,9 +228,29 @@ async def test_business_schema_converges_both_v2_branches_idempotently() -> None
             "timeout_seconds",
         } <= task_columns
         assert tuple(row) == ("running", None, 0, 0)
-        assert {"status", "deleted_at"} <= project_columns
-        assert "ck_projects_status" in project_constraints
-        assert BUSINESS_SCHEMA_VERSION == 4
+        assert scheduled_tables == {"scheduled_agent_jobs", "scheduled_agent_runs"}
+        assert {
+            ("scheduled_agent_jobs", "creation_request_id"),
+            ("scheduled_agent_jobs", "creation_intent_hash"),
+            ("scheduled_agent_jobs", "model_spec"),
+            ("scheduled_agent_runs", "model_spec"),
+        }.issubset(scheduled_columns)
+        assert "ON DELETE CASCADE" in scheduled_constraints["fk_scheduled_agent_jobs_project_uid"]
+        assert "ON DELETE CASCADE" in scheduled_constraints["scheduled_agent_runs_job_id_fkey"]
+        assert (
+            "UNIQUE (uid, creation_request_id)" in scheduled_constraints["uq_scheduled_agent_jobs_uid_creation_request"]
+        )
+        assert {
+            "uq_scheduled_agent_runs_job_occurrence",
+            "uq_scheduled_agent_runs_request",
+            "uq_scheduled_agent_runs_thread",
+        }.issubset(scheduled_constraints)
+        assert {
+            "ix_scheduled_agent_jobs_due",
+            "ix_scheduled_agent_runs_job_created",
+            "ix_scheduled_agent_runs_dispatching",
+        }.issubset(scheduled_indexes)
+        assert BUSINESS_SCHEMA_VERSION == 3
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 
@@ -333,169 +390,3 @@ async def test_schema_version_is_persisted_and_runtime_validation_fails_closed()
         assert await manager.get_schema_versions() == {"business": BUSINESS_SCHEMA_VERSION}
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
-
-
-async def test_develop_v3_business_schema_upgrades_to_scheduled_schema_idempotently() -> None:
-    """develop v3 数据库重复升级后保留原数据并建立完整调度约束。"""
-    schema = f"pytest_scheduled_migration_{uuid.uuid4().hex[:16]}"
-    admin_engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
-    scoped_engine = None
-    uid = f"migration-user-{uuid.uuid4().hex[:12]}"
-    project_id = str(uuid.uuid4())
-
-    try:
-        async with admin_engine.begin() as connection:
-            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-
-        scoped_engine = create_async_engine(
-            os.environ["POSTGRES_URL"],
-            pool_pre_ping=True,
-            connect_args={"server_settings": {"search_path": schema}},
-        )
-        async with scoped_engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
-            await connection.execute(text("DROP TABLE scheduled_agent_runs"))
-            await connection.execute(text("DROP TABLE scheduled_agent_jobs"))
-            await connection.execute(
-                text(
-                    """
-                    INSERT INTO users (username, uid, password_hash, role, login_failed_count, is_deleted)
-                    VALUES ('migration user', :uid, '$argon2id$placeholder', 'user', 0, 0)
-                    """
-                ),
-                {"uid": uid},
-            )
-            await connection.execute(
-                text(
-                    """
-                    INSERT INTO projects (
-                        id, uid, name, selection_status, workdir_path, directory_mode
-                    ) VALUES (
-                        :project_id, :uid, 'Migration Project', 'selectable',
-                        :workdir_path, 'managed'
-                    )
-                    """
-                ),
-                {"project_id": project_id, "uid": uid, "workdir_path": f"projects/{project_id}"},
-            )
-
-        manager = _scoped_manager(scoped_engine)
-        await manager.create_schema_version_table()
-        await manager.record_schema_version("business", 3)
-        await manager.ensure_business_schema()
-        await manager.ensure_business_schema()
-        await manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
-
-        async with scoped_engine.connect() as connection:
-            tables = {
-                row.table_name
-                for row in (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT table_name
-                            FROM information_schema.tables
-                            WHERE table_schema = :schema
-                              AND table_name IN ('scheduled_agent_jobs', 'scheduled_agent_runs')
-                            """
-                        ),
-                        {"schema": schema},
-                    )
-                )
-            }
-            columns = {
-                (row.table_name, row.column_name)
-                for row in (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT table_name, column_name
-                            FROM information_schema.columns
-                            WHERE table_schema = :schema
-                              AND table_name IN ('scheduled_agent_jobs', 'scheduled_agent_runs')
-                            """
-                        ),
-                        {"schema": schema},
-                    )
-                )
-            }
-            constraints = {
-                row.conname: row.definition
-                for row in (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT con.conname, pg_get_constraintdef(con.oid) AS definition
-                            FROM pg_constraint AS con
-                            JOIN pg_namespace AS ns ON ns.oid = con.connamespace
-                            WHERE ns.nspname = :schema
-                              AND con.conname IN (
-                                  'fk_scheduled_agent_jobs_project_uid',
-                                  'uq_scheduled_agent_jobs_uid_creation_request',
-                                  'scheduled_agent_runs_job_id_fkey',
-                                  'uq_scheduled_agent_runs_job_occurrence',
-                                  'uq_scheduled_agent_runs_request',
-                                  'uq_scheduled_agent_runs_thread'
-                              )
-                            """
-                        ),
-                        {"schema": schema},
-                    )
-                )
-            }
-            indexes = {
-                row.indexname
-                for row in (
-                    await connection.execute(
-                        text(
-                            """
-                            SELECT indexname
-                            FROM pg_indexes
-                            WHERE schemaname = :schema
-                              AND tablename IN ('scheduled_agent_jobs', 'scheduled_agent_runs')
-                            """
-                        ),
-                        {"schema": schema},
-                    )
-                )
-            }
-            preserved = await connection.execute(
-                text(
-                    """
-                    SELECT
-                        (SELECT count(*) FROM users WHERE uid = :uid) AS users,
-                        (SELECT count(*) FROM projects WHERE id = :project_id) AS projects
-                    """
-                ),
-                {"uid": uid, "project_id": project_id},
-            )
-            counts = preserved.one()
-
-        assert tables == {"scheduled_agent_jobs", "scheduled_agent_runs"}
-        assert {
-            ("scheduled_agent_jobs", "model_spec"),
-            ("scheduled_agent_jobs", "creation_request_id"),
-            ("scheduled_agent_jobs", "creation_intent_hash"),
-            ("scheduled_agent_runs", "model_spec"),
-        }.issubset(columns)
-        assert "ON DELETE CASCADE" in constraints["fk_scheduled_agent_jobs_project_uid"]
-        assert "ON DELETE CASCADE" in constraints["scheduled_agent_runs_job_id_fkey"]
-        assert "UNIQUE (uid, creation_request_id)" in constraints["uq_scheduled_agent_jobs_uid_creation_request"]
-        assert {
-            "uq_scheduled_agent_runs_job_occurrence",
-            "uq_scheduled_agent_runs_request",
-            "uq_scheduled_agent_runs_thread",
-        }.issubset(constraints)
-        assert {
-            "ix_scheduled_agent_jobs_due",
-            "ix_scheduled_agent_runs_job_created",
-            "ix_scheduled_agent_runs_dispatching",
-        }.issubset(indexes)
-        assert tuple(counts) == (1, 1)
-        assert await manager.get_schema_versions() == {"business": BUSINESS_SCHEMA_VERSION}
-    finally:
-        if scoped_engine is not None:
-            await scoped_engine.dispose()
-        async with admin_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        await admin_engine.dispose()

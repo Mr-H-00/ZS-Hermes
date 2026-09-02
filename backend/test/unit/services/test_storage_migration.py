@@ -196,28 +196,43 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
     assert "converge:False" in calls
 
 
-def test_business_schema_accepts_previous_versions_for_idempotent_upgrade():
-    storage_migration._require_supported_version(
-        "business",
-        2,
-        storage_migration.BUSINESS_SCHEMA_VERSION,
-        upgrade_from=(1, 2, 3),
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unsupported_version", [1, storage_migration.BUSINESS_SCHEMA_VERSION + 1])
+async def test_main_rejects_unsupported_business_schema_before_ddl(monkeypatch, unsupported_version: int):
+    calls: list[str] = []
+
+    @asynccontextmanager
+    async def session_context():
+        yield _Session()
+
+    manager = SimpleNamespace(
+        initialize=lambda: calls.append("initialize"),
+        schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
+        create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
+        get_schema_versions=lambda: _async_value(
+            {"business": unsupported_version, "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION}
+        ),
+        get_async_session_context=session_context,
+        close=lambda: _record(calls, "close"),
     )
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(
+        storage_migration,
+        "read_v071_workdir_plan",
+        lambda _db: _async_value(V071WorkdirMigrationPlan(False, (), ())),
+    )
+    monkeypatch.setattr(storage_migration, "_legacy_skill_roots_exist", lambda: False)
+    monkeypatch.setattr(storage_migration, "_legacy_system_config_exists", lambda: False)
+    monkeypatch.setattr(storage_migration, "runtime_storage_requires_quiescence", lambda: False)
 
+    with pytest.raises(RuntimeError, match=f"Unsupported business schema version: {unsupported_version}"):
+        await storage_migration.main()
 
-def test_schema_migration_rejects_unknown_version():
-    with pytest.raises(RuntimeError, match="Unsupported business schema version"):
-        storage_migration._require_supported_version(
-            "business",
-            storage_migration.BUSINESS_SCHEMA_VERSION + 1,
-            storage_migration.BUSINESS_SCHEMA_VERSION,
-            upgrade_from=(1, 2, 3),
-        )
+    assert calls == ["initialize", "schema_lock", "create_schema_version_table", "close"]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("business_version", [1, 2, 3])
-async def test_previous_business_schema_is_converged_and_versioned_as_current(monkeypatch, business_version: int):
+async def test_main_v2_business_schema_is_converged_and_versioned_as_current(monkeypatch):
     calls: list[str] = []
     sessions = [_Session(), _Session(), _Session()]
 
@@ -230,7 +245,7 @@ async def test_previous_business_schema_is_converged_and_versioned_as_current(mo
         schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
         create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
         get_schema_versions=lambda: _async_value(
-            {"business": business_version, "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION}
+            {"business": 2, "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION}
         ),
         record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
         create_business_tables=lambda: _record(calls, "create_business"),
