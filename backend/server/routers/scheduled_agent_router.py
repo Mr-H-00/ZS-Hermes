@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.services.scheduled_agent_service import (
     create_scheduled_job,
@@ -50,6 +50,14 @@ class ScheduledAgentUpdate(BaseModel):
     tool_approval_mode: str | None = Field(None, max_length=32)
     model_spec: str | None = Field(None, max_length=512)
     enabled: bool | None = None
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def reject_null_enabled(cls, value):
+        """拒绝把显式 null 静默解释为停用任务。"""
+        if value is None:
+            raise ValueError("enabled 不得为 null")
+        return value
 
 
 class ScheduledAgentRunNow(BaseModel):

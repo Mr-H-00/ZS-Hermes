@@ -60,9 +60,9 @@ Viewer、附件和 artifact API 通过持久化 Workspace/Workdir 读取文件�
 
 ## 用户定时 Agent
 
-用户定时 Agent 由 `scheduled_agent_jobs` 保存 Project、Agent、提示词、审批模式和计划定义，由 worker 周期读取到期任务并在 PostgreSQL 行锁下创建唯一触发记录。触发记录只保存 occurrence、配置快照和提交状态；排队状态从 AgentRunRequest 读取，执行状态从 AgentRun 读取。每次触发使用独立 Conversation thread 并绑定原 Project；触发记录在自身行锁内复用统一 AgentRun Request/Run 链路。明确的领域错误终结触发记录，未知瞬时错误保持可恢复状态并在下一轮锁定重查 Request；单条记录失败不会中断同批恢复或普通 worker 启动。Redis/ARQ 只负责唤醒，AgentRun 的消息、Workdir、lease 和最终输出仍由普通运行链路拥有。
+用户定时 Agent 由 `scheduled_agent_jobs` 保存 Project、Agent、提示词、审批模式和计划，worker 在 PostgreSQL 行锁下为到期任务创建唯一 occurrence。每次 occurrence 创建绑定原 Project 的独立 Conversation，并复用统一 AgentRun Request/Run 链路；触发记录只保存配置快照和提交状态，排队与执行状态分别从 AgentRunRequest 和 AgentRun 读取。明确的领域错误终结 occurrence，未知瞬时错误在下一轮重查 Request；单条失败不阻断同批任务。Redis/ARQ 只负责唤醒。
 
-任务 API 只返回当前用户拥有且未删除的任务。创建、更新和触发时服务端重新执行 Project 归属及 Agent 可见性查询；停用或任务软删除只阻止未来触发，不删除执行历史、Conversation、Message 或 AgentRun。账号软删除会在同一事务移除任务定义与调度 occurrence，避免账号恢复后重新领取旧任务。任务支持 Run now、5 段 cron 和 IANA 时区，数据库保存 UTC 下一次触发时间；停机错过多个周期只合并为一次，同一任务已有非终态执行时记录 skipped。
+任务 API 只返回当前用户拥有且未删除的任务，并在创建、更新和触发时重新校验 Project 归属与 Agent 可见性。停用或任务软删除只阻止未来触发；账号软删除在同一事务删除任务及 occurrence。任务支持 Run now、5 段 cron 和 IANA 时区，数据库保存 UTC 下一次触发时间；错过多个周期只合并一次，已有非终态执行时记录 skipped。
 
 ## 恢复和失败
 

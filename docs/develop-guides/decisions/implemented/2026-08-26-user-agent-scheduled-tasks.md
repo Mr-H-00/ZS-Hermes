@@ -16,9 +16,7 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 
 每次触发创建绑定原 Project 的新 Conversation。任务软删除只停止未来触发；账号软删除在同一事务物理删除任务定义，并由数据库级联清理调度历史；Project 物理删除使用相同外键级联。Run now 复用相同的 occurrence 与提交路径。
 
-前端入口位于智能体管理的定时任务 Tab。默认只显示任务列表；选择任务或点击列表工具栏中的新建入口后才以轻量过渡展开工作区。宽屏按 4/6 比例分配列表与详情，两栏共同随可用空间伸缩，详情内容不再二次限宽；窄屏展开详情后隐藏列表，由关闭入口返回，避免列表堆叠在表单上方。左侧任务项使用内缩的圆角 hover 与选中面；右侧只在任务指令、详情和频率三个信息组使用一级圆角容器，组内使用分割行而不继续嵌套卡片。工作区不区分查看态和编辑态，名称、指令、运行上下文与频率始终可以直接编辑，合法变更经短暂 debounce 后自动保存；新任务在必填项完整后自动创建，不提供第二套编辑页面或保存按钮。
-
-频率编辑用原生单选直接呈现每日、每周、每月、每年和自定义五段 Cron，避免为五个固定选项增加一层下拉与键盘状态；时区沿用浏览器 IANA 时区并保留在 payload 中，不占用主编辑界面。Agent、Project、模型和审批复用现有选择组件，其中 Agent 选择器由聊天页和定时任务共同使用；任务指令使用普通多行输入，聊天附件、提及、发送和流式状态不进入定时任务。创建默认使用 `default` 审批模式，`always_trust` 只允许用户显式选择。
+前端入口位于智能体管理的定时任务 Tab。默认显示任务列表，选择或新建任务后展开同页编辑器；窄屏只显示当前一栏。名称、指令、运行上下文和频率直接编辑，合法变更自动保存，新任务在必填项完整后自动创建。频率、Agent、月份和日期使用原生表单控件，Project、模型和审批复用现有组件；任务指令不复用聊天输入链路。创建默认使用 `default` 审批模式，`always_trust` 只允许用户显式选择。
 
 运行记录直接链接本次触发创建的 Conversation。接口只在对应 `AgentRunRequest` 已存在时返回 `conversation_available=true`，前端同时要求 `thread_id` 才允许跳转；尚未创建对话的 occurrence 不可点击。
 
@@ -34,7 +32,7 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 
 任务定义和 occurrence 成为 PostgreSQL 业务事实，调度复用现有 worker 健康与 AgentRun 生命周期。代价是 business schema 升至版本 3，并增加 `croniter` 依赖。任务删除保留历史 Conversation、Message 和 AgentRun；账号删除会清理任务与调度 occurrence，但已进入普通运行链路的 Conversation、Message 和 AgentRun 仍按各自生命周期处理。
 
-前端只保留列表和一个原地编辑器；频率转换、自动保存和 Agent 选择器各有一个就近、可独立验证的语义 Owner。无法完整填写的草稿不会发送请求；创建请求在途时的新输入会继续 PATCH 同一任务，旧请求回包不能覆盖更新的非法或失败状态。创建结果未知时，前端会用同一 `request_id` 原样重放首次创建意图，恢复 `job_id` 后再用 PATCH 保存后续编辑；并发保存与导航共同等待同一个保存链路，在全部变更收敛前不能离开。Run now 只有收到服务端结果后才释放本次请求 ID，网络失败后的再次点击重放同一 occurrence。无法无损映射的 Cron 不会被结构化控件改写。
+前端只保留列表、同页编辑器、频率转换和自动保存 Owner。非法草稿不会发送请求；未知创建结果使用同一 `request_id` 重放原始意图，恢复 `job_id` 后再 PATCH 后续编辑。保存与导航共用一个 drain，在全部变更收敛前不能离开。Run now 收到服务端结果后才释放请求 ID；无法无损映射的 Cron 保持为自定义表达式。
 
 ## 验证
 
@@ -44,14 +42,14 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 | 多 worker 对同一 occurrence 只创建一个触发意图，瞬时失败可以恢复 | 重复请求、模型副作用、occurrence 永久丢失或单条坏记录拖垮 worker | repository + scheduled service | service unit + `python -m pytest -q test/integration/services/test_scheduled_agent_repository.py` | 并发领取只能有一个事务取得任务；Request 写入前首次失败后恢复轮次只产生一个 Request；首条持续失败时同批第二条仍提交 | Passed |
 | 创建与 Run now 在响应丢失后可以安全重放 | 重复长期任务或手动 occurrence | autosave + scheduled service + PostgreSQL unique/primary key | web unit + router unit + `python -m pytest -q test/integration/api/test_scheduled_agent_api.py` | 同一 ID 与同一意图返回原记录；创建响应丢失后继续编辑会先原样恢复创建结果再 PATCH；同一 ID 改变创建配置或目标任务返回 409 | Passed |
 | 触发记录不复制 Request/Run 终态 | 镜像状态漂移后永久阻塞后续任务 | ScheduledAgentRun + AgentRunRequest + AgentRun 查询 | service unit + PostgreSQL integration | AgentRun 终态后重叠判断恢复为 false | Passed |
-| occurrence 提交后进入统一 Request/Run 与 worker 链路 | ARQ 先于持久事实，或只创建任务不执行 | scheduled service + submit_run_command + worker | `python -m pytest -q test/e2e/test_deterministic_agent_path_e2e.py::test_scheduled_task_run_now_reaches_exact_conversation_and_result` | E2E 回读 Run 终态、输出和同一 thread 历史 | Not run：Request/Run 前段已执行，但外部模型连接失败，未得到最终输出 |
-| schema 1 可以幂等升级，账号软删除同步清理任务数据 | main 数据库无法升级、丢失既有数据或删除账号后恢复旧任务 | storage migration + UserRepository + PostgreSQL constraints | `python -m pytest -q test/integration/services/test_schema_migration_version.py test/integration/services/test_scheduled_agent_repository.py` | 隔离 v1 schema 连续升级两次仍保留既有 User、Project、Job、Run；未知未来版本被拒绝；真实软删除后 Job 与 occurrence 均不存在 | Passed |
+| occurrence 提交后进入统一 Request/Run 与 worker 链路 | ARQ 先于持久事实，或只创建任务不执行 | scheduled service + submit_run_command + worker | `python -m pytest -q test/e2e/test_deterministic_agent_path_e2e.py::test_scheduled_task_run_now_reaches_exact_conversation_and_result` | E2E 回读 Run 终态、输出和同一 thread 历史，并清理测试创建的 Job、Conversation、Project 与工作区目录 | Passed |
+| main schema v2 可以幂等升级，账号软删除同步清理任务数据 | main 数据库无法升级、丢失既有数据或删除账号后恢复旧任务 | storage migration + UserRepository + PostgreSQL constraints | `python -m pytest -q test/integration/services/test_schema_migration_version.py test/integration/services/test_scheduled_agent_repository.py` | 隔离 v2 schema 重复升级后保留 User 与 Project 并建立最终调度约束；未知未来版本被拒绝；真实软删除后 Job 与 occurrence 均不存在 | Passed |
 | 暂停不补跑，恢复从当前时间计算下一次触发 | 恢复后立即执行暂停期旧时间 | scheduled service | service unit + PostgreSQL integration | `false → true` 后 `next_run_at` 晚于当前时间 | Passed |
 | 无人值守任务默认不完全信任工具 | 未显式授权即执行敏感工具 | router + service + editor | router/service unit + HTTP integration | 省略审批字段时持久化为 `default` | Passed |
-| 默认列表、按需展开、原地自动保存和历史跳转可用 | 首屏被表单占满、保存丢失或跳入相邻对话 | ScheduledAgentsView + ScheduledAgentEditor | web unit、lint、build、真实浏览器与 API 回读 | 延迟 create 期间继续编辑时最终只保留最新版；并发 flush 共同等待后续 PATCH，PATCH 失败不能放行导航；在途请求后出现非法编辑时旧回包不能放行；失败 payload 重试成功前任务、标签和路由均不能离开；历史必须同时具有 thread 与可用标记 | Passed |
+| 列表、同页编辑、自动保存和历史跳转可用 | 保存丢失或跳入相邻对话 | ScheduledAgentsView + ScheduledAgentEditor | frequency/autosave unit、lint、build、真实浏览器与 API 回读 | create 在途的新编辑继续保存；PATCH 失败或非法编辑阻止导航；历史必须同时具有 thread 与可用标记 | Passed |
 
 真实浏览器已覆盖默认列表、点击展开、新建草稿、自动保存 API 回读、运行历史跳转、浅色、暗色与 1024px 响应式。定时到点后的周期扫描未单独等待真实时钟触发；PostgreSQL claim integration 与 worker startup/reconciliation unit 分别覆盖领取和装配边界。
 
-旧能力不存在：不保留独立 scheduler 状态回写循环、聊天输入组件扩展、单消费者表单/路由 helper、独立展示态、保存按钮、未发布旧地址兼容和未消费的详情/历史 API。
+旧能力不存在：不保留独立 scheduler 状态回写循环、聊天输入组件扩展、自定义单消费者选择器、独立展示态、保存按钮、未发布旧表结构兼容和未消费的详情/历史 API。
 
-重新引入条件：只有出现两个以上真实 consumer 或已发布兼容承诺时，才提取共享表单/导航抽象或增加独立历史接口；只有 AgentRun 无法提供所需审计事实时，才单独提案增加新的持久执行字段。
+重新引入条件：出现两个以上真实 consumer 或已发布兼容承诺时，才提取共享表单抽象或增加兼容迁移；只有 AgentRun 无法提供所需审计事实时，才单独提案增加新的持久执行字段。

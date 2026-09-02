@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  canLeaveScheduledTab,
   createRetriableRequestIds,
   createScheduledAgentAutosave
 } from '../../src/components/scheduled-agents/scheduledAgentAutosave.js'
@@ -279,17 +278,4 @@ test('保存请求在途时出现非法编辑，旧回包不能覆盖状态或�
   assert.equal(await flushing, false)
   assert.equal(states.at(-1), 'invalid')
   assert.equal(await autosave.flush(), false)
-})
-
-test('离开定时任务标签前等待保存，失败时不执行导航', async () => {
-  let attempts = 0
-  const flush = async () => {
-    attempts += 1
-    return false
-  }
-
-  assert.equal(await canLeaveScheduledTab('schedules', 'agents', flush), false)
-  assert.equal(attempts, 1)
-  assert.equal(await canLeaveScheduledTab('agents', 'providers', flush), true)
-  assert.equal(attempts, 1)
 })

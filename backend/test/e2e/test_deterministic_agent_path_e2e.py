@@ -385,6 +385,8 @@ async def test_scheduled_task_run_now_reaches_exact_conversation_and_result(
 
     await _create_provider(e2e_client, e2e_headers)
     agent_slug: str | None = None
+    directory_name: str | None = None
+    project_id: str | None = None
     job_id: str | None = None
     thread_id: str | None = None
     try:
@@ -456,6 +458,26 @@ async def test_scheduled_task_run_now_reaches_exact_conversation_and_result(
         if thread_id:
             response = await e2e_client.delete(f"/api/chat/thread/{thread_id}", headers=e2e_headers)
             assert response.status_code in {200, 404}, response.text
+        if project_id:
+            response = await e2e_client.delete(f"/api/projects/{project_id}", headers=e2e_headers)
+            assert response.status_code in {200, 404}, response.text
+            projects_response = await e2e_client.get("/api/projects", headers=e2e_headers)
+            assert projects_response.status_code == 200, projects_response.text
+            assert project_id not in {item["id"] for item in projects_response.json()}
+        if directory_name:
+            response = await e2e_client.delete(
+                "/api/workspace/file",
+                headers=e2e_headers,
+                params={"path": f"/{directory_name}"},
+            )
+            assert response.status_code in {200, 404}, response.text
+            tree_response = await e2e_client.get(
+                "/api/workspace/tree",
+                headers=e2e_headers,
+                params={"path": "/", "include_unbound_project_dirs": True},
+            )
+            assert tree_response.status_code == 200, tree_response.text
+            assert directory_name not in {item["name"] for item in tree_response.json()["entries"]}
         if agent_slug:
             await delete_agent(e2e_client, e2e_headers, agent_slug)
         await _delete_provider(e2e_client, e2e_headers)

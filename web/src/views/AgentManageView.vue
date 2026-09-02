@@ -5,7 +5,6 @@ import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import AgentManagePanel from '@/components/model-management/AgentManagePanel.vue'
 import ModelProviderManagePanel from '@/components/model-management/ModelProviderManagePanel.vue'
-import { canLeaveScheduledTab } from '@/components/scheduled-agents/scheduledAgentAutosave'
 import ScheduledAgentsView from '@/views/ScheduledAgentsView.vue'
 import { useUserStore } from '@/stores/user'
 
@@ -27,16 +26,13 @@ const modelManageTabs = computed(() => {
   return tabs
 })
 
-const activePanel = computed(() =>
-  activeTab.value === 'providers' ? providerPanelRef.value : agentPanelRef.value
-)
-
-const activeLoading = computed(() => {
-  if (activeTab.value === 'schedules') {
-    return schedulePanelRef.value?.loading || schedulePanelRef.value?.saving || false
-  }
-  return activePanel.value?.loading || false
+const activePanel = computed(() => {
+  if (activeTab.value === 'schedules') return schedulePanelRef.value
+  if (activeTab.value === 'providers') return providerPanelRef.value
+  return agentPanelRef.value
 })
+
+const activeLoading = computed(() => activePanel.value?.loading || activePanel.value?.saving || false)
 const activeStats = computed(() => activePanel.value?.stats || {})
 
 const normalizeTab = (tab) => {
@@ -55,11 +51,8 @@ watch(
 )
 
 function canChangeTab(nextTab) {
-  return canLeaveScheduledTab(
-    activeTab.value,
-    nextTab,
-    () => schedulePanelRef.value?.beforeLeave?.() ?? true
-  )
+  if (activeTab.value !== 'schedules' || nextTab === 'schedules') return true
+  return schedulePanelRef.value?.beforeLeave?.() ?? true
 }
 
 async function requestTabChange(item) {

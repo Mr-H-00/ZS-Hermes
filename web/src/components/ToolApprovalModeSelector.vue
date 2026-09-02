@@ -2,8 +2,8 @@
   <a-dropdown
     v-model:open="open"
     :trigger="['click']"
-    :placement="placement"
-    overlay-class-name="tool-approval-overlay"
+    placement="topLeft"
+    overlay-class-name="config-dropdown-overlay"
   >
     <button
       ref="triggerRef"
@@ -56,8 +56,7 @@ import { Check, ChevronDown, Hand, ShieldAlert } from '@lucide/vue'
 import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'
 
 const props = defineProps({
-  modelValue: { type: String, default: 'default' },
-  placement: { type: String, default: 'topLeft' }
+  modelValue: { type: String, default: 'default' }
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -92,33 +91,11 @@ useOutsidePointerdown(open, [triggerRef, panelRef])
 <style scoped lang="less">
 .config-dropdown-trigger {
   display: inline-flex;
-  height: 30px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 8px;
   align-items: center;
   justify-content: center;
   min-width: 0;
   max-width: min(180px, calc(100vw - 160px));
-  background: transparent;
-  color: var(--gray-600);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
   gap: 4px;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-
-  &:hover {
-    background: var(--gray-50);
-    color: var(--gray-900);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--main-color);
-    outline-offset: 1px;
-  }
 
   &.is-trusted {
     color: var(--color-warning-700);
@@ -165,71 +142,7 @@ useOutsidePointerdown(open, [triggerRef, panelRef])
 </style>
 
 <style lang="less">
-.tool-approval-overlay .config-dropdown-panel {
-  min-width: 188px;
-  max-width: min(260px, calc(100vw - 24px));
-  padding: 4px;
-  border: 1px solid var(--gray-100);
-  border-radius: 8px;
-  background: var(--gray-0);
-  box-shadow: 0 8px 24px var(--shadow-4);
-}
-
-.tool-approval-overlay .config-dropdown-item {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  padding: 6px 8px;
-  margin: 3px 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  align-items: center;
-  gap: 6px;
-  transition: background-color 0.15s ease;
-
-  &:first-child {
-    margin-top: 0;
-  }
-
-  &:last-child {
-    margin-bottom: 0;
-  }
-}
-
-.tool-approval-overlay .config-dropdown-item:hover,
-.tool-approval-overlay .config-dropdown-item.selected {
-  background: var(--gray-50);
-}
-
-.tool-approval-overlay .config-dropdown-item:focus-visible {
-  outline: 2px solid var(--main-color);
-  outline-offset: -2px;
-}
-
-.tool-approval-overlay .config-dropdown-item-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--gray-800);
-  font-size: 13px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tool-approval-overlay .config-dropdown-item-check {
-  flex-shrink: 0;
-  color: var(--main-color);
-}
-
-.tool-approval-overlay .config-dropdown-item-icon {
-  flex-shrink: 0;
-}
-
-.tool-approval-overlay .config-dropdown-item-icon.trusted {
+.config-dropdown-overlay .config-dropdown-item-icon.trusted {
   color: var(--color-warning-700);
 }
 </style>

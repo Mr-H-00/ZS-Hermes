@@ -93,3 +93,14 @@ def test_run_now_and_delete_keep_owner_scope(monkeypatch):
         ("run-now", "job-1", "manual-request-1", "user-1"),
         ("delete", "job-1", "user-1"),
     ]
+
+
+def test_update_rejects_explicit_null_enabled(monkeypatch):
+    async def forbidden_update(**_kwargs):
+        raise AssertionError("无效 enabled 不应进入 service")
+
+    monkeypatch.setattr(router_module, "update_scheduled_job", forbidden_update)
+
+    response = _client().patch("/api/scheduled-tasks/job-1", json={"enabled": None})
+
+    assert response.status_code == 422

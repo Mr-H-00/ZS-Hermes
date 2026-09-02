@@ -1,8 +1,6 @@
 <script setup>
 import { computed, nextTick, reactive, watch } from 'vue'
 
-import AgentSelectionSection from '@/components/AgentSelectionSection.vue'
-import SimpleDropdownSelect from '@/components/scheduled-agents/SimpleDropdownSelect.vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import ProjectSelectionSection from '@/components/ProjectSelectionSection.vue'
 import ToolApprovalModeSelector from '@/components/ToolApprovalModeSelector.vue'
@@ -179,12 +177,15 @@ function changeFrequency(frequency) {
         <div class="setting-row">
           <span>运行于</span>
           <div class="setting-control">
-            <AgentSelectionSection
-              v-model="form.agent_slug"
-              :agents="agents"
-              placement="bottomRight"
-              aria-label="执行智能体"
-            />
+            <select v-model="form.agent_slug" :disabled="saving" aria-label="执行智能体">
+              <option
+                v-for="agent in agents"
+                :key="agent.slug || agent.id"
+                :value="agent.slug || agent.id"
+              >
+                {{ agent.name || agent.slug || agent.id }}
+              </option>
+            </select>
           </div>
         </div>
         <div class="setting-row">
@@ -215,7 +216,7 @@ function changeFrequency(frequency) {
         <div class="setting-row">
           <span>工具审批</span>
           <div class="setting-control">
-            <ToolApprovalModeSelector v-model="form.tool_approval_mode" placement="bottomRight" />
+            <ToolApprovalModeSelector v-model="form.tool_approval_mode" />
           </div>
         </div>
       </div>
@@ -261,21 +262,21 @@ function changeFrequency(frequency) {
         <div v-if="form.frequency === 'yearly'" class="setting-row">
           <span>月份</span>
           <div class="setting-control">
-            <SimpleDropdownSelect
-              v-model="form.month"
-              :options="monthOptions"
-              aria-label="执行月份"
-            />
+            <select v-model.number="form.month" aria-label="执行月份">
+              <option v-for="month in monthOptions" :key="month.value" :value="month.value">
+                {{ month.label }}
+              </option>
+            </select>
           </div>
         </div>
         <div v-if="['monthly', 'yearly'].includes(form.frequency)" class="setting-row">
           <span>日期</span>
           <div class="setting-control">
-            <SimpleDropdownSelect
-              v-model="form.dayOfMonth"
-              :options="availableDayOptions"
-              aria-label="执行日期"
-            />
+            <select v-model.number="form.dayOfMonth" aria-label="执行日期">
+              <option v-for="day in availableDayOptions" :key="day.value" :value="day.value">
+                {{ day.label }}
+              </option>
+            </select>
           </div>
         </div>
         <label class="setting-row">
@@ -534,11 +535,9 @@ function changeFrequency(frequency) {
   width: 100%;
 }
 
-.inline-editor :deep(.agent-selection-trigger),
 .inline-editor :deep(.project-trigger),
 .inline-editor :deep(.model-select--nano),
-.inline-editor :deep(.config-dropdown-trigger),
-.inline-editor :deep(.simple-dropdown-trigger) {
+.inline-editor :deep(.config-dropdown-trigger) {
   width: 100%;
   max-width: none;
   height: 30px;
@@ -553,25 +552,17 @@ function changeFrequency(frequency) {
   text-align: right;
 }
 
-.inline-editor :deep(.agent-selection-trigger-label),
 .inline-editor :deep(.project-trigger-label),
 .inline-editor :deep(.model-info),
 .inline-editor :deep(.model-text),
-.inline-editor :deep(.config-dropdown-text),
-.inline-editor :deep(.simple-dropdown-text) {
+.inline-editor :deep(.config-dropdown-text) {
   flex: 0 1 auto;
   font: inherit;
   font-size: 13px;
   text-align: right;
 }
 
-.inline-editor :deep(.agent-selection-trigger-icon) {
-  display: none;
-}
-
-.inline-editor :deep(.agent-selection-chevron),
-.inline-editor :deep(.config-dropdown-chevron),
-.inline-editor :deep(.simple-dropdown-chevron) {
+.inline-editor :deep(.config-dropdown-chevron) {
   margin-left: 2px;
 }
 
@@ -579,11 +570,9 @@ function changeFrequency(frequency) {
   justify-content: flex-end;
 }
 
-.inline-editor :deep(.agent-selection-trigger:hover:not(:disabled)),
 .inline-editor :deep(.project-trigger:hover:not(:disabled)),
 .inline-editor :deep(.model-select--nano:hover),
-.inline-editor :deep(.config-dropdown-trigger:hover:not(:disabled)),
-.inline-editor :deep(.simple-dropdown-trigger:hover:not(:disabled)) {
+.inline-editor :deep(.config-dropdown-trigger:hover:not(:disabled)) {
   border-color: transparent;
   background: var(--gray-50);
 }

@@ -9,25 +9,97 @@
           @thread-change="handleThreadChange"
         >
           <template #input-actions-left="{ hasActiveThread, isCreatingThread }">
-            <AgentSelectionSection
+            <a-dropdown
               v-if="selectedAgentId"
-              :model-value="selectedAgentId"
-              :agents="chatAgents"
-              :disabled="isLoadingConfig || isCreatingThread"
-              :locked="hasActiveThread"
-              :loading="isLoadingConfig"
-              :hint="hasActiveThread ? '当前对话已绑定智能体，新对话可切换。' : ''"
-              compact
-              show-actions
+              v-model:open="agentDropdownOpen"
+              :trigger="['click']"
               placement="topLeft"
-              aria-label="切换智能体"
-              @update:model-value="
-                (agentId) => handleAgentSwitch(agentId, hasActiveThread, isCreatingThread)
-              "
-              @blocked="(agentId) => handleAgentSwitch(agentId, hasActiveThread, isCreatingThread)"
-              @edit="openAgentManagement"
-              @create="openCreateAgent"
-            />
+              overlay-class-name="config-dropdown-overlay"
+            >
+              <button
+                ref="agentDropdownTriggerRef"
+                type="button"
+                class="input-action-btn config-dropdown-trigger"
+                :class="{ disabled: isLoadingConfig || isCreatingThread }"
+                :disabled="isCreatingThread"
+                :aria-label="currentAgentLabel"
+              >
+                <FallbackAvatar
+                  v-if="currentAgentOption"
+                  class="config-dropdown-compact-icon"
+                  :src="currentAgentOption.icon"
+                  :default-src="currentAgentOption.defaultIcon"
+                  :name="currentAgentOption.label"
+                  :seed="currentAgentOption.value || currentAgentOption.label"
+                  kind="agent"
+                  :size="20"
+                  shape="rounded"
+                  alt=""
+                />
+                <span class="hide-text config-dropdown-text">{{ currentAgentLabel }}</span>
+                <ChevronDown size="15" class="config-dropdown-chevron" />
+              </button>
+
+              <template #overlay>
+                <div ref="agentDropdownPanelRef" class="config-dropdown-panel">
+                  <button
+                    v-for="agent in agentQuickSwitchOptions"
+                    :key="agent.value"
+                    type="button"
+                    class="config-dropdown-item"
+                    :class="{
+                      selected: agent.value === selectedAgentId,
+                      disabled: hasActiveThread && agent.value !== selectedAgentId
+                    }"
+                    @click="handleAgentSwitch(agent.value, hasActiveThread, isCreatingThread)"
+                  >
+                    <FallbackAvatar
+                      class="config-dropdown-item-icon-image"
+                      :src="agent.icon"
+                      :default-src="agent.defaultIcon"
+                      :name="agent.label"
+                      :seed="agent.value || agent.label"
+                      kind="agent"
+                      :size="24"
+                      shape="rounded"
+                      :alt="`${agent.label}图标`"
+                    />
+                    <span class="config-dropdown-item-label">{{ agent.label }}</span>
+                    <span v-if="agent.isBuiltin" class="config-dropdown-item-badge">内置</span>
+                    <Check
+                      v-if="agent.value === selectedAgentId"
+                      :size="14"
+                      class="config-dropdown-item-check"
+                    />
+                  </button>
+
+                  <div v-if="hasActiveThread" class="config-dropdown-hint">
+                    当前对话已绑定智能体，新对话可切换。
+                  </div>
+
+                  <div class="config-dropdown-divider"></div>
+
+                  <div class="config-dropdown-actions">
+                    <button
+                      type="button"
+                      class="config-dropdown-item action-item"
+                      @click="openAgentManagement"
+                    >
+                      <Settings2 :size="15" class="config-dropdown-item-icon" />
+                      <span class="config-dropdown-item-label">编辑智能体</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="config-dropdown-item action-item"
+                      @click="openCreateAgent"
+                    >
+                      <Plus :size="15" class="config-dropdown-item-icon" />
+                      <span class="config-dropdown-item-label">新建智能体</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </a-dropdown>
           </template>
         </AgentChatComponent>
       </div>
@@ -43,13 +115,16 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { Settings2, ChevronDown, Check, Plus } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
 import { agentApi } from '@/apis/agent_api'
+import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'
 import AgentChatComponent from '@/components/AgentChatComponent.vue'
-import AgentSelectionSection from '@/components/AgentSelectionSection.vue'
 import AgentEditModal from '@/components/model-management/AgentEditModal.vue'
-import { useAgentStore } from '@/stores/agent'
+import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
 import { handleChatError } from '@/utils/errorHandler'
+import { generatePixelAvatar } from '@/utils/pixelAvatar'
+import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 
 import { storeToRefs } from 'pinia'
 
@@ -64,7 +139,6 @@ const router = useRouter()
 
 // 从 agentStore 中获取响应式状态
 const { agents, selectedAgentId, isLoadingConfig } = storeToRefs(agentStore)
-const chatAgents = computed(() => agents.value.filter((agent) => !agent.is_subagent))
 
 const syncingRouteThread = ref(false)
 
@@ -157,6 +231,30 @@ const handleThreadChange = (threadId) => {
   }
 }
 
+const agentQuickSwitchOptions = computed(() =>
+  (agents.value || [])
+    .filter((agent) => !agent.is_subagent)
+    .map((agent) => ({
+      label: agent.name || agent.id,
+      value: agent.id,
+      icon: agent.icon || '',
+      defaultIcon: agent.id ? generatePixelAvatar(agent.id) : '',
+      isBuiltin: isBuiltinAgent(agent)
+    }))
+)
+
+const currentAgentOption = computed(() =>
+  agentQuickSwitchOptions.value.find((agent) => agent.value === selectedAgentId.value)
+)
+
+const currentAgentLabel = computed(() => {
+  if (isLoadingConfig.value) return '加载中...'
+  return currentAgentOption.value?.label || '智能体'
+})
+
+const agentDropdownOpen = ref(false)
+const agentDropdownTriggerRef = ref(null)
+const agentDropdownPanelRef = ref(null)
 const agentBackendOptions = ref([])
 const agentBackendsLoaded = ref(false)
 
@@ -182,6 +280,7 @@ const handleAgentSwitch = async (agentId, hasActiveThread, isCreatingThread) => 
   }
   try {
     await agentStore.selectAgent(agentId)
+    agentDropdownOpen.value = false
   } catch (error) {
     console.error('切换智能体出错:', error)
     message.error('切换智能体失败')
@@ -200,6 +299,7 @@ const handleAgentSaved = async ({ mode, agent } = {}) => {
 }
 
 const openCreateAgent = async () => {
+  agentDropdownOpen.value = false
   try {
     await loadAgentBackends()
     agentEditModalRef.value?.openCreate()
@@ -209,6 +309,7 @@ const openCreateAgent = async () => {
 }
 
 const openAgentManagement = async () => {
+  agentDropdownOpen.value = false
   if (!selectedAgentId.value) {
     message.warning('请先选择智能体')
     return
@@ -220,6 +321,8 @@ const openAgentManagement = async () => {
     message.error(error.message || '打开智能体配置失败')
   }
 }
+
+useOutsidePointerdown(agentDropdownOpen, [agentDropdownTriggerRef, agentDropdownPanelRef])
 </script>
 
 <style lang="less" scoped>
@@ -251,5 +354,59 @@ const openAgentManagement = async () => {
 .content {
   flex: 1;
   overflow: hidden;
+}
+
+.config-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: min(240px, calc(100vw - 160px));
+  gap: 4px;
+}
+
+.config-dropdown-trigger :deep(svg) {
+  color: currentColor;
+}
+
+.config-dropdown-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: currentColor;
+}
+
+.config-dropdown-chevron {
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.config-dropdown-compact-icon {
+  display: none;
+  flex-shrink: 0;
+}
+
+@container (max-width: 640px) {
+  .config-dropdown-trigger {
+    width: 30px;
+    padding-inline: 0;
+  }
+
+  .config-dropdown-compact-icon {
+    display: block;
+  }
+
+  .config-dropdown-text,
+  .config-dropdown-chevron {
+    display: none;
+  }
+}
+
+// 响应式优化
+@media (max-width: 520px) {
+  .config-dropdown-trigger {
+    max-width: calc(100vw - 112px);
+  }
 }
 </style>

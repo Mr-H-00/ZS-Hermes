@@ -174,8 +174,3 @@ export function createScheduledAgentAutosave({
 
   return { beginDraft, canDiscardInvalidDraft, flush, leaveEditor, queue }
 }
-
-export async function canLeaveScheduledTab(currentTab, nextTab, flush) {
-  if (currentTab !== 'schedules' || nextTab === 'schedules') return true
-  return flush()
-}

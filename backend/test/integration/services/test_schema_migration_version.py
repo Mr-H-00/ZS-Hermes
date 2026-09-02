@@ -113,15 +113,13 @@ async def test_schema_version_is_persisted_and_runtime_validation_fails_closed()
         await admin_engine.dispose()
 
 
-async def test_business_v1_upgrades_to_scheduled_schema_idempotently() -> None:
-    """隔离 v1 数据库升级两次后保留数据并建立完整调度约束。"""
+async def test_main_business_schema_upgrades_to_scheduled_schema_idempotently() -> None:
+    """main v2 数据库重复升级后保留原数据并建立完整调度约束。"""
     schema = f"pytest_scheduled_migration_{uuid.uuid4().hex[:16]}"
     admin_engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
     scoped_engine = None
     uid = f"migration-user-{uuid.uuid4().hex[:12]}"
     project_id = str(uuid.uuid4())
-    job_id = str(uuid.uuid4())
-    run_id = f"scheduled-run-{uuid.uuid4()}"
 
     try:
         async with admin_engine.begin() as connection:
@@ -161,55 +159,8 @@ async def test_business_v1_upgrades_to_scheduled_schema_idempotently() -> None:
 
         manager = _scoped_manager(scoped_engine)
         await manager.create_schema_version_table()
-        await manager.record_schema_version("business", 1)
+        await manager.record_schema_version("business", 2)
         await manager.ensure_business_schema()
-
-        async with scoped_engine.begin() as connection:
-            await connection.execute(
-                text(
-                    """
-                    INSERT INTO scheduled_agent_jobs (
-                        id, uid, creation_request_id, creation_intent_hash,
-                        project_id, agent_slug, name, prompt, tool_approval_mode,
-                        cron_expression, timezone, enabled, next_run_at
-                    ) VALUES (
-                        :job_id, :uid, :creation_request_id, :creation_intent_hash,
-                        :project_id, 'chatbot', 'Preserved Job', 'hello', 'default',
-                        '0 9 * * *', 'UTC', TRUE, CURRENT_TIMESTAMP
-                    )
-                    """
-                ),
-                {
-                    "job_id": job_id,
-                    "uid": uid,
-                    "creation_request_id": f"migration-create-{uuid.uuid4()}",
-                    "creation_intent_hash": "0" * 64,
-                    "project_id": project_id,
-                },
-            )
-            await connection.execute(
-                text(
-                    """
-                    INSERT INTO scheduled_agent_runs (
-                        id, job_id, request_id, thread_id, trigger, occurrence_key,
-                        scheduled_for, project_id, agent_slug, conversation_title,
-                        prompt, tool_approval_mode, status
-                    ) VALUES (
-                        :run_id, :job_id, :request_id, :thread_id, 'scheduled', 'scheduled:v1',
-                        CURRENT_TIMESTAMP, :project_id, 'chatbot', 'Preserved Job',
-                        'hello', 'default', 'dispatching'
-                    )
-                    """
-                ),
-                {
-                    "run_id": run_id,
-                    "job_id": job_id,
-                    "request_id": f"request-{uuid.uuid4()}",
-                    "thread_id": f"thread-{uuid.uuid4()}",
-                    "project_id": project_id,
-                },
-            )
-
         await manager.ensure_business_schema()
         await manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
@@ -291,12 +242,10 @@ async def test_business_v1_upgrades_to_scheduled_schema_idempotently() -> None:
                     """
                     SELECT
                         (SELECT count(*) FROM users WHERE uid = :uid) AS users,
-                        (SELECT count(*) FROM projects WHERE id = :project_id) AS projects,
-                        (SELECT count(*) FROM scheduled_agent_jobs WHERE id = :job_id) AS jobs,
-                        (SELECT count(*) FROM scheduled_agent_runs WHERE id = :run_id) AS runs
+                        (SELECT count(*) FROM projects WHERE id = :project_id) AS projects
                     """
                 ),
-                {"uid": uid, "project_id": project_id, "job_id": job_id, "run_id": run_id},
+                {"uid": uid, "project_id": project_id},
             )
             counts = preserved.one()
 
@@ -320,7 +269,7 @@ async def test_business_v1_upgrades_to_scheduled_schema_idempotently() -> None:
             "ix_scheduled_agent_runs_job_created",
             "ix_scheduled_agent_runs_dispatching",
         }.issubset(indexes)
-        assert tuple(counts) == (1, 1, 1, 1)
+        assert tuple(counts) == (1, 1)
         assert await manager.get_schema_versions() == {"business": BUSINESS_SCHEMA_VERSION}
     finally:
         if scoped_engine is not None:

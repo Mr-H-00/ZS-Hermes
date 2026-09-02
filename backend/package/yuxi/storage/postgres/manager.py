@@ -847,10 +847,6 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS last_viewed_run_id VARCHAR(64)",
             "ALTER TABLE IF EXISTS mcp_servers ADD COLUMN IF NOT EXISTS env JSONB",
-            "ALTER TABLE IF EXISTS scheduled_agent_jobs ADD COLUMN IF NOT EXISTS model_spec VARCHAR(512)",
-            "ALTER TABLE IF EXISTS scheduled_agent_runs ADD COLUMN IF NOT EXISTS model_spec VARCHAR(512)",
-            "ALTER TABLE IF EXISTS scheduled_agent_jobs ADD COLUMN IF NOT EXISTS creation_request_id VARCHAR(64)",
-            "ALTER TABLE IF EXISTS scheduled_agent_jobs ADD COLUMN IF NOT EXISTS creation_intent_hash VARCHAR(64)",
             """
             CREATE TABLE IF NOT EXISTS agent_envs (
                 id SERIAL PRIMARY KEY,
@@ -961,20 +957,6 @@ class PostgresManager(metaclass=SingletonMeta):
             "CREATE INDEX IF NOT EXISTS ix_scheduled_agent_jobs_project_id ON scheduled_agent_jobs(project_id)",
             "CREATE INDEX IF NOT EXISTS ix_scheduled_agent_jobs_deleted_at ON scheduled_agent_jobs(deleted_at)",
             "CREATE INDEX IF NOT EXISTS ix_scheduled_agent_jobs_due ON scheduled_agent_jobs(enabled, next_run_at)",
-            (
-                "UPDATE scheduled_agent_jobs SET creation_request_id = 'legacy:' || md5(uid || ':' || id) "
-                "WHERE creation_request_id IS NULL"
-            ),
-            (
-                "UPDATE scheduled_agent_jobs SET creation_intent_hash = md5(id) || md5(uid || ':' || id) "
-                "WHERE creation_intent_hash IS NULL"
-            ),
-            "ALTER TABLE scheduled_agent_jobs ALTER COLUMN creation_request_id SET NOT NULL",
-            "ALTER TABLE scheduled_agent_jobs ALTER COLUMN creation_intent_hash SET NOT NULL",
-            (
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_scheduled_agent_jobs_uid_creation_request "
-                "ON scheduled_agent_jobs(uid, creation_request_id)"
-            ),
             """
             CREATE TABLE IF NOT EXISTS scheduled_agent_runs (
                 id VARCHAR(64) PRIMARY KEY,
@@ -1006,18 +988,6 @@ class PostgresManager(metaclass=SingletonMeta):
                 "CREATE INDEX IF NOT EXISTS ix_scheduled_agent_runs_dispatching "
                 "ON scheduled_agent_runs(status, created_at)"
             ),
-            """
-            ALTER TABLE scheduled_agent_jobs
-                DROP CONSTRAINT IF EXISTS fk_scheduled_agent_jobs_project_uid,
-                ADD CONSTRAINT fk_scheduled_agent_jobs_project_uid
-                    FOREIGN KEY (project_id, uid) REFERENCES projects(id, uid) ON DELETE CASCADE
-            """,
-            """
-            ALTER TABLE scheduled_agent_runs
-                DROP CONSTRAINT IF EXISTS scheduled_agent_runs_job_id_fkey,
-                ADD CONSTRAINT scheduled_agent_runs_job_id_fkey
-                    FOREIGN KEY (job_id) REFERENCES scheduled_agent_jobs(id) ON DELETE CASCADE
-            """,
             """
             CREATE UNIQUE INDEX IF NOT EXISTS uq_agents_default
             ON agents(is_default)
