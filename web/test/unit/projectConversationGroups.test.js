@@ -94,8 +94,11 @@ test('侧边栏同时展示项目和最近分组，最近只展示其他对话',
   assert.match(recentSection, /v-if="projectsLoading"[^>]*>正在加载对话/)
   assert.match(recentSection, /v-else-if="projectsError"[^>]*>项目加载失败，暂时无法分类对话/)
   assert.match(recentSection, /v-for="chat in otherConversations"/)
-  assert.match(source, /<FolderOpen v-if="isProjectExpanded\(group\.project\.id\)"/)
-  assert.match(source, /<FolderClosed v-else/)
+  assert.match(
+    source,
+    /<FolderOpen[^>]*v-if="isProjectExpanded\(group\.project\.id\)"[^>]*class="project-icon"[^>]*\/>/
+  )
+  assert.match(source, /<FolderClosed[^>]*v-else[^>]*class="project-icon"[^>]*\/>/)
   assert.equal(source.match(/<CollapseTransition>/g)?.length, 3)
   assert.doesNotMatch(source, /v-show=/)
   assert.match(source, /\.project-history-group\s*{\s*margin-bottom: 16px;/)
@@ -108,6 +111,23 @@ test('侧边栏同时展示项目和最近分组，最近只展示其他对话',
     source,
     /view-switch|viewMode|project-chevron|project-count|<span>其他对话<\/span>/
   )
+})
+
+test('项目默认折叠且长名称不会挤压文件夹图标', () => {
+  const source = readFileSync(
+    new URL('../../src/components/ConversationNavSection.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(source, /const expandedProjects = ref\(new Set\(\)\)/)
+  assert.match(
+    source,
+    /const isProjectExpanded = \(projectId\) => expandedProjects\.value\.has\(projectId\)/
+  )
+  assert.doesNotMatch(source, /collapsedProjects/)
+  assert.match(source, /class="project-name" :title="group\.project\.name"/)
+  assert.match(source, /\.project-name\s*{[\s\S]*?min-width: 0;[\s\S]*?flex: 1;/)
+  assert.match(source, /\.project-icon\s*{\s*flex: 0 0 17px;/)
 })
 
 test('页面内创建的 Project 会写入共享侧边栏导航 Owner', () => {

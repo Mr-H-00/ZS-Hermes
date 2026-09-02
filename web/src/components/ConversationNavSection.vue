@@ -42,9 +42,15 @@
                       :aria-expanded="isProjectExpanded(group.project.id)"
                       @click="toggleProject(group.project.id)"
                     >
-                      <FolderOpen v-if="isProjectExpanded(group.project.id)" :size="17" />
-                      <FolderClosed v-else :size="17" />
-                      <span class="project-name">{{ group.project.name }}</span>
+                      <FolderOpen
+                        v-if="isProjectExpanded(group.project.id)"
+                        :size="17"
+                        class="project-icon"
+                      />
+                      <FolderClosed v-else :size="17" class="project-icon" />
+                      <span class="project-name" :title="group.project.name">{{
+                        group.project.name
+                      }}</span>
                     </button>
                     <a-dropdown
                       :trigger="['click']"
@@ -172,19 +178,19 @@ const emit = defineEmits([
 ])
 const projectsExpanded = ref(true)
 const recentExpanded = ref(true)
-const collapsedProjects = ref(new Set())
+const expandedProjects = ref(new Set())
 const groupedNavigation = computed(() =>
   buildProjectConversationGroups(props.projects, props.chatsList)
 )
 const projectGroups = computed(() => groupedNavigation.value.groups)
 const otherConversations = computed(() => groupedNavigation.value.otherConversations)
 
-const isProjectExpanded = (projectId) => !collapsedProjects.value.has(projectId)
+const isProjectExpanded = (projectId) => expandedProjects.value.has(projectId)
 const toggleProject = (projectId) => {
-  const next = new Set(collapsedProjects.value)
+  const next = new Set(expandedProjects.value)
   if (next.has(projectId)) next.delete(projectId)
   else next.add(projectId)
-  collapsedProjects.value = next
+  expandedProjects.value = next
 }
 
 const renameProject = (project) => {
@@ -328,9 +334,13 @@ const confirmDeleteProject = (project) => {
 }
 .project-name {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.project-icon {
+  flex: 0 0 17px;
 }
 .project-more {
   display: inline-flex;
