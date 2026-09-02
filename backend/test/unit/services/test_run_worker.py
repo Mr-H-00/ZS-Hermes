@@ -13,6 +13,7 @@ import pytest
 import yuxi.services.run_worker as run_worker
 from arq.worker import RetryJob
 from yuxi.config import options as config_options
+from yuxi.services import task_service
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +32,38 @@ class _RaisingAsyncIter:
 
     async def __anext__(self):
         raise self._exc
+
+
+def test_durable_task_outer_timeout_tracks_configured_worker_default():
+    durable_function = next(
+        function
+        for function in run_worker.WorkerSettings.functions
+        if getattr(function, "name", getattr(function, "__name__", None)) == "process_task"
+    )
+
+    assert task_service.tasker.default_timeout_seconds == task_service.TASKER_DEFAULT_TIMEOUT_SECONDS
+    assert durable_function.timeout_s == task_service.TASKER_DEFAULT_TIMEOUT_SECONDS + 30
+
+
+def test_durable_task_shipping_worker_accepts_default_above_24_hours():
+    env = os.environ.copy()
+    env["TASKER_DEFAULT_TIMEOUT_SECONDS"] = "172800"
+    script = """
+from yuxi.services.run_worker import WorkerSettings
+from yuxi.services.task_service import tasker
+
+durable = next(
+    function
+    for function in WorkerSettings.functions
+    if getattr(function, "name", getattr(function, "__name__", None)) == "process_task"
+)
+assert tasker.default_timeout_seconds == 172800
+assert durable.timeout_s == 172830
+"""
+
+    completed = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, check=False)
+
+    assert completed.returncode == 0, completed.stderr
 
 
 class _BytesAsyncIter:
@@ -1224,6 +1257,9 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
     async def fake_publish_reconciliation_health():
         calls.append("publish_reconciliation_health")
 
+    async def fake_publish_task_reconciliation_health():
+        calls.append("publish_task_reconciliation_health")
+
     async def fake_reconcile_expired_run_leases():
         calls.append("reconcile_expired_run_leases")
         return []
@@ -1234,6 +1270,13 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
 
     async def fake_reconciliation_loop():
         calls.append("reconciliation_loop")
+
+    async def fake_reconcile_and_publish_tasks():
+        calls.append("reconcile_and_publish_tasks")
+        return []
+
+    async def fake_task_reconciliation_loop():
+        calls.append("task_reconciliation_loop")
 
     monkeypatch.setattr(run_worker.pg_manager, "initialize", fake_initialize)
     monkeypatch.setattr(run_worker.pg_manager, "require_current_schema", fake_require_current_schema)
@@ -1250,13 +1293,17 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
         fake_reconcile_pending_runtime_cleanups,
     )
     monkeypatch.setattr(run_worker, "_publish_reconciliation_health", fake_publish_reconciliation_health)
+    monkeypatch.setattr(run_worker, "_publish_task_reconciliation_health", fake_publish_task_reconciliation_health)
     monkeypatch.setattr(run_worker, "_reconcile_agent_run_leases_forever", fake_reconciliation_loop)
+    monkeypatch.setattr(run_worker, "reconcile_and_publish_tasks", fake_reconcile_and_publish_tasks)
+    monkeypatch.setattr(run_worker, "_reconcile_durable_tasks_forever", fake_task_reconciliation_loop)
     options_module = importlib.import_module("yuxi.config.options")
     monkeypatch.setattr(options_module, "ensure_options_in_db", fake_ensure_options_in_db)
 
     ctx = {}
     await run_worker._worker_startup(ctx)
     await ctx[run_worker._RECONCILIATION_TASK_KEY]
+    await ctx[run_worker._TASK_RECONCILIATION_TASK_KEY]
 
     assert calls == [
         "initialize",
@@ -1268,13 +1315,44 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
         "reconcile_expired_run_leases",
         "reconcile_pending_runtime_cleanups",
         "recover_pending_dispatches",
+        "reconcile_and_publish_tasks",
+        "publish_task_reconciliation_health",
         "publish_reconciliation_health",
         "reconciliation_loop",
+        "task_reconciliation_loop",
     ]
     assert ctx["worker_id"] == run_worker.WORKER_ID
 
 
+async def test_durable_task_publication_failure_does_not_refresh_health(monkeypatch):
+    sleep_calls = 0
+    health_calls = 0
+
+    async def controlled_sleep(_seconds):
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls > 1:
+            raise asyncio.CancelledError
+
+    async def fail_reconciliation():
+        raise ConnectionError("arq publication failed")
+
+    async def publish_health():
+        nonlocal health_calls
+        health_calls += 1
+
+    monkeypatch.setattr(run_worker.asyncio, "sleep", controlled_sleep)
+    monkeypatch.setattr(run_worker, "reconcile_and_publish_tasks", fail_reconciliation)
+    monkeypatch.setattr(run_worker, "_publish_task_reconciliation_health", publish_health)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_worker._reconcile_durable_tasks_forever()
+
+    assert health_calls == 0
+
+
 def test_worker_settings_publish_short_ttl_versioned_health_contract():
+    assert run_worker.WorkerSettings.max_jobs == 10
     assert run_worker.WorkerSettings.health_check_key == "yuxi:worker:health:agent-run-v1"
     assert 0 < run_worker.WorkerSettings.health_check_interval <= 10
 

@@ -342,7 +342,11 @@ class MilvusKB(KnowledgeBase):
             raise
 
     async def _create_kb_instance(self, kb_id: str, embedding_model_spec: str | None) -> Any:
-        """创建 Milvus 集合"""
+        """在线程中创建或加载 Milvus 集合，避免阻塞 worker heartbeat。"""
+        return await asyncio.to_thread(self._create_kb_instance_sync, kb_id, embedding_model_spec)
+
+    def _create_kb_instance_sync(self, kb_id: str, embedding_model_spec: str | None) -> Any:
+        """同步创建或加载 Milvus 集合。"""
         logger.info(f"Creating Milvus collection for {kb_id}")
 
         if not embedding_model_spec:
@@ -465,7 +469,7 @@ class MilvusKB(KnowledgeBase):
     async def _initialize_kb_instance(self, instance: Any) -> None:
         """初始化 Milvus 集合（加载到内存）"""
         try:
-            instance.load()
+            await asyncio.to_thread(instance.load)
             logger.info("Milvus collection loaded into memory")
         except Exception as e:
             logger.warning(f"Failed to load collection into memory: {e}")
@@ -497,14 +501,18 @@ class MilvusKB(KnowledgeBase):
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
 
-    def _get_existing_milvus_collection(self, kb_id: str) -> Collection | None:
+    async def _get_existing_milvus_collection(self, kb_id: str) -> Collection | None:
         """获取已存在的集合，不因删除操作创建新集合。"""
         collection = self.collections.get(kb_id)
         if collection is not None:
             return collection
-        if not utility.has_collection(kb_id, using=self.connection_alias):
-            return None
-        return Collection(name=kb_id, using=self.connection_alias)
+
+        def load_existing_collection() -> Collection | None:
+            if not utility.has_collection(kb_id, using=self.connection_alias):
+                return None
+            return Collection(name=kb_id, using=self.connection_alias)
+
+        return await asyncio.to_thread(load_existing_collection)
 
     def _split_text_into_chunks(self, text: str, file_id: str, filename: str, params: dict) -> list[dict]:
         """将文本分割成块"""
@@ -607,17 +615,18 @@ class MilvusKB(KnowledgeBase):
 
     async def _delete_file_chunks_from_milvus(self, collection: Collection, file_id: str) -> None:
         expr = f'file_id == "{file_id}"'
-        results = collection.query(expr=expr, output_fields=["id"], limit=1)
 
-        if not results:
-            logger.info(f"File {file_id} not found in Milvus, skipping delete operation")
-            return
-
-        def _delete_from_milvus():
+        def delete_from_milvus() -> bool:
+            results = collection.query(expr=expr, output_fields=["id"], limit=1)
+            if not results:
+                return False
             collection.delete(expr)
-            logger.info(f"Deleted chunks for file {file_id} from Milvus")
+            return True
 
-        await asyncio.to_thread(_delete_from_milvus)
+        if await asyncio.to_thread(delete_from_milvus):
+            logger.info(f"Deleted chunks for file {file_id} from Milvus")
+        else:
+            logger.info(f"File {file_id} not found in Milvus, skipping delete operation")
 
     async def _hydrate_chunk_sources(self, kb_id: str, chunks: list[dict]) -> None:
         file_ids = sorted(
@@ -658,6 +667,8 @@ class MilvusKB(KnowledgeBase):
         *,
         embedding_model_spec: str | None,
         additional_params: dict[str, Any],
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
     ) -> dict:
         """
         Index parsed file (Status: INDEXING -> INDEXED/ERROR_INDEXING)
@@ -690,16 +701,24 @@ class MilvusKB(KnowledgeBase):
             file_processing_params=file_meta.get("processing_params"),
             request_params=params,
         )
+        file_repo = KnowledgeFileRepository()
+        owner_filter = (
+            {"processing_task_id": processing_task_id, "processing_owner": processing_owner}
+            if processing_task_id is not None and processing_owner is not None
+            else {}
+        )
 
         claim_data = {
             "status": FileStatus.INDEXING,
             "processing_params": params,
             "error_message": None,
+            "processing_task_id": processing_task_id,
+            "processing_owner": processing_owner,
         }
         if operator_id:
             claim_data["updated_by"] = operator_id
 
-        claimed_record = await KnowledgeFileRepository().update_fields_if_status(
+        claimed_record = await file_repo.update_fields_if_status(
             kb_id=kb_id,
             file_id=file_id,
             allowed_statuses=allowed_statuses,
@@ -715,7 +734,23 @@ class MilvusKB(KnowledgeBase):
 
         file_meta = self._file_record_to_meta(claimed_record)
         if not file_meta.get("markdown_file"):
-            await self._mark_file_unparsed(kb_id, file_id, operator_id)
+            reset_data = {
+                "status": FileStatus.UPLOADED,
+                "error_message": None,
+                "processing_task_id": None,
+                "processing_owner": None,
+            }
+            if operator_id:
+                reset_data["updated_by"] = operator_id
+            updated_record = await file_repo.update_fields_if_status(
+                kb_id=kb_id,
+                file_id=file_id,
+                allowed_statuses={FileStatus.INDEXING},
+                data=reset_data,
+                **owner_filter,
+            )
+            if updated_record is None and processing_owner is not None:
+                raise asyncio.CancelledError("File processing owner was lost")
             raise ValueError("File has not been parsed yet (no markdown_file)")
 
         logger.debug(f"[index_file] file_id={file_id}, processing_params={params}")
@@ -747,26 +782,25 @@ class MilvusKB(KnowledgeBase):
             logger.info(f"Indexed file {file_id} into Milvus")
 
             # Update status
-            update_data = {"status": FileStatus.INDEXED, "error_message": None, **chunk_stats}
+            update_data = {
+                "status": FileStatus.INDEXED,
+                "error_message": None,
+                "processing_task_id": None,
+                "processing_owner": None,
+                **chunk_stats,
+            }
             if operator_id:
                 update_data["updated_by"] = operator_id
-            updated_record = await KnowledgeFileRepository().update_fields(
+            updated_record = await file_repo.update_fields_if_status(
                 file_id=file_id,
                 kb_id=kb_id,
+                allowed_statuses={FileStatus.INDEXING},
                 data=update_data,
+                **owner_filter,
             )
-            result = (
-                self._file_record_to_meta(updated_record)
-                if updated_record is not None
-                else {
-                    **file_meta,
-                    **chunk_stats,
-                    "status": FileStatus.INDEXED,
-                    "error": None,
-                }
-            )
-
-            return result
+            if updated_record is None:
+                raise asyncio.CancelledError("File processing owner was lost")
+            return self._file_record_to_meta(updated_record)
 
         except (Exception, asyncio.CancelledError) as e:
             if isinstance(e, asyncio.CancelledError):
@@ -775,10 +809,23 @@ class MilvusKB(KnowledgeBase):
                     current_task.uncancel()
             error_msg = "File indexing was cancelled" if isinstance(e, asyncio.CancelledError) else str(e)
             logger.error(f"Indexing failed for {file_id}: {error_msg}")
-            update_data = {"status": FileStatus.ERROR_INDEXING, "error_message": error_msg}
+            update_data = {
+                "status": FileStatus.ERROR_INDEXING,
+                "error_message": error_msg,
+                "processing_task_id": None,
+                "processing_owner": None,
+            }
             if operator_id:
                 update_data["updated_by"] = operator_id
-            await KnowledgeFileRepository().update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
+            updated_record = await file_repo.update_fields_if_status(
+                file_id=file_id,
+                kb_id=kb_id,
+                allowed_statuses={FileStatus.INDEXING},
+                data=update_data,
+                **owner_filter,
+            )
+            if updated_record is None and processing_owner is not None:
+                raise asyncio.CancelledError("File processing owner was lost")
             raise
 
     async def update_content(
@@ -1266,7 +1313,7 @@ class MilvusKB(KnowledgeBase):
             except Exception as e:
                 logger.error(f"Failed to delete graph data for file {file_id}: {e}")
         await chunk_repo.delete_by_file_id(file_id)
-        collection = self._get_existing_milvus_collection(kb_id)
+        collection = await self._get_existing_milvus_collection(kb_id)
 
         if collection:
             # 先查询文件是否存在，避免不必要的删除操作

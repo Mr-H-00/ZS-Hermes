@@ -52,6 +52,7 @@ class KnowledgeBaseManager:
 
         # 知识库实例缓存 {kb_type: kb_instance}
         self.kb_instances: dict[str, KnowledgeBase] = {}
+        self._kb_instance_lock = asyncio.Lock()
 
     async def initialize(self):
         """异步初始化"""
@@ -85,7 +86,7 @@ class KnowledgeBaseManager:
                 logger.warning(f"[InitializeKB] Skip initialization for unsupported knowledge base type: {kb_type}")
                 continue
             try:
-                self._get_or_create_kb_instance(kb_type)
+                await self._get_or_create_kb_instance(kb_type)
                 logger.info(f"[InitializeKB] {kb_type} 实例已初始化")
             except Exception as e:
                 logger.error(f"Failed to initialize {kb_type} knowledge base: {e}")
@@ -96,7 +97,7 @@ class KnowledgeBaseManager:
         if failures:
             raise RuntimeError(f"Used knowledge backends failed to initialize: {', '.join(sorted(failures))}")
 
-    def _get_or_create_kb_instance(self, kb_type: str) -> KnowledgeBase:
+    async def _get_or_create_kb_instance(self, kb_type: str) -> KnowledgeBase:
         """
         获取或创建知识库实例
 
@@ -109,13 +110,14 @@ class KnowledgeBaseManager:
         if kb_type in self.kb_instances:
             return self.kb_instances[kb_type]
 
-        # 创建新的知识库实例
-        kb_work_dir = os.path.join(self.work_dir, f"{kb_type}_data")
-        kb_instance = KnowledgeBaseFactory.create(kb_type, kb_work_dir)
-
-        self.kb_instances[kb_type] = kb_instance
-        logger.info(f"Created {kb_type} knowledge base instance")
-        return kb_instance
+        async with self._kb_instance_lock:
+            if kb_type in self.kb_instances:
+                return self.kb_instances[kb_type]
+            kb_work_dir = os.path.join(self.work_dir, f"{kb_type}_data")
+            kb_instance = await asyncio.to_thread(KnowledgeBaseFactory.create, kb_type, kb_work_dir)
+            self.kb_instances[kb_type] = kb_instance
+            logger.info(f"Created {kb_type} knowledge base instance")
+            return kb_instance
 
     async def move_file(self, kb_id: str, file_id: str, new_parent_id: str | None) -> dict:
         """移动文件或文件夹。"""
@@ -166,7 +168,7 @@ class KnowledgeBaseManager:
         if not KnowledgeBaseFactory.is_type_supported(kb_type):
             raise KBNotFoundError(f"Unsupported knowledge base type: {kb_type}")
 
-        executor = self._get_or_create_kb_instance(kb_type)
+        executor = await self._get_or_create_kb_instance(kb_type)
         additional_params = executor.normalize_additional_params(snapshot.get("additional_params"))
         additional_params.pop("stats", None)
         return KnowledgeBaseConfig(
@@ -180,7 +182,7 @@ class KnowledgeBaseManager:
     async def get_kb_executor(self, kb_id: str) -> KnowledgeBase:
         """获取知识库类型执行器。"""
         config = await self.get_kb_config(kb_id)
-        return self._get_or_create_kb_instance(config.kb_type)
+        return await self._get_or_create_kb_instance(config.kb_type)
 
     # =============================================================================
     # 统一的外部接口
@@ -501,7 +503,7 @@ class KnowledgeBaseManager:
             department_id=created_by_department_id,
         )
 
-        kb_instance = self._get_or_create_kb_instance(kb_type)
+        kb_instance = await self._get_or_create_kb_instance(kb_type)
         additional_params = kwargs
         additional_params.setdefault("auto_generate_questions", False)
         if "reranker_config" in additional_params:
@@ -571,7 +573,7 @@ class KnowledgeBaseManager:
     ) -> dict:
         """Add file record to metadata"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         return await self._run_with_stats_refresh(
             kb_id,
             executor.add_file_record(
@@ -583,10 +585,18 @@ class KnowledgeBaseManager:
             ),
         )
 
-    async def parse_file(self, kb_id: str, file_id: str, operator_id: str | None = None) -> dict:
+    async def parse_file(
+        self,
+        kb_id: str,
+        file_id: str,
+        operator_id: str | None = None,
+        *,
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
+    ) -> dict:
         """Parse file to Markdown"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         return await self._run_with_stats_refresh(
             kb_id,
             executor.parse_file(
@@ -594,15 +604,24 @@ class KnowledgeBaseManager:
                 file_id,
                 operator_id,
                 additional_params=config.additional_params,
+                processing_task_id=processing_task_id,
+                processing_owner=processing_owner,
             ),
         )
 
     async def index_file(
-        self, kb_id: str, file_id: str, operator_id: str | None = None, params: dict | None = None
+        self,
+        kb_id: str,
+        file_id: str,
+        operator_id: str | None = None,
+        params: dict | None = None,
+        *,
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
     ) -> dict:
         """Index parsed file"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         return await self._run_with_stats_refresh(
             kb_id,
             executor.index_file(
@@ -612,13 +631,15 @@ class KnowledgeBaseManager:
                 params=params,
                 embedding_model_spec=config.embedding_model_spec,
                 additional_params=config.additional_params,
+                processing_task_id=processing_task_id,
+                processing_owner=processing_owner,
             ),
         )
 
     async def update_file_params(self, kb_id: str, file_id: str, params: dict, operator_id: str | None = None) -> None:
         """Update file processing params"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         await executor.update_file_params(
             kb_id,
             file_id,
@@ -630,7 +651,7 @@ class KnowledgeBaseManager:
     async def aquery(self, query_text: str, kb_id: str, **kwargs) -> str:
         """异步查询知识库"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         return await executor.aquery(
             query_text,
             kb_id,
@@ -641,7 +662,7 @@ class KnowledgeBaseManager:
     async def get_kb_query_params_config(self, kb_id: str) -> dict:
         """获取知识库查询参数定义，并合并当前保存值。"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         params = executor.get_query_params_config(kb_id=kb_id)
         for option in params.get("options", []):
             key = option.get("key")
@@ -985,7 +1006,7 @@ class KnowledgeBaseManager:
     async def update_content(self, kb_id: str, file_ids: list[str], params: dict | None = None) -> list[dict]:
         """更新内容（重新分块）"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         return await self._run_with_stats_refresh(
             kb_id,
             executor.update_content(
@@ -1170,7 +1191,7 @@ class KnowledgeBaseManager:
     async def retrieve(self, kb_id: str, query: str, **options) -> dict:
         """按 kb_id 加载最新运行时元数据并执行检索。"""
         config = await self.get_kb_config(kb_id)
-        executor = self._get_or_create_kb_instance(config.kb_type)
+        executor = await self._get_or_create_kb_instance(config.kb_type)
         results = await executor.aquery(
             query,
             kb_id,

@@ -1,6 +1,9 @@
 import json
+from io import BytesIO
 
 import pytest
+from minio.error import S3Error
+from urllib3 import HTTPResponse
 
 from yuxi.storage.minio.client import MinIOClient, normalize_public_minio_url
 
@@ -117,3 +120,17 @@ async def test_async_download_file_always_releases_response(read_error):
 
     assert response.closed is True
     assert response.released is True
+
+
+@pytest.mark.asyncio
+async def test_delete_prefix_is_idempotent_when_bucket_does_not_exist():
+    client = MinIOClient()
+
+    class MissingBucketClient:
+        def list_objects(self, *_args, **_kwargs):
+            response = HTTPResponse(BytesIO(b""), status=404)
+            raise S3Error(response, "NoSuchBucket", "Not found", "kb-images", "request_id", "host_id")
+
+    client._client = MissingBucketClient()
+
+    assert await client.adelete_objects_by_prefix("kb-images", "kb-1/") == 0
