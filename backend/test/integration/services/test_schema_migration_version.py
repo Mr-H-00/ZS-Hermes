@@ -8,9 +8,10 @@ import uuid
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yuxi.storage.postgres.manager import BUSINESS_SCHEMA_VERSION, KNOWLEDGE_SCHEMA_VERSION, PostgresManager
+from yuxi.storage.postgres.models_knowledge import KnowledgeBase
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -297,6 +298,31 @@ async def test_knowledge_v1_to_v2_adds_file_attempt_owner_idempotently() -> None
             "service_interrupted: 旧执行实例中断，处理结果未知，请重试",
         )
         assert KNOWLEDGE_SCHEMA_VERSION == 2
+    finally:
+        await _drop_isolated_schema(schema, admin_engine, scoped_engine)
+
+
+async def test_knowledge_timestamp_defaults_match_database_clock_in_non_utc_session() -> None:
+    """带时区字段不依赖 PostgreSQL 会话时区解释无时区 UTC。"""
+    schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_knowledge_clock")
+    try:
+        await manager.create_knowledge_tables()
+        session_factory = async_sessionmaker(scoped_engine, expire_on_commit=False)
+        async with session_factory.begin() as session:
+            await session.execute(text("SET TIME ZONE 'Asia/Shanghai'"))
+            database = KnowledgeBase(kb_id="clock-kb", name="clock", kb_type="milvus")
+            session.add(database)
+            await session.flush()
+            database_now = await session.scalar(text("SELECT clock_timestamp()"))
+
+        async with session_factory() as verify_session:
+            await verify_session.execute(text("SET TIME ZONE 'UTC'"))
+            persisted_at = await verify_session.scalar(
+                text("SELECT created_at FROM knowledge_bases WHERE kb_id = 'clock-kb'")
+            )
+
+        assert persisted_at.tzinfo is not None
+        assert abs((persisted_at - database_now).total_seconds()) < 2
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 

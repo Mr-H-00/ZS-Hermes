@@ -13,7 +13,7 @@ from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import TaskRecord
 from yuxi.storage.postgres.models_knowledge import KnowledgeFile
 from yuxi.utils import logger
-from yuxi.utils.datetime_utils import utc_now_naive
+from yuxi.utils.datetime_utils import utc_now
 
 # asyncpg 单条 SQL 参数上限为 32767；按 file_id 批量查询时统一分批，避免
 # mindmap_file_ids 等大尺寸传入触发 `too many parameters` 报错。
@@ -203,7 +203,7 @@ class KnowledgeFileRepository:
     def _sanitize_data(cls, data: dict[str, Any]) -> dict[str, Any]:
         sanitized = {key: value for key, value in data.items() if key in cls._writable_fields}
         if sanitized:
-            sanitized["updated_at"] = utc_now_naive()
+            sanitized["updated_at"] = utc_now()
         return sanitized
 
     async def get_all(self) -> list[KnowledgeFile]:

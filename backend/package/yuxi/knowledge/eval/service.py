@@ -3,7 +3,7 @@ import json
 import os
 import re
 import uuid
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -24,7 +24,7 @@ from yuxi.services.task_service import TaskContext, tasker
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_knowledge import EvaluationDataset, EvaluationRun
 from yuxi.utils import logger
-from yuxi.utils.datetime_utils import coerce_any_to_utc_datetime, format_utc_datetime, utc_now_naive
+from yuxi.utils.datetime_utils import coerce_any_to_utc_datetime, format_utc_datetime, utc_now, utc_now_naive
 
 DATASET_PERSIST_BATCH_SIZE = max(1, int(os.getenv("YUXI_DATASET_PERSIST_BATCH_SIZE") or 1))
 _TASK_NOT_LOADED = object()
@@ -160,14 +160,16 @@ class EvaluationService:
         completed_at = None
         if task is not None and task.status in {"failed", "cancelled"}:
             error = task.error or task.message or "评估任务失败"
-            completed_at = task.completed_at or utc_now_naive()
+            completed_at = task.completed_at or utc_now()
+            if completed_at.tzinfo is None:
+                completed_at = completed_at.replace(tzinfo=UTC)
         elif (
             task is None
             and row.started_at
             and coerce_any_to_utc_datetime(row.started_at).replace(tzinfo=None) < utc_now_naive() - timedelta(minutes=1)
         ):
             error = "评估任务提交中断"
-            completed_at = utc_now_naive()
+            completed_at = utc_now()
 
         if error is not None:
             await self.eval_repo.update_run(
@@ -691,7 +693,7 @@ class EvaluationService:
                         "overall_score": None,
                         "total_items": dataset_row.item_count or 0,
                         "completed_items": 0,
-                        "started_at": utc_now_naive(),
+                        "started_at": utc_now(),
                         "completed_at": None,
                         "created_by": created_by,
                     },
@@ -984,7 +986,7 @@ async def finish_rag_evaluation_task(session, task_record, result) -> None:
     run.completed_items = int(result["completed_items"])
     run.metrics = dict(result["metrics"])
     run.overall_score = result["overall_score"]
-    run.completed_at = utc_now_naive()
+    run.completed_at = utc_now()
 
 
 async def fail_rag_evaluation_task(session, task_record, error: str) -> None:
@@ -995,4 +997,4 @@ async def fail_rag_evaluation_task(session, task_record, error: str) -> None:
         return
     run.status = "failed"
     run.metrics = {"error": error}
-    run.completed_at = utc_now_naive()
+    run.completed_at = utc_now()
