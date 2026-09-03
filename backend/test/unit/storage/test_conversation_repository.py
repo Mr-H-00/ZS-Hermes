@@ -11,7 +11,7 @@ from yuxi.repositories.conversation_repository import (
     INVOCATION_CONVERSATION_SOURCES,
     MAX_CONVERSATION_TITLE_LENGTH,
 )
-from yuxi.storage.postgres.models_business import Base, Conversation, ConversationStats, Message, ToolCall
+from yuxi.storage.postgres.models_business import AgentRun, Base, Conversation, ConversationStats, Message, ToolCall
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = pytest.mark.unit
@@ -147,7 +147,7 @@ async def test_model_audit_messages_are_hidden_from_history_and_message_count(co
 
 
 @pytest.mark.asyncio
-async def test_completed_model_audit_keeps_tool_call_visible_after_history_reload(conversation_session):
+async def test_only_state_proven_terminal_model_audit_keeps_tool_call_visible(conversation_session):
     now = utc_now_naive()
     conversation = Conversation(
         thread_id="thread-tool-audit",
@@ -161,30 +161,93 @@ async def test_completed_model_audit_keeps_tool_call_visible_after_history_reloa
     )
     conversation_session.add(conversation)
     await conversation_session.flush()
-    audit_message = Message(
-        conversation_id=conversation.id,
-        role="assistant",
-        content="",
-        message_type="model_audit",
-        operation_id="model-tool-1",
-        execution_status="completed",
-    )
-    conversation_session.add(audit_message)
+    runs = [
+        AgentRun(
+            id="run-active",
+            conversation_thread_id=conversation.thread_id,
+            runtime_scope_id=conversation.thread_id,
+            agent_slug="main",
+            uid=conversation.uid,
+            status="running",
+            request_id="request-active",
+            conversation_id=conversation.id,
+            input_payload={},
+        ),
+        AgentRun(
+            id="run-unproven",
+            conversation_thread_id=conversation.thread_id,
+            runtime_scope_id=conversation.thread_id,
+            agent_slug="main",
+            uid=conversation.uid,
+            status="completed",
+            request_id="request-unproven",
+            conversation_id=conversation.id,
+            input_payload={},
+        ),
+        AgentRun(
+            id="run-proven",
+            conversation_thread_id=conversation.thread_id,
+            runtime_scope_id=conversation.thread_id,
+            agent_slug="main",
+            uid=conversation.uid,
+            status="interrupted",
+            request_id="request-proven",
+            conversation_id=conversation.id,
+            input_payload={},
+        ),
+    ]
+    conversation_session.add_all(runs)
     await conversation_session.flush()
-    conversation_session.add(
-        ToolCall(
-            message_id=audit_message.id,
-            langgraph_tool_call_id="tool-call-1",
-            tool_name="search",
-            status="success",
-        )
+    audit_messages = [
+        Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="active",
+            message_type="model_audit",
+            extra_metadata={"state_reconciled": True},
+            run_id="run-active",
+            operation_id="model-active",
+            execution_status="completed",
+        ),
+        Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="unproven",
+            message_type="model_audit",
+            run_id="run-unproven",
+            operation_id="model-unproven",
+            execution_status="completed",
+        ),
+        Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="proven",
+            message_type="model_audit",
+            extra_metadata={"state_reconciled": True},
+            run_id="run-proven",
+            operation_id="model-proven",
+            execution_status="completed",
+        ),
+    ]
+    conversation_session.add_all(audit_messages)
+    await conversation_session.flush()
+    conversation_session.add_all(
+        [
+            ToolCall(
+                message_id=message.id,
+                langgraph_tool_call_id=f"tool-{message.operation_id}",
+                tool_name="search",
+                status="success",
+            )
+            for message in audit_messages
+        ]
     )
     await conversation_session.commit()
 
     messages = await ConversationRepository(conversation_session).get_messages(conversation.id)
 
-    assert [message.id for message in messages] == [audit_message.id]
-    assert messages[0].tool_calls[0].langgraph_tool_call_id == "tool-call-1"
+    assert [message.content for message in messages] == ["proven"]
+    assert messages[0].tool_calls[0].langgraph_tool_call_id == "tool-model-proven"
 
 
 @pytest.mark.asyncio

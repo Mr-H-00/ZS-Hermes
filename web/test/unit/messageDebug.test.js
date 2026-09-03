@@ -367,6 +367,34 @@ test('审计轮询只在面板、页面和 Run 都活跃时启用', () => {
   assert.equal(shouldPollMessageAudits({ ...active, activeRunId: null }), false)
 })
 
+test('大量未匹配审计按 sequence 一次合并', () => {
+  const auditCount = 2000
+  const audits = Array.from({ length: auditCount }, (_, index) => ({
+    id: index + 1,
+    type: 'ai',
+    run_id: 'run-large',
+    operation_id: `operation-${index + 1}`,
+    sequence: index + 1
+  }))
+  const messages = [
+    { id: 'user-large', type: 'human', run_id: 'run-large' },
+    {
+      id: 'operation-live',
+      type: 'ai',
+      run_id: 'run-large',
+      content: '实时输出'
+    }
+  ]
+
+  const merged = mergeMessageDebugAudits(messages, audits)
+
+  assert.equal(merged.length, auditCount + 2)
+  assert.equal(merged[0].id, 'user-large')
+  assert.equal(merged[1].operation_id, 'operation-1')
+  assert.equal(merged[auditCount].operation_id, `operation-${auditCount}`)
+  assert.equal(merged.at(-1).id, 'operation-live')
+})
+
 test('工具名称按多种消息字段解析并去重', () => {
   const names = extractMessageToolNames({
     tool_calls: [

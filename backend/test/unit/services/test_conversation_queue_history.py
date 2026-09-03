@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.services.conversation_service import get_thread_history_view
-from yuxi.storage.postgres.models_business import AgentRun, Base, Conversation, Message
+from yuxi.storage.postgres.models_business import AgentRun, Base, Conversation, Message, ToolCall
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -251,3 +251,73 @@ async def test_thread_history_handles_run_without_timing_fields(session):
     assistant_message = next(message for message in history["history"] if message["type"] == "ai")
     assert assistant_message["run_started_at"] is None
     assert assistant_message["run_finished_at"] is None
+
+
+async def test_thread_history_hides_internal_metadata_from_published_model_audit(session):
+    """已发布 Model 输出保留产品 metadata，不暴露 lifecycle 字段。"""
+    session.add(
+        Conversation(
+            id=1,
+            thread_id="thread-1",
+            project_id="project-thread-1",
+            uid="user-1",
+            agent_id="main",
+            status="active",
+        )
+    )
+    session.add(
+        AgentRun(
+            id="run-a",
+            conversation_thread_id="thread-1",
+            runtime_scope_id="thread-1",
+            agent_slug="main",
+            uid="user-1",
+            request_id="request-a",
+            conversation_id=1,
+            input_payload={},
+            status="interrupted",
+        )
+    )
+    audit = Message(
+        conversation_id=1,
+        role="assistant",
+        content="answer",
+        message_type="text",
+        extra_metadata={
+            "state_reconciled": True,
+            "model_run_id": "private-model-run",
+            "start_metadata": {"provider": "private-provider"},
+            "finish_metadata": {"model_name": "private-model"},
+            "langfuse_trace_id": "trace-safe",
+        },
+        run_id="run-a",
+        request_id="request-a",
+        operation_id="model-a",
+        execution_status="completed",
+    )
+    session.add(audit)
+    await session.flush()
+    session.add(
+        ToolCall(
+            message_id=audit.id,
+            langgraph_tool_call_id="call-a",
+            tool_name="search",
+            tool_input={"q": "Yuxi"},
+            tool_output="safe result",
+            status="success",
+        )
+    )
+    await session.commit()
+
+    history = await get_thread_history_view(
+        thread_id="thread-1",
+        current_uid="user-1",
+        db=session,
+    )
+
+    assert len(history["history"]) == 1
+    message = history["history"][0]
+    assert message["extra_metadata"] == {"langfuse_trace_id": "trace-safe"}
+    assert message["tool_calls"][0]["tool_call_result"] == {"content": "safe result"}
+    assert "private-model-run" not in str(history)
+    assert "private-provider" not in str(history)

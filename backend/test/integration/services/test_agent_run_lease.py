@@ -309,6 +309,17 @@ async def test_model_audit_lifecycle_is_idempotent_and_lease_fenced(lease_databa
             assert created is True
             assert duplicate_created is False
 
+            with pytest.raises(ValueError, match="sequence"):
+                await repo.start(
+                    run_id=run_id,
+                    request_id=run.request_id,
+                    thread_id=thread_id,
+                    worker_id=owner,
+                    operation_id="model-operation-1",
+                    sequence=8,
+                    started_at=now,
+                )
+
             completed = await repo.finish(
                 run_id=run_id,
                 request_id=run.request_id,

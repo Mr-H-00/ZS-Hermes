@@ -13,6 +13,8 @@ from yuxi.storage.postgres.manager import pg_manager
 
 @dataclass(slots=True)
 class _ModelOperation:
+    """保存单次 Model 生命周期的进程内聚合状态。"""
+
     operation_id: str
     monotonic_started_at: float | None
     content_parts: list[str] = field(default_factory=list)
@@ -74,6 +76,9 @@ class ModelMessageAuditCollector:
         operation_id = str(message.get("id") or metadata.get("run_id") or "").strip()
         if not operation_id:
             raise ValueError("message-start 缺少稳定 Model operation id")
+        current_operation = self._operations.get(key)
+        if current_operation is not None and current_operation.operation_id != operation_id:
+            raise ValueError("同一 Model lifecycle 不能更换 operation id")
         sequence = self._sequence(stream_event)
         started_at = self._wall_clock(stream_event)
         monotonic_started_at = monotonic()
@@ -101,10 +106,11 @@ class ModelMessageAuditCollector:
                 await db.rollback()
                 raise
 
-        self._operations[key] = _ModelOperation(
-            operation_id=operation_id,
-            monotonic_started_at=monotonic_started_at if created else None,
-        )
+        if current_operation is None:
+            self._operations[key] = _ModelOperation(
+                operation_id=operation_id,
+                monotonic_started_at=monotonic_started_at if created else None,
+            )
 
     async def _finish(
         self,

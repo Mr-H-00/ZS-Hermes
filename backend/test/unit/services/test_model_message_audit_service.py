@@ -143,3 +143,95 @@ async def test_collector_rejects_start_without_protocol_sequence():
             {"event": "message-start", "role": "ai", "id": "message-1"},
             {"run_id": "model-run-1", "stream_event": {"timestamp": 1_777_000_123_456}},
         )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_start_preserves_collected_content_and_monotonic_clock(monkeypatch):
+    """同一 Model start 重放不得清空聚合内容或重置 monotonic 起点。"""
+    db = _FakeDb()
+    finishes: list[dict] = []
+    created_values = iter([True, False])
+
+    @asynccontextmanager
+    async def session_context():
+        yield db
+
+    class FakeRepository:
+        def __init__(self, _db):
+            pass
+
+        async def start(self, **_kwargs):
+            return SimpleNamespace(id=1), next(created_values)
+
+        async def finish(self, **kwargs):
+            finishes.append(kwargs)
+            return SimpleNamespace(id=1)
+
+    monotonic_values = iter([100.0, 100.1, 100.4])
+    monkeypatch.setattr(model_message_audit_service.pg_manager, "get_async_session_context", session_context)
+    monkeypatch.setattr(model_message_audit_service, "ModelMessageAuditRepository", FakeRepository)
+    monkeypatch.setattr(model_message_audit_service, "monotonic", lambda: next(monotonic_values))
+
+    collector = ModelMessageAuditCollector(
+        run_id="run-1",
+        request_id="request-1",
+        thread_id="thread-1",
+        worker_id="worker-1",
+    )
+    metadata = {
+        "run_id": "model-run-1",
+        "stream_event": {"seq": 1, "timestamp": 1_777_000_123_456},
+    }
+    start = {"event": "message-start", "role": "ai", "id": "message-1"}
+    await collector.consume(start, metadata)
+    await collector.consume(
+        {"event": "content-block-delta", "delta": {"type": "text-delta", "text": "before"}},
+        metadata,
+    )
+    await collector.consume(start, metadata)
+    await collector.consume(
+        {"event": "content-block-delta", "delta": {"type": "text-delta", "text": " after"}},
+        metadata,
+    )
+    await collector.consume(
+        {"event": "message-finish", "usage": {}},
+        {"run_id": "model-run-1", "stream_event": {"seq": 2, "timestamp": 1_777_000_123_789}},
+    )
+
+    assert finishes[0]["content"] == "before after"
+    assert finishes[0]["duration_ms"] == 400
+
+
+@pytest.mark.asyncio
+async def test_active_lifecycle_rejects_replacement_operation_id(monkeypatch):
+    """同一 lifecycle key 不得用新 operation id 覆盖进程内状态。"""
+    db = _FakeDb()
+
+    @asynccontextmanager
+    async def session_context():
+        yield db
+
+    class FakeRepository:
+        def __init__(self, _db):
+            pass
+
+        async def start(self, **_kwargs):
+            return SimpleNamespace(id=1), True
+
+    monkeypatch.setattr(model_message_audit_service.pg_manager, "get_async_session_context", session_context)
+    monkeypatch.setattr(model_message_audit_service, "ModelMessageAuditRepository", FakeRepository)
+
+    collector = ModelMessageAuditCollector(
+        run_id="run-1",
+        request_id="request-1",
+        thread_id="thread-1",
+        worker_id="worker-1",
+    )
+    metadata = {
+        "run_id": "model-run-1",
+        "stream_event": {"seq": 1, "timestamp": 1_777_000_123_456},
+    }
+    await collector.consume({"event": "message-start", "role": "ai", "id": "message-1"}, metadata)
+
+    with pytest.raises(ValueError, match="operation id"):
+        await collector.consume({"event": "message-start", "role": "ai", "id": "message-2"}, metadata)

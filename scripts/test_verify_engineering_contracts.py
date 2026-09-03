@@ -130,6 +130,7 @@ jobs:
       - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_request_queue_concurrency.py -q
       - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_run_lease.py -q
       - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_agent_run_result_causality.py -q
+      - run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest test/integration/api/test_chat_router.py::test_thread_message_audits_return_persisted_facts_without_leaking_into_history -q
       - run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest test/e2e/test_deterministic_agent_path_e2e.py -q
       - run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q
       - run: |
@@ -448,6 +449,7 @@ jobs:
         for test_path in (
             "test/integration/services/test_project_workdir_provisioner.py",
             "test/e2e/test_deterministic_agent_path_e2e.py",
+            'docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest test/integration/api/test_chat_router.py::test_thread_message_audits_return_persisted_facts_without_leaking_into_history -q',
         ):
             with self.subTest(test_path=test_path):
                 path.write_text(

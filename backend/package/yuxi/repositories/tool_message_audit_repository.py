@@ -243,8 +243,13 @@ class ToolMessageAuditRepository:
         )
         return list(result.scalars().all())
 
-    async def list_timeline_for_conversation(self, conversation_id: int) -> list[Message]:
-        """按 Run 与 ProtocolEvent sequence 返回完整 Model/Tool 审计时间线。"""
+    async def list_timeline_for_conversation(
+        self,
+        conversation_id: int,
+        *,
+        limit: int,
+    ) -> tuple[list[Message], bool]:
+        """返回最新的有界 Model/Tool 审计时间线。"""
         result = await self.db.execute(
             select(Message)
             .join(AgentRun, AgentRun.id == Message.run_id)
@@ -254,9 +259,14 @@ class ToolMessageAuditRepository:
                 Message.operation_id.is_not(None),
                 Message.role.in_(("assistant", "tool")),
             )
-            .order_by(AgentRun.created_at.asc(), AgentRun.id.asc(), Message.sequence.asc(), Message.id.asc())
+            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc(), Message.sequence.desc(), Message.id.desc())
+            .limit(limit + 1)
         )
-        return list(result.scalars().unique().all())
+        messages = list(result.scalars().unique().all())
+        truncated = len(messages) > limit
+        messages = messages[:limit]
+        messages.reverse()
+        return messages, truncated
 
     async def _finish(
         self,

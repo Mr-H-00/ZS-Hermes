@@ -180,7 +180,7 @@ class ToolMessageAuditCollector:
 
 def _tool_output_content(output: Any) -> str:
     """将 ToolMessage output 规整为兼容展示文本，同时保留原始 output metadata。"""
-    value = output.get("content") if isinstance(output, dict) and "content" in output else output
+    value = output.get("content") if isinstance(output, dict) else output
     if value is None:
         return ""
     if isinstance(value, str):

@@ -520,7 +520,7 @@ async def test_state_reconcile_uses_latest_awaiting_error_for_current_run(monkey
     monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
     monkeypatch.setattr(svc, "ModelMessageAuditRepository", _EmptyModelAuditRepo)
     monkeypatch.setattr(svc, "ToolMessageAuditRepository", FakeToolAuditRepo)
-    monkeypatch.setattr(svc, "_reconcile_tool_audit_message", reconcile_tool)
+    monkeypatch.setattr(svc, "_reconcile_tool_error_from_state", reconcile_tool)
 
     await svc.save_messages_from_langgraph_state(
         agent_instance=FakeAgent(),
@@ -608,6 +608,98 @@ async def test_completed_run_rejects_unmatched_final_state_message(monkeypatch: 
             worker_id="worker-1",
             complete_run=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_interrupted_run_does_not_bind_older_reconciled_model_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """State 最后一条 AIMessage 未证明时不得绑定更早审计行。"""
+    older_audit = SimpleNamespace(
+        id=9,
+        operation_id="known-older",
+        content="",
+        extra_metadata={},
+        execution_status="completed",
+        message_type="model_audit",
+        conversation_id=1,
+    )
+
+    class FakeDB:
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+        async def flush(self):
+            pass
+
+    class FakeGraph:
+        async def aget_state(self, _config):
+            return SimpleNamespace(
+                values={
+                    "messages": [
+                        AIMessage(content="older", id="known-older"),
+                        AIMessage(content="unmatched interrupt", id="missing-current"),
+                    ]
+                }
+            )
+
+    class FakeAgent:
+        async def get_graph(self, *, context):
+            return FakeGraph()
+
+    class FakeAuditRepo:
+        def __init__(self, _db):
+            pass
+
+        async def list_for_run(self, _run_id):
+            return [older_audit]
+
+        async def get(self, *, run_id, operation_id):
+            assert run_id == "run-1"
+            return older_audit if operation_id == "known-older" else None
+
+    output_ids: list[int] = []
+
+    class FakeRunRepo:
+        def __init__(self, _db):
+            pass
+
+        async def lock_output_persistence(self, *_args, **_kwargs):
+            return object()
+
+        async def set_output_message(self, _run_id, message_id, *, worker_id):
+            output_ids.append(message_id)
+
+        async def set_terminal_status(self, *_args, **_kwargs):
+            return SimpleNamespace(status="interrupted"), True
+
+        async def cancel_active_execution_tree_descendants(self, _run):
+            return []
+
+    fake_db = FakeDB()
+    conv_repo = _FakeConvRepo(fake_db)
+    monkeypatch.setattr(svc, "AgentRunRepository", FakeRunRepo)
+    monkeypatch.setattr(svc, "ModelMessageAuditRepository", FakeAuditRepo)
+    monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
+
+    committed = await svc.save_messages_from_langgraph_state(
+        agent_instance=FakeAgent(),
+        thread_id="thread-1",
+        conv_repo=conv_repo,
+        config_dict={},
+        context=object(),
+        run_id="run-1",
+        request_id="request-1",
+        worker_id="worker-1",
+        interrupt_run=True,
+    )
+
+    assert committed is True
+    assert output_ids == []
+    assert conv_repo.published_message_ids == []
 
 
 @pytest.mark.asyncio
@@ -700,6 +792,7 @@ async def test_tool_call_interrupt_ignores_historical_same_id_tool_message(monke
     assert committed is True
     assert output_ids == [audit_message.id]
     assert audit_message.message_type == "model_audit"
+    assert audit_message.extra_metadata["state_reconciled"] is True
     assert conv_repo.published_message_ids == []
 
 

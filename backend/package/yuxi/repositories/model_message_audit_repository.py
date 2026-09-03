@@ -7,10 +7,9 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from yuxi.repositories.agent_run_repository import AgentRunRepository
-from yuxi.storage.postgres.models_business import AgentRun, MODEL_AUDIT_MESSAGE_TYPE, Message
+from yuxi.storage.postgres.models_business import MODEL_AUDIT_MESSAGE_TYPE, Message
 
 
 class ModelMessageAuditRepository:
@@ -51,6 +50,7 @@ class ModelMessageAuditRepository:
         existing = await self._get(run_id, normalized_operation_id)
         if existing is not None:
             self._require_same_owner(existing, conversation_id=run.conversation_id, request_id=request_id)
+            self._require_same_start(existing, sequence=sequence)
             return existing, False
 
         message = Message(
@@ -142,21 +142,6 @@ class ModelMessageAuditRepository:
         )
         return list(result.scalars().all())
 
-    async def list_for_conversation(self, conversation_id: int) -> list[Message]:
-        """按 Run 和 ProtocolEvent 顺序返回 Conversation 的 Model 审计。"""
-        result = await self.db.execute(
-            select(Message)
-            .join(AgentRun, AgentRun.id == Message.run_id)
-            .options(selectinload(Message.tool_calls))
-            .where(
-                Message.conversation_id == conversation_id,
-                Message.operation_id.is_not(None),
-                Message.role == "assistant",
-            )
-            .order_by(AgentRun.created_at.asc(), AgentRun.id.asc(), Message.sequence.asc(), Message.id.asc())
-        )
-        return list(result.scalars().unique().all())
-
     async def _get(self, run_id: str, operation_id: str) -> Message | None:
         result = await self.db.execute(
             select(Message).where(
@@ -175,3 +160,9 @@ class ModelMessageAuditRepository:
             or message.message_type != MODEL_AUDIT_MESSAGE_TYPE
         ):
             raise ValueError("Model 审计消息必须属于同一 Run、request 和 conversation")
+
+    @staticmethod
+    def _require_same_start(message: Message, *, sequence: int) -> None:
+        """确保重放的 Model start 没有改写已持久化顺序。"""
+        if message.sequence != sequence:
+            raise ValueError("重复 Model start 与已持久化 sequence 不一致")

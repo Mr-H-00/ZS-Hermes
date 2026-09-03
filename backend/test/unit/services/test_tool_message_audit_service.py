@@ -77,6 +77,7 @@ async def test_collector_projects_tool_start_and_successful_finish(monkeypatch):
         "tool_call_id": "call-1",
         "content": [{"type": "text", "text": "result"}],
         "status": "success",
+        "private_lifecycle_field": "audit-only",
     }
     await collector.consume(
         {
@@ -118,6 +119,16 @@ async def test_collector_projects_tool_start_and_successful_finish(monkeypatch):
             "duration_ms": 275,
             "finished_sequence": 12,
         },
+    )
+
+
+def test_tool_output_without_content_does_not_enter_compatibility_projection():
+    """原始 lifecycle envelope 不得作为普通 ToolCall 输出。"""
+    assert (
+        tool_message_audit_service._tool_output_content(
+            {"type": "tool", "status": "success", "private_lifecycle_field": "audit-only"}
+        )
+        == ""
     )
 
 

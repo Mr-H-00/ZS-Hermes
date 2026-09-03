@@ -682,6 +682,7 @@ async def _reconcile_model_audit_message(
     metadata = {**dict(message.extra_metadata or {}), **dict(msg_dict)}
     if trace_info:
         metadata.update(trace_info)
+    metadata["state_reconciled"] = True
     message.content = content
     message.extra_metadata = metadata
     if message.execution_status == "running":
@@ -809,7 +810,7 @@ async def save_messages_from_langgraph_state(
                 audit = current_tool_audits_by_operation[tool_call_id]
                 if not _should_reconcile_tool_state(audit, msg_dict):
                     continue
-                await _reconcile_tool_audit_message(
+                await _reconcile_tool_error_from_state(
                     conv_repo,
                     run_id=run_id,
                     request_id=request_id,
@@ -818,10 +819,11 @@ async def save_messages_from_langgraph_state(
                     tool_call_id=tool_call_id,
                     msg_dict=msg_dict,
                 )
-            if current_model_audits and complete_run:
-                last_ai_message = reconciled_audits.get(last_state_ai_id or "")
-                if last_ai_message is None:
+            if current_model_audits and (complete_run or interrupt_run):
+                terminal_ai_message = reconciled_audits.get(last_state_ai_id or "")
+                if complete_run and terminal_ai_message is None:
                     raise ValueError("最终 State AIMessage 无法与当前 Run 的 Model lifecycle 事实关联")
+                last_ai_message = terminal_ai_message
             if last_ai_message is not None:
                 has_tool_calls = bool((last_ai_message.extra_metadata or {}).get("tool_calls"))
                 should_publish = (
@@ -1870,7 +1872,7 @@ async def get_agent_state_view(
     raise HTTPException(status_code=404, detail="对话线程不存在")
 
 
-async def _reconcile_tool_audit_message(
+async def _reconcile_tool_error_from_state(
     conv_repo: ConversationRepository,
     *,
     run_id: str,
@@ -1880,32 +1882,24 @@ async def _reconcile_tool_audit_message(
     tool_call_id: str,
     msg_dict: dict[str, Any],
 ) -> None:
-    """用终态 State 按稳定 tool_call_id 对账同一 ToolMessage。"""
+    """用终态 State 补全等待 Run 裁决的 Tool error。"""
     if not request_id or not worker_id:
         raise ValueError("ToolMessage 对账需要 worker、thread 和 request 因果归属")
     content = _tool_message_content(msg_dict.get("content"))
-    output = _json_safe(msg_dict)
-    kwargs = {
-        "run_id": run_id,
-        "request_id": request_id,
-        "thread_id": thread_id,
-        "worker_id": worker_id,
-        "tool_call_id": tool_call_id,
-        "output": output,
-        "content": content,
-        "finished_at": utc_now_naive(),
-        "duration_ms": None,
-        "finished_sequence": None,
-    }
-    repository = ToolMessageAuditRepository(conv_repo.db)
-    if msg_dict.get("status") == "error":
-        await repository.fail(
-            error_message=content or "Tool 执行失败",
-            allow_terminal_enrichment=True,
-            **kwargs,
-        )
-    else:
-        await repository.complete(**kwargs)
+    await ToolMessageAuditRepository(conv_repo.db).fail(
+        run_id=run_id,
+        request_id=request_id,
+        thread_id=thread_id,
+        worker_id=worker_id,
+        tool_call_id=tool_call_id,
+        output=_json_safe(msg_dict),
+        content=content,
+        error_message=content or "Tool 执行失败",
+        finished_at=utc_now_naive(),
+        duration_ms=None,
+        finished_sequence=None,
+        allow_terminal_enrichment=True,
+    )
 
 
 def _tool_message_content(content: Any) -> str:

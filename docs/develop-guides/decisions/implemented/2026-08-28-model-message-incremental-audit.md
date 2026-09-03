@@ -26,11 +26,11 @@ message-finish(usage, metadata)
 
 若 Provider 没有提供 message id，则使用同一 lifecycle metadata 中的 LangChain model run id作为运行期来源键；终态 State 无法证明同一来源时不得按内容或相邻位置猜测关联。
 
-增量行使用 `message_type=model_audit` 与普通会话输出隔离。只有最终 State 能按稳定 operation ID 证明的最后一条 AIMessage，才在现有 lease-fenced 终态事务中转为普通输出并绑定 `AgentRun.output_message_id`。运行中的审计行不进入普通历史；终态已证明且承载现有 ToolCall 的中间行继续作为刷新后工具展示的兼容载体，但不进入普通消息计数、Dashboard，Memory 也只在显式读取工具时包含它。
+增量行使用 `message_type=model_audit` 与普通会话输出隔离。只有最终 State 能按稳定 operation ID 证明的最后一条 AIMessage，才在现有 lease-fenced 终态事务中转为普通输出并绑定 `AgentRun.output_message_id`。运行中的审计行不进入普通历史；终态 State 对账会写入显式 `state_reconciled` 证明，只有同时属于终态 Run、已有该证明且承载 ToolCall 的中间行，才继续作为刷新后工具展示的兼容载体。该兼容行不进入普通消息计数和 Dashboard，Memory 也只在显式读取工具时包含它；普通 History 对 operation metadata 使用公开字段 allowlist。
 
 ### 生命周期与事务
 
-`message-start` 通过独立、可等待的短事务幂等创建 `running` AIMessage；`message-finish` 更新同一行的内容、usage、结束时间、monotonic duration 和 `completed`。不持久化 token delta。
+`message-start` 通过独立、可等待的短事务幂等创建 `running` AIMessage；重复 start 保留同进程已经聚合的内容和 monotonic 起点，来源键相同但 sequence 或 operation ID 冲突时显式失败。`message-finish` 更新同一行的内容、usage、结束时间、monotonic duration 和 `completed`。不持久化 token delta。
 
 每次写入都必须锁定并校验 AgentRun 的 run/request/thread、当前 worker lease 和非终态状态。commit 后立即归还 session。失效 lease、归属冲突、来源键冲突或关键写入持续失败时显式终止当前 Run，不继续启动后续 Model 步骤；禁止 fire-and-forget 写入。
 
@@ -40,7 +40,7 @@ message-finish(usage, metadata)
 
 现有终态 State 投影改为先按当前 Run 的 `operation_id` 查找增量 AIMessage，再补全内容和 metadata；不能重复插入。State 可以补写完全遗漏但具有稳定 message id 的完成 AIMessage，但不得覆盖 stream 已保存的 `started_at`、`sequence` 和 monotonic duration。
 
-AgentRun 进入 terminal status 时，在同一 owning transaction 内关闭残留 `running` Model 行：失败映射为 `failed`，取消或中断映射为 `interrupted`，成功终态仍未得到 finish/State 证明的行映射为 `abandoned`。最终 State 中最后一条属于当前 Run 的 AIMessage继续绑定 `output_message_id`。
+AgentRun 进入 terminal status 时，在同一 owning transaction 内关闭残留 `running` Model 行：失败映射为 `failed`，取消或中断映射为 `interrupted`，成功终态仍未得到 finish/State 证明的行映射为 `abandoned`。最终 State 中最后一条属于当前 Run 的 AIMessage 只有在当前 Run 审计能按 operation ID 匹配时才绑定 `output_message_id`；interrupt 不得退回绑定同一 State 中更早的已对账 Model 行。
 
 ### 兼容边界
 

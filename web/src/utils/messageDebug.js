@@ -145,29 +145,56 @@ export function mergeMessageDebugAudits(messages, audits) {
   })
 
   const pending = persistedAudits.filter((audit) => !matchedAuditIndexes.has(audit))
-
+  const pendingByRun = new Map()
   pending.forEach((audit) => {
     const runId = messageRunId(audit)
-    const sequence = Number.isFinite(audit?.sequence) ? audit.sequence : Number.MAX_SAFE_INTEGER
-    const laterOperationIndex = merged.findIndex((message) => {
-      if (messageRunId(message) !== runId) return false
-      if (liveModelAuditKey(message) && !modelAuditKey(message)) return true
-      if (!modelAuditKey(message)) return false
-      const messageSequence = Number.isFinite(message?.sequence)
-        ? message.sequence
-        : Number.MAX_SAFE_INTEGER
-      return messageSequence > sequence
-    })
-    if (laterOperationIndex >= 0) {
-      merged.splice(laterOperationIndex, 0, audit)
-      return
-    }
-
-    const lastRunIndex = merged.findLastIndex((message) => messageRunId(message) === runId)
-    merged.splice(lastRunIndex >= 0 ? lastRunIndex + 1 : merged.length, 0, audit)
+    const runAudits = pendingByRun.get(runId) || []
+    runAudits.push(audit)
+    pendingByRun.set(runId, runAudits)
   })
 
-  return merged
+  const lastMessageIndexByRun = new Map()
+  merged.forEach((message, index) => lastMessageIndexByRun.set(messageRunId(message), index))
+
+  const nextAuditIndexByRun = new Map()
+  const emittedAudits = new Set()
+  const ordered = []
+  merged.forEach((message, messageIndex) => {
+    const runId = messageRunId(message)
+    const runAudits = pendingByRun.get(runId) || []
+    let nextAuditIndex = nextAuditIndexByRun.get(runId) || 0
+    const messageSequence = Number.isFinite(message?.sequence)
+      ? message.sequence
+      : Number.MAX_SAFE_INTEGER
+    const isUnmatchedLiveModel = Boolean(liveModelAuditKey(message) && !modelAuditKey(message))
+    const hasPersistedOperation = Boolean(modelAuditKey(message))
+    while (nextAuditIndex < runAudits.length) {
+      const audit = runAudits[nextAuditIndex]
+      const auditSequence = Number.isFinite(audit?.sequence)
+        ? audit.sequence
+        : Number.MAX_SAFE_INTEGER
+      if (!isUnmatchedLiveModel && (!hasPersistedOperation || auditSequence >= messageSequence)) break
+      ordered.push(audit)
+      emittedAudits.add(audit)
+      nextAuditIndex += 1
+    }
+    ordered.push(message)
+
+    if (lastMessageIndexByRun.get(runId) === messageIndex) {
+      while (nextAuditIndex < runAudits.length) {
+        const audit = runAudits[nextAuditIndex]
+        ordered.push(audit)
+        emittedAudits.add(audit)
+        nextAuditIndex += 1
+      }
+    }
+    nextAuditIndexByRun.set(runId, nextAuditIndex)
+  })
+
+  pending.forEach((audit) => {
+    if (!emittedAudits.has(audit)) ordered.push(audit)
+  })
+  return ordered
 }
 
 function aiRoleLabel({ isError, operationId, hasTools }) {

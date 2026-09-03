@@ -16,7 +16,7 @@ ToolCall 在工具尚未开始时保留 Model 声明的 pending 调用意图，�
 
 Run 失败、取消、中断、completed 时遗留的未关闭 Tool 或 lease 过期由 AgentRun owning transaction 与 Model audit 一起收敛，并同步关闭 ToolCall 兼容状态。普通 History、Memory、Dashboard 消息口径和 Conversation count 排除 `tool_audit`；ToolCall 统计继续读取单向兼容投影。
 
-超级管理员通过线程级权限接口读取自身线程的 Model/Tool DTO。调试面板按 Run 与 sequence 展示 Tool 状态、effective input、输出或错误、起止时间和后端 duration，并沿用 Message ID 或 `(run_id, operation_id)` 合并规则。business schema v3 已提供 Model/Tool 共用字段，本决定不增加 schema 或 migration。Langfuse observation ID 与更深恢复加固属于后续阶段。
+超级管理员通过唯一的线程级 `/api/chat/thread/{thread_id}/audits` 接口读取自身线程最新 500 条 Model/Tool DTO，响应以 `truncated` 明示截断。调试面板按 Run 与 sequence 展示 Tool 状态、effective input、输出或错误、起止时间和后端 duration，并沿用 Message ID 或 `(run_id, operation_id)` 合并规则。不保留无独立 consumer 的 Model-only `/model-audits`，接口收敛理由见[线程 Message 审计读接口收敛](./2026-09-03-unify-message-audit-read-api.md)。business schema v3 已提供 Model/Tool 共用字段，本决定不增加 schema 或 migration。Langfuse observation ID 与更深恢复加固属于后续阶段。
 
 ## 替代方案
 
@@ -30,7 +30,7 @@ Run 失败、取消、中断、completed 时遗留的未关闭 Tool 或 lease �
 
 - PostgreSQL 可以独立回答一次 Run 的 Tool 实际输入、输出或错误、严格顺序、状态和耗时，并与 Model 调用组成完整时间线。
 - Tool start/terminal 各增加一次可等待的短事务；delta 和模型流期间不持有数据库连接。
-- 原始 Tool output 保存在 Message metadata，普通用户接口只返回显式 DTO，调试接口继续限制为超级管理员自己的线程。
+- 原始 Tool output 保存在 Message metadata，ToolCall 兼容投影只接收 output `content`，不把 envelope 其他字段带入普通 History、Memory 或 Dashboard；调试接口继续限制为超级管理员自己的线程。
 - ToolCall 仍是现有 History、Memory、Dashboard 和工具 UI 的兼容读模型，不再拥有工具开始后的执行事实。
 - 缺少来源 Model、错误 lease、跨 conversation resume ancestry 或不同 terminal 结果会显式失败，避免产生不可见或错绑投影。
 - 没有同进程 monotonic 起点的恢复关闭行保持 `duration_ms` 为空，前端显示耗时不可用。

@@ -8,17 +8,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import INVOCATION_CONVERSATION_SOURCES, ConversationRepository
-from yuxi.repositories.model_message_audit_repository import ModelMessageAuditRepository
 from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.repositories.tool_message_audit_repository import ToolMessageAuditRepository
 from yuxi.services.attachment_service import serialize_attachment
 from yuxi.services.project_service import create_implicit_project
 from yuxi.services.workdir_service import ensure_conversation_workdir_available, resolve_conversation_workdir_path
-from yuxi.storage.postgres.models_business import AGENT_RUN_TERMINAL_STATUSES, AgentRun, User
+from yuxi.storage.postgres.models_business import (
+    AGENT_RUN_TERMINAL_STATUSES,
+    AgentRun,
+    User,
+)
 from yuxi.utils.datetime_utils import format_utc_datetime
 from yuxi.utils.logging_config import logger
 from yuxi.workspace.paths import ensure_bound_user_workdir
 from yuxi.workspace.workdir import Workdir
+
+MESSAGE_AUDIT_LIMIT = 500
+MODEL_HISTORY_METADATA_KEYS = frozenset(
+    {"attachments", "source", "error_type", "error_message", "langfuse_trace_id", "model"}
+)
 
 
 async def require_user_conversation(conv_repo: ConversationRepository, thread_id: str, uid: str):
@@ -28,36 +36,26 @@ async def require_user_conversation(conv_repo: ConversationRepository, thread_id
     return conversation
 
 
-async def get_thread_model_audits_view(
-    *,
-    thread_id: str,
-    current_uid: str,
-    db: AsyncSession,
-) -> dict[str, list[dict[str, Any]]]:
-    """返回当前用户线程内的完整 Model 审计时间线。"""
-    conversation = await require_user_conversation(
-        ConversationRepository(db),
-        thread_id,
-        str(current_uid),
-    )
-    messages = await ModelMessageAuditRepository(db).list_for_conversation(conversation.id)
-    return {"audits": [_serialize_model_audit(message) for message in messages]}
-
-
 async def get_thread_message_audits_view(
     *,
     thread_id: str,
     current_uid: str,
     db: AsyncSession,
-) -> dict[str, list[dict[str, Any]]]:
-    """返回当前用户线程内的完整 Model/Tool 审计时间线。"""
+) -> dict[str, Any]:
+    """返回当前用户线程内最新的有界 Model/Tool 审计时间线。"""
     conversation = await require_user_conversation(
         ConversationRepository(db),
         thread_id,
         str(current_uid),
     )
-    messages = await ToolMessageAuditRepository(db).list_timeline_for_conversation(conversation.id)
-    return {"audits": [_serialize_message_audit(message) for message in messages]}
+    messages, truncated = await ToolMessageAuditRepository(db).list_timeline_for_conversation(
+        conversation.id,
+        limit=MESSAGE_AUDIT_LIMIT,
+    )
+    return {
+        "audits": [_serialize_message_audit(message) for message in messages],
+        "truncated": truncated,
+    }
 
 
 async def create_thread_view(
@@ -410,7 +408,7 @@ async def get_thread_history_view(
                     }
                     break
 
-        extra_metadata = dict(msg.extra_metadata or {})
+        extra_metadata = _serialize_history_metadata(msg)
         request_id = extra_metadata.get("request_id")
         if msg.role == "user" and request_id and not extra_metadata.get("attachments"):
             extra_metadata["attachments"] = attachments_by_request_id.get(str(request_id), [])
@@ -498,6 +496,14 @@ def _format_naive_utc_isoformat(value: Any) -> str | None:
     if value is None:
         return None
     return value.isoformat() + "Z"
+
+
+def _serialize_history_metadata(message: Any) -> dict[str, Any]:
+    """从普通 History 中移除 Model lifecycle 内部字段。"""
+    metadata = dict(message.extra_metadata or {})
+    if message.operation_id is None:
+        return metadata
+    return {key: metadata[key] for key in MODEL_HISTORY_METADATA_KEYS if key in metadata}
 
 
 def _serialize_tool_call(tool_call: Any) -> dict[str, Any]:

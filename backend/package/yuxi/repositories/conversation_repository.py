@@ -11,10 +11,12 @@ from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from yuxi.storage.postgres.models_business import (
+    AGENT_RUN_TERMINAL_STATUSES,
     AUDIT_MESSAGE_TYPES,
     MODEL_AUDIT_MESSAGE_TYPE,
     TOOL_AUDIT_MESSAGE_TYPE,
     UNVIEWED_RUN_MARKER,
+    AgentRun,
     Conversation,
     ConversationStats,
     Message,
@@ -54,6 +56,16 @@ MEMORY_HISTORY_READ_RESPONSE_MAX_BYTES = 64 * 1024  # 历史读取完整 JSON �
 
 def _json_size(value: object) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"))
+
+
+def _state_proven_model_tool_call_condition():
+    """只允许终态 State 已证明的 Model 兼容行进入普通读模型。"""
+    return and_(
+        Message.message_type == MODEL_AUDIT_MESSAGE_TYPE,
+        Message.tool_calls.any(),
+        Message.extra_metadata["state_reconciled"].as_boolean().is_(True),
+        Message.run_id.in_(select(AgentRun.id).where(AgentRun.status.in_(AGENT_RUN_TERMINAL_STATUSES))),
+    )
 
 
 class ConversationRepository:
@@ -374,10 +386,7 @@ class ConversationRepository:
                 or_(
                     Message.message_type.is_(None),
                     Message.message_type.notin_(AUDIT_MESSAGE_TYPES),
-                    and_(
-                        Message.message_type == MODEL_AUDIT_MESSAGE_TYPE,
-                        Message.tool_calls.any(),
-                    ),
+                    _state_proven_model_tool_call_condition(),
                 ),
             )
             .order_by(Message.created_at.asc())
@@ -635,7 +644,7 @@ class ConversationRepository:
             Message.message_type.notin_(MESSAGE_SEARCH_EXCLUDED_TYPES),
         )
         if include_tools:
-            message_type_condition = or_(message_type_condition, Message.tool_calls.any())
+            message_type_condition = or_(message_type_condition, _state_proven_model_tool_call_condition())
         message_conditions = [
             Message.conversation_id == conversation.id,
             Message.role.in_(MESSAGE_SEARCH_ROLES),
