@@ -24,7 +24,7 @@ dependencies = [
     "colorlog>=6.9.0",
     "dashscope>=1.23.2",
     "deepagents>=0.7.7,<0.8",
-    "docling>=2.68.0",
+    "docling-slim[format-office,format-pdf-pypdfium2]==2.122.0",
     "docx2txt>=0.9",
     "httpx>=0.27.0",
     "json-repair>=0.54.0",
@@ -53,6 +53,7 @@ dependencies = [
     "onnxruntime>=1.20.0",
     "Pillow>=10.5.0",
     "psycopg[binary,pool]>=3.3.3",
+    "pylatexenc>=2.10,<3",
     "pyjwt>=2.13.0",
     "pymilvus>=2.5.8",
     "pymysql>=1.1.0",
@@ -72,8 +73,6 @@ dependencies = [
     "tenacity>=8.0.0",
     "tomli",
     "tomli-w",
-    "torch>=2.12.1",
-    "torchvision==0.28.0",
     "tqdm>=4.66.4",
     "typer>=0.16.0",
     "unstructured>=0.17.2",
@@ -107,13 +106,5 @@ name = "tsinghua"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
 [tool.uv.sources]
 yuxi = { path = "package", editable = true }
-torch = { index = "pytorch-cpu" }
-torchvision = { index = "pytorch-cpu" }

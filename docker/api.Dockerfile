@@ -37,6 +37,7 @@ RUN set -ex \
         libpq5 \
         libsm6 \
         libxext6 \
+        libreoffice-calc-nogui \
         libreoffice-impress-nogui \
         libreoffice-writer-nogui \
     # (D) 清理垃圾，减小体积

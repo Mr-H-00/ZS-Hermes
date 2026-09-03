@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,8 @@ from yuxi.knowledge.parser.mineru_official import MinerUOfficialParser
 from yuxi.knowledge.parser.rapid_ocr import RapidOCRParser
 from yuxi.knowledge.parser.registry import PROCESSOR_TYPES, get_parser_metadata
 from yuxi.services.ocr_service import parse_document
+
+PARSER_FIXTURES = Path(__file__).parents[2] / "data"
 
 
 def test_factory_cache_key_does_not_contain_credential():
@@ -169,6 +172,101 @@ async def test_parse_document_docx_returns_markdown_text(tmp_path: Path, monkeyp
     assert "Parser DOCX content" in markdown
 
 
+@pytest.mark.parametrize(
+    ("filename", "expected_fragments"),
+    [
+        ("测试文档.docx", ("20XX个人述职报告", "测试表格")),
+        ("测试演示.pptx", ("BUSINESS REPORT TEMPLATE", "工作内容回顾")),
+        ("测试表格.xlsx", ("个人所得税计算",)),
+        ("测试旧表格.xls", ("Docling Slim", "53")),
+    ],
+)
+def test_slim_office_backends_convert_real_fixtures(
+    filename: str,
+    expected_fragments: tuple[str, ...],
+) -> None:
+    document = parser_unified._convert_office_document(PARSER_FIXTURES / filename)
+
+    markdown = document.export_to_markdown()
+
+    assert markdown.strip()
+    assert all(fragment in markdown for fragment in expected_fragments)
+
+
+def test_slim_office_backend_unloads_after_conversion_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unloaded = False
+
+    class FailingBackend:
+        def convert(self):
+            raise RuntimeError("conversion failed")
+
+        def unload(self):
+            nonlocal unloaded
+            unloaded = True
+
+    input_document = SimpleNamespace(valid=True, _backend=FailingBackend())
+    monkeypatch.setattr(parser_unified, "InputDocument", lambda *_args: input_document)
+
+    with pytest.raises(RuntimeError, match="conversion failed"):
+        parser_unified._convert_office_document(tmp_path / "failure.docx")
+
+    assert unloaded
+
+
+def test_slim_docx_preserves_embedded_image_bytes_and_markdown_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    uploaded_images: list[bytes] = []
+
+    def _capture_upload(image_data, filename, bucket_name, object_prefix):
+        del filename, bucket_name, object_prefix
+        uploaded_images.append(image_data)
+        return "https://example.test/docx-image.png"
+
+    monkeypatch.setattr(parser_unified, "_upload_image_to_minio", _capture_upload)
+
+    markdown = parser_unified._convert_with_docling(PARSER_FIXTURES / "测试文档.docx")
+
+    assert len(uploaded_images) == 1
+    assert uploaded_images[0].startswith(b"\x89PNG\r\n\x1a\n")
+    assert re.search(
+        r"20XX个人述职报告[\s\S]+!\[image_\d+\.png\]\(https://example\.test/docx-image\.png\)"
+        r"[\s\S]+测试图片",
+        markdown,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pdf_never_enters_office_backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    file_path = tmp_path / "parser_test.pdf"
+    _build_pdf(file_path, "Existing PDF path")
+    monkeypatch.setattr(
+        parser_unified,
+        "_convert_office_document",
+        lambda *_args, **_kwargs: pytest.fail("PDF 不得进入 Office backend"),
+    )
+
+    markdown = await parse_document(str(file_path), params={"ocr_engine": "disable"})
+
+    assert "Existing PDF path" in markdown
+
+
+def test_lock_excludes_full_docling_and_torch_runtime() -> None:
+    lock_text = (Path(__file__).parents[3] / "uv.lock").read_text(encoding="utf-8")
+    package_names = set(re.findall(r'^name = "([^"]+)"$', lock_text, flags=re.MULTILINE))
+
+    assert {
+        "docling",
+        "docling-ibm-models",
+        "docling-parse",
+        "torch",
+        "torchvision",
+    }.isdisjoint(package_names)
+
+
 def test_convert_csv_to_markdown_preserves_column_dtypes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -206,19 +304,13 @@ def test_convert_with_docling_reinserts_image_links_in_document_order(
         ],
         export_to_markdown=lambda: "before\n<!-- image -->\nremote\n<!-- image -->\nbetween\n<!-- image -->\nafter",
     )
-    fake_result = SimpleNamespace(status=SimpleNamespace(name="SUCCESS"), document=fake_doc)
     uploaded_images: list[bytes] = []
-
-    class FakeConverter:
-        def convert(self, path: Path):
-            assert path == file_path
-            return fake_result
 
     def _fake_upload_image_to_minio(image_data, filename, bucket_name, object_prefix):
         uploaded_images.append(image_data)
         return f"https://example.test/{len(uploaded_images)}.png"
 
-    monkeypatch.setattr(parser_unified, "_get_docling_converter", lambda: FakeConverter())
+    monkeypatch.setattr(parser_unified, "_convert_office_document", lambda _path: fake_doc)
     monkeypatch.setattr(parser_unified, "_upload_image_to_minio", _fake_upload_image_to_minio)
     image_timestamps = iter([1.0, 2.0])
     monkeypatch.setattr(parser_unified.time, "time", lambda: next(image_timestamps))
@@ -248,17 +340,11 @@ def test_convert_with_docling_keeps_image_placeholder_when_upload_fails(
         pictures=[SimpleNamespace(image=SimpleNamespace(uri=f"data:image/png;base64,{image}"))],
         export_to_markdown=lambda: "before\n<!-- image -->\nafter",
     )
-    fake_result = SimpleNamespace(status=SimpleNamespace(name="SUCCESS"), document=fake_doc)
-
-    class FakeConverter:
-        def convert(self, path: Path):
-            assert path == file_path
-            return fake_result
 
     def _raise_upload_error(*args, **kwargs):
         raise RuntimeError("upload failed")
 
-    monkeypatch.setattr(parser_unified, "_get_docling_converter", lambda: FakeConverter())
+    monkeypatch.setattr(parser_unified, "_convert_office_document", lambda _path: fake_doc)
     monkeypatch.setattr(parser_unified, "_upload_image_to_minio", _raise_upload_error)
     monkeypatch.setattr(parser_unified.time, "time", lambda: 1.0)
 
