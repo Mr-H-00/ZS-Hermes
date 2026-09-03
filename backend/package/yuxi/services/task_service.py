@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
-from yuxi.config.runtime import lite_mode_enabled
 from yuxi.repositories.task_repository import TERMINAL_TASK_STATUSES, TaskRepository
 from yuxi.services.task_queue_service import (
     TASK_HEARTBEAT_SECONDS,
@@ -260,8 +259,6 @@ class Tasker:
                 definition = get_failure_task_definition(current.type, handler_version)
             except ValueError:
                 return None
-            if lite_mode_enabled() and definition.requires_knowledge:
-                return None
             failure_handler = definition.load_failure_handler()
             if failure_handler is not None:
                 before_cancel = partial(failure_handler, error="任务已取消")
@@ -273,13 +270,6 @@ class Tasker:
         current = await self._repo.get_by_id(task_id)
         if current is None:
             return False
-        if lite_mode_enabled():
-            try:
-                definition = get_task_definition(current.type)
-            except ValueError:
-                return False
-            if definition.requires_knowledge:
-                return False
         return await self._repo.delete_terminal(task_id)
 
     @staticmethod
@@ -433,8 +423,6 @@ async def process_task(ctx: dict[str, Any], task_id: str) -> None:
         definition = get_task_definition(record.type, handler_version)
     except ValueError:
         logger.error("Durable Task has unknown Handler metadata: task_id=%s, type=%s", task_id, record.type)
-        return
-    if lite_mode_enabled() and definition.requires_knowledge:
         return
     if record.cancel_requested:
         failure_handler = definition.load_failure_handler()

@@ -467,15 +467,22 @@ async def test_schema_version_is_persisted_and_runtime_validation_fails_closed()
 
     try:
         with pytest.raises(RuntimeError, match="business=missing"):
-            await manager.require_current_schema(include_knowledge=False)
+            await manager.require_current_schema()
 
         await manager.create_schema_version_table()
         await manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION + 1)
         with pytest.raises(RuntimeError, match=f"business={BUSINESS_SCHEMA_VERSION + 1}"):
-            await manager.require_current_schema(include_knowledge=False)
+            await manager.require_current_schema()
 
         await manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
-        await manager.require_current_schema(include_knowledge=False)
-        assert await manager.get_schema_versions() == {"business": BUSINESS_SCHEMA_VERSION}
+        with pytest.raises(RuntimeError, match="knowledge=missing"):
+            await manager.require_current_schema()
+
+        await manager.record_schema_version("knowledge", KNOWLEDGE_SCHEMA_VERSION)
+        await manager.require_current_schema()
+        assert await manager.get_schema_versions() == {
+            "business": BUSINESS_SCHEMA_VERSION,
+            "knowledge": KNOWLEDGE_SCHEMA_VERSION,
+        }
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)

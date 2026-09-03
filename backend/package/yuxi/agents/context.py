@@ -7,7 +7,6 @@ from typing import Any, get_origin
 
 from yuxi.agents.tool_approval import DEFAULT_TOOL_APPROVAL_MODE
 from yuxi.config.options import system_options
-from yuxi.config.runtime import lite_mode_enabled
 from yuxi.utils.logging_config import logger
 from yuxi.workspace.filesystem import Workspace
 
@@ -141,12 +140,6 @@ def filter_config_by_role(
             key: value for key, value in context.items() if key in declared_fields and key not in restricted_fields
         }
     return filtered
-
-
-def _lite_mode_enabled() -> bool:
-    """返回当前进程是否禁止知识库重运行时。"""
-
-    return lite_mode_enabled()
 
 
 @dataclass(kw_only=True)
@@ -487,15 +480,12 @@ async def resolve_agent_resource_options(
             if tool.get("slug")
         ]
     if "knowledges" in fields_to_load:
-        if _lite_mode_enabled():
-            options["knowledges"] = []
-        else:
-            from yuxi.knowledge.runtime import knowledge_base
+        from yuxi.knowledge.runtime import knowledge_base
 
-            databases = await knowledge_base.get_databases_by_user(user)
-            options["knowledges"] = [
-                _resource_option(item.kb_id, item.name, item.description) for item in databases if item.kb_id
-            ]
+        databases = await knowledge_base.get_databases_by_user(user)
+        options["knowledges"] = [
+            _resource_option(item.kb_id, item.name, item.description) for item in databases if item.kb_id
+        ]
     if "mcps" in fields_to_load:
         from yuxi.agents.mcp.service import get_all_mcp_servers, get_enabled_mcp_server_slugs
 
@@ -507,14 +497,11 @@ async def resolve_agent_resource_options(
             if server.slug in enabled_slugs
         ]
     if "skills" in fields_to_load:
-        from yuxi.agents.skills.runtime import is_skill_allowed_in_runtime_mode
         from yuxi.agents.skills.service import list_accessible_skills
 
         skills = await list_accessible_skills(db, user)
         options["skills"] = [
-            _resource_option(skill.slug, skill.name, skill.description)
-            for skill in skills
-            if skill.slug and is_skill_allowed_in_runtime_mode(skill.slug)
+            _resource_option(skill.slug, skill.name, skill.description) for skill in skills if skill.slug
         ]
     if "subagents" in fields_to_load:
         from yuxi.repositories.agent_repository import AgentRepository
@@ -611,13 +598,9 @@ async def prepare_agent_runtime_context(
             if hasattr(context, field_name):
                 setattr(context, field_name, normalized.get(field_name, []))
 
-        if _lite_mode_enabled():
-            context.knowledges = []
-            setattr(context, "_visible_knowledge_bases", [])
-        else:
-            from yuxi.agents.backends.knowledge_base_backend import resolve_visible_knowledge_bases_for_context
+        from yuxi.agents.backends.knowledge_base_backend import resolve_visible_knowledge_bases_for_context
 
-            await resolve_visible_knowledge_bases_for_context(context)
+        await resolve_visible_knowledge_bases_for_context(context)
         skill_scope = getattr(context, "_skill_runtime_snapshot", None)
         if not isinstance(skill_scope, dict):
             skill_scope = await resolve_runtime_skills_for_context(context, db=db, user=user)

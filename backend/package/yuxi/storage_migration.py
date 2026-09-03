@@ -11,7 +11,6 @@ from sqlalchemy import text
 
 from yuxi.config import get_legacy_storage_dir
 from yuxi.config.options import ensure_options_in_db
-from yuxi.config.runtime import lite_mode_enabled
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.storage.postgres.manager import (
     BUSINESS_SCHEMA_VERSION,
@@ -129,13 +128,12 @@ async def main() -> None:
                 upgrade_from=(2, 3),
             )
             knowledge_version = versions.get("knowledge")
-            if not lite_mode_enabled():
-                _require_supported_version(
-                    "knowledge",
-                    knowledge_version,
-                    KNOWLEDGE_SCHEMA_VERSION,
-                    upgrade_from=(1,),
-                )
+            _require_supported_version(
+                "knowledge",
+                knowledge_version,
+                KNOWLEDGE_SCHEMA_VERSION,
+                upgrade_from=(1,),
+            )
 
             if business_version is None:
                 await pg_manager.create_business_tables()
@@ -156,11 +154,11 @@ async def main() -> None:
                 await pg_manager.migrate_business_schema_v3_to_v4()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
-            if not lite_mode_enabled() and knowledge_version is None:
+            if knowledge_version is None:
                 await pg_manager.create_knowledge_tables()
                 await pg_manager.ensure_knowledge_schema()
                 await pg_manager.record_schema_version("knowledge", KNOWLEDGE_SCHEMA_VERSION)
-            elif not lite_mode_enabled() and knowledge_version == 1:
+            elif knowledge_version == 1:
                 await pg_manager.upgrade_knowledge_schema_v1_to_v2()
                 await pg_manager.record_schema_version("knowledge", KNOWLEDGE_SCHEMA_VERSION)
 

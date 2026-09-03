@@ -139,7 +139,6 @@ async def test_worker_probe_rejects_missing_or_non_expiring_health_lease(
 async def test_worker_probe_requires_arq_and_reconciliation_leases_with_bounded_ttl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(task_queue_service, "lite_mode_enabled", lambda: False)
     requested: list[tuple[str, str]] = []
 
     class WorkerRedis:
@@ -170,23 +169,6 @@ async def test_worker_probe_requires_arq_and_reconciliation_leases_with_bounded_
         ("get", task_queue_service.TASK_RECONCILIATION_HEALTH_KEY),
         ("pttl", task_queue_service.TASK_RECONCILIATION_HEALTH_KEY),
     ]
-
-
-@pytest.mark.parametrize(
-    ("lite_mode", "expected_key"),
-    [
-        (False, task_queue_service.TASK_RECONCILIATION_HEALTH_KEY),
-        (True, task_queue_service.TASK_RECONCILIATION_LITE_HEALTH_KEY),
-    ],
-)
-async def test_task_reconciliation_health_key_tracks_worker_mode(
-    monkeypatch: pytest.MonkeyPatch,
-    lite_mode: bool,
-    expected_key: str,
-) -> None:
-    monkeypatch.setattr(task_queue_service, "lite_mode_enabled", lambda: lite_mode)
-
-    assert task_queue_service.get_task_reconciliation_health_key() == expected_key
 
 
 async def test_required_component_blocks_readiness_while_optional_failure_is_degraded(

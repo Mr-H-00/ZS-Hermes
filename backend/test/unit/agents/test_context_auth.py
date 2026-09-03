@@ -133,51 +133,6 @@ async def test_resolve_agent_resource_options_empty_fields_loads_nothing(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_lite_resource_options_exclude_persisted_knowledge_skill(monkeypatch):
-    """LITE 切换后旧库残留的内置知识 Skill 也不能进入 Agent 默认能力。"""
-
-    async def fake_list_skills(_db, _user):
-        return [
-            types.SimpleNamespace(slug="knowledge-base", name="Knowledge Base", description=""),
-            types.SimpleNamespace(slug="skill-a", name="Skill A", description=""),
-        ]
-
-    monkeypatch.setenv("LITE_MODE", "true")
-    monkeypatch.setitem(
-        sys.modules,
-        "yuxi.agents.skills.service",
-        types.SimpleNamespace(list_accessible_skills=fake_list_skills),
-    )
-
-    options = await context_module.resolve_agent_resource_options(
-        {"knowledges", "skills"},
-        db=object(),
-        user=object(),
-    )
-
-    assert options == {
-        "knowledges": [],
-        "skills": [{"key": "skill-a", "name": "Skill A", "description": ""}],
-    }
-
-    normalized = await normalize_agent_context_config(
-        {
-            "tools": [],
-            "knowledges": [],
-            "mcps": [],
-            "skills": None,
-            "preload_skills": ["knowledge-base"],
-        },
-        db=object(),
-        user=types.SimpleNamespace(role="user", uid="u1", department_id=None),
-        context_schema=BaseContext,
-    )
-
-    assert normalized["skills"] == ["skill-a"]
-    assert normalized["preload_skills"] == []
-
-
-@pytest.mark.asyncio
 async def test_normalize_agent_context_config_expands_null_and_filters_explicit_lists(monkeypatch):
     async def fake_get_databases_by_user(_user):
         return [_knowledge_summary("kb-a"), _knowledge_summary("kb-b")]
@@ -390,7 +345,6 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
         sys.modules,
         "yuxi.agents.skills.runtime",
         types.SimpleNamespace(
-            is_skill_allowed_in_runtime_mode=lambda _slug: True,
             resolve_runtime_skills_for_context=fake_resolve_runtime_skills_for_context,
         ),
     )

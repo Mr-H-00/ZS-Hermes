@@ -149,7 +149,7 @@ const shots = [
 const enterprise = [
   { icon: 'shield', title: '多租户与权限', desc: '用户 / 部门级隔离，知识库支持全局、部门、指定人三档共享。' },
   { icon: 'key', title: 'API Key 集成', desc: '签发独立密钥，供外部系统以 API 方式安全调用平台能力。' },
-  { icon: 'layers', title: 'LITE 轻量启动', desc: 'make up-lite 跳过重依赖快速冷启动，Docker Compose 开箱即用。' }
+  { icon: 'layers', title: '统一服务拓扑', desc: 'Docker Compose 默认启动知识库、图谱和评估所需依赖，开发与生产沿同一能力路径运行。' }
 ]
 
 // 应用场景
@@ -477,7 +477,6 @@ docker compose up --build
 
 <span class="yx-c-cmt"># 3. 浏览器访问</span>
 open http://localhost:5173</code></pre>
-          <p class="yx-quick__tip">无需知识库 / 知识图谱等重依赖时，可用 <code>make up-lite</code> 以 LITE 轻量模式快速启动。</p>
         </div>
       </div>
     </section>
@@ -505,7 +504,7 @@ open http://localhost:5173</code></pre>
     <section class="yx-cta">
       <div class="yx-container yx-cta__inner" v-reveal>
         <h2>把知识接入真正能执行的智能体</h2>
-        <p>从 LITE 模式快速体验，再按需启用完整知识库与知识图谱能力。</p>
+        <p>从完整知识能力开始，让智能体检索资料、推理并交付结果。</p>
         <div class="yx-hero__actions yx-cta__actions">
           <a class="yx-btn yx-btn--primary" :href="withBase('/intro/quick-start')">快速开始</a>
           <a class="yx-btn yx-btn--ghost" :href="GITHUB" target="_blank" rel="noreferrer">前往 GitHub ★</a>

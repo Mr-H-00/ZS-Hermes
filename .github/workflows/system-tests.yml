@@ -43,7 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      LITE_MODE: 'true'
       JWT_SECRET_KEY: ci-jwt-secret-at-least-thirty-two-characters
       API_KEY_DERIVATION_SECRET: ci-api-key-derivation-secret-at-least-32-chars
       SANDBOX_PROVISIONER_TOKEN: ci-sandbox-token-at-least-thirty-two-characters
@@ -139,7 +138,7 @@ jobs:
           done
           exit 1
       - name: Verify readiness API
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_declares_cli_knowledge_capabilities test/integration/api/test_system_router_api.py::test_lite_startup_does_not_create_knowledge_schema -q
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_and_openapi_declare_full_knowledge_capabilities -q
       - name: Verify versioned Schema migration contract
         run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_schema_migration_version.py -q
       - name: Verify queue transaction and recovery
@@ -162,17 +161,17 @@ jobs:
             test/integration/api/test_skill_artifact_authorization.py -q
       - name: Verify real Sandbox storage isolation and shared projections
         run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_project_workdir_provisioner.py -q
-      - name: Verify full-mode Durable Task worker path
+      - name: Verify Durable Task worker path
         run: |
           docker compose stop api worker
-          LITE_MODE=false docker compose run --rm storage-migrator
-          LITE_MODE=false docker compose run --rm --no-deps api \
+          docker compose run --rm storage-migrator
+          docker compose run --rm --no-deps api \
             uv run --no-sync --no-dev pytest test/integration/services/test_durable_task_repository.py -q
-          LITE_MODE=false docker compose run --rm --no-deps \
+          docker compose run --rm --no-deps \
             -e DURABLE_TASK_GATE_ID=${{ github.run_id }} api \
             uv run --no-sync --no-dev pytest \
               test/integration/services/test_durable_task_worker_path.py::test_prepare_task_with_failed_initial_arq_publication -q
-          LITE_MODE=false docker compose up -d --force-recreate milvus api worker
+          docker compose up -d --force-recreate milvus api worker
           for attempt in $(seq 1 60); do
             if docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
               break

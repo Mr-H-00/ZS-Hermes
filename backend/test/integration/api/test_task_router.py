@@ -8,7 +8,6 @@ import asyncio
 import uuid
 
 import pytest
-from yuxi.config.runtime import lite_mode_enabled
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -50,15 +49,6 @@ async def test_enqueue_document_creates_task(
     admin_headers,
 ):
     """Trigger knowledge ingestion to ensure a task record is materialised."""
-    if lite_mode_enabled():
-        enqueue_response = await test_client.post(
-            "/api/knowledge/databases/lite-mode-disabled/documents",
-            json={"items": [], "params": {"content_type": "file"}},
-            headers=admin_headers,
-        )
-        assert enqueue_response.status_code == 404
-        return
-
     create_response = await test_client.post(
         "/api/knowledge/databases",
         json={

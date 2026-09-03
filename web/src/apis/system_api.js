@@ -17,14 +17,6 @@ export const healthApi = {
   checkHealth: () => apiGet('/api/system/health', {}, false)
 }
 
-export const discoveryApi = {
-  /**
-   * 获取当前 API 进程实际提供的运行时能力。
-   * @returns {Promise<Object>} - 服务端能力发现结果
-   */
-  getCapabilities: () => apiGet('/api/system/discovery', {}, false)
-}
-
 // =============================================================================
 // === 配置管理分组 ===
 // =============================================================================

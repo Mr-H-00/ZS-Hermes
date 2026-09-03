@@ -32,7 +32,7 @@ Navigation: [Introduction](https://xerrors.github.io/Yuxi/) ｜ [Quick Start](ht
 - 📚 **Knowledge base (RAG)** — Multi-format document parsing (MinerU / PaddleX / OCR), configurable Embedding and Rerank models, knowledge base evaluation, in-app PDF / image preview, and retrieval sources backfilled as chat citations.
 - 🕸️ **Knowledge graph** — Build, visualize, and retrieve entity-relation graphs inside Milvus knowledge bases, then fuse graph hits with chunk retrieval for agent reasoning.
 - 🏢 **Multi-tenancy & permissions** — User / department-level access control, unified model provider configuration, and API Key authentication for external system integration.
-- ⚙️ **Platform & engineering** — Vue + FastAPI architecture, ready-to-run Docker Compose deployment, dark mode, a lightweight LITE startup mode, and production-grade orchestration.
+- ⚙️ **Platform & engineering** — Vue + FastAPI architecture, ready-to-run Docker Compose deployment, dark mode, and production-grade orchestration.
 
 ## When Yuxi Fits
 
@@ -81,8 +81,6 @@ storage layout. The single owning procedure is the
 **3. Open the platform**
 
 Once the services are ready, open `http://localhost:5173` in your browser and follow the first-run page to create the initial superadmin account.
-
-> 💡 If you don't need heavy dependencies like knowledge bases / graphs, run `make up-lite` for a lightweight LITE mode with faster cold starts. See the [docs](https://xerrors.github.io/Yuxi) for more deployment details.
 
 ## Examples and Demo
 

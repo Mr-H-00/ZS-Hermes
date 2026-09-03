@@ -12,7 +12,7 @@ Yuxi 的配置分成两类：启动进程时读取的环境变量，以及运行
 
 数据库中保存的非空值优先于环境变量；布尔值和列表即使是 `false` 或空列表，也会被视为管理员明确保存的值。没有数据库值时，系统才读取对应环境变量或代码默认值。
 
-启动期环境变量由 Docker Compose 注入 API、worker、provisioner 和依赖服务。它们决定服务地址、密钥、存储位置、LITE 模式和沙盒承载方式。修改环境变量后需要重新创建读取它的容器；只执行 `docker compose restart` 不会更新容器环境：
+启动期环境变量由 Docker Compose 注入 API、worker、provisioner 和依赖服务。它们决定服务地址、密钥、存储位置和沙盒承载方式。修改环境变量后需要重新创建读取它的容器；只执行 `docker compose restart` 不会更新容器环境：
 
 ```bash
 docker compose up -d --force-recreate api worker

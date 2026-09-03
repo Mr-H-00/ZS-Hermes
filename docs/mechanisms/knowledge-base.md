@@ -83,7 +83,7 @@ Milvus 索引会把 chunk 写入 PostgreSQL 和 Milvus。它不是跨存储事�
 
 worker 用唯一 attempt token claim Task 并续租 lease；重复投递和失权 worker 的迟到写入会被 PostgreSQL 拒绝。首次发布失败时，pending Task 保留，启动和周期 publisher 会补发。所有 Durable Task 在 owner 中断或 lease 过期后都会明确失败，不自动重放未知外部副作用。
 
-批量“待解析”和“待入库”入口按状态筛选文件，并通过数据库 dedupe key 拒绝活跃重复任务。取消运行中任务时先保存 `cancel_requested`，由 worker 在控制点收敛。LITE worker 不加载知识 Handler。重试前保留故障现场，检查文件记录、MinIO、chunk、Milvus 和 Neo4j，再选择重新解析、重新索引或图谱修复。
+批量“待解析”和“待入库”入口按状态筛选文件，并通过数据库 dedupe key 拒绝活跃重复任务。取消运行中任务时先保存 `cancel_requested`，由 worker 在控制点收敛。重试前保留故障现场，检查文件记录、MinIO、chunk、Milvus 和 Neo4j，再选择重新解析、重新索引或图谱修复。
 
 ## Agent 如何看到知识库
 
@@ -98,7 +98,7 @@ get_mindmap、search_file、download_kb_file
 
 推荐顺序是：列出可见知识库 → 检索候选片段 → 用 `file_id` 打开或定位原文。`download_kb_file` 会把有权访问的原始二进制写入当前 Project 的 `outputs`，供后续工具处理。知识库不会映射为 `/home/gem/kbs` 沙盒目录。
 
-## 权限和 LITE
+## 权限
 
 知识库的最终授权由后端依赖、Manager 可见性查询和具体工具目标校验共同完成：
 
@@ -108,8 +108,6 @@ get_mindmap、search_file、download_kb_file
 - 前端守卫、按钮隐藏、Agent 配置和提示词只控制呈现或缩小范围，不能授予权限。
 
 Agent 的 `knowledges` 只能缩小用户已有权限。子智能体使用自己的配置，但仍沿用发起用户的身份。私有解析图片通过带知识库权限校验的 API 读取，MinIO 对象 URL 不是授权凭证。
-
-LITE 模式不注册知识库、图谱和评估重运行时，也不注册 `knowledge-base` Skill。此时知识库资源为空；服务故障也不能用“空检索结果”伪装成 LITE 行为。
 
 ## 失败和重试
 

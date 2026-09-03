@@ -69,12 +69,6 @@ curl --fail http://localhost:5050/api/system/ready
 
 返回的 `status` 为 `ready` 后，打开 [http://localhost:5173](http://localhost:5173)，按页面提示初始化超级管理员并登录。API 文档位于 [http://localhost:5050/docs](http://localhost:5050/docs)。
 
-不需要知识库、知识图谱和评估时，可以使用轻量模式：
-
-```bash
-make up-lite
-```
-
 从 v0.7.1 升级到当前版本时，不能直接执行 `docker compose up`。请先阅读[生产部署与升级](docs/advanced/deployment.md)，在停机窗口完成备份和迁移。
 
 ## 文档导航

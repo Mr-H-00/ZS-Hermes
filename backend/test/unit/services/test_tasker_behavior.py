@@ -155,7 +155,6 @@ class FakeRepo:
 class FakeDefinition:
     handler: Any
     version: int = 1
-    requires_knowledge: bool = False
 
     def load_handler(self):
         return self.handler
@@ -373,46 +372,6 @@ async def test_process_task_republishes_pending_tasks_after_slot_release(monkeyp
     assert publication_limits == [task_service.DURABLE_TASK_MAX_RUNNING]
 
 
-async def test_lite_worker_does_not_claim_knowledge_task(monkeypatch):
-    record = make_record(type="knowledge_parse")
-    repo = FakeRepo(record)
-
-    monkeypatch.setattr(task_service, "TaskRepository", lambda: repo)
-    monkeypatch.setattr(task_service, "lite_mode_enabled", lambda: True)
-    monkeypatch.setattr(
-        task_service,
-        "get_task_definition",
-        lambda *_args: FakeDefinition(None, requires_knowledge=True),
-    )
-
-    await process_task({"worker_id": "worker-lite"}, record.id)
-
-    assert record.status == "pending"
-    assert record.attempt_count == 0
-
-
-async def test_lite_api_does_not_cancel_knowledge_task(monkeypatch):
-    record = make_record(type="knowledge_parse")
-    repo = FakeRepo(record)
-    tasker = Tasker()
-    tasker._repo = repo
-
-    monkeypatch.setattr(task_service, "lite_mode_enabled", lambda: True)
-    monkeypatch.setattr(
-        task_service,
-        "get_task_definition",
-        lambda *_args: FakeDefinition(None, requires_knowledge=True),
-    )
-
-    assert await tasker.cancel_task(record.id) is None
-    assert record.status == "pending"
-    assert record.cancel_requested == 0
-
-    record.status = "failed"
-    assert await tasker.delete_task(record.id) is False
-    assert repo.record is record
-
-
 async def test_duplicate_delivery_cannot_execute_without_claim(monkeypatch):
     record = make_record(status="running", worker_id="other-owner")
     repo = FakeRepo(record)
@@ -534,7 +493,6 @@ async def test_unknown_nonlegacy_handler_version_does_not_run_current_failure_ho
             raise ValueError("unsupported version")
         return FakeDefinition(None)
 
-    monkeypatch.setattr(task_service, "lite_mode_enabled", lambda: False)
     monkeypatch.setattr(task_service, "get_failure_task_definition", get_failure_definition)
     monkeypatch.setattr(FakeDefinition, "load_failure_handler", lambda _self: cancel_hook)
 

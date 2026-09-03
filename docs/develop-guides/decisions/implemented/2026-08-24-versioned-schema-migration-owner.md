@@ -14,7 +14,7 @@ API 与 worker 在启动时执行建表和 `ensure_*_schema`，多个运行进�
 
 现有 `storage-migrator` 是 shipping 拓扑唯一的 Yuxi Schema 修改者，不新增迁移服务或框架。迁移器持有 PostgreSQL session advisory lock，创建 `yuxi_schema_migrations` 版本表，并分别记录 `business` 与 `knowledge` 域。0.7.3 的 business schema 为 v4，接受未版本化安装、当前 v4、0.7.2 的 v2 和早期 0.7.3 开发环境的 v3；knowledge schema 为 v2，接受未版本化安装、当前 v2 和 0.7.2 的 v1。未版本化安装执行当前幂等建表与收敛 SQL；LangGraph checkpoint setup 完成后才记录 business 版本。v2 通过完整收敛 SQL 直接得到当前结构，v3 只执行 AgentRun Trace 与 Message 审计的 v3→v4 迁移。当前版本重复运行跳过该域的 Schema DDL，business v1、未来版本和其他未知版本在执行领域 DDL 前明确失败。
 
-LITE 只迁移并要求 business 域，不创建或要求 knowledge schema；完整模式迁移并要求两个域。API 与 worker 不执行建表、Schema 收敛或 checkpoint setup，只校验所需域等于当前程序版本；版本表或域缺失、过旧或过新时拒绝启动。Compose 继续使用 `service_completed_successfully` 阻止迁移失败后的运行进程启动。
+迁移器始终迁移并要求 business 与 knowledge 两个域。API 与 worker 不执行建表、Schema 收敛或 checkpoint setup，只校验两个域等于当前程序版本；版本表或任一域缺失、过旧或过新时拒绝启动。Compose 继续使用 `service_completed_successfully` 阻止迁移失败后的运行进程启动。
 
 版本表只表达已完成的 Yuxi Schema revision，不承诺自动回滚。临时 v4 从未形成发布兼容承诺；确认表结构完整后的本地版本标记校正不是 shipping downgrade。破坏性变更必须继续声明数据影响、保持升级幂等并通过真实 PostgreSQL 验证；后续 Schema 变更提升对应域版本并实现受支持的相邻升级路径。
 
@@ -38,6 +38,6 @@ LITE 只迁移并要求 business 域，不创建或要求 knowledge schema；完
 - `backend/test/unit/services/test_storage_migration.py` 的入口级负向测试证明 business v1 与未来版本在 DDL 前被拒绝，并证明 v2 完整收敛和 v3→v4 专用迁移都先于版本发布。
 - `backend/test/integration/services/test_schema_migration_version.py` 在真实 PostgreSQL 覆盖 session advisory lock 单赢家、business v2 完整收敛、v3→v4 审计迁移、knowledge v1→v2、版本缺失/错误拒绝和正确版本回读。
 - `docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_api_key_schema_migration.py -q`：1 passed，既有破坏性业务 Schema 升级保持幂等和数据约束。
-- 完整模式 shipping Compose 执行 v3→v4 迁移后回读 `business=4`、`knowledge=2`，126 条既有 Task 保留且两张定时任务表存在；重启 API/worker 后两者 health 为 healthy，`/api/system/ready` 返回 ready 且无降级。
-- LITE 继续只迁移并要求 business 域，不创建或要求 knowledge schema；由 migration unit 覆盖。
+- shipping Compose 执行 v3→v4 迁移后回读 `business=4`、`knowledge=2`，126 条既有 Task 保留且两张定时任务表存在；重启 API/worker 后两者 health 为 healthy，`/api/system/ready` 返回 ready 且无降级。
+- 运行进程缺失 business 或 knowledge 任一域时拒绝启动；由 migration unit 与真实 PostgreSQL integration 覆盖。
 - `python3 scripts/verify_engineering_contracts.py` 与 `python3 -m unittest scripts.test_verify_engineering_contracts`：通过，61 tests passed；真实 Schema oracle 已接入 `system-tests.yml`。

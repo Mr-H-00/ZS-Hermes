@@ -379,20 +379,15 @@ class TaskRepository:
         self,
         *,
         before_fail: Callable[[Any, TaskRecord, str], Awaitable[None]] | None = None,
-        task_types: set[str] | None = None,
         now: datetime | None = None,
     ) -> list[tuple[str, str, int]]:
-        """收敛当前能力允许的失联 Task；返回 task_id、目标状态和 attempt。"""
-        if task_types is not None and not task_types:
-            return []
+        """收敛失联 Task；返回 task_id、目标状态和 attempt。"""
         async with pg_manager.get_async_session_context() as session:
             current_time = await self._current_time(session, now)
             filters = [
                 TaskRecord.status == "running",
                 or_(TaskRecord.lease_expires_at.is_(None), TaskRecord.lease_expires_at <= current_time),
             ]
-            if task_types is not None:
-                filters.append(TaskRecord.type.in_(task_types))
             result = await session.execute(select(TaskRecord).where(*filters).with_for_update(skip_locked=True))
             reconciled: list[tuple[str, str, int]] = []
             for record in result.scalars().all():
@@ -419,19 +414,14 @@ class TaskRepository:
             )
             return list(result.scalars().all())
 
-    async def prune_terminal(self, *, keep: int = 200, task_types: set[str] | None = None) -> list[str]:
-        """保留当前能力允许的最近终态任务，并删除更旧摘要。"""
-        if task_types is not None and not task_types:
-            return []
-        filters = [TaskRecord.status.in_(TERMINAL_TASK_STATUSES)]
-        if task_types is not None:
-            filters.append(TaskRecord.type.in_(task_types))
+    async def prune_terminal(self, *, keep: int = 200) -> list[str]:
+        """保留最近终态任务，并删除更旧摘要。"""
         async with pg_manager.get_async_session_context() as session:
             stale_ids = list(
                 (
                     await session.execute(
                         select(TaskRecord.id)
-                        .where(*filters)
+                        .where(TaskRecord.status.in_(TERMINAL_TASK_STATUSES))
                         .order_by(TaskRecord.created_at.desc(), TaskRecord.id.desc())
                         .offset(max(keep, 0))
                     )

@@ -35,7 +35,7 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 - `server/utils/lifespan.py` 管理数据库、内置模型/MCP/Skills、知识库、Redis、沙盒和 LangGraph checkpoint；通用 Task 只由独立 ARQ worker 执行。
 - `server/worker_main.py` 是 ARQ worker 入口，实际执行设置位于 `yuxi.services.run_worker`。
 
-`LITE_MODE` 的解析由 `yuxi.config.runtime` 统一拥有。该模式保留认证、智能体、聊天、非知识类 Skills、MCP、模型、普通工作区和系统管理接口，但不注册 `external_kb`、`knowledge`、`evaluation`、`graph`、知识域 Dashboard 与 `/workspace/knowledge/*` 路由，不注册 `knowledge-base` Skill 或知识库工具，也不宣告客户端或 CLI 知识能力。该模式不导入知识解析重运行时、创建 knowledge schema 或初始化知识库管理器；Web 从运行时 discovery 获取同一能力投影，聊天附件只有在实际解析时才惰性加载 parser。
+Yuxi 只交付完整知识能力路径。API 始终注册 `external_kb`、`knowledge`、`evaluation`、`graph`、知识域 Dashboard 与 `/workspace/knowledge/*` 路由，并注册 `knowledge-base` Skill 和知识库工具；系统 discovery 始终向 Web 与 CLI 宣告知识能力。`storage-migrator` 创建并迁移 knowledge schema，API 与 worker 启动时要求 business 与 knowledge 两个域都兼容。聊天附件仍只在真实解析动作发生时惰性加载 parser。
 
 ### `backend/package/yuxi`
 
@@ -58,7 +58,7 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 
 - AgentRun：拥有 Conversation、Message、LangGraph interrupt、线程 FIFO 和 execution tree 语义，通过专用 Run/Attempt 表维护状态、输出与租约。
 - 用户定时 Agent：任务定义和 occurrence 独立持久化；worker 锁定到期任务后复用统一 AgentRun Request/Run 链路，排队与执行状态仍由 AgentRunRequest 和 AgentRun 拥有。
-- Durable Task：用于知识库解析、评估和图谱构建。API 只提交持久 `task_type + handler_version + payload`；`worker` 从 registry 惰性加载领域 Handler，并通过 Task 行的唯一 owner、heartbeat 和 lease 执行。知识文件中间态绑定 Task/attempt owner，失联 failure hook 与 Task 终态同事务收敛文件错误态；PG pending 行由启动与周期 publisher 补发。共享 ARQ worker 明确提供 10 个执行槽，Durable Task 的 PG claim 上限为 4，至少保留 6 个槽供 AgentRun。LITE 不加载或消费知识 Handler。
+- Durable Task：用于知识库解析、评估和图谱构建。API 只提交持久 `task_type + handler_version + payload`；`worker` 从 registry 惰性加载领域 Handler，并通过 Task 行的唯一 owner、heartbeat 和 lease 执行。知识文件中间态绑定 Task/attempt owner，失联 failure hook 与 Task 终态同事务收敛文件错误态；PG pending 行由启动与周期 publisher 补发。共享 ARQ worker 明确提供 10 个执行槽，Durable Task 的 PG claim 上限为 4，至少保留 6 个槽供 AgentRun。
 
 测试代码位于 `backend/test`，按 `unit`、`integration`、`e2e` 分层。新增或修改后端行为时，测试应放在最能覆盖真实风险的层级。
 
@@ -103,13 +103,13 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 - `pending` Run 是持久化投递意图；`running` / `cancel_requested` Run 必须由唯一 attempt lease 拥有。Heartbeat 只能由当前 owner 续租，终态或 retry publication 清除 lease，过期 ownership 不能被另一个执行者静默接管。
 - Run 结果以 `output_message_id` 指向的同 Run assistant 消息为权威；只有历史 `completed` Run 可在缺少指针时兼容读取同 conversation、相同 `run_id` 的 assistant 消息，禁止从未完成或相邻 Run 猜测输出。
 - `/api/system/health` 只表达 API 进程 liveness；Compose 以 `/api/system/ready` 判断启动完成、PostgreSQL/Redis 可用且存在完成启动的兼容 worker。worker 同时续租短 TTL ARQ 消费健康、AgentRun lease reconciliation 与 Durable Task reconciliation 成功事实；持久 key、超长 TTL、错误 Redis DSN 或持续无法收敛失联执行都不能维持 readiness。业务正确性仍由真实链路测试证明。
-- Yuxi 数据库 Schema 只由 `storage-migrator` 在 PostgreSQL advisory lock 内修改并记录 business/knowledge 域版本；API 与 worker 不建表或执行收敛 DDL，版本缺失、过旧或过新时拒绝启动。LITE 只迁移和校验 business 域。
+- Yuxi 数据库 Schema 只由 `storage-migrator` 在 PostgreSQL advisory lock 内修改并记录 business/knowledge 域版本；API 与 worker 不建表或执行收敛 DDL，并在任一域版本缺失、过旧或过新时拒绝启动。
 - 内置 Skills 是默认 Agent shipping contract 的 required 组成，API/worker 通过 PostgreSQL advisory lock 串行同步；内置 MCP 定义是 optional，但失败必须形成可观测 degraded 而非被组件内部吞掉。
 - 跨 repository 的身份管理用例只有一个 service 事务 Owner；Department、User 与强制 OperationLog 同一提交。API Key 由独立服务端主密钥和客户端幂等 ID 确定性派生，只保存 hash；原始创建意图使用不可变指纹校验，撤销保留 request-id tombstone，同一请求可恢复响应但不能复活已撤销凭据。
 - 前端 API 调用集中在 `web/src/apis`，组件不要散落拼接普通 HTTP 接口。
 - 智能体能力通过 context、middleware、toolkits、Skills、MCP 和 backends 组合；不要把知识库、沙盒或扩展逻辑硬编码进单个页面或路由。
 - Skill 的依赖工具只有在对应 Skill 被显式预加载或动态激活后才对模型开放；基础工具与受 Skill 门控的工具保持边界。
-- LITE 模式必须允许跳过知识库、图谱和评估等重依赖能力，新增导入、路由和启动逻辑时要尊重该边界。
+- Shipping 进程始终装配知识库、图谱和评估能力；解析器等只服务实际动作的重运行时继续保持惰性加载。
 - 文件边界只使用三种跨层路径：数据库中的 Project `workdir_path`、Viewer 当前 scope 相对 `/foo`、Agent/artifact runtime 绝对 `/home/gem/user-data/...`；宿主 `Path` 由 `yuxi.workspace` 或显式 v0.7.1 storage migration 内部持有，普通 Service/Repository 不得取得。
 - 沙盒虚拟路径由当前 Project Workdir、User Data 与共享 Skills 根共同约束；个人 Skill 保存在 UserWorkspace 的 `agents/skills`，共享与内置 Skill 才投影到只读 `/home/gem/skills`。用户可见路径、对象存储 URL 与宿主机真实路径不能混用。
 - 面向用户和外部系统的输入在边界校验；内部服务优先依赖已有类型、事务和仓储约束，避免用静默回退掩盖设计错误。

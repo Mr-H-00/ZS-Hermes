@@ -46,8 +46,6 @@ API/worker 不信任浏览器内存中的完整配置。请求可以提供受限
 - `ChatBotContext.subagents` 未配置或保存空列表时，使用当前用户可见的全部子智能体；显式列表才会收窄范围。
 - Agent 的知识库选择只能缩小用户已经拥有的读取权限。
 - Skill 选择控制 Prompt 和工具激活；共享 Skill 的文件投影按用户授权生成，个人 Skill 位于 UserWorkspace。
-- LITE 模式会关闭知识库、图谱和评估能力，知识库资源和 `knowledge-base` Skill 不会进入运行时。
-
 资源快照只解决运行时“能看见哪些资源”。产生文件、知识库、MCP 或外部系统副作用的工具还要在执行处校验具体目标和当前身份。
 
 ## 文件和 Memory

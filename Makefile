@@ -1,5 +1,5 @@
 
-.PHONY: up up-lite down logs lint format seed reset test verify-trust audit-dependencies audit-licenses
+.PHONY: up down logs lint format seed reset test verify-trust audit-dependencies audit-licenses
 
 PYTEST_ARGS ?=
 BACKEND_PYTHON ?= $(shell cat backend/.python-version)
@@ -29,13 +29,6 @@ reset:
 	@echo "Waiting for api to be ready..."
 	@until docker compose exec -T api true >/dev/null 2>&1; do sleep 2; done
 	$(MAKE) seed
-
-up-lite:
-	@if [ ! -f .env ]; then \
-		echo "Error: .env file not found. Please create it from .env.template"; \
-		exit 1; \
-	fi
-	LITE_MODE=true docker compose up -d postgres redis minio api worker web
 
 logs:
 	@docker compose logs --tail=50 api

@@ -1,6 +1,5 @@
 x-api-worker-env: &api-worker-env
   HOST_IP: ${HOST_IP:-}
-  LITE_MODE: ${LITE_MODE:-false}
   RUNNING_IN_DOCKER: "true"
   YUXI_ENV: development
   API_KEY_DERIVATION_SECRET: ${API_KEY_DERIVATION_SECRET:?Set API_KEY_DERIVATION_SECRET in .env [v0.7.2+], or rerun `bash scripts/init.sh`.}

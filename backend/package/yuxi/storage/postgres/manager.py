@@ -488,12 +488,13 @@ class PostgresManager(metaclass=SingletonMeta):
                 {"domain": domain, "version": version},
             )
 
-    async def require_current_schema(self, *, include_knowledge: bool) -> None:
+    async def require_current_schema(self) -> None:
         """只读校验运行进程需要的 Schema 域均为精确当前版本。"""
         versions = await self.get_schema_versions()
-        required = {"business": BUSINESS_SCHEMA_VERSION}
-        if include_knowledge:
-            required["knowledge"] = KNOWLEDGE_SCHEMA_VERSION
+        required = {
+            "business": BUSINESS_SCHEMA_VERSION,
+            "knowledge": KNOWLEDGE_SCHEMA_VERSION,
+        }
         mismatches = [
             f"{domain}={versions.get(domain, 'missing')} (required {version})"
             for domain, version in required.items()
@@ -504,7 +505,7 @@ class PostgresManager(metaclass=SingletonMeta):
             raise RuntimeError(f"Database schema migration is incomplete or incompatible: {detail}")
 
     async def create_knowledge_tables(self):
-        """创建完整模式使用的知识与评估表。"""
+        """创建知识与评估表。"""
         self._check_initialized()
         async with self.async_engine.begin() as conn:
             await conn.run_sync(KnowledgeBase.metadata.create_all)

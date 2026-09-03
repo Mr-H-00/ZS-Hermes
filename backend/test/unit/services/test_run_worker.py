@@ -1228,8 +1228,7 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
     def fake_initialize():
         calls.append("initialize")
 
-    async def fake_require_current_schema(*, include_knowledge: bool):
-        assert include_knowledge is True
+    async def fake_require_current_schema():
         calls.append("require_current_schema")
 
     async def fake_ensure_builtin_mcp_servers_in_db():

@@ -10,11 +10,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.config import get_legacy_storage_dir, get_runtime_dir
 from yuxi.config.options import get_option, invalidate_option_cache
-from yuxi.config.runtime import knowledge_capability_enabled, lite_mode_enabled
 from yuxi.storage.postgres.models_business import ConfigOption
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -90,49 +89,29 @@ async def test_readiness_endpoint_proves_core_runtime_dependencies(test_client):
     )
 
 
-async def test_discovery_declares_cli_knowledge_capabilities(test_client):
+async def test_discovery_and_openapi_declare_full_knowledge_capabilities(test_client):
     response = await test_client.get("/api/system/discovery")
     assert response.status_code == 200
     capabilities = response.json()["capabilities"]
-    expected = knowledge_capability_enabled()
-    assert capabilities["features"]["knowledge"] is expected
+    assert capabilities["features"]["knowledge"] is True
     cli_capabilities = capabilities["cli"]
     assert cli_capabilities["agent_list"] is True
     assert cli_capabilities["agent_show"] is True
     for capability in ("kb_list", "kb_files", "kb_query", "kb_open", "kb_find"):
-        assert cli_capabilities.get(capability) is expected, capability
+        assert cli_capabilities.get(capability) is True, capability
     assert "kb_parse" not in cli_capabilities
     assert "kb_index" not in cli_capabilities
 
-
-async def test_lite_startup_does_not_create_knowledge_schema(test_client):
-    if not lite_mode_enabled():
-        pytest.skip("LITE-only schema boundary")
-
-    blocked_paths = (
+    openapi_response = await test_client.get("/openapi.json")
+    assert openapi_response.status_code == 200, openapi_response.text
+    openapi_paths = openapi_response.json()["paths"]
+    assert {
         "/api/knowledge/databases",
         "/api/dashboard/stats/knowledge",
         "/api/workspace/knowledge/tree",
         "/api/workspace/knowledge/file",
         "/api/workspace/knowledge/download",
-    )
-    for path in blocked_paths:
-        response = await test_client.get(path)
-        assert response.status_code == 404, f"{path}: {response.status_code} {response.text}"
-
-    openapi_response = await test_client.get("/openapi.json")
-    assert openapi_response.status_code == 200, openapi_response.text
-    openapi_paths = openapi_response.json()["paths"]
-    assert all(path not in openapi_paths for path in blocked_paths)
-
-    engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
-    try:
-        async with engine.connect() as connection:
-            knowledge_table = await connection.scalar(text("SELECT to_regclass('public.knowledge_bases')"))
-    finally:
-        await engine.dispose()
-
-    assert knowledge_table is None
+    }.issubset(openapi_paths)
 
 
 async def test_info_endpoint_is_public(test_client):

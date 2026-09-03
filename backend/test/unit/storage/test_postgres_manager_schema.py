@@ -14,7 +14,7 @@ from yuxi.storage.postgres.manager import (
 
 
 def test_business_and_knowledge_metadata_are_disjoint():
-    """LITE create_all 的业务 metadata 不得携带知识与评估表。"""
+    """业务与知识域 metadata 保持独立，迁移器分别创建两个域。"""
 
     assert BusinessBase is not KnowledgeBase
     assert "users" in BusinessBase.metadata.tables
@@ -31,18 +31,18 @@ async def test_require_current_schema_rejects_missing_or_incompatible_domains(mo
 
     monkeypatch.setattr(manager, "get_schema_versions", lambda: _async_value({}))
     with pytest.raises(RuntimeError, match=r"business=missing .*knowledge=missing"):
-        await manager.require_current_schema(include_knowledge=True)
+        await manager.require_current_schema()
 
     monkeypatch.setattr(manager, "get_schema_versions", lambda: _async_value({"business": 99}))
     with pytest.raises(RuntimeError, match=r"business=99"):
-        await manager.require_current_schema(include_knowledge=False)
+        await manager.require_current_schema()
 
     monkeypatch.setattr(
         manager,
         "get_schema_versions",
         lambda: _async_value({"business": BUSINESS_SCHEMA_VERSION, "knowledge": KNOWLEDGE_SCHEMA_VERSION}),
     )
-    await manager.require_current_schema(include_knowledge=True)
+    await manager.require_current_schema()
 
 
 async def _async_value(value):

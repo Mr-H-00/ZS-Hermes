@@ -1,6 +1,5 @@
 x-api-worker-env: &api-worker-env
   HOST_IP: ${HOST_IP:-}
-  LITE_MODE: ${LITE_MODE:-}
   RUNNING_IN_DOCKER: "true"
   YUXI_ENV: production
   PYTHONPATH: /app/package
