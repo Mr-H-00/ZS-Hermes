@@ -275,7 +275,7 @@ export function useAgentStreamHandler({
             threadState.pendingInterrupt = pendingInterrupt
           }
         }
-        // 如果有 message 字段，显示提示（例如：敏感内容检测）
+        // 如果有 message 字段，显示中断原因。
         if (chunkMessage) {
           message.info(chunkMessage)
         }

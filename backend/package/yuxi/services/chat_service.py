@@ -27,7 +27,6 @@ from yuxi.agents.buildin import agent_manager
 from yuxi.agents.context import build_agent_input_context, normalize_agent_context_config
 from yuxi.agents.skills.service import get_user_skills_root_dir
 from yuxi.agents.state import AgentStatePayload
-from yuxi.config.options import system_options
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
@@ -51,7 +50,6 @@ from yuxi.services.workdir_service import resolve_conversation_workdir_path
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import MODEL_AUDIT_MESSAGE_TYPE, Agent, User
 from yuxi.utils.datetime_utils import utc_now_naive
-from yuxi.utils.guard import content_guard
 from yuxi.utils.logging_config import logger
 from yuxi.utils.question_utils import (
     normalize_questions as _normalize_interrupt_questions,
@@ -1198,18 +1196,6 @@ async def stream_agent_chat(
     image_content = input_message.image_content
     human_message = input_message.require_langchain_message()
     message_type = input_message.message_type
-    system_config = await system_options.get(db)
-    content_guard_enabled = bool(system_config["enable_content_guard"])
-    request_content_guard = content_guard.configured(
-        content_guard_enabled and bool(system_config["enable_content_guard_llm"]),
-        str(system_config["content_guard_llm_model"]),
-    )
-
-    if content_guard_enabled and await request_content_guard.check(query):
-        yield make_chunk(
-            status="error", error_type="content_guard_blocked", error_message="输入内容包含敏感词", meta=meta
-        )
-        return
 
     try:
         agent_item, agent, agent_config, conversation = await _resolve_agent_runtime(
@@ -1414,28 +1400,6 @@ async def stream_agent_chat(
                 if not is_subagent_chunk and content:
                     trace_info = get_trace_info(langfuse_run)
                     accumulated_content.append(content)
-                    content_for_check = "".join(accumulated_content[-10:])
-                    if content_guard_enabled and await request_content_guard.check_with_keywords(content_for_check):
-                        full_msg = AIMessage(content="".join(accumulated_content))
-                        await save_partial_message(
-                            conv_repo,
-                            thread_id,
-                            full_msg,
-                            "content_guard_blocked",
-                            trace_info=trace_info,
-                            run_id=meta.get("run_id"),
-                            request_id=meta.get("request_id"),
-                            worker_id=meta.get("worker_id"),
-                            interrupt_run=True,
-                        )
-                        meta["time_cost"] = asyncio.get_event_loop().time() - start_time
-                        yield make_chunk(
-                            status="interrupted",
-                            message="检测到敏感内容，已中断输出",
-                            meta=meta,
-                            terminal_committed=True,
-                        )
-                        return
 
                 yield make_chunk(
                     content=content,
@@ -1447,31 +1411,6 @@ async def stream_agent_chat(
 
         full_msg = _ensure_full_msg(full_msg, accumulated_content)
         trace_info = get_trace_info(langfuse_run)
-
-        if (
-            content_guard_enabled
-            and hasattr(full_msg, "content")
-            and await request_content_guard.check(full_msg.content)
-        ):
-            await save_partial_message(
-                conv_repo,
-                thread_id,
-                full_msg,
-                "content_guard_blocked",
-                trace_info=trace_info,
-                run_id=meta.get("run_id"),
-                request_id=meta.get("request_id"),
-                worker_id=meta.get("worker_id"),
-                interrupt_run=True,
-            )
-            meta["time_cost"] = asyncio.get_event_loop().time() - start_time
-            yield make_chunk(
-                status="interrupted",
-                message="检测到敏感内容，已中断输出",
-                meta=meta,
-                terminal_committed=True,
-            )
-            return
 
         interrupted = False
         interrupt_error_type = None

@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.config import get_legacy_storage_dir, get_runtime_dir
-from yuxi.config.options import get_option
+from yuxi.config.options import get_option, invalidate_option_cache
 from yuxi.config.runtime import knowledge_capability_enabled, lite_mode_enabled
 from yuxi.storage.postgres.models_business import ConfigOption
 
@@ -276,34 +276,82 @@ async def test_admin_can_fetch_config_and_reload_info(test_client, admin_headers
     assert "data" in reload_payload
 
 
-async def test_admin_system_config_update_is_persisted_in_postgres(test_client, admin_headers):
+async def test_retired_system_config_field_is_hidden_rejected_and_preserved(test_client, admin_headers):
     engine = create_async_engine(os.environ["POSTGRES_URL"])
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    config_response = await test_client.get("/api/system/config", headers=admin_headers)
-    previous_value = config_response.json()["enable_content_guard"]
+    retired_field = "retired_test_field"
 
     try:
-        updated_value = not previous_value
+        async with session_factory() as db:
+            record = await get_option(db, "system_options")
+            assert record is not None
+            previous_value = deepcopy(record.value)
+            previous_updated_by = record.updated_by
+            previous_updated_at = record.updated_at
+            seeded_value = {**previous_value, retired_field: True}
+            await db.execute(
+                update(ConfigOption)
+                .where(ConfigOption.key == "system_options")
+                .values(value=seeded_value)
+            )
+            await db.commit()
+        await invalidate_option_cache("system_options")
+
+        config_response = await test_client.get("/api/system/config", headers=admin_headers)
+        assert config_response.status_code == 200, config_response.text
+        config = config_response.json()
+        assert retired_field not in config
+        assert retired_field not in config["_config_items"]
+
+        single_response = await test_client.post(
+            "/api/system/config",
+            json={"key": retired_field, "value": False},
+            headers=admin_headers,
+        )
+        assert single_response.status_code == 400
+        assert single_response.json()["detail"] == f"未知配置项: {retired_field}"
+
+        batch_response = await test_client.post(
+            "/api/system/config/update",
+            json={retired_field: False},
+            headers=admin_headers,
+        )
+        assert batch_response.status_code == 400
+        assert batch_response.json()["detail"] == f"未知配置字段: {retired_field}"
+
+        previous_model = config["default_model"]
+        updated_model = (
+            "test-provider:test-model"
+            if previous_model != "test-provider:test-model"
+            else "test-provider:alternate-model"
+        )
         update_response = await test_client.post(
             "/api/system/config",
-            json={"key": "enable_content_guard", "value": updated_value},
+            json={"key": "default_model", "value": updated_model},
             headers=admin_headers,
         )
         assert update_response.status_code == 200, update_response.text
-        assert update_response.json()["enable_content_guard"] is updated_value
+        assert update_response.json()["default_model"] == updated_model
 
         async with session_factory() as db:
             record = await get_option(db, "system_options")
             assert record is not None
-            assert record.value["enable_content_guard"] is updated_value
-            assert "save_dir" not in record.value
+            assert record.value["default_model"] == updated_model
+            assert record.value[retired_field] is True
     finally:
-        restore_response = await test_client.post(
-            "/api/system/config",
-            json={"key": "enable_content_guard", "value": previous_value},
-            headers=admin_headers,
-        )
-        assert restore_response.status_code == 200, restore_response.text
+        if "previous_value" in locals():
+            async with session_factory() as db:
+                await db.execute(
+                    update(ConfigOption)
+                    .where(ConfigOption.key == "system_options")
+                    .values(
+                        value=previous_value,
+                        updated_by=previous_updated_by,
+                        updated_at=previous_updated_at,
+                    )
+                )
+                await db.commit()
+            await invalidate_option_cache("system_options")
         await engine.dispose()
 
 

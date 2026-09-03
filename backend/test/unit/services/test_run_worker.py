@@ -704,7 +704,7 @@ async def test_committed_interrupt_cleanup_failure_keeps_terminal_events_unpubli
         run_worker,
         "stream_agent_chat",
         lambda **_kwargs: _BytesAsyncIter(
-            [b'{"status":"interrupted","thread_id":"thread-1","message":"content guard","terminal_committed":true}\n']
+            [b'{"status":"interrupted","thread_id":"thread-1","message":"input required","terminal_committed":true}\n']
         ),
     )
 

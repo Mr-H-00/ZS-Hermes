@@ -79,9 +79,6 @@
         <span v-if="getErrorMessage">{{ getErrorMessage }}</span>
         <span v-else-if="message.error_type === 'interrupted'">回答生成已中断</span>
         <span v-else-if="message.error_type === 'unexpect'">生成过程中出现异常</span>
-        <span v-else-if="message.error_type === 'content_guard_blocked'"
-          >检测到敏感内容，已中断输出</span
-        >
         <span v-else>{{ message.error_type || '未知错误' }}</span>
       </div>
 
@@ -293,8 +290,6 @@ const getErrorMessage = computed(() => {
   switch (props.message.error_type) {
     case 'interrupted':
       return '回答生成已中断'
-    case 'content_guard_blocked':
-      return '检测到敏感内容，已中断输出'
     case 'unexpect':
       return '生成过程中出现异常'
     case 'agent_error':

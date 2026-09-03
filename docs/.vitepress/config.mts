@@ -94,7 +94,6 @@ export default defineConfig({
           { text: '知识导图与知识图谱', link: '/advanced/knowledge-base-graph' },
           { text: '品牌自定义', link: '/advanced/branding' },
           { text: '其他配置', link: '/advanced/misc' },
-          { text: '内容审查', link: '/advanced/content-safety' },
           { text: '网页搜索', link: '/advanced/web-search' },
           { text: '服务端口', link: '/advanced/ports' },
           { text: '生产部署', link: '/advanced/deployment' },

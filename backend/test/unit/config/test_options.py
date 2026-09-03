@@ -53,24 +53,6 @@ async def db_session():
 
 
 @pytest.mark.asyncio
-async def test_system_options_preserve_boolean_values(db_session, monkeypatch):
-    fake_redis = FakeRedis()
-    monkeypatch.setattr(options, "get_async_redis_client", lambda: _async_value(fake_redis))
-    await options.ensure_options_in_db(db_session)
-    await options.update_option_value(
-        db_session,
-        options.system_options.key,
-        {"enable_content_guard": False, "default_model": "test-provider:model"},
-        "tester",
-    )
-
-    values = await options.system_options.get(db_session)
-
-    assert values["enable_content_guard"] is False
-    assert values["default_model"] == "test-provider:model"
-
-
-@pytest.mark.asyncio
 async def test_explicit_session_reads_database_instead_of_shared_cache(db_session, monkeypatch):
     fake_redis = FakeRedis()
     cache_key = f"{options.OPTION_CACHE_PREFIX}{options.system_options.key}"
@@ -155,19 +137,6 @@ async def test_first_implicit_option_read_initializes_cache_version(monkeypatch)
     cache_key = f"{options.OPTION_CACHE_PREFIX}{options.system_options.key}"
     assert version == "0"
     assert json.loads(fake_redis.values[cache_key]) == {"default_model": "first:model"}
-
-
-@pytest.mark.asyncio
-async def test_invalid_boolean_is_rejected(db_session):
-    await options.ensure_options_in_db(db_session)
-
-    with pytest.raises(ValueError, match="布尔值"):
-        await options.update_option_value(
-            db_session,
-            options.system_options.key,
-            {"enable_content_guard": "true"},
-            "tester",
-        )
 
 
 async def _async_value(value):
