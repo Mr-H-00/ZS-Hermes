@@ -8,24 +8,15 @@ from yuxi.workspace import paths
 
 
 @pytest.mark.parametrize(
-    ("value", "expected"),
+    "value",
     [
-        (
-            "projects/11111111-1111-4111-8111-111111111111",
-            "projects/11111111-1111-4111-8111-111111111111",
-        ),
-        (
-            "projects/2026-09-02_14-35-08_a1b2c3d4",
-            "projects/2026-09-02_14-35-08_a1b2c3d4",
-        ),
-        (
-            "projects/2026-09-02_14-35-08_a1b2c3d4-2",
-            "projects/2026-09-02_14-35-08_a1b2c3d4-2",
-        ),
+        "projects/11111111-1111-4111-8111-111111111111",
+        "projects/2026-09-02_14-35-08_a1b2c3d4",
+        "projects/2026-09-02_14-35-08_a1b2c3d4-2",
     ],
 )
-def test_normalize_managed_workdir_path_accepts_legacy_and_timestamped_names(value: str, expected: str):
-    assert paths.normalize_managed_workdir_path(value) == expected
+def test_normalize_managed_workdir_path_accepts_legacy_and_timestamped_names(value: str):
+    assert paths.normalize_managed_workdir_path(value) == value
 
 
 @pytest.mark.parametrize(
