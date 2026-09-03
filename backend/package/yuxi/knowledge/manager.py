@@ -1003,21 +1003,6 @@ class KnowledgeBaseManager:
         kb_instance = await self.get_kb_executor(kb_id)
         await self._run_with_stats_refresh(kb_id, kb_instance.delete_file(kb_id, file_id))
 
-    async def update_content(self, kb_id: str, file_ids: list[str], params: dict | None = None) -> list[dict]:
-        """更新内容（重新分块）"""
-        config = await self.get_kb_config(kb_id)
-        executor = await self._get_or_create_kb_instance(config.kb_type)
-        return await self._run_with_stats_refresh(
-            kb_id,
-            executor.update_content(
-                kb_id,
-                file_ids,
-                params or {},
-                embedding_model_spec=config.embedding_model_spec,
-                additional_params=config.additional_params,
-            ),
-        )
-
     async def repair_missing_file_stats(self, kb_id: str) -> dict:
         """修复历史文件缺失的 Chunk/Token 统计，并刷新知识库聚合统计。"""
         kb_instance = await self.get_kb_executor(kb_id)

@@ -16,16 +16,20 @@ export function extractMessageToolNames(message) {
   ]
 }
 
-function messageRequestId(message) {
+export function getMessageRequestId(message, { allowMessageIdFallback = false } = {}) {
   const metadataId = message?.extra_metadata?.request_id
   if (typeof metadataId === 'string' && metadataId.trim()) return metadataId.trim()
   if (typeof message?.request_id === 'string' && message.request_id.trim()) {
     return message.request_id.trim()
   }
+  if (allowMessageIdFallback && message?.type === 'human' && typeof message.id === 'string') {
+    const messageId = message.id.trim()
+    if (messageId) return messageId
+  }
   return null
 }
 
-function messageRunId(message) {
+export function getMessageRunId(message) {
   const metadataId = message?.extra_metadata?.run_id
   if (typeof metadataId === 'string' && metadataId.trim()) return metadataId.trim()
   if (typeof message?.run_id === 'string' && message.run_id.trim()) return message.run_id.trim()
@@ -39,13 +43,13 @@ export function mergeMessageDebugMessages(history, ongoing) {
   const liveHumanByRequestId = new Map(
     live
       .filter((message) => message?.type === 'human')
-      .map((message) => [messageRequestId(message), message])
+      .map((message) => [getMessageRequestId(message), message])
       .filter(([requestId]) => requestId)
   )
   const mergedPersisted = persisted.map((message) => {
-    if (message?.type !== 'human' || messageRunId(message)) return message
-    const liveMessage = liveHumanByRequestId.get(messageRequestId(message))
-    const liveRunId = messageRunId(liveMessage)
+    if (message?.type !== 'human' || getMessageRunId(message)) return message
+    const liveMessage = liveHumanByRequestId.get(getMessageRequestId(message))
+    const liveRunId = getMessageRunId(liveMessage)
     if (!liveRunId) return message
     return {
       ...message,
@@ -60,12 +64,12 @@ export function mergeMessageDebugMessages(history, ongoing) {
   const persistedRequestIds = new Set(
     mergedPersisted
       .filter((message) => message?.type === 'human')
-      .map(messageRequestId)
+      .map(getMessageRequestId)
       .filter(Boolean)
   )
   const pending = live.filter((message) => {
     if (persistedIds.has(String(message?.id ?? ''))) return false
-    return message?.type !== 'human' || !persistedRequestIds.has(messageRequestId(message))
+    return message?.type !== 'human' || !persistedRequestIds.has(getMessageRequestId(message))
   })
   return [...mergedPersisted, ...pending]
 }
@@ -77,7 +81,7 @@ function auditRole(message) {
 }
 
 function auditKey(message) {
-  const runId = messageRunId(message)
+  const runId = getMessageRunId(message)
   const operationId =
     typeof message?.operation_id === 'string' && message.operation_id.trim()
       ? message.operation_id.trim()
@@ -87,7 +91,7 @@ function auditKey(message) {
 }
 
 function liveModelAuditKey(message) {
-  const runId = messageRunId(message)
+  const runId = getMessageRunId(message)
   const messageId = typeof message?.id === 'string' && message.id.trim() ? message.id.trim() : null
   const isAi = message?.type === 'ai' || message?.role === 'assistant'
   return runId && messageId && isAi ? `${runId}\u0000assistant\u0000${messageId}` : null
@@ -154,20 +158,20 @@ export function mergeMessageDebugAudits(messages, audits) {
   const pending = persistedAudits.filter((audit) => !matchedAuditIndexes.has(audit))
   const pendingByRun = new Map()
   pending.forEach((audit) => {
-    const runId = messageRunId(audit)
+    const runId = getMessageRunId(audit)
     const runAudits = pendingByRun.get(runId) || []
     runAudits.push(audit)
     pendingByRun.set(runId, runAudits)
   })
 
   const lastMessageIndexByRun = new Map()
-  merged.forEach((message, index) => lastMessageIndexByRun.set(messageRunId(message), index))
+  merged.forEach((message, index) => lastMessageIndexByRun.set(getMessageRunId(message), index))
 
   const nextAuditIndexByRun = new Map()
   const emittedAudits = new Set()
   const ordered = []
   merged.forEach((message, messageIndex) => {
-    const runId = messageRunId(message)
+    const runId = getMessageRunId(message)
     const runAudits = pendingByRun.get(runId) || []
     let nextAuditIndex = nextAuditIndexByRun.get(runId) || 0
     const messageSequence = Number.isFinite(message?.sequence)
@@ -216,7 +220,7 @@ export function buildMessageDebugEntries(messages) {
 
   return source.map((message, index) => {
     const type = message?.type || message?.role || 'unknown'
-    const runId = messageRunId(message)
+    const runId = getMessageRunId(message)
     const operationId =
       typeof message?.operation_id === 'string' && message.operation_id.trim()
         ? message.operation_id.trim()

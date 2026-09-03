@@ -11,7 +11,11 @@ from yuxi.repositories.conversation_repository import INVOCATION_CONVERSATION_SO
 from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.services.attachment_service import serialize_attachment
 from yuxi.services.project_service import create_implicit_project
-from yuxi.services.workdir_service import ensure_conversation_workdir_available, resolve_conversation_workdir_path
+from yuxi.services.workdir_service import (
+    ensure_conversation_workdir_available,
+    workdir_binding_from_project,
+    resolve_conversation_workdir_path,
+)
 from yuxi.storage.postgres.models_business import (
     AGENT_RUN_TERMINAL_STATUSES,
     AgentRun,
@@ -94,8 +98,23 @@ async def create_thread_view(
                 agent_slug=agent_item.slug,
                 project_id=project_id,
             )
-            await ensure_conversation_workdir_available(conversation=existing, uid=str(current_uid), db=db)
-            return await _serialize_thread(existing, thread_status="done", db=db)
+            workdir_binding = workdir_binding_from_project(
+                conversation=existing,
+                uid=str(current_uid),
+                project=existing_project,
+            )
+            await ensure_conversation_workdir_available(
+                conversation=existing,
+                uid=str(current_uid),
+                db=db,
+                workdir_binding=workdir_binding,
+            )
+            return await _serialize_thread(
+                existing,
+                thread_status="done",
+                db=db,
+                workdir_path=workdir_binding.workdir_path,
+            )
 
     thread_id = str(uuid.uuid4())
     thread_metadata = dict(metadata or {})
@@ -167,13 +186,23 @@ async def create_thread_view(
         )
         project = existing_project
 
+    workdir_binding = workdir_binding_from_project(
+        conversation=conversation,
+        uid=str(current_uid),
+        project=project,
+    )
     try:
-        if project.directory_mode == "managed":
-            ensure_bound_user_workdir(str(current_uid), project.workdir_path)
+        if workdir_binding.materialize_managed:
+            ensure_bound_user_workdir(workdir_binding.uid, workdir_binding.workdir_path)
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return await _serialize_thread(conversation, thread_status="done", db=db)
+    return await _serialize_thread(
+        conversation,
+        thread_status="done",
+        db=db,
+        workdir_path=workdir_binding.workdir_path,
+    )
 
 
 async def list_threads_view(
@@ -350,7 +379,7 @@ async def get_thread_history_view(
     if not conversation or conversation.uid != str(current_uid) or conversation.status == "deleted":
         raise HTTPException(status_code=404, detail="对话线程不存在")
 
-    messages = await conv_repo.get_messages_by_thread_id(thread_id)
+    messages = await conv_repo.get_messages(conversation.id)
     messages = [
         message
         for message in messages
@@ -465,6 +494,13 @@ async def _serialize_thread(
     workdir_path: str | None = None,
 ) -> dict:
     """序列化线程，列表调用方可传入已联查的 Project Workdir。"""
+    resolved_workdir_path = workdir_path
+    if resolved_workdir_path is None:
+        resolved_workdir_path = await resolve_conversation_workdir_path(
+            conversation=conversation,
+            uid=str(conversation.uid),
+            db=db,
+        )
     return {
         "id": conversation.thread_id,
         "uid": conversation.uid,
@@ -472,8 +508,7 @@ async def _serialize_thread(
         "title": conversation.title,
         "is_pinned": bool(conversation.is_pinned),
         "project_id": conversation.project_id,
-        "workdir_path": workdir_path
-        or await resolve_conversation_workdir_path(conversation=conversation, uid=str(conversation.uid), db=db),
+        "workdir_path": resolved_workdir_path,
         "created_at": conversation.created_at.isoformat(),
         "updated_at": conversation.updated_at.isoformat(),
         "metadata": conversation.extra_metadata or {},

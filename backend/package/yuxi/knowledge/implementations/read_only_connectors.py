@@ -104,18 +104,6 @@ class ReadOnlyConnectors(KnowledgeBase):
         )
         raise self._readonly_error()
 
-    async def update_content(
-        self,
-        kb_id: str,
-        file_ids: list[str],
-        params: dict | None = None,
-        *,
-        embedding_model_spec: str | None,
-        additional_params: dict[str, Any],
-    ) -> list[dict]:
-        del kb_id, file_ids, params, embedding_model_spec, additional_params
-        raise self._readonly_error()
-
     async def delete_file(self, kb_id: str, file_id: str) -> None:
         raise self._readonly_error()
 

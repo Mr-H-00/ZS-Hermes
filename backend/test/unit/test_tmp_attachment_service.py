@@ -273,6 +273,13 @@ async def test_upload_tmp_attachment_cleans_only_expired_user_tmp_groups(monkeyp
     assert fake_minio.deleted_prefixes == [("knowledgebases", "tmp/chat_attachments/user-1/expired/")]
 
 
+def test_webp_attachment_requires_an_explicit_capable_ocr_engine():
+    with pytest.raises(service.HTTPException, match="deepseek_ocr"):
+        service._normalize_parse_method("scan.webp", None, "disable")
+
+    assert service._normalize_parse_method("scan.webp", "deepseek_ocr", "disable") == "deepseek_ocr"
+
+
 @pytest.mark.asyncio
 async def test_parse_tmp_attachment_uses_selected_method_and_uploads_markdown(monkeypatch):
     fake_minio = FakeMinioClient()
@@ -318,7 +325,7 @@ def confirm_attachment_env(monkeypatch: pytest.MonkeyPatch):
         del kwargs
         return SimpleNamespace(workdir=FakeWorkdir(backend))
 
-    monkeypatch.setattr(workdir_service, "resolve_authorized_workdir", resolve_binding)
+    monkeypatch.setattr(workdir_service, "resolve_authorized_conversation_workdir", resolve_binding)
     fake_repo.workdir_backend = backend
 
     return fake_minio, fake_repo
@@ -542,7 +549,7 @@ async def test_delete_thread_attachment_updates_live_workdir_even_during_runtime
         return SimpleNamespace(workdir=FakeWorkdir(backend))
 
     monkeypatch.setattr(service, "ConversationRepository", lambda _db: fake_repo)
-    monkeypatch.setattr(workdir_service, "resolve_authorized_workdir", resolve_binding)
+    monkeypatch.setattr(workdir_service, "resolve_authorized_conversation_workdir", resolve_binding)
     result = await service.delete_thread_attachment_view(
         thread_id="thread-1", file_id="file-1", db=FakeDB(), current_uid="user-1"
     )
@@ -572,7 +579,7 @@ async def test_delete_thread_attachment_rejects_queued_request_use(monkeypatch):
         return SimpleNamespace(workdir=FakeWorkdir(backend))
 
     monkeypatch.setattr(service, "ConversationRepository", lambda _db: fake_repo)
-    monkeypatch.setattr(workdir_service, "resolve_authorized_workdir", resolve_binding)
+    monkeypatch.setattr(workdir_service, "resolve_authorized_conversation_workdir", resolve_binding)
     monkeypatch.setattr(service, "AgentRunRequestRepository", QueuedAgentRunRequestRepository)
 
     with pytest.raises(service.HTTPException) as exc_info:
@@ -599,7 +606,7 @@ async def test_delete_thread_attachment_rejects_active_thread_run(monkeypatch):
         return SimpleNamespace(workdir=FakeWorkdir(backend))
 
     monkeypatch.setattr(service, "ConversationRepository", lambda _db: fake_repo)
-    monkeypatch.setattr(workdir_service, "resolve_authorized_workdir", resolve_binding)
+    monkeypatch.setattr(workdir_service, "resolve_authorized_conversation_workdir", resolve_binding)
     monkeypatch.setattr(service, "AgentRunRepository", ActiveAgentRunRepository)
 
     with pytest.raises(service.HTTPException) as exc_info:
@@ -632,7 +639,7 @@ async def test_delete_thread_attachment_does_not_delete_bytes_before_metadata_co
         return SimpleNamespace(workdir=FakeWorkdir(backend))
 
     monkeypatch.setattr(service, "ConversationRepository", lambda _db: fake_repo)
-    monkeypatch.setattr(workdir_service, "resolve_authorized_workdir", resolve_binding)
+    monkeypatch.setattr(workdir_service, "resolve_authorized_conversation_workdir", resolve_binding)
 
     with pytest.raises(RuntimeError, match="database unavailable"):
         await service.delete_thread_attachment_view(

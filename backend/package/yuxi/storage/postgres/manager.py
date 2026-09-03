@@ -22,7 +22,7 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
-BUSINESS_SCHEMA_VERSION = 4
+BUSINESS_SCHEMA_VERSION = 5
 KNOWLEDGE_SCHEMA_VERSION = 2
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
@@ -33,6 +33,9 @@ AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
 )
 AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS langfuse_trace_id VARCHAR(64)",
+)
+AGENT_RUN_CURSOR_SCHEMA_STATEMENTS = (
+    "ALTER TABLE IF EXISTS agent_runs DROP COLUMN IF EXISTS last_event_id",
 )
 MESSAGE_AUDIT_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS operation_id VARCHAR(128)",
@@ -914,6 +917,13 @@ class PostgresManager(metaclass=SingletonMeta):
             for statement in (*AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS, *MESSAGE_AUDIT_SCHEMA_STATEMENTS):
                 await conn.execute(text(statement))
 
+    async def migrate_business_schema_v4_to_v5(self) -> None:
+        """删除不再由运行时拥有的 AgentRun Redis 游标字段。"""
+        self._check_initialized()
+        async with self.async_engine.begin() as conn:
+            for statement in AGENT_RUN_CURSOR_SCHEMA_STATEMENTS:
+                await conn.execute(text(statement))
+
     async def ensure_business_schema(self):
         """确保业务 schema 包含后续新增字段（运行时 schema 演进）。"""
         self._check_initialized()
@@ -942,6 +952,7 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE IF EXISTS conversations ADD COLUMN IF NOT EXISTS last_viewed_run_id VARCHAR(64)",
             "ALTER TABLE IF EXISTS mcp_servers ADD COLUMN IF NOT EXISTS env JSONB",
+            *AGENT_RUN_CURSOR_SCHEMA_STATEMENTS,
             """
             CREATE TABLE IF NOT EXISTS agent_envs (
                 id SERIAL PRIMARY KEY,

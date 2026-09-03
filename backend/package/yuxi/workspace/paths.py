@@ -27,19 +27,6 @@ _MANAGED_WORKDIR_NAME_RE = re.compile(r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\
 _MANAGED_WORKDIR_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 WORKDIR_PROJECTS_DIR_NAME = "projects"
 
-_raw_virtual_prefix = os.getenv("SANDBOX_VIRTUAL_PATH_PREFIX")
-VIRTUAL_PATH_PREFIX = (
-    _raw_virtual_prefix.strip() if _raw_virtual_prefix else "/home/gem/user-data"
-) or "/home/gem/user-data"
-if not VIRTUAL_PATH_PREFIX.startswith("/"):
-    VIRTUAL_PATH_PREFIX = f"/{VIRTUAL_PATH_PREFIX}"
-
-
-def runtime_workdir_path(workdir_path: str) -> str:
-    """把持久化 Workdir 标识映射到 Sandbox runtime。"""
-    return f"{VIRTUAL_PATH_PREFIX.rstrip('/')}/{normalize_workdir_path(workdir_path)}"
-
-
 def validate_thread_id(thread_id: str) -> str:
     value = str(thread_id or "").strip()
     if not value:

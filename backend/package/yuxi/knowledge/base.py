@@ -927,29 +927,6 @@ class KnowledgeBase(ABC):
         return self._file_record_to_meta(record)
 
     @abstractmethod
-    async def update_content(
-        self,
-        kb_id: str,
-        file_ids: list[str],
-        params: dict | None = None,
-        *,
-        embedding_model_spec: str | None,
-        additional_params: dict[str, Any],
-    ) -> list[dict]:
-        """
-        更新内容 - 根据file_ids重新解析文件并更新向量库
-
-        Args:
-            kb_id: 数据库ID
-            file_ids: 文件ID列表
-            params: 处理参数
-
-        Returns:
-            更新结果列表
-        """
-        pass
-
-    @abstractmethod
     async def aquery(
         self,
         query_text: str,

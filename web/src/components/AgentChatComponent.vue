@@ -868,7 +868,11 @@ import { useConfigStore } from '@/stores/config'
 import { useInfoStore } from '@/stores/info'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
-import { mergeMessageDebugMessages } from '@/utils/messageDebug'
+import {
+  getMessageRequestId,
+  getMessageRunId,
+  mergeMessageDebugMessages
+} from '@/utils/messageDebug'
 import { MessageProcessor } from '@/utils/messageProcessor'
 import { agentApi, threadApi } from '@/apis'
 import HumanApprovalModal from '@/components/HumanApprovalModal.vue'
@@ -957,7 +961,6 @@ const randomGreeting = greetingMessages[Math.floor(Math.random() * greetingMessa
 
 // 业务状态（保留在组件本地）
 const chatState = reactive({
-  currentThreadId: null,
   // 以threadId为键的线程状态
   threadStates: {},
   // 流式期间记录 父 task 工具调用 id → 子智能体 child_thread_id（首次运行时前端无法推算该 id）
@@ -971,16 +974,14 @@ const recordSubagentThread = (toolCallId, childThreadId) => {
 const getSubagentThreadIdByToolCall = (toolCallId) =>
   (toolCallId && chatState.subagentThreadByToolCall[String(toolCallId)]) || ''
 const setCurrentThreadId = (threadId, options) => {
-  if (!chatThreadsStore.setCurrentThreadId(threadId || null, options)) return false
-  chatState.currentThreadId = threadId || null
-  return true
+  return chatThreadsStore.setCurrentThreadId(threadId || null, options)
 }
 const streamSmoother = useStreamSmoother({
   getThreadState: (threadId) => chatState.threadStates[threadId] || null
 })
 const { getThreadState, resetOnGoingConv, stopThreadStream } = useAgentThreadState({
   chatState,
-  getCurrentThreadId: () => chatState.currentThreadId,
+  getCurrentThreadId: () => currentThreadId.value,
   onStopThread: (threadId) => streamSmoother.flushThread(threadId),
   onBeforeResetThread: (threadId) => streamSmoother.resetThread(threadId),
   onBeforeCleanupThread: (threadId) => streamSmoother.resetThread(threadId)
@@ -2118,25 +2119,6 @@ const historyConversations = computed(() => {
   return MessageProcessor.convertServerHistoryToMessages(currentThreadMessages.value)
 })
 
-function getMessageRequestId(message) {
-  const metadataRequestId = message?.extra_metadata?.request_id
-  if (typeof metadataRequestId === 'string' && metadataRequestId.trim())
-    return metadataRequestId.trim()
-  if (typeof message?.request_id === 'string' && message.request_id.trim())
-    return message.request_id.trim()
-  if (message?.type === 'human' && typeof message.id === 'string' && message.id.trim()) {
-    return message.id.trim()
-  }
-  return null
-}
-
-function getMessageRunId(message) {
-  const metadataRunId = message?.extra_metadata?.run_id
-  if (typeof metadataRunId === 'string' && metadataRunId.trim()) return metadataRunId.trim()
-  if (typeof message?.run_id === 'string' && message.run_id.trim()) return message.run_id.trim()
-  return null
-}
-
 function mergeLocalImageFields(message, localMessage) {
   if (!localMessage?.image_content || message?.image_content) return message
   return {
@@ -2163,8 +2145,8 @@ function mergeOngoingUserMessageIntoHistory(historyConvs, ongoingMessages) {
   if (historyHumanIndex === -1) return { historyConvs, ongoingMessages }
 
   const historyHuman = historyMessages[historyHumanIndex]
-  const historyRequestId = getMessageRequestId(historyHuman)
-  const ongoingRequestId = getMessageRequestId(firstOngoingMessage)
+  const historyRequestId = getMessageRequestId(historyHuman, { allowMessageIdFallback: true })
+  const ongoingRequestId = getMessageRequestId(firstOngoingMessage, { allowMessageIdFallback: true })
   if (!historyRequestId || !ongoingRequestId || historyRequestId !== ongoingRequestId) {
     return { historyConvs, ongoingMessages }
   }
@@ -2209,8 +2191,8 @@ function mergeActiveRunOngoingIntoHistory(historyConvs, ongoingMessages, activeR
   const lastHuman = lastMessages.find((message) => message?.type === 'human')
   if (!lastHuman) return { historyConvs: filteredHistoryConvs, ongoingMessages }
 
-  const historyRequestId = getMessageRequestId(lastHuman)
-  const ongoingRequestId = getMessageRequestId(firstOngoingMessage)
+  const historyRequestId = getMessageRequestId(lastHuman, { allowMessageIdFallback: true })
+  const ongoingRequestId = getMessageRequestId(firstOngoingMessage, { allowMessageIdFallback: true })
   const sameActiveRun =
     getMessageRunId(lastHuman) === activeRunId ||
     (Boolean(historyRequestId) &&
@@ -3011,7 +2993,7 @@ const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = 
   onInterruptDetected: ({ threadId }) => {
     restorePendingInterruptForThread(threadId)
     void resumeQueuedRequestsForThread(threadId)
-    if (threadId === chatState.currentThreadId) {
+    if (threadId === currentThreadId.value) {
       void chatThreadsStore.markThreadViewed(threadId)
       agentPanelFilesystemRefreshVersion.value += 1
     }
@@ -3022,7 +3004,7 @@ const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = 
     }
     void resumeQueuedRequestsForThread(threadId)
     // 仅当终态事件属于当前正在查看的线程时才自动标记已读；后台线程保留 ready 态
-    if (runId && threadId === chatState.currentThreadId) {
+    if (runId && threadId === currentThreadId.value) {
       void chatThreadsStore.markThreadViewed(threadId)
       agentPanelFilesystemRefreshVersion.value += 1
     }
@@ -3129,7 +3111,7 @@ const selectChat = async (chatId) => {
   }
   const targetChat = threads.value.find((chat) => chat.id === chatId) || null
   const targetAgentId = targetChat?.agent_id || currentAgentId.value
-  const previousThreadId = chatState.currentThreadId
+  const previousThreadId = currentThreadId.value
 
   if (!targetAgentId) {
     handleValidationError('选择对话失败：缺少智能体信息')
@@ -3200,7 +3182,7 @@ const selectThreadFromRoute = async (threadId) => {
   }
 
   if (!threadId) {
-    const previousThreadId = chatState.currentThreadId
+    const previousThreadId = currentThreadId.value
     if (previousThreadId) {
       stopThreadStream(previousThreadId)
       stopRunStreamSubscription(previousThreadId)
@@ -3208,10 +3190,6 @@ const selectThreadFromRoute = async (threadId) => {
     }
     resetAgentPanelState()
     setCurrentThreadId(null)
-    return true
-  }
-
-  if (chatState.currentThreadId === threadId) {
     return true
   }
 
@@ -3711,14 +3689,14 @@ const loadChatsList = async () => {
 
     // 如果当前线程不在线程列表中，清空当前线程
     if (
-      chatState.currentThreadId &&
-      !threads.value.find((t) => t.id === chatState.currentThreadId)
+      currentThreadId.value &&
+      !threads.value.find((t) => t.id === currentThreadId.value)
     ) {
       setCurrentThreadId(null)
     }
 
     // singleMode 保持旧行为：自动选择首个可用对话
-    if (props.singleMode && threads.value.length > 0 && !chatState.currentThreadId) {
+    if (props.singleMode && threads.value.length > 0 && !currentThreadId.value) {
       await selectChat(getFirstNonPinnedChat(threads.value).id)
     }
   } catch (error) {

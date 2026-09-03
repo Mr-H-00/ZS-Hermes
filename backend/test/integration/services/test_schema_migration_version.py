@@ -119,8 +119,8 @@ async def test_schema_migration_lock_serializes_real_postgres_sessions() -> None
         await engine.dispose()
 
 
-async def test_business_v2_to_v4_converges_current_schema_idempotently() -> None:
-    """0.7.2 business v2 升级后补齐 0.7.3 的完整业务结构。"""
+async def test_business_v2_to_v5_converges_current_schema_idempotently() -> None:
+    """business v2 升级后补齐当前版本的完整业务结构。"""
     schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_task_schema")
 
     try:
@@ -251,7 +251,7 @@ async def test_business_v2_to_v4_converges_current_schema_idempotently() -> None
             "ix_scheduled_agent_runs_job_created",
             "ix_scheduled_agent_runs_dispatching",
         }.issubset(scheduled_indexes)
-        assert BUSINESS_SCHEMA_VERSION == 4
+        assert BUSINESS_SCHEMA_VERSION == 5
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 
@@ -315,6 +315,34 @@ async def test_business_v3_to_v4_adds_audit_columns_idempotently() -> None:
         assert {("messages", column) for column in audit_columns} <= columns
         assert "uq_messages_run_operation_id" not in audit_indexes
         assert "(run_id, role, operation_id)" in audit_indexes["uq_messages_run_role_operation_id"]
+    finally:
+        await _drop_isolated_schema(schema, admin_engine, scoped_engine)
+
+
+async def test_business_v4_to_v5_drops_agent_run_cursor_idempotently() -> None:
+    """v4→v5 删除 AgentRun 的历史 Redis 游标列，且可安全重放。"""
+    schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_run_cursor_schema")
+    try:
+        await manager.create_business_tables()
+        async with scoped_engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE agent_runs ADD COLUMN last_event_id VARCHAR(64)"))
+
+        await manager.migrate_business_schema_v4_to_v5()
+        await manager.migrate_business_schema_v4_to_v5()
+
+        async with scoped_engine.connect() as connection:
+            columns = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema = :schema AND table_name = 'agent_runs'"
+                        ),
+                        {"schema": schema},
+                    )
+                ).scalars()
+            )
+        assert "last_event_id" not in columns
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 

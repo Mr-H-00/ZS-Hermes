@@ -381,9 +381,9 @@ def normalize_option_value(field: dict[str, Any], value: Any) -> Any:
     if field.get("type") == "url" and normalized:
         return str(_URL_ADAPTER.validate_python(normalized))
     if field.get("type") == "ocr_engine" and normalized:
-        from yuxi.knowledge.parser.registry import PROCESSOR_TYPES
+        from yuxi.knowledge.parser.capabilities import get_ocr_engine_ids
 
-        if normalized not in {"disable", *PROCESSOR_TYPES}:
+        if normalized not in {"disable", *get_ocr_engine_ids()}:
             raise ValueError(f"不支持的默认 OCR 引擎: {normalized}")
     return normalized
 

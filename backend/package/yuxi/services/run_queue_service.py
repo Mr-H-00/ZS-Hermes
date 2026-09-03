@@ -229,6 +229,34 @@ async def append_run_stream_event(run_id: str, event_type: str, payload: dict, *
     return str(event_id)
 
 
+def _decode_run_stream_row(run_id: str, event_id: str, fields: dict) -> dict:
+    """解码单条 Redis Stream 事件，兼容旧载荷并保持统一返回形状。"""
+    payload_raw = fields.get("payload") or "{}"
+    try:
+        payload = json.loads(payload_raw)
+    except Exception:
+        payload = {}
+
+    event_type = fields.get("event_type") or "message"
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        payload = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "thread_id": None,
+            "event": event_type,
+            "payload": payload if isinstance(payload, dict) else {},
+            "created_at": None,
+        }
+
+    ts_value = fields.get("ts")
+    return {
+        "seq": str(event_id),
+        "event_type": event_type,
+        "payload": payload,
+        "ts": int(ts_value) if ts_value else None,
+    }
+
+
 async def list_run_stream_events(
     run_id: str,
     *,
@@ -242,32 +270,7 @@ async def list_run_stream_events(
     events = []
 
     for event_id, fields in rows:
-        payload_raw = fields.get("payload") or "{}"
-        try:
-            payload = json.loads(payload_raw)
-        except Exception:
-            payload = {}
-
-        event_type = fields.get("event_type") or "message"
-        if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-            payload = {
-                "schema_version": 1,
-                "run_id": run_id,
-                "thread_id": None,
-                "event": event_type,
-                "payload": payload if isinstance(payload, dict) else {},
-                "created_at": None,
-            }
-
-        ts_value = fields.get("ts")
-        events.append(
-            {
-                "seq": str(event_id),
-                "event_type": event_type,
-                "payload": payload,
-                "ts": int(ts_value) if ts_value else None,
-            }
-        )
+        events.append(_decode_run_stream_row(run_id, event_id, fields))
     return events
 
 
@@ -279,32 +282,7 @@ async def list_recent_run_stream_events(run_id: str, *, limit: int = 100) -> lis
     events = []
 
     for event_id, fields in rows:
-        payload_raw = fields.get("payload") or "{}"
-        try:
-            payload = json.loads(payload_raw)
-        except Exception:
-            payload = {}
-
-        event_type = fields.get("event_type") or "message"
-        if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-            payload = {
-                "schema_version": 1,
-                "run_id": run_id,
-                "thread_id": None,
-                "event": event_type,
-                "payload": payload if isinstance(payload, dict) else {},
-                "created_at": None,
-            }
-
-        ts_value = fields.get("ts")
-        events.append(
-            {
-                "seq": str(event_id),
-                "event_type": event_type,
-                "payload": payload,
-                "ts": int(ts_value) if ts_value else None,
-            }
-        )
+        events.append(_decode_run_stream_row(run_id, event_id, fields))
     return events
 
 

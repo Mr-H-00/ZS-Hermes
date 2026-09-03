@@ -30,7 +30,6 @@ from yuxi.knowledge.utils.kb_utils import resolve_processing_params
 from yuxi.models.providers.cache import model_cache
 from yuxi.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
 from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
-from yuxi.services.ocr_service import parse_document
 from yuxi.utils import hashstr, logger
 from yuxi.utils.datetime_utils import utc_isoformat
 
@@ -827,115 +826,6 @@ class MilvusKB(KnowledgeBase):
             if updated_record is None and processing_owner is not None:
                 raise asyncio.CancelledError("File processing owner was lost")
             raise
-
-    async def update_content(
-        self,
-        kb_id: str,
-        file_ids: list[str],
-        params: dict | None = None,
-        *,
-        embedding_model_spec: str | None,
-        additional_params: dict[str, Any],
-    ) -> list[dict]:
-        """更新内容 - 根据file_ids重新解析文件并更新向量库"""
-        collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
-        if not collection:
-            raise ValueError(f"Failed to get Milvus collection for {kb_id}")
-
-        embedding_function = self._get_embedding_function(embedding_model_spec)
-
-        # 处理默认参数
-        if params is None:
-            params = {}
-        processed_items_info = []
-
-        for file_id in file_ids:
-            try:
-                file_meta = await self._load_file_meta(kb_id, file_id)
-            except ValueError:
-                logger.warning(f"File {file_id} not found in metadata, skipping")
-                continue
-
-            file_path = file_meta.get("path")
-            filename = file_meta.get("filename")
-
-            if not file_path:
-                logger.warning(f"File path not found for {file_id}, skipping")
-                continue
-
-            try:
-                # 更新状态为处理中
-                resolved_params = resolve_processing_params(
-                    kb_additional_params=additional_params,
-                    file_processing_params=file_meta.get("processing_params"),
-                    request_params=params,
-                )
-                file_meta["processing_params"] = resolved_params
-                file_meta["status"] = FileStatus.INDEXING
-                await KnowledgeFileRepository().update_fields(
-                    file_id=file_id,
-                    kb_id=kb_id,
-                    data={"status": FileStatus.INDEXING, "processing_params": resolved_params},
-                )
-
-                chunk_parser_config = dict(resolved_params.get("chunk_parser_config") or {})
-                chunk_parser_config.setdefault("embed_model_id", (await system_options.get())["embed_model"])
-                resolved_params["chunk_parser_config"] = chunk_parser_config
-
-                # 重新解析文件为 markdown
-                from yuxi.storage.minio import get_minio_client
-
-                parse_params = {
-                    **resolved_params,
-                    "image_bucket": get_minio_client().KB_BUCKETS["images"],
-                    "image_prefix": f"{kb_id}/kb-images",
-                }
-                markdown_content = await parse_document(source=file_path, params=parse_params)
-
-                # 重新生成 chunks
-                chunks = self._split_text_into_chunks(markdown_content, file_id, filename, resolved_params)
-                logger.info(f"Split {filename} into {len(chunks)} chunks")
-                chunk_stats = self._calculate_chunk_stats(chunks)
-
-                # 先删除现有 chunks，保留文件元数据
-                await self.delete_file_chunks_only(kb_id, file_id)
-
-                if chunks:
-                    await self._embed_and_store_chunks(kb_id, file_id, collection, chunks, embedding_function)
-
-                logger.info(f"Updated file {file_path} in Milvus. Done.")
-
-                # 更新元数据状态
-                file_meta["status"] = FileStatus.INDEXED
-                file_meta.update(chunk_stats)
-                await KnowledgeFileRepository().update_fields(
-                    file_id=file_id,
-                    kb_id=kb_id,
-                    data={"status": FileStatus.INDEXED, "error_message": None, **chunk_stats},
-                )
-                # 返回更新后的文件信息
-                updated_file_meta = file_meta.copy()
-                updated_file_meta["status"] = FileStatus.INDEXED
-                updated_file_meta.update(chunk_stats)
-                updated_file_meta["file_id"] = file_id
-                processed_items_info.append(updated_file_meta)
-
-            except Exception as e:
-                logger.error(f"更新file {file_path} 失败: {e}, {traceback.format_exc()}")
-                await KnowledgeFileRepository().update_fields(
-                    file_id=file_id,
-                    kb_id=kb_id,
-                    data={"status": FileStatus.ERROR_INDEXING, "error_message": str(e)},
-                )
-
-                # 返回失败的文件信息
-                failed_file_meta = file_meta.copy()
-                failed_file_meta["status"] = FileStatus.ERROR_INDEXING
-                failed_file_meta["error"] = str(e)
-                failed_file_meta["file_id"] = file_id
-                processed_items_info.append(failed_file_meta)
-
-        return processed_items_info
 
     def _build_chunk_from_hit(
         self,

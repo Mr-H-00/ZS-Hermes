@@ -9,7 +9,6 @@ import re
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -23,46 +22,14 @@ from docling_core.types.doc import DoclingDocument
 from langchain_community.document_loaders import PyPDFLoader
 from markdownify import markdownify as md_convert
 
+from yuxi.knowledge.parser.capabilities import (
+    IMAGE_FILE_EXTENSIONS,
+    get_ocr_engine_ids,
+)
 from yuxi.knowledge.parser.zip_utils import process_zip_file as _process_zip_file
 from yuxi.knowledge.utils.pdf_utils import validate_pdf_page_tree_loadable
 from yuxi.storage.minio import get_minio_client
 from yuxi.utils import logger
-
-SUPPORTED_FILE_EXTENSIONS: tuple[str, ...] = (
-    ".txt",
-    ".md",
-    ".docx",
-    ".html",
-    ".htm",
-    ".json",
-    ".csv",
-    ".xls",
-    ".xlsx",
-    ".pdf",
-    ".pptx",
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".bmp",
-    ".tiff",
-    ".tif",
-    ".zip",
-)
-OCR_FILE_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tiff", ".tif"}
-
-
-def is_supported_file_extension(file_name: str | os.PathLike[str]) -> bool:
-    """Check whether the given file path has a supported extension."""
-    return Path(file_name).suffix.lower() in SUPPORTED_FILE_EXTENSIONS
-
-
-@dataclass(slots=True)
-class MarkdownParseResult:
-    """统一的 Markdown 解析结果。"""
-
-    markdown: str
-    file_ext: str | None = None
-    artifacts: dict[str, Any] = field(default_factory=dict)
 
 
 _OFFICE_BACKENDS = {
@@ -123,9 +90,7 @@ def parse_image(file, params=None):
     if opt_ocr == "disable":
         raise ValueError(
             "图像文件必须启用OCR才能提取文本内容。"
-            "请选择OCR方式 "
-            "(rapid_ocr/mineru_ocr/mineru_official/pp_structure_v3_ocr/deepseek_ocr/"
-            "paddleocr_vl_1_6/paddleocr_pp_ocrv6) 或移除该文件。"
+            f"请选择OCR方式 ({'/'.join(get_ocr_engine_ids())}) 或移除该文件。"
         )
 
     image_bucket, image_prefix = _resolve_image_storage_params(processor_params)
@@ -151,7 +116,7 @@ async def parse_image_async(file, params=None):
     return await asyncio.to_thread(parse_image, file, params=params)
 
 
-async def parse_resolved_document(source: str, params: dict | None = None) -> MarkdownParseResult:
+async def parse_resolved_document(source: str, params: dict | None = None) -> str:
     """使用已解析的运行时参数，将本地或 MinIO 文件转换为 Markdown。"""
     from yuxi.knowledge.utils.kb_utils import is_minio_url, parse_minio_url
     from yuxi.storage.minio.client import get_minio_client
@@ -189,9 +154,6 @@ async def parse_resolved_document(source: str, params: dict | None = None) -> Ma
     else:
         actual_file_path = source
 
-    file_ext: str | None = None
-    artifacts: dict[str, Any] = {}
-
     # 2. 根据文件类型调用不同的解析器
     try:
         file_path_obj = Path(actual_file_path)
@@ -199,13 +161,12 @@ async def parse_resolved_document(source: str, params: dict | None = None) -> Ma
 
         if file_ext == ".pdf":
             validate_pdf_page_tree_loadable(file_path_obj)
-            text = await parse_pdf_async(str(file_path_obj), params=params)
-            result = f"{text}"
+            result = await parse_pdf_async(str(file_path_obj), params=params)
 
         elif file_ext in [".txt", ".md"]:
             async with aiofiles.open(file_path_obj, encoding="utf-8") as f:
                 content = await f.read()
-            result = f"{content}"
+            result = content
 
         elif file_ext == ".docx":
             try:
@@ -217,16 +178,8 @@ async def parse_resolved_document(source: str, params: dict | None = None) -> Ma
         elif file_ext == ".pptx":
             result = await asyncio.to_thread(_convert_with_docling, file_path_obj, params=params)
 
-        elif file_ext == ".doc":
-            from langchain_community.document_loaders import UnstructuredWordDocumentLoader
-
-            loader = UnstructuredWordDocumentLoader(str(file_path_obj))
-            docs = await asyncio.to_thread(loader.load)
-            result = "\n".join(doc.page_content for doc in docs).strip()
-
-        elif file_ext in [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"]:
-            text = await parse_image_async(str(file_path_obj), params=params)
-            result = f"{text}"
+        elif file_ext in IMAGE_FILE_EXTENSIONS:
+            result = await parse_image_async(str(file_path_obj), params=params)
 
         elif file_ext in [".html", ".htm"]:
             async with aiofiles.open(file_path_obj, encoding="utf-8") as f:
@@ -251,20 +204,11 @@ async def parse_resolved_document(source: str, params: dict | None = None) -> Ma
 
         elif file_ext == ".zip":
             image_bucket, image_prefix = _resolve_image_storage_params(params)
-            zip_result = await _process_zip_file(
+            result = await _process_zip_file(
                 str(file_path_obj),
                 image_bucket=image_bucket,
                 image_prefix=image_prefix,
             )
-
-            artifacts = {
-                "zip_images_info": zip_result["images_info"],
-                "zip_content_hash": zip_result["content_hash"],
-                "zip_image_bucket": image_bucket,
-                "zip_image_prefix": image_prefix,
-            }
-
-            result = zip_result["markdown_content"]
 
         else:
             raise ValueError(f"Unsupported file type: {file_ext}")
@@ -286,11 +230,7 @@ async def parse_resolved_document(source: str, params: dict | None = None) -> Ma
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"Failed to clean up temp file {actual_file_path}: {e}")
 
-    return MarkdownParseResult(
-        markdown=result,
-        file_ext=file_ext,
-        artifacts=artifacts,
-    )
+    return result
 
 
 def _convert_office_document(file_path: Path) -> DoclingDocument:

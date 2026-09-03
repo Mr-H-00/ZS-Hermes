@@ -125,7 +125,7 @@ async def main() -> None:
                 "business",
                 business_version,
                 BUSINESS_SCHEMA_VERSION,
-                upgrade_from=(2, 3),
+                upgrade_from=(2, 3, 4),
             )
             knowledge_version = versions.get("knowledge")
             _require_supported_version(
@@ -152,6 +152,10 @@ async def main() -> None:
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
             elif business_version == 3:
                 await pg_manager.migrate_business_schema_v3_to_v4()
+                await pg_manager.migrate_business_schema_v4_to_v5()
+                await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
+            elif business_version == 4:
+                await pg_manager.migrate_business_schema_v4_to_v5()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
             if knowledge_version is None:

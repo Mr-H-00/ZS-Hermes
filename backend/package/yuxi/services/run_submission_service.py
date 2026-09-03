@@ -121,6 +121,7 @@ async def submit_run_command(
         raise HTTPException(status_code=404, detail=f"智能体后端 {agent_item.backend_id} 不存在")
 
     conversation_repo = ConversationRepository(db)
+    project = None
     conversation = await conversation_repo.get_conversation_by_thread_id(command.thread_id)
     if not conversation:
         if not command.create_conversation:
@@ -164,6 +165,13 @@ async def submit_run_command(
             continue
         request_metadata.setdefault(key, value)
 
+    binding_project = project if project is not None and str(project.id) == str(conversation.project_id) else None
+    workdir_binding = await resolve_conversation_workdir_binding(
+        conversation=conversation,
+        uid=str(current_user.uid),
+        db=db,
+        project=binding_project,
+    )
     intake = await intake_request(
         db=db,
         request_id=command.request_id,
@@ -181,18 +189,11 @@ async def submit_run_command(
         model_spec=command.model_spec,
         tool_approval_mode=command.tool_approval_mode,
         meta=request_metadata,
-    )
-    workdir_path, project = await resolve_conversation_workdir_binding(
-        conversation=conversation,
-        uid=str(current_user.uid),
-        db=db,
+        workdir_binding=workdir_binding,
     )
     await finalize_intake(
         db=db,
         intake=intake,
-        uid=str(current_user.uid),
-        workdir_path=workdir_path,
-        materialize_managed=project is not None and project.directory_mode == "managed",
     )
 
     return {

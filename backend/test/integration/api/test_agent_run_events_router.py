@@ -56,8 +56,9 @@ async def test_run_events_verbose_false_returns_compact_payload(test_client, sta
         await conn.execute(
             """
             INSERT INTO agent_runs
-                (id, conversation_thread_id, agent_slug, uid, request_id, input_payload, status, run_type)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+                (id, conversation_thread_id, runtime_scope_id, agent_slug, uid, request_id,
+                 input_payload, status, run_type)
+            VALUES ($1, $2, $2, $3, $4, $5, $6::jsonb, $7, $8)
             """,
             run_id,
             thread_id,

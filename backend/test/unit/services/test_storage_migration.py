@@ -303,6 +303,7 @@ async def test_main_v3_business_schema_runs_audit_migration_before_versioning(mo
         ensure_business_schema=lambda: _record(calls, "business_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         migrate_business_schema_v3_to_v4=lambda: _record(calls, "business_v3_to_v4"),
+        migrate_business_schema_v4_to_v5=lambda: _record(calls, "business_v4_to_v5"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
         close=lambda: _record(calls, "close"),
@@ -327,7 +328,8 @@ async def test_main_v3_business_schema_runs_audit_migration_before_versioning(mo
 
     await storage_migration.main()
 
-    assert calls.index("business_v3_to_v4") < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
+    assert calls.index("business_v3_to_v4") < calls.index("business_v4_to_v5")
+    assert calls.index("business_v4_to_v5") < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
     assert {"create_business", "business_schema", "checkpoint"}.isdisjoint(calls)
 
 

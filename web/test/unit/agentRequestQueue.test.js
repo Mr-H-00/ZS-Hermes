@@ -10,6 +10,7 @@ let server
 let agentApi
 let useAgentRequestQueue
 let useAgentRunStream
+let dispatchRunEventChunks
 let useAgentStreamHandler
 
 before(async () => {
@@ -24,7 +25,10 @@ before(async () => {
   ;({ useAgentRequestQueue } = await server.ssrLoadModule(
     '/src/composables/useAgentRequestQueue.js'
   ))
-  ;({ useAgentRunStream } = await server.ssrLoadModule('/src/composables/useAgentRunStream.js'))
+  ;({
+    useAgentRunStream,
+    dispatchRunEventChunks
+  } = await server.ssrLoadModule('/src/composables/useAgentRunStream.js'))
   ;({ useAgentStreamHandler } = await server.ssrLoadModule(
     '/src/composables/useAgentStreamHandler.js'
   ))
@@ -47,6 +51,66 @@ const createRunStream = ({ threadState, handleStreamChunk, resetOnGoingConv }) =
     onScrollToBottom: () => {},
     streamSmoother: { flushThread: () => {} }
   })
+
+test('Run envelope 归一化同时保留批量与单 chunk 形状及线程上下文', () => {
+  const batchData = {
+    request_id: 'request-1',
+    run_id: 'run-1',
+    payload: { items: [{ status: 'loading', id: 'message-1' }] }
+  }
+  const singleData = {
+    request_id: 'request-2',
+    payload: {
+      chunk: {
+        status: 'loading',
+        id: 'message-2',
+        metadata: { thread_id: 'child-thread' }
+      }
+    }
+  }
+
+  const dispatched = []
+  dispatchRunEventChunks({
+    data: batchData,
+    runId: 'run-fallback',
+    fallbackThreadId: 'parent-thread',
+    streamRunId: 'run-1',
+    streamThreadId: 'parent-thread',
+    onChunk: (chunk, threadId) => dispatched.push({ chunk, threadId })
+  })
+  dispatchRunEventChunks({
+    data: singleData,
+    runId: 'run-fallback',
+    fallbackThreadId: 'parent-thread',
+    onChunk: (chunk, threadId) => dispatched.push({ chunk, threadId })
+  })
+
+  assert.deepEqual(dispatched, [
+    {
+      chunk: {
+        status: 'loading',
+        id: 'message-1',
+        request_id: 'request-1',
+        run_id: 'run-1',
+        thread_id: 'parent-thread',
+        stream_run_id: 'run-1',
+        stream_thread_id: 'parent-thread'
+      },
+      threadId: 'parent-thread'
+    },
+    {
+      chunk: {
+        status: 'loading',
+        id: 'message-2',
+        metadata: { thread_id: 'child-thread' },
+        request_id: 'request-2',
+        run_id: 'run-fallback',
+        thread_id: 'child-thread'
+      },
+      threadId: 'child-thread'
+    }
+  ])
+})
 
 test('agent_state SSE 使在途状态请求失效', () => {
   const threadState = {
@@ -453,5 +517,191 @@ test('旧 Run 终态清理保留排队 Request SSE', async () => {
     assert.equal(threadState.requestStreams['request-2'].controller.signal.aborted, false)
   } finally {
     agentApi.streamAgentRunEvents = originalStreamAgentRunEvents
+  }
+})
+
+test('自然断流后从 PG 终态复用统一清理并刷新历史', async () => {
+  const threadState = {
+    activeRunId: null,
+    activeRunSteerable: true,
+    runLastSeq: '0-0',
+    runStreamAbortController: null,
+    replyLoadingVisible: true,
+    pendingRequestId: 'request-1',
+    pendingInterrupt: null,
+    onGoingConv: { msgChunks: { 'message-1': [{ content: '实时内容' }] } }
+  }
+  const refreshed = []
+  const notifications = []
+  const resetCalls = []
+  const originalStreamAgentRunEvents = agentApi.streamAgentRunEvents
+  const originalGetAgentRun = agentApi.getAgentRun
+  agentApi.streamAgentRunEvents = async () =>
+    new Response('', { headers: { 'Content-Type': 'text/event-stream' } })
+  agentApi.getAgentRun = async () => ({
+    run: { id: 'run-1', status: 'completed' }
+  })
+
+  try {
+    const runStream = useAgentRunStream({
+      getThreadState: () => threadState,
+      currentAgentId: { value: 'agent-1' },
+      handleStreamChunk: () => {},
+      fetchThreadMessages: async () => refreshed.push('history'),
+      fetchAgentState: async () => refreshed.push('state'),
+      resetOnGoingConv: (_threadId, options) => resetCalls.push(options),
+      onScrollToBottom: () => {},
+      streamSmoother: { flushThread: () => {} },
+      onTerminalDetected: (payload) => notifications.push(payload)
+    })
+
+    await runStream.startRunStream('thread-1', 'run-1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    assert.equal(threadState.activeRunId, null)
+    assert.equal(threadState.isStreaming, false)
+    assert.equal(threadState.replyLoadingVisible, false)
+    assert.deepEqual(resetCalls, [{ preserveRequestStreams: true }])
+    assert.deepEqual(refreshed, ['history', 'state'])
+    assert.deepEqual(notifications.map(({ runId }) => runId), ['run-1'])
+  } finally {
+    agentApi.streamAgentRunEvents = originalStreamAgentRunEvents
+    agentApi.getAgentRun = originalGetAgentRun
+  }
+})
+
+test('自然断流遇到仍持有的 pending interrupt 时保留 Run 快照', async () => {
+  const threadId = 'thread-with-pending-interrupt'
+  const threadState = {
+    activeRunId: null,
+    activeRunSteerable: true,
+    runLastSeq: '5-0',
+    runStreamAbortController: null,
+    replyLoadingVisible: true,
+    pendingRequestId: 'request-1',
+    pendingInterrupt: { interruptedRunId: 'run-1', questions: [{ question: '继续吗？' }] },
+    onGoingConv: { msgChunks: {} }
+  }
+  const interrupts = []
+  const originalStreamAgentRunEvents = agentApi.streamAgentRunEvents
+  const originalGetAgentRun = agentApi.getAgentRun
+  agentApi.streamAgentRunEvents = async () =>
+    new Response('', { headers: { 'Content-Type': 'text/event-stream' } })
+  agentApi.getAgentRun = async () => ({ run: { id: 'run-1', status: 'interrupted' } })
+
+  try {
+    const runStream = useAgentRunStream({
+      getThreadState: () => threadState,
+      currentAgentId: { value: 'agent-1' },
+      handleStreamChunk: () => {},
+      fetchThreadMessages: async () => {},
+      fetchAgentState: async () => {},
+      resetOnGoingConv: () => {},
+      onScrollToBottom: () => {},
+      streamSmoother: { flushThread: () => {} },
+      onInterruptDetected: ({ runId }) => interrupts.push(runId)
+    })
+
+    await runStream.startRunStream(threadId, 'run-1')
+
+    assert.equal(threadState.activeRunId, 'run-1')
+    assert.equal(threadState.isStreaming, false)
+    assert.deepEqual(interrupts, ['run-1'])
+    assert.equal(JSON.parse(localStorage.getItem(`active_run:${threadId}`)).run_id, 'run-1')
+  } finally {
+    agentApi.streamAgentRunEvents = originalStreamAgentRunEvents
+    agentApi.getAgentRun = originalGetAgentRun
+    localStorage.removeItem(`active_run:${threadId}`)
+  }
+})
+
+test('恢复时没有 active Run 也走统一终态清理', async () => {
+  const threadId = 'thread-without-active-run'
+  const threadState = {
+    activeRunId: 'run-old',
+    activeRunSteerable: false,
+    runLastSeq: '22-0',
+    runStreamAbortController: null,
+    isStreaming: true,
+    replyLoadingVisible: true,
+    pendingRequestId: 'request-old',
+    pendingInterrupt: { interruptedRunId: 'run-old' },
+    onGoingConv: { msgChunks: {} }
+  }
+  const refreshed = []
+  const notifications = []
+  const originalGetThreadActiveRun = agentApi.getThreadActiveRun
+  agentApi.getThreadActiveRun = async () => ({ run: null })
+  localStorage.removeItem(`active_run:${threadId}`)
+
+  try {
+    const runStream = useAgentRunStream({
+      getThreadState: () => threadState,
+      currentAgentId: { value: 'agent-1' },
+      handleStreamChunk: () => {},
+      fetchThreadMessages: async () => refreshed.push('history'),
+      fetchAgentState: async () => refreshed.push('state'),
+      resetOnGoingConv: () => {},
+      onScrollToBottom: () => {},
+      streamSmoother: { flushThread: () => {} },
+      onTerminalDetected: (payload) => notifications.push(payload)
+    })
+
+    await runStream.resumeActiveRunForThread(threadId)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    assert.equal(threadState.activeRunId, null)
+    assert.equal(threadState.isStreaming, false)
+    assert.equal(threadState.runLastSeq, '0-0')
+    assert.equal(threadState.pendingInterrupt, null)
+    assert.deepEqual(refreshed, ['history', 'state'])
+    assert.deepEqual(notifications.map(({ runId }) => runId), [null])
+  } finally {
+    agentApi.getThreadActiveRun = originalGetThreadActiveRun
+    localStorage.removeItem(`active_run:${threadId}`)
+  }
+})
+
+test('恢复期间出现的新 Run 不会被旧的空闲查询结果清理', async () => {
+  const threadId = 'thread-with-new-run'
+  const threadState = {
+    activeRunId: 'run-old',
+    activeRunSteerable: true,
+    runLastSeq: '22-0',
+    runStreamAbortController: null,
+    isStreaming: true,
+    replyLoadingVisible: true,
+    pendingRequestId: 'request-new',
+    pendingInterrupt: null,
+    onGoingConv: { msgChunks: {} }
+  }
+  const refreshed = []
+  const originalGetThreadActiveRun = agentApi.getThreadActiveRun
+  agentApi.getThreadActiveRun = async () => {
+    threadState.activeRunId = 'run-new'
+    return { run: null }
+  }
+  localStorage.removeItem(`active_run:${threadId}`)
+
+  try {
+    const runStream = useAgentRunStream({
+      getThreadState: () => threadState,
+      currentAgentId: { value: 'agent-1' },
+      handleStreamChunk: () => {},
+      fetchThreadMessages: async () => refreshed.push('history'),
+      fetchAgentState: async () => refreshed.push('state'),
+      resetOnGoingConv: () => {},
+      onScrollToBottom: () => {},
+      streamSmoother: { flushThread: () => {} }
+    })
+
+    await runStream.resumeActiveRunForThread(threadId)
+
+    assert.equal(threadState.activeRunId, 'run-new')
+    assert.equal(threadState.isStreaming, true)
+    assert.deepEqual(refreshed, [])
+  } finally {
+    agentApi.getThreadActiveRun = originalGetThreadActiveRun
+    localStorage.removeItem(`active_run:${threadId}`)
   }
 })

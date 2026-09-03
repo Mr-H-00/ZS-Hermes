@@ -1829,17 +1829,18 @@ async def get_agent_state_view(
             uid=current_uid,
             db=db,
         )
+        runtime_workdir = runtime_workdir_path(workdir_path)
         runtime_scope_id = str(getattr(latest_run, "runtime_scope_id", None) or thread_id)
         input_context["runtime_scope_id"] = runtime_scope_id
         input_context["workdir_relative_path"] = workdir_path
-        input_context["workdir_path"] = runtime_workdir_path(workdir_path)
+        input_context["workdir_path"] = runtime_workdir
         context = _build_agent_context(agent, input_context)
         state = await _read_checkpoint_state(agent, uid=current_uid, thread_id=thread_id, context=context)
         values = getattr(state, "values", {}) if state else {}
         response = {
             "agent_state": extract_agent_state(
                 values,
-                workdir_path=runtime_workdir_path(workdir_path),
+                workdir_path=runtime_workdir,
             )
         }
         interrupt_info = _extract_interrupt_info(state) if state else None

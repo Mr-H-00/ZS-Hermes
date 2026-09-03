@@ -185,6 +185,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { storeToRefs } from 'pinia'
 import {
   ArrowLeft,
   Check,
@@ -210,11 +211,9 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 const projectsStore = useProjectsStore()
+const { projects, isLoading: loadingProjects, error: projectsError } = storeToRefs(projectsStore)
 
-const projects = ref([])
 const dropdownOpen = ref(false)
-const loadingProjects = ref(false)
-const projectsError = ref('')
 const projectQuery = ref('')
 const projectSearchInput = ref(null)
 const historySearchInput = ref(null)
@@ -265,20 +264,15 @@ const selectProject = (projectId) => {
 const addAndSelectProject = (project) => {
   const projectId = project.id
   if (!projectId) throw new Error('创建结果缺少 project id')
-  projects.value = [project, ...projects.value.filter((item) => item.id !== projectId)]
   projectsStore.upsertProject(project)
   selectProject(projectId)
 }
 
 const loadProjects = async () => {
-  loadingProjects.value = true
-  projectsError.value = ''
   try {
-    projects.value = await projectApi.getProjects()
-  } catch (error) {
-    projectsError.value = getErrorMessage(error, 'Project 加载失败')
-  } finally {
-    loadingProjects.value = false
+    await projectsStore.loadProjects()
+  } catch {
+    // 错误由 store 保持，列表中的提示和重试按钮共用同一事实。
   }
 }
 

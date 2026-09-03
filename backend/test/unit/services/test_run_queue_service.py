@@ -76,6 +76,40 @@ async def test_run_stream_event_roundtrip(monkeypatch: pytest.MonkeyPatch):
     assert [item["event_type"] for item in recent_events] == ["finished", "loading"]
 
 
+@pytest.mark.asyncio
+async def test_run_stream_event_decoder_keeps_legacy_payload_shape(monkeypatch: pytest.MonkeyPatch):
+    fake_redis = _FakeStreamRedis()
+    key = run_queue_service._event_stream_key("run-legacy")
+    fake_redis.streams[key] = [
+        ("1700000000000-0", {"event_type": "custom", "payload": "not-json", "ts": "1700000000000"}),
+    ]
+
+    async def fake_get_async_redis_client():
+        return fake_redis
+
+    monkeypatch.setattr(run_queue_service, "get_async_redis_client", fake_get_async_redis_client)
+
+    forward = await run_queue_service.list_run_stream_events("run-legacy")
+    reverse = await run_queue_service.list_recent_run_stream_events("run-legacy")
+
+    assert forward == reverse
+    assert forward == [
+        {
+            "seq": "1700000000000-0",
+            "event_type": "custom",
+            "payload": {
+                "schema_version": 1,
+                "run_id": "run-legacy",
+                "thread_id": None,
+                "event": "custom",
+                "payload": {},
+                "created_at": None,
+            },
+            "ts": 1700000000000,
+        }
+    ]
+
+
 def test_normalize_after_seq_stream_id_only():
     assert run_queue_service.normalize_after_seq(None) == "0-0"
     assert run_queue_service.normalize_after_seq("1700000000000-3") == "1700000000000-3"

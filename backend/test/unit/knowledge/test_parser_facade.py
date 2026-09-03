@@ -4,6 +4,7 @@ import asyncio
 import base64
 import re
 import time
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,11 +17,12 @@ from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
+from yuxi.knowledge.parser.base import DocumentParserException
+from yuxi.knowledge.parser.capabilities import PARSER_CAPABILITIES
 from yuxi.knowledge.parser.factory import DocumentProcessorFactory
 from yuxi.knowledge.parser.mineru import MinerUParser
 from yuxi.knowledge.parser.mineru_official import MinerUOfficialParser
 from yuxi.knowledge.parser.rapid_ocr import RapidOCRParser
-from yuxi.knowledge.parser.registry import PROCESSOR_TYPES, get_parser_metadata
 from yuxi.services.ocr_service import parse_document
 
 PARSER_FIXTURES = Path(__file__).parents[2] / "data"
@@ -47,16 +49,14 @@ def test_clear_cache_can_target_single_engine(monkeypatch: pytest.MonkeyPatch):
     assert factory_module._PROCESSOR_CACHE == {"mineru_ocr|two": second}
 
 
-def test_parser_metadata_comes_from_parser_classes():
-    metadata = {engine_id: get_parser_metadata(engine_id) for engine_id in PROCESSOR_TYPES}
+def test_parser_capabilities_match_concrete_parser_classes():
+    capability = PARSER_CAPABILITIES["rapid_ocr"]
 
-    assert metadata["rapid_ocr"] == {
-        "service_name": "rapid_ocr",
-        "display_name": "RapidOCR (ONNX)",
-        "supported_extensions": RapidOCRParser.supported_extensions,
-    }
-    assert all(item["service_name"] == engine_id for engine_id, item in metadata.items())
-    assert all(item["display_name"] for item in metadata.values())
+    assert capability.service_name == RapidOCRParser.service_name
+    assert capability.display_name == RapidOCRParser.display_name
+    assert list(capability.supported_extensions) == RapidOCRParser.supported_extensions
+    assert all(item.service_name == engine_id for engine_id, item in PARSER_CAPABILITIES.items())
+    assert all(item.display_name for item in PARSER_CAPABILITIES.values())
 
 
 def test_mineru_parser_normalizes_trailing_slash():
@@ -77,12 +77,14 @@ def test_mineru_official_health_check_does_not_create_task(monkeypatch: pytest.M
     assert health["status"] == "configured"
 
 
-def test_mineru_official_parsing_does_not_reject_configured_health(
+def test_mineru_official_parsing_uses_shared_zip_processor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     file_path = tmp_path / "mineru.pdf"
     file_path.write_bytes(b"pdf")
+    zip_path = tmp_path / "result.zip"
+    zip_path.write_bytes(b"zip")
     parser = MinerUOfficialParser(api_key="test-key")
 
     monkeypatch.setattr(parser, "_upload_file", lambda *args, **kwargs: "batch-id")
@@ -91,14 +93,55 @@ def test_mineru_official_parsing_does_not_reject_configured_health(
         "_poll_batch_result",
         lambda *args, **kwargs: {"state": "done", "full_zip_url": "https://example.test/result.zip"},
     )
+    monkeypatch.setattr(parser, "_download_zip", lambda *args, **kwargs: str(zip_path))
+    processed_paths: list[str] = []
 
-    def raise_download_error(*args, **kwargs):
-        raise RuntimeError("use markdown fallback")
+    def _process_zip_file(zip_file_path: str, **kwargs) -> str:
+        del kwargs
+        processed_paths.append(zip_file_path)
+        return "parsed markdown"
 
-    monkeypatch.setattr(parser, "_download_zip", raise_download_error)
-    monkeypatch.setattr(parser, "_download_and_extract", lambda *args, **kwargs: "parsed markdown")
+    monkeypatch.setattr(
+        "yuxi.knowledge.parser.mineru_official.process_zip_file_sync",
+        _process_zip_file,
+    )
 
     assert parser.process_file(str(file_path)) == "parsed markdown"
+    assert processed_paths == [str(zip_path)]
+    assert not zip_path.exists()
+
+
+def test_mineru_official_does_not_fallback_when_shared_zip_processing_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    file_path = tmp_path / "mineru.pdf"
+    file_path.write_bytes(b"pdf")
+    zip_path = tmp_path / "result.zip"
+    zip_path.write_bytes(b"zip")
+    parser = MinerUOfficialParser(api_key="test-key")
+
+    monkeypatch.setattr(parser, "_upload_file", lambda *args, **kwargs: "batch-id")
+    monkeypatch.setattr(
+        parser,
+        "_poll_batch_result",
+        lambda *args, **kwargs: {"state": "done", "full_zip_url": "https://example.test/result.zip"},
+    )
+    monkeypatch.setattr(parser, "_download_zip", lambda *args, **kwargs: str(zip_path))
+
+    def _raise_zip_processing_error(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("malformed result archive")
+
+    monkeypatch.setattr(
+        "yuxi.knowledge.parser.mineru_official.process_zip_file_sync",
+        _raise_zip_processing_error,
+    )
+
+    with pytest.raises(DocumentParserException, match="malformed result archive"):
+        parser.process_file(str(file_path))
+
+    assert not zip_path.exists()
 
 
 def test_rapid_ocr_health_check_does_not_load_model(monkeypatch: pytest.MonkeyPatch):
@@ -154,6 +197,27 @@ async def test_parse_document_pdf_returns_markdown_text(tmp_path: Path):
 
     assert "Parser" in markdown
     assert "content" in markdown
+
+
+@pytest.mark.asyncio
+async def test_unified_zip_parser_returns_markdown_string(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    archive = tmp_path / "parser_test.zip"
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("full.md", "# ZIP content")
+
+    async def _process_zip_file(*args, **kwargs) -> str:
+        del args, kwargs
+        return "# ZIP content"
+
+    monkeypatch.setattr(parser_unified, "_process_zip_file", _process_zip_file)
+
+    markdown = await parser_unified.parse_resolved_document(
+        str(archive),
+        params={"image_bucket": "images", "image_prefix": "kb/test"},
+    )
+
+    assert markdown == "# ZIP content"
+    assert isinstance(markdown, str)
 
 
 @pytest.mark.asyncio

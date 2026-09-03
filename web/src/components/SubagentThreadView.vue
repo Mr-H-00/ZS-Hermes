@@ -20,7 +20,11 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { agentApi } from '@/apis'
-import { processRunSseResponse } from '@/composables/useAgentRunStream'
+import {
+  dispatchRunEventChunks,
+  processRunSseResponse
+} from '@/composables/useAgentRunStream'
+import { getMessageRunId } from '@/utils/messageDebug'
 import { useAgentStreamHandler } from '@/composables/useAgentStreamHandler'
 import { useStreamSmoother } from '@/composables/useStreamSmoother'
 import ThreadMessageList from '@/components/ThreadMessageList.vue'
@@ -136,10 +140,6 @@ const loadPersistedMessages = async () => {
   const response = await agentApi.getAgentHistory(props.threadId)
   messages.value = normalizeMessages(response.history || [])
 }
-const getMessageRunId = (message) => {
-  const runId = message?.extra_metadata?.run_id || message?.run_id
-  return typeof runId === 'string' ? runId : ''
-}
 const loadThread = async () => {
   if (!props.threadId) return
   const version = ++loadVersion
@@ -201,29 +201,14 @@ const startRunStream = async (runId, afterSeq = '0-0', resetMessages = false) =>
       const isRetryableError =
         event === 'error' && (payload.retryable === true || payload.chunk?.retryable === true)
       if (isRetryableError) return
-      const chunks = Array.isArray(payload.items)
-        ? payload.items
-        : payload.chunk
-          ? [payload.chunk]
-          : []
-      chunks.forEach((chunk) => {
-        const threadId =
-          data.thread_id ||
-          payload.thread_id ||
-          chunk.thread_id ||
-          chunk.meta?.thread_id ||
-          chunk.metadata?.thread_id ||
-          props.threadId
-        if (threadId !== props.threadId) return
-        handleStreamChunk(
-          {
-            ...chunk,
-            request_id: chunk.request_id || data.request_id,
-            run_id: chunk.run_id || data.run_id || runId,
-            thread_id: threadId
-          },
-          threadId
-        )
+      dispatchRunEventChunks({
+        data,
+        runId,
+        fallbackThreadId: props.threadId,
+        onChunk: (chunk, threadId) => {
+          if (threadId !== props.threadId) return
+          handleStreamChunk(chunk, threadId)
+        }
       })
       if (event === 'end') streamActive.value = false
     })

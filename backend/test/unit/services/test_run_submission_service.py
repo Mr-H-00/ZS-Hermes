@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from yuxi.services import run_submission_service as svc
+from yuxi.services.agent_request_queue_service import IntakeResult
 from yuxi.services.input_message_service import build_chat_input_message
+from yuxi.services.workdir_service import WorkdirBinding
 
 
 class _EmptyRequestRepo:
@@ -82,6 +84,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
             calls["project_lookup"] = (project_id, uid)
             return SimpleNamespace(
                 id=project_id,
+                uid="user-1",
                 workdir_path=f"projects/{project_id}",
                 directory_mode="managed",
             )
@@ -104,7 +107,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
 
     async def fake_intake_request(**kwargs):
         calls["intake"] = kwargs
-        return SimpleNamespace(
+        return IntakeResult(
             request_id="req-1",
             status="dispatched",
             queue_policy="enqueue",
@@ -112,6 +115,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
             message_id=10,
             run_id="run-1",
             thread_id="thread-1",
+            workdir_binding=kwargs["workdir_binding"],
         )
 
     async def fake_finalize_intake(**kwargs):
@@ -127,15 +131,21 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
         calls["project"] = kwargs
         return SimpleNamespace(
             id="11111111-1111-4111-8111-111111111111",
+            uid="user-1",
             workdir_path="projects/11111111-1111-4111-8111-111111111111",
             directory_mode="managed",
         )
 
     async def fake_resolve_binding(**kwargs):
-        del kwargs
-        return (
-            "projects/11111111-1111-4111-8111-111111111111",
-            SimpleNamespace(directory_mode="managed"),
+        conversation = kwargs["conversation"]
+        calls["binding_project"] = kwargs.get("project")
+        return WorkdirBinding(
+            conversation_id=conversation.id,
+            thread_id=conversation.thread_id,
+            uid="user-1",
+            project_id=conversation.project_id,
+            workdir_path="projects/11111111-1111-4111-8111-111111111111",
+            directory_mode="managed",
         )
 
     monkeypatch.setattr(svc, "create_implicit_project", fake_create_implicit_project)
@@ -174,6 +184,7 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
         "agent_invocation_meta": {"trace_id": "trace-1"},
     }
     assert calls["project_lookup"] == ("11111111-1111-4111-8111-111111111111", "user-1")
+    assert calls["binding_project"].id == "11111111-1111-4111-8111-111111111111"
     assert calls["conversation"]["project_id"] == "11111111-1111-4111-8111-111111111111"
     assert calls["intake"]["source"] == "agent_call"
     assert calls["intake"]["channel"] == "api"
@@ -184,6 +195,9 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
         "channel": "api",
         "agent_invocation_meta": {"trace_id": "trace-1"},
     }
+    assert calls["intake"]["workdir_binding"].workdir_path == (
+        "projects/11111111-1111-4111-8111-111111111111"
+    )
     assert result == {
         "request_id": "req-1",
         "status": "dispatched",
@@ -196,9 +210,8 @@ async def test_submit_run_command_shares_conversation_intake_and_finalize(monkey
         "thread_id": "thread-1",
     }
     assert calls["finalize"]["intake"].run_id == "run-1"
-    assert calls["finalize"]["uid"] == "user-1"
-    assert calls["finalize"]["workdir_path"] == "projects/11111111-1111-4111-8111-111111111111"
-    assert calls["finalize"]["materialize_managed"] is True
+    assert calls["finalize"]["intake"].workdir_binding.uid == "user-1"
+    assert calls["finalize"]["intake"].workdir_binding.materialize_managed is True
 
 
 @pytest.mark.asyncio

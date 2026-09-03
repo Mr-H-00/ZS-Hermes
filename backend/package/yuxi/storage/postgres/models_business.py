@@ -1154,7 +1154,6 @@ class AgentRun(Base):
     )
     input_message_id = Column(Integer, nullable=True, comment="Input message ID")
     output_message_id = Column(Integer, nullable=True, comment="Output message ID")
-    last_event_id = Column(String(64), nullable=True, comment="Last Redis stream event ID")
     input_payload = Column(JSON, nullable=False, default=dict, comment="Original input payload")
     token_usage = Column(JSON_VALUE, nullable=False, default=dict, comment="Run token usage grouped by model")
     langfuse_trace_id = Column(String(64), nullable=True, comment="Langfuse trace ID")
@@ -1202,7 +1201,6 @@ class AgentRun(Base):
             "run_type": self.run_type,
             "input_message_id": self.input_message_id,
             "output_message_id": self.output_message_id,
-            "last_event_id": self.last_event_id,
             "input_payload": self.input_payload or {},
             "token_usage": self.token_usage or {},
             "langfuse_trace_id": self.langfuse_trace_id,

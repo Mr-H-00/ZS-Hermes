@@ -5,11 +5,34 @@ import {
   buildMessageDebugEntries,
   extractMessageToolNames,
   formatAuditDuration,
+  getMessageRequestId,
+  getMessageRunId,
   groupMessageDebugEntries,
   mergeMessageDebugAudits,
   mergeMessageDebugMessages,
   resolveLangfuseRunUrl
 } from '../../src/utils/messageDebug.js'
+
+test('消息身份按 metadata 优先，并显式控制 human id fallback', () => {
+  const message = {
+    id: 'human-1',
+    type: 'human',
+    request_id: 'request-direct',
+    run_id: 'run-direct',
+    extra_metadata: {
+      request_id: 'request-meta',
+      run_id: 'run-meta'
+    }
+  }
+
+  assert.equal(getMessageRequestId(message), 'request-meta')
+  assert.equal(getMessageRunId(message), 'run-meta')
+  assert.equal(getMessageRequestId({ id: 'human-2', type: 'human' }), null)
+  assert.equal(
+    getMessageRequestId({ id: 'human-2', type: 'human' }, { allowMessageIdFallback: true }),
+    'human-2'
+  )
+})
 
 test('消息调试条目保持后端数组顺序并保留独立工具消息', () => {
   const history = [
