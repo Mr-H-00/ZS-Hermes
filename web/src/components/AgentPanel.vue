@@ -223,7 +223,13 @@
         v-show="activeSectionKey === 'message-debug'"
         class="message-debug-section"
       >
-        <MessageDebugPanel :messages="messages" />
+        <MessageDebugPanel
+          :messages="messages"
+          :thread-id="threadId"
+          :active="visible && activeSectionKey === 'message-debug'"
+          :active-run-id="activeRunId"
+          :run-active="runActive"
+        />
       </div>
     </div>
 
@@ -303,6 +309,18 @@ const props = defineProps({
   threadId: {
     type: String,
     default: null
+  },
+  activeRunId: {
+    type: String,
+    default: null
+  },
+  runActive: {
+    type: Boolean,
+    default: false
+  },
+  visible: {
+    type: Boolean,
+    default: false
   },
   panelRatio: {
     type: Number,

@@ -177,6 +177,7 @@ async def test_run_observability_api_never_reads_another_runs_assistant_message(
             await db.flush()
 
             runs[0].output_message_id = exact_message.id
+            runs[0].langfuse_trace_id = "trace-run-exact"
             # 故意把 wrong Run 指向另一个 Run 的消息；即使自己有兼容候选，也不能 fallback。
             runs[1].output_message_id = exact_message.id
             runs[2].output_message_id = None
@@ -213,6 +214,7 @@ async def test_run_observability_api_never_reads_another_runs_assistant_message(
         assert exact_response.status_code == 200, exact_response.text
         assert exact_response.json()["output"] == "exact run output"
         assert exact_response.json()["final_message_id"] == exact_message_id
+        assert exact_response.json()["langfuse_trace_id"] == "trace-run-exact"
 
         assert wrong_response.status_code == 200, wrong_response.text
         assert wrong_response.json()["output"] == ""

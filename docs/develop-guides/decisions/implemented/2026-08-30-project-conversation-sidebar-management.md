@@ -28,7 +28,7 @@ Project 持久化拥有名称与生命周期，Conversation 持久化拥有线�
 - Project 与 Conversation 的软删除使用同一事务提交；Project 行锁串行化重命名、删除与显式 Project 下的 Conversation 创建。
 - 删除不会取消已经投递的 AgentRun；删除前已取得执行 Owner 的 Run 仍可能产生外部副作用和审计记录，但 deleted Conversation 不会重新出现在普通历史。
 - 线程分页只组织已经加载的 Conversation；项目视图通过既有“加载更多”继续补齐，不声称首屏包含全部历史。
-- Project 生命周期属于 business schema v3；支持的升级来源和拒绝边界由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义。
+- Project 生命周期结构由 business v3 引入，当前 schema 版本与升级边界由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义。
 
 ## 验证
 

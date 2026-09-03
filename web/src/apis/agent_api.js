@@ -73,6 +73,13 @@ export const agentApi = {
   getAgentHistory: (threadId) => apiGet(`/api/chat/thread/${threadId}/history`),
 
   /**
+   * 获取会话内持久化的 Model/Tool 生命周期审计
+   * @param {string} threadId - 会话ID
+   * @returns {Promise<{audits: Array, truncated: boolean}>}
+   */
+  getThreadMessageAudits: (threadId) => apiGet(`/api/chat/thread/${threadId}/audits`),
+
+  /**
    * 获取指定会话的 AgentState
    * @param {string} agentId - 智能体ID
    * @param {string} threadId - 会话ID

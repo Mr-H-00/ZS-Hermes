@@ -262,6 +262,7 @@ services:
     image: ${COMPOSE_PROJECT_NAME:-yuxi}-web:${YUXI_VERSION:-0.7.2}
     volumes:
       - ./web/src:/app/src
+      - ./web/test:/app/test
       - ./web/public:/app/public
       - ./web/index.html:/app/index.html
       - ./web/vite.config.js:/app/vite.config.js

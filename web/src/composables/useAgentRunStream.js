@@ -336,7 +336,9 @@ export function useAgentRunStream({
                 ...chunk,
                 request_id: chunk.request_id || data.request_id,
                 run_id: chunk.run_id || data.run_id || runId,
-                thread_id: routeThreadId
+                thread_id: routeThreadId,
+                stream_run_id: runId,
+                stream_thread_id: threadId
               },
               routeThreadId
             )
@@ -354,7 +356,9 @@ export function useAgentRunStream({
               ...payload.chunk,
               request_id: payload.chunk.request_id || data.request_id,
               run_id: payload.chunk.run_id || data.run_id || runId,
-              thread_id: routeThreadId
+              thread_id: routeThreadId,
+              stream_run_id: runId,
+              stream_thread_id: threadId
             },
             routeThreadId
           )

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Lock
+from urllib.parse import parse_qs, urlparse
 
 EXPECTED_OUTPUT = "DETERMINISTIC_AGENT_E2E_OK"
 EXPECTED_AUTHORIZATION = "Bearer ci-replay-key"
@@ -14,6 +17,12 @@ EXPECTED_PRELOADED_SKILL_MARKER = "# 图片生成技能"
 EXPECTED_PRELOADED_TOOL = "present_artifacts"
 EXPECTED_TOOL_CALL_ID = "call-preloaded-tool"
 EXPECTED_TOOL_RESULT_MARKER = "已将交付物展示给用户"
+BLOCK_BEFORE_RESPONSE_MARKER = "DETERMINISTIC_BLOCK_BEFORE_RESPONSE"
+TOOL_ERROR_MARKER = "DETERMINISTIC_TOOL_ERROR"
+LARGE_TOOL_RESULT_MARKER = "DETERMINISTIC_LARGE_TOOL_RESULT"
+LARGE_TOOL_CALL_ID = "call-large-tool-result"
+BLOCKING_REQUEST_TOKENS: set[str] = set()
+BLOCKING_REQUEST_TOKENS_LOCK = Lock()
 
 
 def _validate_request(authorization: str | None, request: dict) -> str | None:
@@ -41,10 +50,22 @@ def _validate_request(authorization: str | None, request: dict) -> str | None:
     }
     if EXPECTED_PRELOADED_TOOL not in tool_names:
         return "preloaded_tool_missing"
+    if LARGE_TOOL_RESULT_MARKER in serialized_messages and "execute" not in tool_names:
+        return "execute_tool_missing"
     tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
     if tool_messages and not any(
-        message.get("tool_call_id") == EXPECTED_TOOL_CALL_ID
-        and EXPECTED_TOOL_RESULT_MARKER in str(message.get("content", ""))
+        (
+            message.get("tool_call_id") == EXPECTED_TOOL_CALL_ID
+            and (
+                EXPECTED_TOOL_RESULT_MARKER in str(message.get("content", ""))
+                or TOOL_ERROR_MARKER in serialized_messages
+            )
+        )
+        or (
+            LARGE_TOOL_RESULT_MARKER in serialized_messages
+            and message.get("tool_call_id") == LARGE_TOOL_CALL_ID
+            and "Tool result too large" in str(message.get("content", ""))
+        )
         for message in tool_messages
     ):
         return "tool_execution_result_missing"
@@ -52,6 +73,7 @@ def _validate_request(authorization: str | None, request: dict) -> str | None:
 
 
 def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
+    serialized_messages = json.dumps(messages, ensure_ascii=False)
     common = {
         "id": "chatcmpl-yuxi-deterministic",
         "object": "chat.completion.chunk",
@@ -77,6 +99,16 @@ def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
             },
         ]
 
+    large_result = LARGE_TOOL_RESULT_MARKER in serialized_messages
+    tool_call_id = LARGE_TOOL_CALL_ID if large_result else EXPECTED_TOOL_CALL_ID
+    tool_name = "execute" if large_result else EXPECTED_PRELOADED_TOOL
+    if large_result:
+        tool_arguments = json.dumps({"command": "yes X | head -c 13000"})
+    elif TOOL_ERROR_MARKER in serialized_messages:
+        tool_arguments = "{}"
+    else:
+        tool_arguments = '{"filepaths": []}'
+
     return [
         {
             **common,
@@ -88,11 +120,11 @@ def _stream_payloads(model: str, messages: list[dict]) -> list[dict]:
                         "tool_calls": [
                             {
                                 "index": 0,
-                                "id": EXPECTED_TOOL_CALL_ID,
+                                "id": tool_call_id,
                                 "type": "function",
                                 "function": {
-                                    "name": EXPECTED_PRELOADED_TOOL,
-                                    "arguments": '{"filepaths": []}',
+                                    "name": tool_name,
+                                    "arguments": tool_arguments,
                                 },
                             }
                         ],
@@ -115,8 +147,15 @@ class ReplayHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path == "/health":
+        parsed = urlparse(self.path)
+        if parsed.path == "/health":
             self._write_json(200, {"status": "ok"})
+            return
+        if parsed.path == "/blocking-started":
+            token = (parse_qs(parsed.query).get("token") or [""])[0]
+            with BLOCKING_REQUEST_TOKENS_LOCK:
+                started = token in BLOCKING_REQUEST_TOKENS
+            self._write_json(200, {"started": started})
             return
         self._write_json(404, {"error": "not_found"})
 
@@ -137,13 +176,22 @@ class ReplayHandler(BaseHTTPRequestHandler):
             self._write_json(422, {"error": request_error})
             return
 
+        serialized_messages = json.dumps(request["messages"], ensure_ascii=False)
+        blocking_match = re.search(rf"{BLOCK_BEFORE_RESPONSE_MARKER}:([0-9a-f-]+)", serialized_messages)
         model = str(request["model"])
+        payloads = _stream_payloads(model, request["messages"])
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
-        for payload in _stream_payloads(model, request["messages"]):
+        if blocking_match:
+            self.wfile.write(f"data: {json.dumps(payloads.pop(0))}\n\n".encode())
+            self.wfile.flush()
+            with BLOCKING_REQUEST_TOKENS_LOCK:
+                BLOCKING_REQUEST_TOKENS.add(blocking_match.group(1))
+            time.sleep(60)
+        for payload in payloads:
             self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
             self.wfile.flush()
         self.wfile.write(b"data: [DONE]\n\n")

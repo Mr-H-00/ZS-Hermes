@@ -306,7 +306,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
     monkeypatch.setattr(
         svc,
         "_build_langfuse_run_context",
-        lambda **_kwargs: SimpleNamespace(callbacks=[], metadata={}, tags=[]),
+        lambda **_kwargs: SimpleNamespace(callbacks=[], metadata={}, tags=[], trace_id=None),
     )
     monkeypatch.setattr(svc, "check_and_handle_interrupts", fake_check_and_handle_interrupts)
     monkeypatch.setattr(svc, "save_messages_from_langgraph_state", fake_save_messages_from_langgraph_state)

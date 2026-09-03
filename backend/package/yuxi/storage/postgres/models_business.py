@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
@@ -32,6 +34,9 @@ JSON_VALUE = JSON().with_variant(JSONB, "postgresql")
 MAX_LOGIN_FAILED_ATTEMPTS = 5
 LOGIN_LOCK_DURATION_SECONDS = 300
 AGENT_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled", "interrupted")
+MODEL_AUDIT_MESSAGE_TYPE = "model_audit"
+TOOL_AUDIT_MESSAGE_TYPE = "tool_audit"
+AUDIT_MESSAGE_TYPES = (MODEL_AUDIT_MESSAGE_TYPE, TOOL_AUDIT_MESSAGE_TYPE)
 AGENT_RUN_SHAPE_CONSTRAINT_NAME = "ck_agent_runs_nonterminal_shape"
 AGENT_RUN_SHAPE_CONSTRAINT_SQL = """
 status IN ('completed', 'failed', 'cancelled', 'interrupted')
@@ -460,6 +465,29 @@ class Message(Base):
     """Message table - 消息表"""
 
     __tablename__ = "messages"
+    __table_args__ = (
+        CheckConstraint(
+            "execution_status IS NULL OR execution_status IN "
+            "('running', 'completed', 'failed', 'interrupted', 'abandoned')",
+            name="ck_messages_execution_status",
+        ),
+        Index(
+            "uq_messages_run_role_operation_id",
+            "run_id",
+            "role",
+            "operation_id",
+            unique=True,
+            postgresql_where=text("operation_id IS NOT NULL"),
+            sqlite_where=text("operation_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_messages_run_sequence",
+            "run_id",
+            "sequence",
+            postgresql_where=text("sequence IS NOT NULL"),
+            sqlite_where=text("sequence IS NOT NULL"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="Primary key")
     conversation_id = Column(
@@ -475,6 +503,13 @@ class Message(Base):
     run_id = Column(String(64), ForeignKey("agent_runs.id"), nullable=True, index=True, comment="Agent run ID")
     request_id = Column(String(64), nullable=True, index=True, comment="Request ID for idempotency")
     delivery_status = Column(String(32), nullable=False, default="complete", comment="Message status")
+    operation_id = Column(String(128), nullable=True, comment="同一 Run 内的 Model/Tool 稳定来源键")
+    started_at = Column(DateTime, nullable=True, comment="Yuxi 观察到操作开始的 wall-clock 时间")
+    finished_at = Column(DateTime, nullable=True, comment="Yuxi 观察到操作结束的 wall-clock 时间")
+    duration_ms = Column(BigInteger, nullable=True, comment="本进程 monotonic clock 计算的操作耗时")
+    sequence = Column(BigInteger, nullable=True, comment="LangGraph 根 StreamMux 事件顺序")
+    execution_status = Column(String(32), nullable=True, comment="Model/Tool 执行状态")
+    usage = Column(JSON_VALUE, nullable=True, comment="Provider 返回的单次可靠 usage")
 
     # Relationships
     conversation = relationship("Conversation", back_populates="messages")
@@ -495,6 +530,13 @@ class Message(Base):
             "run_id": self.run_id,
             "request_id": self.request_id,
             "status": self.delivery_status,
+            "operation_id": self.operation_id,
+            "started_at": format_utc_datetime(self.started_at),
+            "finished_at": format_utc_datetime(self.finished_at),
+            "duration_ms": self.duration_ms,
+            "sequence": self.sequence,
+            "execution_status": self.execution_status,
+            "usage": self.usage,
             "tool_calls": [tc.to_dict() for tc in self.tool_calls] if self.tool_calls else [],
         }
 
@@ -1115,6 +1157,7 @@ class AgentRun(Base):
     last_event_id = Column(String(64), nullable=True, comment="Last Redis stream event ID")
     input_payload = Column(JSON, nullable=False, default=dict, comment="Original input payload")
     token_usage = Column(JSON_VALUE, nullable=False, default=dict, comment="Run token usage grouped by model")
+    langfuse_trace_id = Column(String(64), nullable=True, comment="Langfuse trace ID")
     error_type = Column(String(64), nullable=True, comment="Error type")
     error_message = Column(Text, nullable=True, comment="Error message")
     worker_id = Column(String(128), nullable=True, comment="稳定 worker identity 与 attempt UUID 组成的 owner token")
@@ -1162,6 +1205,7 @@ class AgentRun(Base):
             "last_event_id": self.last_event_id,
             "input_payload": self.input_payload or {},
             "token_usage": self.token_usage or {},
+            "langfuse_trace_id": self.langfuse_trace_id,
             "error_type": self.error_type,
             "error_message": self.error_message,
             "manifest": self.manifest,

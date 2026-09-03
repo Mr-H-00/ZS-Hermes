@@ -781,6 +781,9 @@
         <AgentPanel
           :agent-state="currentAgentState"
           :thread-id="currentChatId"
+          :active-run-id="currentThreadState?.activeRunId || null"
+          :run-active="Boolean(currentThreadState?.activeRunId && currentThreadState?.isStreaming)"
+          :visible="isFilePanelOpen"
           :messages="currentDebugMessages"
           :panel-ratio="panelRatio"
           :preview-tabs="agentPanelPreviewTabs"
@@ -1965,11 +1968,7 @@ const getThreadOngoingMessages = (threadId) => {
 
 const onGoingConvMessages = computed(() => getThreadOngoingMessages(currentChatId.value))
 const currentDebugMessages = computed(() =>
-  mergeMessageDebugMessages(
-    currentThreadMessages.value,
-    onGoingConvMessages.value,
-    currentThreadState.value?.activeRunId || null
-  )
+  mergeMessageDebugMessages(currentThreadMessages.value, onGoingConvMessages.value)
 )
 
 // 供深层 TaskTool 读取子线程实时轨迹 / 首次运行时定位 child_thread_id

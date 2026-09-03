@@ -30,7 +30,7 @@ worker 在现有 reconciliation loop 中恢复未提交触发记录，并使用 
 
 ## 后果
 
-任务定义和 occurrence 成为 PostgreSQL 业务事实，调度复用现有 worker 健康与 AgentRun 生命周期。定时任务表属于 business schema v3，支持的升级来源由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义；功能同时增加 `croniter` 依赖。任务删除保留历史 Conversation、Message 和 AgentRun；账号删除会清理任务与调度 occurrence，但已进入普通运行链路的 Conversation、Message 和 AgentRun 仍按各自生命周期处理。
+任务定义和 occurrence 成为 PostgreSQL 业务事实，调度复用现有 worker 健康与 AgentRun 生命周期。定时任务表由 business v3 引入，当前 schema 版本与升级来源由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义；功能同时增加 `croniter` 依赖。任务删除保留历史 Conversation、Message 和 AgentRun；账号删除会清理任务与调度 occurrence，但已进入普通运行链路的 Conversation、Message 和 AgentRun 仍按各自生命周期处理。
 
 前端只保留列表、同页编辑器、频率转换和自动保存 Owner。非法草稿不会发送请求；未知创建结果使用同一 `request_id` 重放原始意图，恢复 `job_id` 后再 PATCH 后续编辑。保存与导航共用一个 drain，在全部变更收敛前不能离开。Run now 收到服务端结果后才释放请求 ID；无法无损映射的 Cron 保持为自定义表达式。
 

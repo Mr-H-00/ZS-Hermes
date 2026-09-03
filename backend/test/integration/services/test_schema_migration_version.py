@@ -119,8 +119,8 @@ async def test_schema_migration_lock_serializes_real_postgres_sessions() -> None
         await engine.dispose()
 
 
-async def test_business_v2_to_v3_converges_current_schema_idempotently() -> None:
-    """0.7.2 business v2 升级后补齐当前 Task 与定时 Agent 结构。"""
+async def test_business_v2_to_v4_converges_current_schema_idempotently() -> None:
+    """0.7.2 business v2 升级后补齐 0.7.3 的完整业务结构。"""
     schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_task_schema")
 
     try:
@@ -251,7 +251,70 @@ async def test_business_v2_to_v3_converges_current_schema_idempotently() -> None
             "ix_scheduled_agent_runs_job_created",
             "ix_scheduled_agent_runs_dispatching",
         }.issubset(scheduled_indexes)
-        assert BUSINESS_SCHEMA_VERSION == 3
+        assert BUSINESS_SCHEMA_VERSION == 4
+    finally:
+        await _drop_isolated_schema(schema, admin_engine, scoped_engine)
+
+
+async def test_business_v3_to_v4_adds_audit_columns_idempotently() -> None:
+    """v3→v4 必须先补齐 Trace 与 Message 审计列，且可安全重放。"""
+    schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_audit_schema")
+    try:
+        await manager.create_business_tables()
+        async with scoped_engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE agent_runs DROP COLUMN langfuse_trace_id"))
+            audit_columns = (
+                "operation_id",
+                "started_at",
+                "finished_at",
+                "duration_ms",
+                "sequence",
+                "execution_status",
+                "usage",
+            )
+            for column in audit_columns:
+                await connection.execute(text(f"ALTER TABLE messages DROP COLUMN {column}"))
+
+        await manager.migrate_business_schema_v3_to_v4()
+        async with scoped_engine.begin() as connection:
+            await connection.execute(text("DROP INDEX uq_messages_run_role_operation_id"))
+            await connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX uq_messages_run_operation_id "
+                    "ON messages(run_id, operation_id) WHERE operation_id IS NOT NULL"
+                )
+            )
+        await manager.migrate_business_schema_v3_to_v4()
+
+        async with scoped_engine.connect() as connection:
+            columns = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT table_name, column_name FROM information_schema.columns "
+                            "WHERE table_schema = :schema AND table_name IN ('agent_runs', 'messages')"
+                        ),
+                        {"schema": schema},
+                    )
+                ).all()
+            )
+            audit_indexes = {
+                name: definition
+                for name, definition in (
+                    await connection.execute(
+                        text(
+                            "SELECT indexname, indexdef FROM pg_indexes "
+                            "WHERE schemaname = :schema AND tablename = 'messages' "
+                            "AND indexname LIKE 'uq_messages_run%operation_id'"
+                        ),
+                        {"schema": schema},
+                    )
+                ).all()
+            }
+        assert ("agent_runs", "langfuse_trace_id") in columns
+        assert {("messages", column) for column in audit_columns} <= columns
+        assert "uq_messages_run_operation_id" not in audit_indexes
+        assert "(run_id, role, operation_id)" in audit_indexes["uq_messages_run_role_operation_id"]
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 
