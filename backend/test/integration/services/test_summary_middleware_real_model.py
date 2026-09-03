@@ -88,7 +88,7 @@ def _select_enabled_chat_model(provider: dict[str, Any]) -> dict[str, Any]:
     pytest.skip(f"{provider['provider_id']} has no enabled chat model.")
 
 
-async def test_l1_compacted_messages_call_real_chat_model(monkeypatch: pytest.MonkeyPatch):
+async def test_compacted_messages_call_real_chat_model(monkeypatch: pytest.MonkeyPatch):
     provider = _load_provider_config()
     model_config = _select_enabled_chat_model(provider)
     api_key_env = provider.get("api_key_env")
@@ -126,11 +126,10 @@ async def test_l1_compacted_messages_call_real_chat_model(monkeypatch: pytest.Mo
     middleware = YuxiSummarizationMiddleware(
         model=real_model,
         backend=backend,
-        trigger=("tokens", 500),
+        trigger=("tokens", 2000),
         keep=("messages", 2),
         token_counter=_content_char_counter,
         trim_tokens_to_summarize=None,
-        l1_l2_trigger_ratio=100.0,
     )
     middleware._history_path_prefix = VIRTUAL_PATH_CONVERSATION_HISTORY
     middleware._large_tool_results_prefix = VIRTUAL_PATH_LARGE_TOOL_RESULTS

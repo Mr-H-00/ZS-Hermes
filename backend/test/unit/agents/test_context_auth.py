@@ -98,6 +98,7 @@ def test_filter_config_by_role_keeps_admin_context_values_for_admin():
                 "summary_keep_messages": 8,
                 "summary_prompt": "custom summary",
                 "summary_tool_result_token_limit": 500,
+                "summary_l2_trigger_ratio": 0.4,
                 "max_execution_steps": 50,
                 "secret_setting": "nope",
             }
@@ -254,6 +255,7 @@ async def test_normalize_agent_context_config_expands_null_and_filters_explicit_
             "summary_keep_messages": 8,
             "summary_prompt": "custom summary",
             "summary_tool_result_token_limit": 500,
+            "summary_l2_trigger_ratio": 0.4,
             "max_execution_steps": 50,
         },
         db=object(),
@@ -271,6 +273,7 @@ async def test_normalize_agent_context_config_expands_null_and_filters_explicit_
     assert "summary_keep_messages" not in normalized
     assert "summary_prompt" not in normalized
     assert "summary_tool_result_token_limit" not in normalized
+    assert "summary_l2_trigger_ratio" not in normalized
     assert "max_execution_steps" not in normalized
 
     empty_subagents_normalized = await normalize_agent_context_config(
