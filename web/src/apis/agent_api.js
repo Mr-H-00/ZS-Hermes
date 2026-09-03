@@ -82,6 +82,12 @@ export const agentApi = {
     apiGet(`/api/chat/thread/${threadId}/state${includeMessages ? '?include_messages=true' : ''}`),
 
   /**
+   * 提交线程级主动上下文压缩
+   */
+  compressThreadContext: (threadId) =>
+    apiPost(`/api/chat/thread/${threadId}/compress`, {}),
+
+  /**
    * Submit feedback for a message
    * @param {number} messageId - Message ID
    * @param {string} rating - 'like' or 'dislike'

@@ -33,6 +33,7 @@ from yuxi.services.artifact_service import (
     save_thread_artifact_to_workspace_view,
 )
 from yuxi.services.feedback_service import get_message_feedback_view, submit_message_feedback_view
+from yuxi.services.context_compression_service import compress_thread_context as compress_context
 from yuxi.utils.logging_config import logger
 from yuxi.utils.image_processor import process_uploaded_image
 
@@ -116,6 +117,20 @@ async def get_thread_state(
     except Exception as e:
         logger.error(f"获取对话状态出错: {e}, {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"获取对话状态出错: {str(e)}")
+
+
+@chat.post("/thread/{thread_id}/compress")
+async def compress_thread_context(
+    thread_id: str,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """在线程空闲时主动压缩上下文。"""
+    return await compress_context(
+        thread_id=thread_id,
+        current_user=current_user,
+        db=db,
+    )
 
 
 # ==================== 线程管理 API ====================

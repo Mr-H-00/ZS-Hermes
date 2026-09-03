@@ -290,7 +290,7 @@
                       </button>
                       <ContextUsageRing
                         v-if="showStateEntry"
-                        :used-tokens="tokenUsageStackTotal"
+                        :used-tokens="tokenUsagePressureTotal"
                         :limit-tokens="tokenUsageStackLimit"
                         :ratio="tokenUsageContextRatio"
                         @click="toggleStatePanel"
@@ -492,6 +492,27 @@
                           <span>{{ item.label }}</span>
                           <strong>{{ item.value }}</strong>
                         </div>
+                      </div>
+
+                      <div v-if="supportsContextCompression" class="context-compression-action">
+                        <p v-if="shouldSuggestContextCompression" class="context-compression-warning">
+                          当前上下文已达到压缩阈值的
+                          {{ tokenUsageHeaderPercentLabel }}，建议先压缩再开始下一次运行。
+                        </p>
+                        <button
+                          type="button"
+                          class="context-compression-btn"
+                          :disabled="
+                            isContextCompressionPending ||
+                            isProcessing ||
+                            hasQueuedRequests ||
+                            isWaitingForUserAction
+                          "
+                          @click="handleContextCompression"
+                        >
+                          <ListCollapse :size="14" />
+                          {{ contextCompressionButtonLabel }}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -832,6 +853,10 @@ import {
   createThreadDraftSession
 } from '@/utils/thread_draft'
 import { ScrollController } from '@/utils/scrollController'
+import {
+  resolveContextPressureTokens,
+  shouldSuggestContextCompression as isContextCompressionSuggested
+} from '@/utils/contextUsage'
 import { AgentValidator } from '@/utils/agentValidator'
 import { useAgentStore } from '@/stores/agent'
 import { useChatThreadsStore } from '@/stores/chatThreads'
@@ -1398,6 +1423,11 @@ const supportsFiles = computed(() => {
   return capabilities.includes('files')
 })
 
+const supportsContextCompression = computed(() => {
+  const capabilities = currentAgent.value?.capabilities || []
+  return capabilities.includes('context_compression')
+})
+
 // AgentState 相关计算属性
 const currentAgentState = computed(() => {
   return currentChatId.value ? getThreadState(currentChatId.value)?.agentState || null : null
@@ -1533,6 +1563,14 @@ const tokenUsageStackTotal = computed(() => {
     .filter((segment) => segment.key !== 'cut')
     .reduce((sum, segment) => sum + segment.value, 0)
 })
+const tokenUsagePressureEstimate = computed(() =>
+  resolveContextPressureTokens(currentTokenUsage.value)
+)
+const tokenUsagePressureTotal = computed(() =>
+  tokenUsagePressureEstimate.value === null
+    ? tokenUsageStackTotal.value
+    : Math.max(tokenUsagePressureEstimate.value, 0)
+)
 const tokenUsageStackLimit = computed(() => {
   const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
   if (summaryTriggerTokens && summaryTriggerTokens > 0) return summaryTriggerTokens
@@ -1543,9 +1581,18 @@ const tokenUsageStackLimit = computed(() => {
   return null
 })
 const tokenUsageContextRatio = computed(() => {
-  if (tokenUsageStackLimit.value === null) return null
-  return Math.max(0, Math.min(tokenUsageStackTotal.value / tokenUsageStackLimit.value, 1))
+  if (tokenUsageStackLimit.value === null || tokenUsagePressureEstimate.value === null) return null
+  return Math.max(0, Math.min(tokenUsagePressureTotal.value / tokenUsageStackLimit.value, 1))
 })
+const shouldSuggestContextCompression = computed(
+  () => isContextCompressionSuggested(tokenUsageContextRatio.value)
+)
+const isContextCompressionPending = computed(() =>
+  Boolean(currentThreadState.value?.contextCompressing)
+)
+const contextCompressionButtonLabel = computed(() =>
+  isContextCompressionPending.value ? '正在压缩…' : '压缩上下文'
+)
 const tokenUsageHeaderPercentLabel = computed(() => {
   if (tokenUsageContextRatio.value === null) return '--'
   const percent = tokenUsageContextRatio.value * 100
@@ -1566,16 +1613,16 @@ const tokenUsageContextTone = computed(() => {
 })
 const tokenUsageContextAriaLabel = computed(() => {
   if (tokenUsageContextRatio.value === null) {
-    return `上下文上限未知，当前估算 ${formatTokenCount(tokenUsageStackTotal.value)}`
+    return `上下文上限未知，当前估算 ${formatTokenCount(tokenUsagePressureTotal.value)}`
   }
   return `上下文占用 ${tokenUsageHeaderPercentLabel.value}`
 })
 const tokenUsageStackHeadLabel = computed(() => {
   const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
   if (summaryTriggerTokens && summaryTriggerTokens > 0) {
-    return `${formatTokenCount(tokenUsageStackTotal.value)} / ${formatTokenCount(summaryTriggerTokens)}`
+    return `${formatTokenCount(tokenUsagePressureTotal.value)} / ${formatTokenCount(summaryTriggerTokens)}`
   }
-  return formatTokenCount(tokenUsageStackTotal.value)
+  return formatTokenCount(tokenUsagePressureTotal.value)
 })
 const tokenUsageThreadTotal = computed(() => {
   const total = toFiniteNumber(currentTokenUsage.value?.thread?.total?.total_tokens)
@@ -3346,6 +3393,33 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
 const handleDirectSteer = async () => {
   if (!canSubmitSteer.value) return
   await handleSendMessage({ queuePolicy: 'steer' })
+}
+
+const handleContextCompression = async () => {
+  const threadId = currentChatId.value
+  const threadState = getThreadState(threadId)
+  if (
+    !threadId ||
+    !threadState ||
+    isContextCompressionPending.value ||
+    isProcessing.value ||
+    hasQueuedRequests.value ||
+    isWaitingForUserAction.value
+  )
+    return
+
+  threadState.contextCompressing = true
+  try {
+    const response = await agentApi.compressThreadContext(threadId)
+    await fetchAgentState(currentAgentId.value, threadId)
+    if (response?.status === 'completed') message.success('上下文压缩完成')
+    else message.info('当前没有足够的历史消息可压缩')
+  } catch (error) {
+    handleChatError(error, 'compress_context')
+  } finally {
+    const latestState = getThreadState(threadId)
+    if (latestState) latestState.contextCompressing = false
+  }
 }
 
 // 发送或中断
@@ -5225,6 +5299,55 @@ watch(currentChatId, (threadId, oldThreadId) => {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.context-compression-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--gray-150);
+  border-radius: 9px;
+  background: var(--gray-0);
+}
+
+.context-compression-warning {
+  margin: 0;
+  color: var(--color-warning-700);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.context-compression-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-200);
+  border-radius: 7px;
+  background: var(--gray-0);
+  color: var(--gray-800);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--main-300);
+    color: var(--main-700);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--main-200);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

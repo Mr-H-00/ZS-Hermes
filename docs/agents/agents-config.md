@@ -40,8 +40,8 @@ metadata 可以定义展示名称、说明、控件类型、选项和角色权�
 | `mcps` | 可使用的已启用 MCP 服务器 |
 | `skills` | 可见并可激活的 Skill |
 | `preload_skills` | 从首轮请求加载完整说明和依赖的 Skill 子集 |
-| `summary_threshold`、`summary_keep_messages` | 上下文压缩阈值和保留消息数 |
-| `summary_prompt`、`summary_tool_result_token_limit`、`summary_l2_trigger_ratio` | 摘要提示词、工具结果预览上限和 L2 触发比例 |
+| `summary_threshold`、`summary_keep_messages` | 上下文压缩的唯一压力阈值和摘要后保留消息数 |
+| `summary_prompt`、`summary_tool_result_token_limit` | 摘要提示词和工具结果预览上限 |
 | `max_execution_steps`、`model_retry_times` | 单次运行步数和模型重试次数 |
 
 ## 资源选择语义
