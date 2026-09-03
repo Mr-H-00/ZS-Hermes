@@ -1067,12 +1067,6 @@ class KnowledgeBaseManager:
         kb_instance = await self.get_kb_executor(kb_id)
         return await kb_instance.get_file_download(kb_id, file_id, variant)
 
-    async def file_name_existed_in_db(self, kb_id: str | None, file_name: str | None) -> bool:
-        """检查指定数据库中是否存在同名的文件"""
-        if not kb_id or not file_name:
-            return False
-        return await self.document_file_exists(kb_id, file_name)
-
     async def get_same_name_files(self, kb_id: str, filename: str) -> list[dict]:
         """获取同一知识库中同名文件列表
         基于原始文件名直接比较
@@ -1251,24 +1245,6 @@ class KnowledgeBaseManager:
         """获取支持的知识库类型"""
         return KnowledgeBaseFactory.get_available_types()
 
-    async def get_kb_instance_info(self) -> dict[str, dict]:
-        """获取知识库实例信息"""
-        from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
-
-        counts: dict[str, int] = {}
-        for row in await KnowledgeBaseRepository().get_all():
-            kb_type = row.kb_type or "milvus"
-            counts[kb_type] = counts.get(kb_type, 0) + 1
-
-        info = {}
-        for kb_type, kb_instance in self.kb_instances.items():
-            info[kb_type] = {
-                "work_dir": kb_instance.work_dir,
-                "database_count": counts.get(kb_type, 0),
-                "file_metadata_source": "database",
-            }
-        return info
-
     async def get_statistics(self) -> dict:
         """获取统计信息"""
         from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
@@ -1355,13 +1331,3 @@ class KnowledgeBaseManager:
         logger.warning(f"总计：缺失集合 {total_missing_collections} 个，缺失文件记录 {total_missing_files} 个")
         logger.warning("建议：检查这些不一致的数据，必要时进行数据清理或元数据修复")
         logger.warning("=" * 80)
-
-    async def manual_consistency_check(self) -> dict:
-        """
-        手动触发数据一致性检测
-
-        Returns:
-            检测结果字典
-        """
-        logger.info("手动触发数据一致性检测...")
-        return await self.detect_data_inconsistencies()

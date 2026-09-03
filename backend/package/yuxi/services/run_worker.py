@@ -35,7 +35,7 @@ from yuxi.services.run_queue_service import (
     clear_cancel_signal,
     get_redis_client,
     has_cancel_signal,
-    publish_cancel_signal,
+    publish_cancel_signals,
     wait_for_cancel_signal,
 )
 from yuxi.services.task_queue_service import (
@@ -351,7 +351,7 @@ async def _finish_execution_tree_children(run: AgentRun) -> None:
         repo = AgentRunRepository(db)
         descendants = await repo.cancel_active_execution_tree_descendants(run)
         await db.commit()
-    await _publish_execution_tree_cancel_signals(descendants)
+    await publish_cancel_signals([run_id for run_id, _thread_id in descendants])
 
 
 async def _get_run(run_id: str):
@@ -393,29 +393,6 @@ async def _flush_writer_best_effort(writer: ChunkedEventWriter) -> None:
         logger.warning(f"Failed to flush non-authoritative AgentRun events: run={writer.run_id}", exc_info=True)
 
 
-async def _clear_cancel_signal_best_effort(run_id: str) -> None:
-    """取消键清理失败不能覆盖已经提交的 Run 终态。"""
-
-    try:
-        await clear_cancel_signal(run_id)
-    except Exception:
-        logger.warning(f"Failed to clear non-authoritative AgentRun cancel signal: run={run_id}", exc_info=True)
-
-
-async def _publish_execution_tree_cancel_signals(cancelled: list[tuple[str, str]]) -> None:
-    """尽力通知已由 PostgreSQL 收敛的后代 Run 停止执行。"""
-
-    if not cancelled:
-        return
-    results = await asyncio.gather(
-        *(publish_cancel_signal(run_id) for run_id, _thread_id in cancelled),
-        return_exceptions=True,
-    )
-    for (run_id, _thread_id), result in zip(cancelled, results, strict=True):
-        if isinstance(result, BaseException):
-            logger.warning("Failed to publish execution-tree cancel signal: run=%s", run_id, exc_info=result)
-
-
 async def mark_run_running(run_id: str, worker_id: str) -> bool:
     async with pg_manager.get_async_session_context() as db:
         repo = AgentRunRepository(db)
@@ -447,11 +424,7 @@ async def release_run_lease_for_retry(run_id: str, worker_id: str) -> bool:
             run = await repo.get_run(run_id)
             if run is not None:
                 cancelled_descendants = await repo.cancel_active_execution_tree_descendants(run)
-    if cancelled_descendants:
-        await asyncio.gather(
-            *(publish_cancel_signal(child_id) for child_id, _thread_id in cancelled_descendants),
-            return_exceptions=True,
-        )
+    await publish_cancel_signals([child_id for child_id, _thread_id in cancelled_descendants])
     return released
 
 
@@ -477,7 +450,7 @@ async def mark_run_terminal(
         if changed and run is not None:
             cancelled_descendants = await repo.cancel_active_execution_tree_descendants(run)
         persisted_status = run.status if run else None
-    await _publish_execution_tree_cancel_signals(cancelled_descendants)
+    await publish_cancel_signals([child_id for child_id, _thread_id in cancelled_descendants])
     return TerminalTransition(status=persisted_status, changed=changed)
 
 
@@ -485,11 +458,7 @@ async def reconcile_expired_run_leases(*, now: datetime | None = None) -> list[s
     """收敛过期 Run ownership；重复或并发执行只返回本次实际转换的 Run。"""
     async with pg_manager.get_async_session_context() as db:
         runs, cancelled_descendants = await AgentRunRepository(db).reconcile_expired_leases(now=now)
-    if cancelled_descendants:
-        await asyncio.gather(
-            *(publish_cancel_signal(child_id) for child_id, _thread_id in cancelled_descendants),
-            return_exceptions=True,
-        )
+    await publish_cancel_signals([child_id for child_id, _thread_id in cancelled_descendants])
     await reconcile_pending_runtime_cleanups()
     return [run.id for run in runs]
 
@@ -1378,7 +1347,7 @@ async def process_agent_run(ctx, run_id: str):
         if final_run and final_run.status in TERMINAL_RUN_STATUSES:
             await _finish_execution_tree_children(final_run)
         if final_run and final_run.status == "cancelled":
-            await _clear_cancel_signal_best_effort(run_id)
+            await clear_cancel_signal(run_id)
         # completed 后尝试派发线程的下一个排队请求
         if final_run and final_run.status == "completed" and not final_run.runtime_cleanup_pending:
             await dispatch_next_request(

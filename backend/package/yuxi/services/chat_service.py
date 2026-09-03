@@ -44,7 +44,7 @@ from yuxi.services.langfuse_service import (
 from yuxi.services.model_message_audit_service import ModelMessageAuditCollector
 from yuxi.services.tool_message_audit_service import ToolMessageAuditCollector
 from yuxi.services.project_service import create_implicit_project
-from yuxi.services.run_queue_service import publish_cancel_signal
+from yuxi.services.run_queue_service import publish_cancel_signals
 from yuxi.services.subagent_run_service import serialize_subagent_run_state
 from yuxi.services.workdir_service import resolve_conversation_workdir_path
 from yuxi.storage.postgres.manager import pg_manager
@@ -586,20 +586,6 @@ async def _save_tool_message(conv_repo: ConversationRepository, msg_dict: dict, 
     )
 
 
-async def _publish_execution_tree_cancel_signals(cancelled: list[tuple[str, str]]) -> None:
-    """尽力通知已由 PostgreSQL 收敛的后代 Run 停止执行。"""
-
-    if not cancelled:
-        return
-    results = await asyncio.gather(
-        *(publish_cancel_signal(run_id) for run_id, _thread_id in cancelled),
-        return_exceptions=True,
-    )
-    for (run_id, _thread_id), result in zip(cancelled, results, strict=True):
-        if isinstance(result, BaseException):
-            logger.warning("Failed to publish execution-tree cancel signal: run=%s", run_id, exc_info=result)
-
-
 async def save_partial_message(
     conv_repo: ConversationRepository,
     thread_id: str,
@@ -667,7 +653,7 @@ async def save_partial_message(
                     raise ValueError("AgentRun 部分输出已写入但 interrupted 终态未能在同一事务提交")
                 cancelled_descendants = await run_repo.cancel_active_execution_tree_descendants(terminal_run)
             await conv_repo.db.commit()
-            await _publish_execution_tree_cancel_signals(cancelled_descendants)
+            await publish_cancel_signals([run_id for run_id, _thread_id in cancelled_descendants])
         elif run_id and interrupt_run:
             raise ValueError("AgentRun 中断输出消息未能持久化")
         return message
@@ -921,7 +907,7 @@ async def save_messages_from_langgraph_state(
                     raise ValueError(f"AgentRun 输出已写入但 {terminal_status} 终态未能在同一事务提交")
                 cancelled_descendants = await run_repo.cancel_active_execution_tree_descendants(terminal_run)
             await conv_repo.db.commit()
-            await _publish_execution_tree_cancel_signals(cancelled_descendants)
+            await publish_cancel_signals([run_id for run_id, _thread_id in cancelled_descendants])
             return terminal_status is not None
         return False
     except asyncio.CancelledError:

@@ -221,7 +221,7 @@ async def test_root_terminal_atomically_cancels_live_child_and_clears_lease(
             run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory)
         )
         publish_cancel = AsyncMock()
-        monkeypatch.setattr(run_worker, "publish_cancel_signal", publish_cancel)
+        monkeypatch.setattr(run_worker, "publish_cancel_signals", publish_cancel)
 
         transition = await run_worker.mark_run_terminal(
             parent_id,
@@ -244,7 +244,7 @@ async def test_root_terminal_atomically_cancels_live_child_and_clears_lease(
         assert child.worker_id == child_owner
         assert child.lease_expires_at is not None
         assert child_message.delivery_status == "dispatched"
-        publish_cancel.assert_awaited_once_with(child_id)
+        publish_cancel.assert_awaited_once_with([child_id])
     finally:
         await _cleanup_runs(session_factory, [parent_thread_id, child_thread_id])
 
@@ -914,7 +914,7 @@ async def test_expired_root_reconciliation_cancels_live_child_before_runtime_rel
         )
         publish_cancel = AsyncMock()
         release_runtime = AsyncMock(return_value=False)
-        monkeypatch.setattr(run_worker, "publish_cancel_signal", publish_cancel)
+        monkeypatch.setattr(run_worker, "publish_cancel_signals", publish_cancel)
         monkeypatch.setattr(run_worker, "_release_runtime_if_idle", release_runtime)
 
         reconciled_ids = await run_worker.reconcile_expired_run_leases(now=now + timedelta(seconds=11))
@@ -930,7 +930,7 @@ async def test_expired_root_reconciliation_cancels_live_child_before_runtime_rel
         assert child.worker_id == "worker-live-tree-child"
         assert child.lease_expires_at is not None
         assert child_message.delivery_status == "dispatched"
-        publish_cancel.assert_awaited_once_with(child_id)
+        publish_cancel.assert_awaited_once_with([child_id])
         release_runtime.assert_awaited_once()
         assert release_runtime.await_args.args[0].id == parent_id
     finally:

@@ -34,6 +34,7 @@ import { computed, inject } from 'vue'
 import BaseToolCall from '../BaseToolCall.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import { MessageProcessor } from '@/utils/messageProcessor'
+import { parseToolCallArgs } from '../toolRegistry'
 
 const props = defineProps({
   toolCall: {
@@ -46,16 +47,7 @@ const getThreadOngoingMessages = inject('getThreadOngoingMessages', null)
 const getSubagentThreadIdByToolCall = inject('getSubagentThreadIdByToolCall', null)
 const activeSubagentToolCallIds = inject('activeSubagentToolCallIds', null)
 
-const parsedArgs = computed(() => {
-  const args = props.toolCall.args || props.toolCall.function?.arguments
-  if (!args) return {}
-  if (typeof args === 'object') return args
-  try {
-    return JSON.parse(args)
-  } catch {
-    return {}
-  }
-})
+const parsedArgs = computed(() => parseToolCallArgs(props.toolCall))
 
 const subagentRun = computed(() => props.toolCall.subagent_run || null)
 const subagentDisplayName = computed(

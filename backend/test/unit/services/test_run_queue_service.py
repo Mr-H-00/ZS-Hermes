@@ -126,9 +126,22 @@ async def test_cancel_live_signal_client_failure_is_best_effort(monkeypatch: pyt
 
     monkeypatch.setattr(run_queue_service, "get_redis_client", unavailable_client)
 
-    await run_queue_service.publish_cancel_signal("run-1")
+    await run_queue_service.publish_cancel_signals(["run-1", "run-2"])
     assert await run_queue_service.has_cancel_signal("run-1") is False
     await run_queue_service.clear_cancel_signal("run-1")
+
+
+@pytest.mark.asyncio
+async def test_cancel_signal_batch_propagates_caller_cancellation(monkeypatch: pytest.MonkeyPatch):
+    """调用方取消必须终止批量发布，不能被 best-effort 策略吞掉。"""
+
+    async def cancelled_publish(_run_id: str):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(run_queue_service, "publish_cancel_signal", cancelled_publish)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_queue_service.publish_cancel_signals(["run-1"])
 
 
 @pytest.mark.asyncio

@@ -122,6 +122,11 @@ async def publish_cancel_signal(run_id: str) -> None:
         logger.warning(f"Failed to publish cancel signal for run {run_id}: {e}")
 
 
+async def publish_cancel_signals(run_ids: list[str]) -> None:
+    """并发发布一组 best-effort Run 取消信号。"""
+    await asyncio.gather(*(publish_cancel_signal(run_id) for run_id in run_ids))
+
+
 async def _read_cancel_signal(run_id: str) -> bool:
     redis = await get_redis_client()
     return bool(await redis.get(_cancel_key(run_id)))

@@ -1528,7 +1528,7 @@ async def test_cancel_agent_run_view_cascades_children(monkeypatch: pytest.Monke
     parent_run = SimpleNamespace(id="parent-run", uid="user-1", to_dict=lambda: {"id": "parent-run"})
     child_runs = [SimpleNamespace(id="child-1"), SimpleNamespace(id="child-2")]
     requested: list[str] = []
-    signals: list[tuple[str, bool]] = []
+    signals: list[tuple[list[str], bool]] = []
 
     class Db:
         committed = False
@@ -1547,11 +1547,11 @@ async def test_cancel_agent_run_view_cascades_children(monkeypatch: pytest.Monke
             requested.extend(["parent-run", *(child.id for child in child_runs)])
             return parent_run, list(requested)
 
-    async def fake_publish_cancel_signal(run_id: str):
-        signals.append((run_id, db.committed))
+    async def fake_publish_cancel_signals(run_ids: list[str]):
+        signals.append((run_ids, db.committed))
 
     monkeypatch.setattr(agent_run_service, "AgentRunRepository", RunRepo)
-    monkeypatch.setattr(agent_run_service, "publish_cancel_signal", fake_publish_cancel_signal)
+    monkeypatch.setattr(agent_run_service, "publish_cancel_signals", fake_publish_cancel_signals)
     db = Db()
 
     result = await agent_run_service.cancel_agent_run_view(
@@ -1562,7 +1562,7 @@ async def test_cancel_agent_run_view_cascades_children(monkeypatch: pytest.Monke
 
     assert result["run"]["id"] == "parent-run"
     assert requested == ["parent-run", "child-1", "child-2"]
-    assert signals == [("parent-run", True), ("child-1", True), ("child-2", True)]
+    assert signals == [(["parent-run", "child-1", "child-2"], True)]
 
 
 @pytest.mark.asyncio

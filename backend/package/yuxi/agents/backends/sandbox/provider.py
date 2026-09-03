@@ -160,56 +160,6 @@ class ProvisionerSandboxProvider:
         connection.generation = record.generation
         return True
 
-    def acquire(
-        self,
-        thread_id: str,
-        *,
-        uid: str,
-        inherit_env: bool = True,
-        workdir_path: str | None = None,
-    ) -> str:
-        normalized_workdir_path = normalize_workdir_path(workdir_path) if workdir_path else None
-        cache_key = _sandbox_key(uid, thread_id)
-        lock = self._thread_lock(cache_key)
-        with lock:
-            current = self._connections.get(cache_key)
-            if current:
-                if current.uid != uid:
-                    raise RuntimeError(f"sandbox scope {cache_key} belongs to uid {current.uid}, not {uid}")
-                if current.workdir_path != normalized_workdir_path:
-                    raise SandboxIdentityMismatchError("sandbox Workdir does not match the existing runtime scope")
-                try:
-                    if self._touch_if_needed(current):
-                        return current.sandbox_id
-                    self._connections.pop(cache_key, None)
-                    self._last_touch_at.pop(cache_key, None)
-                except SandboxIdentityMismatchError:
-                    raise
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"Failed to touch sandbox {current.sandbox_id} for {cache_key}: {exc}")
-                    return current.sandbox_id
-
-            sandbox_id = sandbox_id_for_thread(thread_id, uid=uid)
-            logger.info(f"Ensuring sandbox {sandbox_id} for runtime thread {thread_id}")
-            record = self._client.create(
-                sandbox_id,
-                thread_id,
-                workspace_uid_dirname(uid),
-                load_user_agent_env(uid) if inherit_env else {},
-                workdir_path=normalized_workdir_path,
-                inherit_env=inherit_env,
-            )
-            if record.workdir_path != normalized_workdir_path:
-                raise RuntimeError("created sandbox Workdir does not match requested scope")
-
-            connection = self._record_to_connection(
-                cache_key=cache_key,
-                thread_id=thread_id,
-                uid=uid,
-                record=record,
-            )
-            return connection.sandbox_id
-
     def get(
         self,
         thread_id: str,

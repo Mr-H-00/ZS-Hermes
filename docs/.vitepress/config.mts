@@ -8,6 +8,7 @@ export default defineConfig({
   title: "Yuxi",
   description: "Yuxi 是一个可私有部署的多租户知识智能体平台，统一 RAG、知识图谱、LangGraph 多智能体、MCP/Skills、沙盒与权限管理。",
   base: '/Yuxi/',
+  srcExclude: ['vibe/**'],
   sitemap: {
     hostname: 'https://xerrors.github.io/Yuxi/'
   },

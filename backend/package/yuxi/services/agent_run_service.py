@@ -45,7 +45,7 @@ from yuxi.services.run_queue_service import (
     list_recent_run_stream_events,
     list_run_stream_events,
     normalize_after_seq,
-    publish_cancel_signal,
+    publish_cancel_signals,
 )
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import Message, User
@@ -912,7 +912,7 @@ async def request_cancel_agent_run(
     if run is None:
         raise HTTPException(status_code=404, detail="运行任务不存在")
     await db.commit()
-    await asyncio.gather(*(publish_cancel_signal(cid) for cid in cancelled_ids))
+    await publish_cancel_signals(cancelled_ids)
     return run
 
 
