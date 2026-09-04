@@ -247,6 +247,7 @@ def _patch_common(monkeypatch: pytest.MonkeyPatch, run_obj: SimpleNamespace):
     monkeypatch.setattr(run_worker, "mark_run_running", fake_mark_run_running)
     monkeypatch.setattr(run_worker, "release_run_lease_for_retry", fake_mark_run_running)
     monkeypatch.setattr(run_worker, "persist_run_manifest", fake_noop)
+    monkeypatch.setattr(run_worker, "_record_run_timing_best_effort", fake_noop)
     monkeypatch.setattr(
         run_worker,
         "_validate_run_workdir_binding",
@@ -866,6 +867,21 @@ async def test_release_failure_does_not_mask_infrastructure_cancel(monkeypatch: 
 
 
 @pytest.mark.asyncio
+async def test_run_context_stream_checks_only_local_cancel_event(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """模型事件循环不得把取消检查放大为逐事件 PostgreSQL 查询。"""
+    run_context = run_worker.RunContext(run_id="run-1", worker_id="worker-1:attempt-1")
+    durable_read = AsyncMock(side_effect=AssertionError("stream check must not query PostgreSQL"))
+    monkeypatch.setattr(run_worker, "_is_cancel_requested", durable_read)
+
+    assert await run_context.is_cancelled() is False
+    run_context.cancel_event.set()
+    assert await run_context.is_cancelled() is True
+    durable_read.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_durable_cancel_watcher_stops_execution_when_postgres_fact_is_unreadable(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1163,6 +1179,34 @@ async def test_chunked_event_writer_flushes_semantic_tool_call_immediately(monke
     ]
 
 
+def test_model_output_detection_accepts_text_reasoning_and_tool_calls_only():
+    assert run_worker._contains_model_output({"stream_event": {"type": "message_delta", "content": "你"}})
+    assert run_worker._contains_model_output({"stream_event": {"type": "message_delta", "reasoning_content": "思考"}})
+    assert run_worker._contains_model_output({"stream_event": {"type": "tool_call_delta", "args_delta": "{"}})
+    assert not run_worker._contains_model_output({"status": "metadata", "run_id": "run-1"})
+    assert not run_worker._contains_model_output({"stream_event": {"type": "message_delta", "content": ""}})
+    assert not run_worker._contains_model_output({"stream_event": {"type": "tool_call_delta", "args_delta": ""}})
+
+
+@pytest.mark.asyncio
+async def test_timing_persistence_failure_does_not_fail_agent_execution(monkeypatch: pytest.MonkeyPatch):
+    class FailingRepository:
+        def __init__(self, _db):
+            pass
+
+        async def record_prepared(self, *_args, **_kwargs):
+            raise RuntimeError("timing storage unavailable")
+
+    @asynccontextmanager
+    async def fake_session():
+        yield object()
+
+    monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", fake_session)
+    monkeypatch.setattr(run_worker, "AgentRunRepository", FailingRepository)
+
+    await run_worker._record_run_timing_best_effort("run-1", "worker-1:token", "prepared")
+
+
 def test_run_owner_token_has_stable_worker_prefix_and_unique_attempt_suffix():
     ctx = {"worker_id": "worker-stable"}
 
@@ -1275,8 +1319,16 @@ async def test_worker_startup_ensures_builtin_mcp_servers(monkeypatch: pytest.Mo
 
 
 def test_worker_settings_publish_short_ttl_versioned_health_contract():
+    assert run_worker.WorkerSettings.max_jobs == run_worker.worker_max_jobs()
     assert run_worker.WorkerSettings.health_check_key == "yuxi:worker:health:agent-run-v1"
     assert 0 < run_worker.WorkerSettings.health_check_interval <= 10
+
+
+def test_worker_settings_max_jobs_uses_environment():
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv("ARQ_MAX_JOBS", "50")
+
+        assert run_worker.worker_max_jobs() == 50
 
 
 def test_worker_settings_reject_invalid_redis_dsn_instead_of_using_arq_default():

@@ -912,6 +912,81 @@ async def test_record_run_manifest_is_write_once_and_requires_live_owner(session
         )
 
 
+async def test_run_timing_is_write_once_and_requires_live_owner(session):
+    repository = AgentRunRepository(session)
+    run = await _seed_running_run(session, run_id="timing-run", request_id="timing-request")
+    now = utc_now_naive()
+    owner = "worker-a:token-1"
+
+    await repository.mark_running(run.id, worker_id=owner, lease_seconds=60, now=now)
+
+    with pytest.raises(ValueError, match="lease owner"):
+        await repository.record_prepared(
+            run.id,
+            worker_id="worker-stale:token-2",
+            observed_at=now + timedelta(seconds=1),
+            checked_at=now + timedelta(seconds=1),
+        )
+
+    with pytest.raises(ValueError, match="lease owner"):
+        await repository.record_prepared(
+            run.id,
+            worker_id=owner,
+            observed_at=now + timedelta(seconds=1),
+            checked_at=now + timedelta(seconds=61),
+        )
+
+    _, prepared = await repository.record_prepared(
+        run.id,
+        worker_id=owner,
+        observed_at=now + timedelta(seconds=2),
+        checked_at=now + timedelta(seconds=2),
+    )
+    _, prepared_again = await repository.record_prepared(
+        run.id,
+        worker_id=owner,
+        observed_at=now + timedelta(seconds=3),
+        checked_at=now + timedelta(seconds=3),
+    )
+    _, first_output = await repository.record_first_output(
+        run.id,
+        worker_id=owner,
+        observed_at=now + timedelta(seconds=7),
+        checked_at=now + timedelta(seconds=7),
+    )
+    _, first_output_again = await repository.record_first_output(
+        run.id,
+        worker_id=owner,
+        observed_at=now + timedelta(seconds=8),
+        checked_at=now + timedelta(seconds=8),
+    )
+
+    assert prepared is True
+    assert prepared_again is False
+    assert first_output is True
+    assert first_output_again is False
+    assert run.prepared_at == now + timedelta(seconds=2)
+    assert run.first_output_at == now + timedelta(seconds=7)
+
+
+async def test_run_first_output_requires_prepared_timestamp(session):
+    repository = AgentRunRepository(session)
+    run = await _seed_running_run(session, run_id="unprepared-run", request_id="unprepared-request")
+    now = utc_now_naive()
+    owner = "worker-a:token-1"
+    await repository.mark_running(run.id, worker_id=owner, lease_seconds=60, now=now)
+
+    with pytest.raises(ValueError, match="不能早于准备完成时间"):
+        await repository.record_first_output(
+            run.id,
+            worker_id=owner,
+            observed_at=now + timedelta(seconds=1),
+            checked_at=now + timedelta(seconds=1),
+        )
+
+    assert run.first_output_at is None
+
+
 async def test_lock_memory_write_requires_current_top_level_lease_owner(session):
     repository = AgentRunRepository(session)
     run = await _seed_running_run(session, run_id="memory-run", request_id="memory-request")

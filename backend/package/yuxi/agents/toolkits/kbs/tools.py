@@ -373,7 +373,7 @@ async def download_kb_file(
         thread_id=runtime_thread_id,
         uid=uid,
         workdir_path=workdir_relative_path,
-        create_if_missing=False,
+        create_if_missing=True,
     )
 
     output_path = _resolve_download_output_path(backend, workdir_path, data, normalized_file_id, save_as)

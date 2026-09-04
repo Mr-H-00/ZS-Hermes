@@ -243,6 +243,7 @@ async def test_stream_agent_resume_init_does_not_render_resume_input():
 @pytest.mark.asyncio
 async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chunks(monkeypatch):
     db = _FakeSession()
+    lifecycle: list[str] = []
 
     class FakeContext:
         def __init__(self):
@@ -260,7 +261,10 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
         context_schema = FakeContext
 
         async def stream_resume_with_state(self, resume_command, input_context=None, **kwargs):
+            await kwargs.pop("on_prepared")()
             assert db.commit_count == 1
+            assert lifecycle[-1] == "prepared"
+            lifecycle.append("streaming")
             yield (
                 "messages",
                 (
@@ -329,15 +333,25 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
 
     monkeypatch.setattr(svc, "ConversationRepository", FakeConversationRepository)
 
-    class FakeSandboxBackend:
+    class UnexpectedSandboxBackend:
         def __init__(self, **_kwargs):
-            pass
+            raise AssertionError("Resume 流不应在执行前构造 Sandbox Backend")
 
         def ensure_available(self):
-            return "sandbox-1"
+            raise AssertionError("Resume 流不应预创建 Sandbox")
 
-    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", FakeSandboxBackend)
+    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", UnexpectedSandboxBackend, raising=False)
+    monkeypatch.setattr(
+        svc,
+        "get_user_skills_root_dir",
+        lambda _uid: (_ for _ in ()).throw(AssertionError("Resume 流不应物化 Skill 投影根")),
+        raising=False,
+    )
     monkeypatch.setattr(svc, "flush_langfuse", lambda: None)
+
+    async def on_prepared() -> None:
+        assert db.commit_count == 1
+        lifecycle.append("prepared")
 
     stream = stream_agent_resume(
         thread_id="parent-thread",
@@ -345,6 +359,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
         meta={"request_id": "req-1"},
         current_user=SimpleNamespace(uid="user-1"),
         db=db,
+        on_prepared=on_prepared,
     )
 
     chunks = []
@@ -366,6 +381,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
     assert finished["status"] == "finished"
     assert finished["meta"]["agent_slug"] == "main-agent"
     assert "agent_id" not in finished["meta"]
+    assert lifecycle == ["prepared", "streaming"]
 
     async def fail_output_persistence(**_kwargs):
         raise ValueError("output binding rejected")
@@ -383,6 +399,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
         },
         current_user=SimpleNamespace(uid="user-1"),
         db=db,
+        on_prepared=on_prepared,
     ):
         failing_chunks.append(json.loads(raw.decode("utf-8")))
 

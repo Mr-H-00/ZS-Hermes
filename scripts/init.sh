@@ -321,7 +321,7 @@ for image in "${images[@]}"; do
     fi
 done
 
-sandbox_image="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
+sandbox_image="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:1.11.0"
 if ! skip_existing_image "$sandbox_image"; then
     echo "🔄 Pulling ${sandbox_image}..."
     docker pull "$sandbox_image"

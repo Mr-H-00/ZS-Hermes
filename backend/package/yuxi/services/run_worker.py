@@ -17,6 +17,7 @@ from yuxi.agents.backends.paths import runtime_workdir_path
 from yuxi.agents.backends.sandbox.provider import get_sandbox_provider
 from yuxi.agents.mcp.service import ensure_builtin_mcp_servers_in_db
 from yuxi.agents.skills.service import init_builtin_skills
+from yuxi.config import get_int_env
 from yuxi.config.runtime import lite_mode_enabled
 from yuxi.repositories.agent_run_repository import TERMINAL_RUN_STATUSES, AgentRunRepository
 from yuxi.services.agent_request_queue_service import (
@@ -35,7 +36,6 @@ from yuxi.services.run_queue_service import (
     append_run_stream_event,
     clear_cancel_signal,
     get_redis_client,
-    has_cancel_signal,
     publish_cancel_signal,
     wait_for_cancel_signal,
 )
@@ -48,6 +48,7 @@ from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import AgentRun, Conversation, Message, User
 from yuxi.storage.redis import get_arq_redis_settings
 from yuxi.utils.auth_utils import AuthUtils
+from yuxi.utils.datetime_utils import utc_now_naive
 from yuxi.utils.logging_config import logger
 from yuxi.utils.thread_utils import extract_thread_id
 
@@ -60,6 +61,11 @@ RUN_HEARTBEAT_SECONDS = 30
 SUPPORTED_RUN_TYPES = {"chat", "resume", "subagent"}
 WORKER_ID = f"worker-{uuid.uuid4().hex}"
 _RECONCILIATION_TASK_KEY = "agent_run_reconciliation_task"
+
+
+def worker_max_jobs() -> int:
+    """读取单个 ARQ worker 的并发任务上限。"""
+    return get_int_env("ARQ_MAX_JOBS", 10)
 
 
 class RetryableRunError(RetryJob):
@@ -160,25 +166,14 @@ class RunContext:
         await self.cancel_event.wait()
 
     async def is_cancelled(self) -> bool:
-        if self.cancel_event.is_set():
-            return True
-        if await _is_cancel_requested(self.run_id):
-            self.cancel_event.set()
-            return True
-        if await has_cancel_signal(self.run_id):
-            self.cancel_event.set()
-            return True
-        return False
+        return self.cancel_event.is_set()
 
     async def _watch_cancel_signal(self) -> None:
-        while not self.cancel_event.is_set():
-            cancelled = await wait_for_cancel_signal(
-                self.run_id,
-                poll_timeout_seconds=RUN_CANCEL_POLL_SECONDS,
-            )
-            if cancelled:
-                self.cancel_event.set()
-                return
+        await wait_for_cancel_signal(
+            self.run_id,
+            poll_interval_seconds=RUN_CANCEL_POLL_SECONDS,
+        )
+        self.cancel_event.set()
 
     async def _watch_durable_cancel(self) -> None:
         """低频轮询 PostgreSQL，确保 Redis 丢信号时取消仍然 fail-closed。"""
@@ -533,6 +528,27 @@ async def persist_run_manifest(*, run: AgentRun, user, worker_id: str) -> dict:
         }
 
 
+async def _record_run_timing_best_effort(
+    run_id: str,
+    worker_id: str,
+    phase: str,
+    *,
+    observed_at: datetime | None = None,
+) -> None:
+    """记录单次 Run 阶段时间；观测失败不覆盖业务执行结果。"""
+    try:
+        async with pg_manager.get_async_session_context() as db:
+            repository = AgentRunRepository(db)
+            if phase == "prepared":
+                await repository.record_prepared(run_id, worker_id=worker_id, observed_at=observed_at)
+            elif phase == "first_output":
+                await repository.record_first_output(run_id, worker_id=worker_id, observed_at=observed_at)
+            else:
+                raise ValueError(f"不支持的 AgentRun timing phase: {phase}")
+    except Exception:
+        logger.warning("Failed to persist AgentRun timing: run=%s, phase=%s", run_id, phase, exc_info=True)
+
+
 async def _load_user(uid: str):
     async with pg_manager.get_async_session_context() as db:
         result = await db.execute(select(User).where(User.uid == uid, User.is_deleted == 0))
@@ -635,6 +651,26 @@ def _loading_chunk_size(chunk: dict) -> int:
         if isinstance(value, str):
             total += len(value)
     return total
+
+
+def _contains_model_output(chunk: dict) -> bool:
+    """识别非空模型文本、推理文本或工具调用数据。"""
+    stream_event = chunk.get("stream_event")
+    if not isinstance(stream_event, dict):
+        return False
+
+    event_type = stream_event.get("type")
+    if event_type == "message_delta":
+        return any(
+            isinstance(stream_event.get(key), str) and bool(stream_event[key])
+            for key in ("content", "reasoning_content", "additional_reasoning_content")
+        )
+    if event_type in {"tool_call", "tool_call_delta"}:
+        return any(
+            stream_event.get(key) is not None and stream_event.get(key) != "" and stream_event.get(key) != {}
+            for key in ("name", "args", "args_delta")
+        )
+    return False
 
 
 def _flush_loading_chunk_immediately(chunk: dict) -> bool:
@@ -989,7 +1025,17 @@ async def process_agent_run(ctx, run_id: str):
             metadata_event,
             thread_id=thread_id,
         )
+
+        async def record_prepared() -> None:
+            await _record_run_timing_best_effort(
+                run_id,
+                worker_id,
+                "prepared",
+                observed_at=utc_now_naive(),
+            )
+
         terminal_set = False
+        first_output_observed = bool(getattr(run, "first_output_at", None))
         pending_interrupt: tuple[dict, str | None] | None = None
         async with pg_manager.get_async_session_context() as db:
             if run_type == "resume":
@@ -1000,6 +1046,7 @@ async def process_agent_run(ctx, run_id: str):
                     current_user=user,
                     db=db,
                     execution_snapshot=execution_snapshot,
+                    on_prepared=record_prepared,
                 )
             elif run_type in {"chat", "subagent"}:
                 stream = stream_agent_chat(
@@ -1011,6 +1058,7 @@ async def process_agent_run(ctx, run_id: str):
                     db=db,
                     save_user_message=False,
                     execution_snapshot=execution_snapshot,
+                    on_prepared=record_prepared,
                 )
             else:
                 raise RuntimeError(f"unsupported run_type after validation: {run_type}")
@@ -1019,6 +1067,22 @@ async def process_agent_run(ctx, run_id: str):
                 for chunk in _iter_json_chunks(chunk_bytes):
                     target_thread_id = _chunk_thread_id(chunk, thread_id)
                     if chunk.get("status") == "loading":
+                        if (
+                            not first_output_observed
+                            and target_thread_id == thread_id
+                            and _contains_model_output(chunk)
+                        ):
+                            first_output_observed = True
+                            first_output_at = utc_now_naive()
+                            await writer.append(chunk, thread_id=target_thread_id)
+                            await writer.flush(target_thread_id)
+                            await _record_run_timing_best_effort(
+                                run_id,
+                                worker_id,
+                                "first_output",
+                                observed_at=first_output_at,
+                            )
+                            continue
                         await writer.append(chunk, thread_id=target_thread_id)
                         continue
 
@@ -1470,6 +1534,7 @@ async def _worker_shutdown(ctx):
 
 class WorkerSettings:
     functions = [process_agent_run]
+    max_jobs = worker_max_jobs()
     max_tries = 2
     retry_jobs = True
     # 单任务最长执行时间（秒），可配置：超长图谱构建/深度检索场景需调大，

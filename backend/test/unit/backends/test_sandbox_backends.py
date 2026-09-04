@@ -101,6 +101,7 @@ def test_create_agent_composite_backend_uses_sandbox_filesystem(monkeypatch):
     backend = create_agent_composite_backend(_runtime().context)
 
     assert isinstance(backend.default, ProvisionerSandboxBackend)
+    assert backend.default._create_if_missing is True
     assert backend.routes == {}
     assert backend.artifacts_root == f"{WORKDIR_PATH}/outputs"
 

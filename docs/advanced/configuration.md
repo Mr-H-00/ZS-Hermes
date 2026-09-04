@@ -38,6 +38,12 @@ docker compose up -d --force-recreate api worker
 - OCR 引擎和各服务凭证的配置见[文档处理与 OCR](./document-processing.md)。
 - 沙盒应用层与 provisioner 的配置见[沙盒配置与运维](../agents/sandbox-architecture.md)。
 
+## Agent 并发容量
+
+Compose 默认按单 worker、100 个同时运行的 AgentRun 配置。执行槽、API/worker Redis 和 PostgreSQL 池、LangGraph checkpoint 池、PostgreSQL 服务端上限、Sandbox 地址池与清理并发必须联动核算，不能只扩大其中一个值。
+
+推荐值、1/10/20/50/100 并发的延迟和资源实测、取消 key 轮询的负载模型及完整验证命令见 [Agent 并发容量](./agent-concurrency-capacity.md)。所有可覆盖变量仍集中列在仓库根 `.env.template`，不另外维护重复配置清单。
+
 ## 修改后的确认方式
 
 修改系统配置后，重新打开配置页面确认保存值，并用一次真实请求确认行为。只看到 HTTP 200 或提示“保存成功”不能证明模型、OCR 或检索链路已经可用。

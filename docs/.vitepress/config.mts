@@ -87,6 +87,7 @@ export default defineConfig({
         text: '高级配置',
         items: [
           { text: '配置系统详解', link: '/advanced/configuration' },
+          { text: 'Agent 并发容量', link: '/advanced/agent-concurrency-capacity' },
           { text: 'Langfuse 集成', link: '/advanced/langfuse-integration' },
           { text: '文档解析', link: '/advanced/document-processing' },
           { text: '知识库管理与 API', link: '/advanced/knowledge-base-operations' },

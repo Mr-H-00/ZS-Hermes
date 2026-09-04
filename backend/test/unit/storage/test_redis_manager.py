@@ -37,6 +37,23 @@ class _FakeAsyncRedis:
         self.closed = True
 
 
+def test_redis_config_reads_connection_capacity(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("REDIS_MAX_CONNECTIONS", "128")
+
+    assert RedisConfig.from_env().max_connections == 128
+
+
+@pytest.mark.parametrize("value", ["", "invalid", "0", "-1"])
+def test_redis_config_rejects_invalid_connection_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+):
+    monkeypatch.setenv("REDIS_MAX_CONNECTIONS", value)
+
+    with pytest.raises(RuntimeError, match="REDIS_MAX_CONNECTIONS"):
+        RedisConfig.from_env()
+
+
 def test_create_sync_redis_client_uses_config_and_pings(monkeypatch: pytest.MonkeyPatch):
     redis = pytest.importorskip("redis")
     fake_client = _FakeSyncRedis()

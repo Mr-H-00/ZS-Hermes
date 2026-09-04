@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
+from yuxi.config import get_int_env
+
 DEFAULT_REDIS_URL = "redis://redis:6379/0"
 DEFAULT_REDIS_MAX_CONNECTIONS = 32
 
@@ -55,7 +57,10 @@ class RedisConfig:
     ) -> RedisConfig:
         return cls(
             url=os.environ.get("REDIS_URL", DEFAULT_REDIS_URL),
-            max_connections=int(os.environ.get("REDIS_MAX_CONNECTIONS", str(DEFAULT_REDIS_MAX_CONNECTIONS))),
+            max_connections=get_int_env(
+                "REDIS_MAX_CONNECTIONS",
+                DEFAULT_REDIS_MAX_CONNECTIONS,
+            ),
             decode_responses=True if decode_responses is None else decode_responses,
             socket_timeout=socket_timeout
             if socket_timeout is not None
