@@ -253,7 +253,12 @@ jobs:
         self.assertTrue(any("类型必须是" in error for error in self._errors()))
 
     def test_decision_owner_symlink_cannot_escape_repository(self) -> None:
-        (self.root / "outside-owner").symlink_to("/etc/hosts")
+        try:
+            (self.root / "outside-owner").symlink_to("/etc/hosts")
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows 当前权限不允许创建符号链接")
+            raise
         path = (
             self.root
             / "docs/develop-guides/decisions/implemented/2026-08-15-valid-decision.md"

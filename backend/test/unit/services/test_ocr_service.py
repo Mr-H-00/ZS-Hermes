@@ -35,6 +35,24 @@ async def test_task_resolution_uses_database_option(db_session):
 
 
 @pytest.mark.asyncio
+async def test_task_resolution_adds_official_key_for_legacy_mineru_url(db_session):
+    await update_option_value(
+        db_session,
+        "mineru_ocr_host_opts",
+        {"server_url": "https://mineru.net/api/v4/extract/task"},
+        "tester",
+    )
+    await update_option_value(db_session, "mineru_official_api_opts", {"api_key": "test-key"}, "tester")
+
+    resolved = await ocr_service.resolve_ocr_task_params({"ocr_engine": "mineru_ocr"}, db_session)
+
+    assert resolved["_ocr_processor_kwargs"] == {
+        "server_url": "https://mineru.net/api/v4/extract/task",
+        "api_key": "test-key",
+    }
+
+
+@pytest.mark.asyncio
 async def test_ocr_options_use_parser_metadata(db_session, monkeypatch):
     async def get_options(option, _db=None):
         assert option is ocr_service.system_options

@@ -15,6 +15,7 @@ from yuxi.config.options import (
     system_options,
 )
 from yuxi.knowledge.parser.factory import DocumentProcessorFactory
+from yuxi.knowledge.parser.mineru import is_mineru_official_url
 from yuxi.knowledge.parser.registry import PROCESSOR_TYPES, get_parser_metadata
 from yuxi.models.providers.service import get_model_provider_by_id, resolve_api_key
 
@@ -135,7 +136,12 @@ async def check_all_ocr_health(db: AsyncSession) -> dict[str, Any]:
 async def _build_processor_kwargs(db: AsyncSession, engine_id: str) -> dict[str, Any]:
     if engine_id == "mineru_ocr":
         opts = await mineru_ocr_host_opts.get(db)
-        return {"server_url": opts["server_url"]} if opts["server_url"] else {}
+        kwargs = {"server_url": opts["server_url"]} if opts["server_url"] else {}
+        if opts["server_url"] and is_mineru_official_url(opts["server_url"]):
+            official_opts = await mineru_official_api_opts.get(db)
+            if official_opts["api_key"]:
+                kwargs["api_key"] = official_opts["api_key"]
+        return kwargs
     if engine_id == "mineru_official":
         opts = await mineru_official_api_opts.get(db)
         return {"api_key": opts["api_key"]} if opts["api_key"] else {}

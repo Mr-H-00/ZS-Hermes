@@ -72,6 +72,8 @@ cd Yuxi
 
 ```bash
 docker compose up --build
+
+docker compose up -d
 ```
 
 Do not run `up` directly when upgrading an existing installation to the v0.7.2

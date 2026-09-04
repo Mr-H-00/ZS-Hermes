@@ -63,6 +63,129 @@ def test_mineru_parser_normalizes_trailing_slash():
     assert parser.parse_endpoint == "http://mineru-api:30001/file_parse"
 
 
+def test_mineru_parser_health_requires_post_file_parse_or_tasks(monkeypatch: pytest.MonkeyPatch):
+    parser = MinerUParser(server_url="http://mineru-api:30001/")
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"paths": {"/file_parse": {"get": {}}}, "info": {"version": "1.0.0"}}
+
+    monkeypatch.setattr("yuxi.knowledge.parser.mineru.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    health = parser.check_health()
+
+    assert health["status"] == "unhealthy"
+    assert health["message"] == "MinerU 服务缺少必要的 POST /file_parse 或 POST /tasks 端点"
+    assert health["details"]["allowed_methods"] == {"file_parse": ["get"], "tasks": []}
+
+
+def test_mineru_parser_compatibly_uses_official_cloud_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    file_path = tmp_path / "mineru.pdf"
+    file_path.write_bytes(b"pdf")
+    parser = MinerUParser(server_url="https://mineru.net/api/v4/extract/task", api_key="test-key")
+    captured: dict = {}
+
+    monkeypatch.setattr(
+        parser.official_parser,
+        "process_file",
+        lambda path, params: captured.update(path=path, params=params) or "parsed markdown",
+    )
+
+    health = parser.check_health()
+
+    assert health["status"] == "configured"
+    assert health["details"]["api_base"] == "https://mineru.net/api/v4"
+    assert health["details"]["recommended_engine"] == "mineru_official"
+    assert parser.process_file(str(file_path), {"formula_enable": False}) == "parsed markdown"
+    assert captured == {
+        "path": str(file_path),
+        "params": {
+            "formula_enable": False,
+            "is_ocr": True,
+            "enable_formula": False,
+            "enable_table": True,
+            "language": "ch",
+        },
+    }
+
+
+def test_mineru_parser_does_not_treat_untrusted_subdomain_as_official():
+    parser = MinerUParser(server_url="https://mirror.mineru.net/api/v4/extract/task")
+
+    assert parser.official_parser is None
+    assert parser.parse_endpoint == "https://mirror.mineru.net/api/v4/extract/task/file_parse"
+
+
+def test_mineru_parser_normalizes_legacy_task_task_url():
+    parser = MinerUParser._normalize_official_api_base("https://mineru.net/api/v4/extract/task/tasks")
+
+    assert parser == "https://mineru.net/api/v4"
+
+
+def test_mineru_parser_falls_back_to_tasks_on_sync_405(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    file_path = tmp_path / "mineru.pdf"
+    file_path.write_bytes(b"pdf")
+    parser = MinerUParser(server_url="http://mineru-api:30001/")
+
+    calls: list[str] = []
+
+    class FakeResponse:
+        def __init__(self, status_code: int, json_data: dict | None = None, content: bytes = b"", text: str = ""):
+            self.status_code = status_code
+            self._json_data = json_data
+            self.content = content
+            self.text = text
+            self.headers = {}
+
+        def json(self):
+            if self._json_data is None:
+                raise ValueError("no json")
+            return self._json_data
+
+    def fake_post(url, files=None, data=None, timeout=None):
+        calls.append(url)
+        if url.endswith("/file_parse"):
+            return FakeResponse(405, text="HTTP 405")
+        if url.endswith("/tasks"):
+            return FakeResponse(200, json_data={"task_id": "task-123"})
+        raise AssertionError(f"unexpected post url: {url}")
+
+    poll_status = iter([202, 200])
+
+    def fake_get(url, timeout=None):
+        calls.append(url)
+        status_code = next(poll_status)
+        if status_code == 202:
+            return FakeResponse(202, text="pending")
+        return FakeResponse(200, content=b"zip-bytes")
+
+    monkeypatch.setattr("yuxi.knowledge.parser.mineru.requests.post", fake_post)
+    monkeypatch.setattr("yuxi.knowledge.parser.mineru.requests.get", fake_get)
+    monkeypatch.setattr(
+        "yuxi.knowledge.parser.mineru.process_zip_file_sync",
+        lambda *args, **kwargs: {"markdown_content": "parsed markdown"},
+    )
+    monkeypatch.setattr("yuxi.knowledge.parser.mineru.time.sleep", lambda *args, **kwargs: None)
+
+    result = parser.process_file(str(file_path))
+
+    assert result == "parsed markdown"
+    assert calls == [
+        "http://mineru-api:30001/file_parse",
+        "http://mineru-api:30001/tasks",
+        "http://mineru-api:30001/tasks/task-123/result",
+        "http://mineru-api:30001/tasks/task-123/result",
+    ]
+
+
 def test_mineru_official_health_check_does_not_create_task(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         "yuxi.knowledge.parser.mineru_official.requests.post",

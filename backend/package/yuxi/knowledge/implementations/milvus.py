@@ -329,9 +329,9 @@ class MilvusKB(KnowledgeBase):
 
             # 创建数据库（如果不存在）
             try:
-                if self.milvus_db not in db.list_database():
-                    db.create_database(self.milvus_db)
-                db.using_database(self.milvus_db)
+                if self.milvus_db not in db.list_database(using=self.connection_alias):
+                    db.create_database(self.milvus_db, using=self.connection_alias)
+                db.using_database(self.milvus_db, using=self.connection_alias)
             except Exception as e:
                 logger.warning(f"Database operation failed, using default: {e}")
 

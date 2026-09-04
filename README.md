@@ -58,6 +58,9 @@ cd Yuxi
 
 ```bash
 docker compose up --build -d
+或
+docker compose up -d
+docker compose logs -f api worker web storage-migrator
 ```
 
 查看服务状态：

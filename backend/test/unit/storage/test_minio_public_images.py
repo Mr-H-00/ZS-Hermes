@@ -1,6 +1,9 @@
 import json
+from io import BytesIO
 
 import pytest
+from minio.error import S3Error
+from urllib3 import HTTPResponse
 
 from yuxi.storage.minio.client import MinIOClient, normalize_public_minio_url
 
@@ -54,6 +57,21 @@ def test_legacy_public_minio_url_preserves_query_and_fragment(monkeypatch):
         normalize_public_minio_url("http://example.test:9000/public/avatar/user.png?v=123#preview")
         == "/minio/public/avatar/user.png?v=123#preview"
     )
+
+
+@pytest.mark.asyncio
+async def test_delete_objects_by_prefix_treats_missing_bucket_as_empty():
+    """删除不存在的 bucket 前缀时应按幂等清理处理。"""
+
+    class FakeMinio:
+        def list_objects(self, *_args, **_kwargs):
+            response = HTTPResponse(BytesIO(b""), status=404)
+            raise S3Error(response, "NoSuchBucket", "Not found", "resource", "request_id", "host_id")
+
+    client = MinIOClient()
+    client._client = FakeMinio()
+
+    assert await client.adelete_objects_by_prefix("kb-images", "kb-1/") == 0
 
 
 @pytest.mark.parametrize("read_error", [False, True])

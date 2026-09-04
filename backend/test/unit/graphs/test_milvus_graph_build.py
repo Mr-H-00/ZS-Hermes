@@ -15,6 +15,46 @@ from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 from yuxi.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
 
 
+def test_graph_vector_store_initializes_database_with_connection_alias(monkeypatch):
+    store = MilvusGraphVectorStore.__new__(MilvusGraphVectorStore)
+    store.connection_alias = "graph-alias"
+    store.milvus_uri = "http://milvus:19530"
+    store.milvus_token = ""
+    store.milvus_db = "yuxi"
+    calls = []
+
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_vector_store.connections.has_connection",
+        lambda alias: calls.append(("has_connection", alias)) or False,
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_vector_store.connections.connect",
+        lambda **kwargs: calls.append(("connect", kwargs)),
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_vector_store.db.list_database",
+        lambda **kwargs: calls.append(("list_database", kwargs)) or [],
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_vector_store.db.create_database",
+        lambda name, **kwargs: calls.append(("create_database", name, kwargs)),
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_vector_store.db.using_database",
+        lambda name, **kwargs: calls.append(("using_database", name, kwargs)),
+    )
+
+    store._init_connection()
+
+    assert calls == [
+        ("has_connection", "graph-alias"),
+        ("connect", {"alias": "graph-alias", "uri": "http://milvus:19530", "token": ""}),
+        ("list_database", {"using": "graph-alias"}),
+        ("create_database", "yuxi", {"using": "graph-alias"}),
+        ("using_database", "yuxi", {"using": "graph-alias"}),
+    ]
+
+
 def _raw_graph_node(node_id: str, *, labels: list[str] | None = None, name: str | None = None) -> dict:
     return {
         "id": node_id,

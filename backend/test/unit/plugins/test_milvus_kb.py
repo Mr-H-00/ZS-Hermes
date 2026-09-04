@@ -27,6 +27,41 @@ def make_query_config() -> KnowledgeBaseConfig:
     )
 
 
+def test_milvus_kb_initializes_database_with_connection_alias(monkeypatch):
+    kb = MilvusKB.__new__(MilvusKB)
+    kb.connection_alias = "test-alias"
+    kb.milvus_uri = "http://milvus:19530"
+    kb.milvus_token = ""
+    kb.milvus_db = "yuxi"
+    calls = []
+
+    monkeypatch.setattr(
+        "yuxi.knowledge.implementations.milvus.connections.connect",
+        lambda **kwargs: calls.append(("connect", kwargs)),
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.implementations.milvus.db.list_database",
+        lambda **kwargs: calls.append(("list_database", kwargs)) or [],
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.implementations.milvus.db.create_database",
+        lambda name, **kwargs: calls.append(("create_database", name, kwargs)),
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.implementations.milvus.db.using_database",
+        lambda name, **kwargs: calls.append(("using_database", name, kwargs)),
+    )
+
+    kb._init_connection()
+
+    assert calls == [
+        ("connect", {"alias": "test-alias", "uri": "http://milvus:19530", "token": ""}),
+        ("list_database", {"using": "test-alias"}),
+        ("create_database", "yuxi", {"using": "test-alias"}),
+        ("using_database", "yuxi", {"using": "test-alias"}),
+    ]
+
+
 class FakeHit:
     def __init__(self, content: str, distance: float):
         self.distance = distance

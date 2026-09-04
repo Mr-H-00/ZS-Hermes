@@ -70,6 +70,8 @@ API/worker 在 Compose 中默认使用 `MINERU_API_URI=http://mineru-api:30001`�
 
 该参数用于减小 vLLM KV cache；仍然不足时可以继续尝试 `0.4` 或更低值。模型下载和其余显存参数以 `docker/mineru.Dockerfile` 与 Compose 为准。解析超时可以用 `MINERU_TIMEOUT` 调整，或在单次处理参数中传入 `timeout_seconds`。
 
+`mineru_ocr` 与 `mineru_official` 使用不同协议。推荐将 `mineru_ocr` 配置为自托管地址 `http://mineru-api:30001`，将官方云服务配置为 `mineru_official` 并配置 API Key。历史上填入 `https://mineru.net/api/v4` 或其 `/extract/task` 路径的 `mineru_ocr` 配置仍会兼容转发到官方协议，但应迁移到独立的 `mineru_official` 引擎。
+
 ### MinerU Official
 
 在[官方服务](https://mineru.net)申请 API Key，放入 API/worker 的环境：
