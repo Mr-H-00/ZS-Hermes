@@ -124,6 +124,7 @@ import AgentEditModal from '@/components/model-management/AgentEditModal.vue'
 import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
 import { handleChatError } from '@/utils/errorHandler'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
+import { normalizeAgentBackendOption } from '@/utils/agentConfigUtils'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 
 import { storeToRefs } from 'pinia'
@@ -261,10 +262,7 @@ const agentBackendsLoaded = ref(false)
 const loadAgentBackends = async () => {
   if (agentBackendsLoaded.value) return
   const response = await agentApi.getAgentBackends()
-  agentBackendOptions.value = (response.backends || []).map((backend) => ({
-    label: backend.name || backend.backend_id,
-    value: backend.backend_id
-  }))
+  agentBackendOptions.value = (response.backends || []).map(normalizeAgentBackendOption)
   agentBackendsLoaded.value = true
 }
 

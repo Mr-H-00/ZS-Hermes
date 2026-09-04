@@ -4,10 +4,11 @@ from datetime import timedelta
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yuxi.repositories.agent_run_repository import AgentRunRepository
-from yuxi.storage.postgres.models_business import AgentRun, Base, Conversation, Message, SubagentThread
+from yuxi.storage.postgres.models_business import AgentRun, AgentRunAttempt, Base, Conversation, Message, SubagentThread
 from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
@@ -118,6 +119,12 @@ async def _seed_subagent_runs(db, *, relation_child_thread_id: str = "child-thre
     )
     await db.commit()
     return child_run
+
+
+async def _read_attempts(db, run_id: str) -> list[AgentRunAttempt]:
+    """直接读取 RunAttempt 事实表，作为独立测试 oracle。"""
+    attempts = list((await db.scalars(select(AgentRunAttempt).where(AgentRunAttempt.run_id == run_id))).all())
+    return sorted(attempts, key=lambda attempt: attempt.attempt_no)
 
 
 async def test_get_subagent_run_with_creator_returns_execution_pair(session):
@@ -785,7 +792,7 @@ async def test_mark_running_creates_single_attempt_for_initial_claim_and_live_ow
     _, second_acquired = await repository.mark_running(
         run.id, worker_id="worker-a:token-1", lease_seconds=60, now=now + timedelta(seconds=1)
     )
-    attempts = await repository.list_run_attempts(run.id)
+    attempts = await _read_attempts(session, run.id)
 
     assert first_acquired is True
     assert second_acquired is True
@@ -811,7 +818,7 @@ async def test_retry_release_then_reclaim_uses_new_attempt_no_and_keeps_old_fact
     await repository.mark_running(
         run.id, worker_id="worker-b:token-2", lease_seconds=60, now=now + timedelta(seconds=3)
     )
-    attempts = await repository.list_run_attempts(run.id)
+    attempts = await _read_attempts(session, run.id)
 
     assert released is True
     assert blocked_before_cleanup is False
@@ -838,7 +845,7 @@ async def test_terminal_status_finishes_owner_attempt_with_matching_outcome(sess
     _, changed = await repository.set_terminal_status(
         run.id, status="completed", worker_id="worker-a:token-1", now=now + timedelta(seconds=2)
     )
-    attempts = await repository.list_run_attempts(run.id)
+    attempts = await _read_attempts(session, run.id)
 
     assert changed is True
     assert len(attempts) == 1
@@ -853,7 +860,7 @@ async def test_reconcile_closes_open_attempt_as_lease_expired(session):
 
     await repository.mark_running(run.id, worker_id="worker-dead:token-1", lease_seconds=10, now=now)
     reconciled, cancelled_descendants = await repository.reconcile_expired_leases(now=now + timedelta(seconds=11))
-    attempts = await repository.list_run_attempts(run.id)
+    attempts = await _read_attempts(session, run.id)
 
     assert [item.id for item in reconciled] == [run.id]
     assert cancelled_descendants == []
@@ -892,7 +899,7 @@ async def test_record_run_manifest_is_write_once_and_requires_live_owner(session
         worker_id="worker-a:token-1",
         now=now + timedelta(seconds=3),
     )
-    attempts = await repository.list_run_attempts(run.id)
+    attempts = await _read_attempts(session, run.id)
 
     assert recorded is True
     assert rewritten is False

@@ -54,12 +54,6 @@ class KBNameConflictError(KnowledgeBaseException):
     pass
 
 
-class KBOperationError(KnowledgeBaseException):
-    """知识库操作错误"""
-
-    pass
-
-
 class KnowledgeBase(ABC):
     """知识库抽象基类，定义统一接口"""
 
@@ -436,16 +430,6 @@ class KnowledgeBase(ABC):
         from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
 
         update_data = {"processing_params": sanitize_processing_params(current_params)}
-        if operator_id:
-            update_data["updated_by"] = operator_id
-        record = await KnowledgeFileRepository().update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
-        if record is None:
-            raise ValueError(f"File {file_id} not found")
-
-    async def _mark_file_unparsed(self, kb_id: str, file_id: str, operator_id: str | None = None) -> None:
-        from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
-
-        update_data = {"status": FileStatus.UPLOADED, "markdown_file": None, "error_message": None}
         if operator_id:
             update_data["updated_by"] = operator_id
         record = await KnowledgeFileRepository().update_fields(file_id=file_id, kb_id=kb_id, data=update_data)

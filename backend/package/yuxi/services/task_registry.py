@@ -90,11 +90,6 @@ _TASK_DEFINITIONS = {
 }
 
 
-def list_task_definitions() -> tuple[TaskDefinition, ...]:
-    """返回 shipping TaskDefinition metadata，不加载领域模块。"""
-    return tuple(_TASK_DEFINITIONS.values())
-
-
 def get_task_definition(task_type: str, handler_version: int = 1) -> TaskDefinition:
     """返回当前 shipping TaskDefinition，并拒绝未知类型或版本。"""
     definition = _TASK_DEFINITIONS.get(task_type)

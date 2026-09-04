@@ -27,6 +27,7 @@ _MANAGED_WORKDIR_NAME_RE = re.compile(r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\
 _MANAGED_WORKDIR_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 WORKDIR_PROJECTS_DIR_NAME = "projects"
 
+
 def validate_thread_id(thread_id: str) -> str:
     value = str(thread_id or "").strip()
     if not value:
@@ -45,11 +46,6 @@ def normalize_workdir_path(workdir_path: str) -> str:
     if any(part in {"", ".", ".."} for part in raw.split("/")):
         raise ValueError("workdir_path contains invalid path components")
     return pure.as_posix()
-
-
-def normalize_linked_workdir_path(workdir_path: str) -> str:
-    """规范化用户选择的 linked Workdir；Workspace 根由相对路径约束拒绝。"""
-    return normalize_workdir_path(workdir_path)
 
 
 def normalize_managed_workdir_path(workdir_path: str) -> str:

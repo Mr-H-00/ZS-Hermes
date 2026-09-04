@@ -19,6 +19,7 @@ import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
 import { useUserStore } from '@/stores/user'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import { MAX_IMAGE_UPLOAD_SIZE_BYTES, MAX_IMAGE_UPLOAD_SIZE_MB } from '@/utils/upload_limits'
+import { normalizeAgent } from '@/utils/agentConfigUtils'
 
 const props = defineProps({
   backendOptions: { type: Array, default: () => [] }
@@ -138,13 +139,6 @@ const captureProfileBaseline = () => {
 }
 
 const hasAnyUnsavedChanges = computed(() => agentStore.hasConfigChanges || hasProfileChanges.value)
-
-const normalizeAgent = (agent) => {
-  const agentId = agent?.agent_id || agent?.slug || agent?.id
-  return agentId
-    ? { ...agent, id: agentId, agent_id: agentId, slug: agent?.slug || agentId }
-    : agent
-}
 
 const agentModalMenuItems = computed(() => {
   const items = [{ key: 'basic', label: '基本信息', icon: Bot }]

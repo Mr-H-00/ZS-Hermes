@@ -19,7 +19,6 @@ x-api-worker-env: &api-worker-env
   NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
   NEO4J_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env.prod}
   MILVUS_URI: ${MILVUS_URI:-http://milvus:19530}
-  MILVUS_DB_NAME: ${MILVUS_DB_NAME:-default}
   MILVUS_TOKEN: ${MILVUS_TOKEN:-}
   MINERU_API_URI: ${MINERU_API_URI:-http://mineru-api:30001}
   PADDLEX_URI: ${PADDLEX_URI:-http://paddlex:8080}

@@ -7,7 +7,6 @@ from typing import Any
 import nltk
 from nltk.tokenize import sent_tokenize
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics import silhouette_score
 
 _punkt_checked = False
 
@@ -79,44 +78,6 @@ def split_mixed_sentences(text: str) -> list[str]:
                 parts = re.split(r"(?<=[。！？])", ch)
                 sentences.extend([p.strip() for p in parts if p.strip()])
     return sentences
-
-
-def find_best_num_clusters(embeddings: Any, min_clusters: int = 2, max_clusters: int = 10) -> int:
-    """
-    使用轮廓系数选择最佳聚类数量。让每个分段语义集中，且分段之间界限分明
-
-    逻辑：
-    - 遍历可能的聚类数量（从 min_clusters 到 max_clusters）。
-    - 对每个聚类数量，使用 `AgglomerativeClustering` 进行聚类。
-    - 计算轮廓系数（Silhouette Score）。
-    - 选择轮廓系数最高的聚类数量作为最佳聚类数量。
-    - 如果聚类数量为 1 或更少，直接返回 1。
-
-    Args:
-        embeddings: 待聚类的向量数据（所有句子的嵌入向量列表）。
-        min_clusters: 搜索的最佳聚类数量下限，默认为 2。
-        max_clusters: 搜索的最佳聚类数量上限，默认为 10。
-
-    Returns:
-        int: 轮廓系数表现最好的聚类数量。
-    """
-    if len(embeddings) <= min_clusters:
-        return len(embeddings)
-
-    best_score = -1
-    best_k = min_clusters
-
-    limit_k = min(max_clusters, len(embeddings))
-    for k in range(min_clusters, limit_k + 1):
-        labels = AgglomerativeClustering(n_clusters=k, metric="cosine", linkage="average").fit_predict(embeddings)
-        if len(set(labels)) <= 1:
-            continue
-        score = silhouette_score(embeddings, labels, metric="cosine")
-        if score > best_score:
-            best_score = score
-            best_k = k
-
-    return best_k
 
 
 def semantic_chunking_with_auto_clusters(

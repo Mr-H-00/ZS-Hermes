@@ -7,7 +7,7 @@ export const loadModelMetadataCatalog = () => {
   return catalogPromise
 }
 
-export const getModelMetadata = (providers, providerId, modelId) => {
+const getModelMetadata = (providers, providerId, modelId) => {
   return providers?.[providerId]?.models?.[modelId] || null
 }
 
@@ -35,14 +35,14 @@ export const resolveModelDisplayMetadata = (providers, providerId, model = {}) =
   }
 }
 
-export const formatModelTokenCount = (value) => {
+const formatModelTokenCount = (value) => {
   if (!Number.isFinite(value)) return ''
   if (value >= 1_000_000) return `${trimTrailingZeros((value / 1_000_000).toFixed(1))}M`
   if (value >= 1_000) return `${Math.round(value / 1_000)}K`
   return String(value)
 }
 
-export const formatModelPrice = (value) => {
+const formatModelPrice = (value) => {
   if (!Number.isFinite(value)) return ''
   const precision = value < 0.01 ? 4 : value < 1 ? 3 : 2
   return trimTrailingZeros(value.toFixed(precision))

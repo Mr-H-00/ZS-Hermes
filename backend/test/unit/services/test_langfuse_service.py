@@ -141,8 +141,8 @@ def test_get_trace_info_keeps_precreated_trace_id_when_handler_differs(run_conte
     }
 
 
-async def test_get_trace_url_async_uses_precreated_trace_id(run_context_with_last_trace):
-    trace_url = await svc.get_trace_url_async(run_context_with_last_trace)
+async def test_get_trace_url_by_id_async_uses_precreated_trace_id(run_context_with_last_trace):
+    trace_url = await svc.get_trace_url_by_id_async("trace-req-1")
 
     assert trace_url == "https://langfuse.local/trace/trace-req-1"
 

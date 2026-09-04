@@ -1030,23 +1030,6 @@ def _ensure_full_msg(full_msg: AIMessage | None, accumulated_content: list[str])
     return full_msg
 
 
-def _extract_ai_message(messages: list[Any] | None) -> AIMessage | None:
-    """从消息列表中提取最后一条 AIMessage。"""
-    if not isinstance(messages, list):
-        return None
-
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage):
-            return msg
-
-        msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else {}
-        if msg_dict.get("type") == "ai":
-            content = msg_dict.get("content", "")
-            return msg if hasattr(msg, "content") else AIMessage(content=content)
-
-    return None
-
-
 async def _resolve_agent_runtime(
     *,
     db,

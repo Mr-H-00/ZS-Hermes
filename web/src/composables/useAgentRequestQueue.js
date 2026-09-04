@@ -61,6 +61,21 @@ export function useAgentRequestQueue({
     }
   }
 
+  /** 同步线程队列后恢复仍在途的请求流。 */
+  const resumeQueuedRequests = async (threadId, agentSlug) => {
+    if (!threadId || !agentSlug) return
+
+    await syncQueuedRequests(threadId, agentSlug)
+    const latestTs = getThreadState(threadId)
+    if (!latestTs) return
+
+    for (const request of latestTs.queuedRequests || []) {
+      if (request?.request_id) {
+        void startRequestStream(threadId, request.request_id)
+      }
+    }
+  }
+
   const startRequestStream = async (threadId, requestId) => {
     if (!threadId || !requestId) return
     const ts = getThreadState(threadId)
@@ -173,6 +188,7 @@ export function useAgentRequestQueue({
     stopAllRequestStreams,
     cancelRequest,
     syncQueuedRequests,
+    resumeQueuedRequests,
     continueQueue,
     steerRequest
   }

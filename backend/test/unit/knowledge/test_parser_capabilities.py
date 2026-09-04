@@ -14,7 +14,6 @@ from yuxi.knowledge.parser.capabilities import (
     get_ocr_engines_for_extension,
     is_supported_file_extension,
 )
-from yuxi.knowledge.parser.factory import DocumentProcessorFactory
 
 pytestmark = pytest.mark.unit
 
@@ -83,8 +82,16 @@ async def test_parse_document_rejects_ocr_engine_without_format_capability(
         await ocr_service.parse_document(str(source), params={"ocr_engine": "rapid_ocr"})
 
 
-def test_capability_registry_has_one_entry_per_factory_processor() -> None:
-    assert tuple(DocumentProcessorFactory.get_available_processors()) == tuple(PARSER_CAPABILITIES)
+def test_capability_registry_declares_shipping_processors() -> None:
+    assert tuple(PARSER_CAPABILITIES) == (
+        "rapid_ocr",
+        "mineru_ocr",
+        "mineru_official",
+        "pp_structure_v3_ocr",
+        "deepseek_ocr",
+        "paddleocr_vl_1_6",
+        "paddleocr_pp_ocrv6",
+    )
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,6 @@ x-api-worker-env: &api-worker-env
   NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
   NEO4J_PASSWORD: ${NEO4J_PASSWORD:-0123456789}
   MILVUS_URI: ${MILVUS_URI:-http://milvus:19530}
-  MILVUS_DB_NAME: ${MILVUS_DB_NAME:-default}
   MILVUS_TOKEN: ${MILVUS_TOKEN:-}
   MINIO_URI: ${MINIO_URI:-http://minio:9000}
   # 文档解析
@@ -25,9 +24,6 @@ x-api-worker-env: &api-worker-env
   SANDBOX_VIRTUAL_PATH_PREFIX: ${SANDBOX_VIRTUAL_PATH_PREFIX:-/home/gem/user-data}
   SANDBOX_EXEC_TIMEOUT_SECONDS: ${SANDBOX_EXEC_TIMEOUT_SECONDS:-180}
   SANDBOX_MAX_OUTPUT_BYTES: ${SANDBOX_MAX_OUTPUT_BYTES:-262144}
-  # Model request timeouts
-  EMBEDDING_TIMEOUT: ${EMBEDDING_TIMEOUT:-600}
-  LLM_TIMEOUT: ${LLM_TIMEOUT:-600}
   TASKER_DEFAULT_TIMEOUT_SECONDS: ${TASKER_DEFAULT_TIMEOUT_SECONDS:-21600}
   # Agent run
   RUN_CANCEL_KEY_TTL_SECONDS: ${RUN_CANCEL_KEY_TTL_SECONDS:-1800}
@@ -274,7 +270,6 @@ services:
     environment:
       - NODE_ENV=development
       - VITE_API_URL=http://api:5050
-      - VITE_USE_RUNS_API=${VITE_USE_RUNS_API:-false}
     command: pnpm run server
     restart: unless-stopped
 

@@ -25,10 +25,6 @@ class StorageError(Exception):
     pass
 
 
-class StorageUploadError(StorageError):
-    """存储相关异常基类"""
-
-
 class UploadResult:
     """简化的上传结果"""
 

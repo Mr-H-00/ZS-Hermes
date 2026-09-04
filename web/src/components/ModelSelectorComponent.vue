@@ -149,7 +149,6 @@ import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { modelProviderApi } from '@/apis/system_api'
 import { Eye, RefreshCw, X } from '@lucide/vue'
-import { useModelStatus } from '@/composables/useModelStatus'
 import { useUserStore } from '@/stores/user'
 import { loadModelMetadataCatalog, resolveModelDisplayMetadata } from '@/utils/modelMetadata'
 
@@ -319,8 +318,6 @@ const refreshCache = async () => {
   }
 }
 
-// 状态管理
-useModelStatus()
 const state = reactive({
   currentModelStatus: null,
   checkingStatus: false,

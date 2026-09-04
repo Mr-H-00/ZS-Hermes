@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
+import test from 'node:test'
 
 import {
   compareRunSeq,
   hasOngoingRunChunks,
   normalizeRunSeq,
   resolveRunResumeAfterSeq
-} from '../runStreamResume.js'
+} from '../../src/utils/runStreamResume.js'
 
-const run = () => {
+test('run stream resume normalizes sequences and preserves matching chunks', () => {
   assert.equal(normalizeRunSeq(null), '0-0')
   assert.equal(normalizeRunSeq('bad'), '0-0')
   assert.equal(normalizeRunSeq('1700000000000-2'), '1700000000000-2')
@@ -51,8 +52,4 @@ const run = () => {
     }),
     '0-0'
   )
-
-  console.log('runStreamResume: all assertions passed')
-}
-
-run()
+})

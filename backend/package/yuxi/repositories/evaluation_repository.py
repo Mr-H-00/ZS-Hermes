@@ -22,10 +22,6 @@ class EvaluationRepository:
         await session.flush()
         return dataset
 
-    async def create_dataset(self, dataset_data: dict[str, Any]) -> EvaluationDataset:
-        async with pg_manager.get_async_session_context() as session:
-            return await self.create_dataset_in_session(session, dataset_data)
-
     async def create_dataset_with_items(
         self, dataset_data: dict[str, Any], items_data: list[dict[str, Any]]
     ) -> EvaluationDataset:

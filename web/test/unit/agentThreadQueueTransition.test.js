@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { useAgentThreadState } from '../../composables/useAgentThreadState.js'
+import { useAgentThreadState } from '../../src/composables/useAgentThreadState.js'
 
 test('starting the next queued run preserves remaining request streams', () => {
   const chatState = { threadStates: {} }

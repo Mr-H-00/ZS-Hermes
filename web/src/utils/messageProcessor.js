@@ -1,3 +1,17 @@
+/** 解析工具返回的 JSON 内容。 */
+const parseToolResultContent = (content) => {
+  if (Array.isArray(content)) return content
+  if (content && typeof content === 'object') return content
+  if (typeof content === 'string') {
+    try {
+      return JSON.parse(content)
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 /**
  * 消息处理工具类
  */
@@ -182,19 +196,6 @@ export class MessageProcessor {
       })
     }
 
-    const parseToolResultContent = (content) => {
-      if (Array.isArray(content)) return content
-      if (content && typeof content === 'object') return content
-      if (typeof content === 'string') {
-        try {
-          return JSON.parse(content)
-        } catch {
-          return null
-        }
-      }
-      return null
-    }
-
     for (const msg of conv.messages) {
       if (!msg || msg.type !== 'ai' || !Array.isArray(msg.tool_calls)) continue
 
@@ -238,19 +239,6 @@ export class MessageProcessor {
 
     const webSources = []
     const dedupSet = new Set()
-
-    const parseToolResultContent = (content) => {
-      if (Array.isArray(content)) return content
-      if (content && typeof content === 'object') return content
-      if (typeof content === 'string') {
-        try {
-          return JSON.parse(content)
-        } catch {
-          return null
-        }
-      }
-      return null
-    }
 
     for (const msg of conv.messages) {
       if (!msg || msg.type !== 'ai' || !Array.isArray(msg.tool_calls)) continue

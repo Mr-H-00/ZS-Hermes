@@ -32,14 +32,6 @@ TMP_ATTACHMENT_IMAGE_EXTENSIONS = IMAGE_FILE_EXTENSIONS
 TMP_ATTACHMENT_TTL = timedelta(hours=24)
 
 
-async def parse_document(source: str, params: dict | None = None, db: AsyncSession | None = None) -> str:
-    """仅在附件确实需要解析时加载文档/OCR 重运行时。"""
-
-    from yuxi.services.ocr_service import parse_document as parse_runtime_document
-
-    return await parse_runtime_document(source, params=params, db=db)
-
-
 async def _require_user_conversation(conv_repo: ConversationRepository, thread_id: str, uid: str):
     conversation = await conv_repo.get_conversation_by_thread_id(thread_id)
     if not conversation or conversation.uid != str(uid) or conversation.status == "deleted":
@@ -343,6 +335,8 @@ async def parse_tmp_attachment_view(
     method = _normalize_parse_method(safe_name, parse_method, default_ocr_engine)
 
     try:
+        from yuxi.services.ocr_service import parse_document
+
         markdown = await parse_document(_minio_source(bucket_name, object_name), params={"ocr_engine": method})
         markdown, truncated = _truncate_markdown(markdown)
         parsed_object_name = _make_tmp_parsed_object(str(current_uid), tmp_file_id, safe_name)

@@ -77,22 +77,5 @@ def select_model(model_spec: str, **kwargs) -> LangChainChatAdapter:
     )
 
 
-async def test_chat_model_status_by_spec(spec: str) -> dict:
-    try:
-        logger.debug(f"Testing model status by spec: {spec}")
-        model = select_model(model_spec=spec)
-
-        test_messages = [{"role": "user", "content": "Say 1"}]
-        response = await model.call(test_messages, stream=False)
-
-        if response and response.content:
-            return {"spec": spec, "status": "available", "message": "连接正常"}
-        return {"spec": spec, "status": "unavailable", "message": "响应无效"}
-
-    except Exception as e:
-        logger.error(f"测试模型状态失败 {spec}: {e}")
-        return {"spec": spec, "status": "error", "message": str(e)}
-
-
 if __name__ == "__main__":
     pass

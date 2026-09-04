@@ -2974,6 +2974,9 @@ const restorePendingInterruptForThread = (threadId) => {
   return restoreInterruptFromThreadState(threadId)
 }
 
+const resolveAgentSlugForThread = (threadId) =>
+  threads.value.find((thread) => thread.id === threadId)?.agent_id || currentAgentId.value
+
 const { handleStreamChunk } = useAgentStreamHandler({
   getThreadState,
   processApprovalInStream,
@@ -2992,7 +2995,7 @@ const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = 
   streamSmoother,
   onInterruptDetected: ({ threadId }) => {
     restorePendingInterruptForThread(threadId)
-    void resumeQueuedRequestsForThread(threadId)
+    void resumeQueuedRequests(threadId, resolveAgentSlugForThread(threadId))
     if (threadId === currentThreadId.value) {
       void chatThreadsStore.markThreadViewed(threadId)
       agentPanelFilesystemRefreshVersion.value += 1
@@ -3002,7 +3005,7 @@ const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = 
     if (approvalState.threadId === threadId || touchedThreadIds.includes(approvalState.threadId)) {
       hideApprovalState()
     }
-    void resumeQueuedRequestsForThread(threadId)
+    void resumeQueuedRequests(threadId, resolveAgentSlugForThread(threadId))
     // 仅当终态事件属于当前正在查看的线程时才自动标记已读；后台线程保留 ready 态
     if (runId && threadId === currentThreadId.value) {
       void chatThreadsStore.markThreadViewed(threadId)
@@ -3014,10 +3017,9 @@ const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = 
   }
 })
 const {
-  startRequestStream,
   stopAllRequestStreams,
   cancelRequest,
-  syncQueuedRequests,
+  resumeQueuedRequests,
   continueQueue,
   steerRequest
 } = useAgentRequestQueue({
@@ -3035,14 +3037,14 @@ const handleCancelQueuedRequest = async (requestId) => {
   const cancelled = await cancelRequest(threadId, requestId)
   cancellingRequestIds.delete(requestId)
   if (cancelled) {
-    await resumeQueuedRequestsForThread(threadId)
+    await resumeQueuedRequests(threadId, resolveAgentSlugForThread(threadId))
     message.success('已删除排队请求')
   }
 }
 
 const handleSteerQueuedRequest = async (requestId) => {
   const threadId = currentChatId.value
-  const agentSlug = currentThread.value?.agent_id || currentAgentId.value
+  const agentSlug = resolveAgentSlugForThread(threadId)
   if (!threadId || !agentSlug || !requestId || steeringRequestIds.has(requestId)) return
 
   steeringRequestIds.add(requestId)
@@ -3055,25 +3057,11 @@ const handleSteerQueuedRequest = async (requestId) => {
 
 const handleContinueQueue = async () => {
   const threadId = currentChatId.value
-  const agentSlug =
-    threads.value.find((thread) => thread.id === threadId)?.agent_id || currentAgentId.value
+  const agentSlug = resolveAgentSlugForThread(threadId)
   if (!threadId || !agentSlug || currentThreadState.value?.continueQueueInFlight) return
 
   if (await continueQueue(threadId, agentSlug)) {
     message.success('队列已继续')
-  }
-}
-
-const resumeQueuedRequestsForThread = async (threadId) => {
-  const ts = getThreadState(threadId)
-  if (!ts) return
-  const agentSlug = threads.value.find((t) => t.id === threadId)?.agent_id || currentAgentId.value
-  if (!agentSlug) return
-  await syncQueuedRequests(threadId, agentSlug)
-  if (ts.queuedRequests && ts.queuedRequests.length > 0) {
-    for (const req of ts.queuedRequests) {
-      void startRequestStream(threadId, req.request_id)
-    }
   }
 }
 
@@ -3084,7 +3072,7 @@ const resumeCurrentRunForVisiblePage = async () => {
 
   try {
     await resumeActiveRunForThread(threadId)
-    await resumeQueuedRequestsForThread(threadId)
+    await resumeQueuedRequests(threadId, resolveAgentSlugForThread(threadId))
     restorePendingInterruptForThread(threadId)
   } catch (error) {
     console.warn('Failed to resume current run after page became visible:', error)
@@ -3169,7 +3157,7 @@ const selectChat = async (chatId) => {
   await handleAgentStateRefresh(chatId)
   syncThreadConfigSnapshot(chatId, { overwrite: false })
   await resumeActiveRunForThread(chatId)
-  await resumeQueuedRequestsForThread(chatId)
+  await resumeQueuedRequests(chatId, resolveAgentSlugForThread(chatId))
   restorePendingInterruptForThread(chatId)
   await scrollController.scrollToBottomStaticForce()
   return true
@@ -3331,7 +3319,7 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
         threadState.isStreaming = false
         threadState.replyLoadingVisible = false
       }
-      await resumeQueuedRequestsForThread(threadId)
+      await resumeQueuedRequests(threadId, resolveAgentSlugForThread(threadId))
     } else if (runId) {
       threadState.pendingRequestId = requestId
       await startRunStream(threadId, runId, 0)

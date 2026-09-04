@@ -895,15 +895,6 @@ class AgentRunRepository:
         await self.db.flush()
         return run, True
 
-    async def list_run_attempts(self, run_id: str) -> list[AgentRunAttempt]:
-        """按执行序号读取一个 Run 的完整 attempt 历史。"""
-        result = await self.db.execute(
-            select(AgentRunAttempt)
-            .where(AgentRunAttempt.run_id == run_id)
-            .order_by(AgentRunAttempt.attempt_no.asc(), AgentRunAttempt.id.asc())
-        )
-        return list(result.scalars().all())
-
     async def _get_open_attempt(self, run_id: str, *, worker_id: str | None = None) -> AgentRunAttempt | None:
         """读取该 Run 仍开放（未终结）的 attempt；指定 worker 时限定为当前 owner。"""
         conditions = [AgentRunAttempt.run_id == run_id, AgentRunAttempt.finished_at.is_(None)]

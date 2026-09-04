@@ -236,6 +236,7 @@ import {
 } from '@/apis/workspace_api'
 import GlobalSearchModal from '@/components/GlobalSearchModal.vue'
 import { normalizePreviewResponse } from '@/utils/file_preview'
+import { parseDownloadFilename } from '@/utils/file_utils'
 
 const userStore = useUserStore()
 const route = useRoute()
@@ -850,26 +851,6 @@ const deleteEntries = async (targetEntries) => {
   } finally {
     deletingPaths.value = []
   }
-}
-
-const parseDownloadFilename = (contentDisposition) => {
-  if (!contentDisposition) return ''
-
-  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
-  if (utf8Match && utf8Match[1]) {
-    try {
-      return decodeURIComponent(utf8Match[1])
-    } catch (error) {
-      console.warn('解析 UTF-8 文件名失败:', error)
-    }
-  }
-
-  const asciiMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
-  if (asciiMatch && asciiMatch[1]) {
-    return asciiMatch[1]
-  }
-
-  return ''
 }
 
 const downloadEntry = async (entry) => {

@@ -119,11 +119,6 @@ class DocumentProcessorFactory:
                 "details": {"error": str(e)},
             }
 
-    @staticmethod
-    def get_available_processors() -> list[str]:
-        """返回所有可用的处理器类型"""
-        return list(PARSER_CAPABILITIES)
-
     @classmethod
     def clear_cache(cls, processor_type: str | None = None):
         """清除全部处理器缓存，或只淘汰指定引擎的实例。"""

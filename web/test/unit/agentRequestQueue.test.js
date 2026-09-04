@@ -230,6 +230,56 @@ test('子线程 init 不继承父订阅 Run 关联', () => {
   assert.equal(message.run_id, undefined)
 })
 
+test('恢复队列在同步后重新读取线程状态并启动当前请求流', async () => {
+  const staleThreadState = {
+    queuedRequests: [{ request_id: 'request-stale', status: 'queued' }],
+    requestStreams: {}
+  }
+  const latestThreadState = {
+    queuedRequests: [{ request_id: 'request-latest', status: 'running' }],
+    requestStreams: {}
+  }
+  let currentThreadState = staleThreadState
+  const calls = []
+  const originalListThreadQueuedRequests = agentApi.listThreadQueuedRequests
+  const originalStreamRequestEvents = agentApi.streamRequestEvents
+  agentApi.listThreadQueuedRequests = async (...args) => {
+    calls.push(['sync', ...args])
+    currentThreadState = latestThreadState
+    return {
+      requests: [{ request_id: 'request-from-sync', status: 'queued' }],
+      queue: { status: 'running' }
+    }
+  }
+  agentApi.streamRequestEvents = async (requestId) =>
+    new Response(`event: run_created\ndata: {"run_id":"run-for-${requestId}"}\n\n`, {
+      headers: { 'Content-Type': 'text/event-stream' }
+  })
+
+  try {
+    const streamStarts = []
+    const queue = useAgentRequestQueue({
+      getThreadState: () => currentThreadState,
+      resetOnGoingConv: () => {},
+      startRunStream: (...args) => streamStarts.push(args),
+      onStreamError: () => {}
+    })
+
+    await queue.resumeQueuedRequests('thread-1', 'agent-1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    assert.deepEqual(calls, [['sync', 'thread-1', 'agent-1']])
+    assert.deepEqual(streamStarts, [['thread-1', 'run-for-request-latest', '0-0']])
+    assert.deepEqual(staleThreadState.queuedRequests, [
+      { request_id: 'request-from-sync', status: 'queued' }
+    ])
+    assert.equal(latestThreadState.requestStreams['request-latest'], undefined)
+  } finally {
+    agentApi.listThreadQueuedRequests = originalListThreadQueuedRequests
+    agentApi.streamRequestEvents = originalStreamRequestEvents
+  }
+})
+
 test('run_created 立即完成状态交接并订阅新 Run SSE', async () => {
   const threadState = {
     queuedRequests: [{ request_id: 'request-1', status: 'queued' }],

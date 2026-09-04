@@ -112,7 +112,8 @@ async def _cleanup_runs(session_factory, thread_ids: list[str]) -> None:
 
 async def _persisted_attempts(session_factory, run_id: str) -> list[AgentRunAttempt]:
     async with session_factory() as db:
-        return await AgentRunRepository(db).list_run_attempts(run_id)
+        attempts = list((await db.scalars(select(AgentRunAttempt).where(AgentRunAttempt.run_id == run_id))).all())
+        return sorted(attempts, key=lambda attempt: attempt.attempt_no)
 
 
 async def test_run_fact_schema_evolution_is_idempotent(fact_database):
