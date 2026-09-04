@@ -119,7 +119,7 @@
                 <RefsComponent
                   v-if="shouldShowRefs(row.conv)"
                   :message="getLastMessage(row.conv)"
-                  :show-refs="['model', 'copy', 'sources']"
+                  :show-refs="['model', 'copy', 'timing', 'sources']"
                   :is-latest-message="false"
                   :sources="getConversationSources(row.conv)"
                 />

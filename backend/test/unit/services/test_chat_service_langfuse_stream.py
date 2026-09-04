@@ -89,16 +89,6 @@ def _patch_stream_scaffolding(
         svc, "save_messages_from_langgraph_state", save_messages or _fake_save_messages_from_langgraph_state
     )
     monkeypatch.setattr(svc, "check_and_handle_interrupts", _fake_interrupts)
-    monkeypatch.setattr(svc, "get_user_skills_root_dir", lambda _uid: None)
-
-    class FakeSandboxBackend:
-        def __init__(self, **_kwargs):
-            pass
-
-        def ensure_available(self):
-            return "sandbox-1"
-
-    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", FakeSandboxBackend)
     monkeypatch.setattr(
         svc,
         "_build_langfuse_run_context",
@@ -304,6 +294,7 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
     monkeypatch: pytest.MonkeyPatch,
 ):
     calls: dict[str, object] = {}
+    lifecycle: list[str] = []
     db = _FakeSession()
 
     class FakeRunRepository:
@@ -324,12 +315,15 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
         context_schema = _FakeContext
 
         async def stream_messages_with_state(self, messages, input_context=None, **kwargs):
+            await kwargs.pop("on_prepared")()
             assert db.commit_count == 2
             assert calls["trace_binding"] == {
                 "run_id": "run-1",
                 "trace_id": "trace-seeded",
                 "worker_id": "worker-1",
             }
+            assert lifecycle == ["prepared"]
+            lifecycle.append("streaming")
             calls["stream_messages"] = messages
             calls["stream_input_context"] = input_context
             calls["stream_kwargs"] = kwargs
@@ -417,6 +411,10 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
         flush_langfuse=lambda: calls.setdefault("flushed", True),
     )
 
+    async def on_prepared() -> None:
+        assert db.commit_count == 2
+        lifecycle.append("prepared")
+
     chunks = []
     async for chunk in svc.stream_agent_chat(
         agent_slug="test-agent",
@@ -425,6 +423,7 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
         input_message=build_chat_input_message("hello"),
         current_user=SimpleNamespace(id=1, uid="user-1", role="user", department_id="dept-1"),
         db=db,
+        on_prepared=on_prepared,
     ):
         chunks.append(json.loads(chunk.decode("utf-8")))
 
@@ -467,6 +466,7 @@ async def test_stream_agent_chat_commits_before_stream_and_persists_langfuse_con
     assert init_attachment["path"].endswith("/uploads/current.txt")
     assert calls["flushed"] is True
     assert isinstance(calls["stream_messages"][0], HumanMessage)
+    assert lifecycle == ["prepared", "streaming"]
 
 
 @pytest.mark.asyncio
@@ -622,7 +622,7 @@ async def test_stream_agent_chat_creates_conversation_before_reading_workdir(
 
 
 @pytest.mark.asyncio
-async def test_stream_agent_chat_sandbox_bootstrap_failure_prevents_agent_execution(
+async def test_stream_agent_chat_does_not_bootstrap_sandbox_before_agent_execution(
     monkeypatch: pytest.MonkeyPatch,
 ):
     agent_started = False
@@ -634,14 +634,7 @@ async def test_stream_agent_chat_sandbox_bootstrap_failure_prevents_agent_execut
             nonlocal agent_started
             del messages, input_context, kwargs
             agent_started = True
-            yield "messages", (AIMessageChunk(content="must not run"), {"node": "llm"})
-
-    @asynccontextmanager
-    async def fake_session_context():
-        yield _FakeSession()
-
-    async def fake_save_partial_message(*_args, **_kwargs):
-        return None
+            yield "messages", (AIMessageChunk(content="runs without sandbox"), {"node": "llm"})
 
     _patch_stream_scaffolding(
         monkeypatch,
@@ -655,16 +648,20 @@ async def test_stream_agent_chat_sandbox_bootstrap_failure_prevents_agent_execut
         ),
     )
 
-    class FailingSandboxBackend:
+    class UnexpectedSandboxBackend:
         def __init__(self, **_kwargs):
-            pass
+            raise AssertionError("纯文本 Agent 流不应构造 Sandbox Backend")
 
         def ensure_available(self):
-            raise RuntimeError("sandbox bootstrap failed")
+            raise AssertionError("纯文本 Agent 流不应预创建 Sandbox")
 
-    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", FailingSandboxBackend)
-    monkeypatch.setattr(svc.pg_manager, "get_async_session_context", fake_session_context)
-    monkeypatch.setattr(svc, "save_partial_message", fake_save_partial_message)
+    monkeypatch.setattr(svc, "ProvisionerSandboxBackend", UnexpectedSandboxBackend, raising=False)
+    monkeypatch.setattr(
+        svc,
+        "get_user_skills_root_dir",
+        lambda _uid: (_ for _ in ()).throw(AssertionError("纯文本 Agent 流不应物化 Skill 投影根")),
+        raising=False,
+    )
 
     chunks = []
     async for chunk in svc.stream_agent_chat(
@@ -677,10 +674,9 @@ async def test_stream_agent_chat_sandbox_bootstrap_failure_prevents_agent_execut
     ):
         chunks.append(json.loads(chunk.decode("utf-8")))
 
-    assert agent_started is False
-    assert chunks[-1]["status"] == "error"
-    assert "sandbox bootstrap failed" in chunks[-1]["error_message"]
-    assert all(chunk.get("status") != "finished" for chunk in chunks)
+    assert agent_started is True
+    assert chunks[-1]["status"] == "finished"
+    assert any(chunk.get("response") == "runs without sandbox" for chunk in chunks)
 
 
 @pytest.mark.asyncio

@@ -313,7 +313,7 @@ foreach ($image in $images) {
     }
 }
 
-$sandboxImage = "enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
+$sandboxImage = "enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:1.11.0"
 if (-not (Test-SkipExistingImage $sandboxImage)) {
     Write-Host "🔄 Pulling ${sandboxImage}..." -ForegroundColor Yellow
     docker pull $sandboxImage

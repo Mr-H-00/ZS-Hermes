@@ -15,17 +15,15 @@ share the same runtime behavior once they reach the worker.
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Literal
 
 from langchain.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.types import Command
 from yuxi.agents.backends.paths import runtime_workdir_path
-from yuxi.agents.backends.sandbox import ProvisionerSandboxBackend
 from yuxi.agents.base import _json_safe
 from yuxi.agents.buildin import agent_manager
 from yuxi.agents.context import build_agent_input_context, normalize_agent_context_config
-from yuxi.agents.skills.service import get_user_skills_root_dir
 from yuxi.agents.state import AgentStatePayload
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
@@ -473,18 +471,6 @@ async def _stream_agent_events(agent, messages, *, input_context=None, **kwargs)
         **kwargs,
     ):
         yield mode, payload
-
-
-async def _ensure_persistent_sandbox(*, runtime_scope_id: str, uid: str, workdir_path: str) -> None:
-    """物化 Sandbox 的用户级挂载根并确认持久 runtime 可用。"""
-    # Workdir 已在 ARQ 发布前物化；这里只补齐首次构图前缺失的 Skill 投影根。
-    await asyncio.to_thread(get_user_skills_root_dir, uid)
-    backend = ProvisionerSandboxBackend(
-        thread_id=runtime_scope_id,
-        uid=uid,
-        workdir_path=workdir_path,
-    )
-    await asyncio.to_thread(backend.ensure_available)
 
 
 async def _get_existing_message_ids(conv_repo: ConversationRepository, thread_id: str) -> set[str]:
@@ -1138,6 +1124,7 @@ async def stream_agent_chat(
     db,
     save_user_message: bool = True,
     execution_snapshot: dict | None = None,
+    on_prepared: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[bytes]:
     start_time = asyncio.get_event_loop().time()
 
@@ -1291,11 +1278,6 @@ async def stream_agent_chat(
 
         # 智能体流式执行期间不访问业务数据库，先结束预处理事务并归还连接池。
         await db.commit()
-        await _ensure_persistent_sandbox(
-            runtime_scope_id=runtime_scope_id,
-            uid=uid,
-            workdir_path=workdir_path,
-        )
 
         # 先构建 langgraph_config
         langgraph_config = {"configurable": {"thread_id": thread_id, "uid": uid}}
@@ -1310,6 +1292,7 @@ async def stream_agent_chat(
             callbacks=langfuse_run.callbacks,
             metadata=langfuse_run.metadata,
             tags=langfuse_run.tags,
+            on_prepared=on_prepared,
         ):
             if mode == "values":
                 agent_state = extract_agent_state(
@@ -1478,6 +1461,7 @@ async def stream_agent_resume(
     current_user,
     db,
     execution_snapshot: dict | None = None,
+    on_prepared: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[bytes]:
     start_time = asyncio.get_event_loop().time()
 
@@ -1520,11 +1504,6 @@ async def stream_agent_resume(
     meta["runtime_scope_id"] = runtime_scope_id
     meta["workdir_relative_path"] = workdir_path
     meta["workdir_path"] = runtime_workdir_path(workdir_path)
-    await _ensure_persistent_sandbox(
-        runtime_scope_id=runtime_scope_id,
-        uid=uid,
-        workdir_path=workdir_path,
-    )
     input_context = await build_agent_input_context(
         _runtime_agent_config(agent_config, execution_snapshot),
         thread_id=thread_id,
@@ -1561,6 +1540,7 @@ async def stream_agent_resume(
         callbacks=langfuse_run.callbacks,
         metadata=langfuse_run.metadata,
         tags=langfuse_run.tags,
+        on_prepared=on_prepared,
     )
 
     protocol_message_ids: dict[tuple[str, str], str] = {}

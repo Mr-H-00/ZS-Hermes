@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
+from contextlib import suppress
 
 import asyncpg
 import pytest
 from yuxi.services.run_queue_service import append_run_stream_event, get_redis_client
+from yuxi.storage.redis import close_async_redis_client
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+
+
+@pytest.fixture(autouse=True)
+async def isolated_run_events_redis_client():
+    """确保共享 Redis 客户端只在当前测试的事件循环内使用。"""
+    await close_async_redis_client()
+    yield
+    await close_async_redis_client()
 
 
 def _postgres_dsn() -> str:
@@ -17,7 +28,11 @@ def _postgres_dsn() -> str:
     )
 
 
-async def _collect_sse_payloads(response) -> list[tuple[str, dict, str | None]]:
+async def _collect_sse_payloads(
+    response,
+    *,
+    first_event_received: asyncio.Event | None = None,
+) -> list[tuple[str, dict, str | None]]:
     event = "message"
     event_id = None
     data_lines: list[str] = []
@@ -27,6 +42,8 @@ async def _collect_sse_payloads(response) -> list[tuple[str, dict, str | None]]:
         if not line:
             if data_lines:
                 payloads.append((event, json.loads("\n".join(data_lines)), event_id))
+                if first_event_received is not None and len(payloads) == 1:
+                    first_event_received.set()
                 if event == "end":
                     return payloads
             event = "message"
@@ -56,11 +73,14 @@ async def test_run_events_verbose_false_returns_compact_payload(test_client, sta
         await conn.execute(
             """
             INSERT INTO agent_runs
-                (id, conversation_thread_id, runtime_scope_id, agent_slug, uid, request_id,
-                 input_payload, status, run_type)
-            VALUES ($1, $2, $2, $3, $4, $5, $6::jsonb, $7, $8)
+                (
+                    id, conversation_thread_id, runtime_scope_id, agent_slug, uid, request_id,
+                    input_payload, token_usage, status, run_type, source, channel, origin_metadata
+                )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, '{}'::jsonb, $8, $9, 'chat', 'web', '{}'::jsonb)
             """,
             run_id,
+            thread_id,
             thread_id,
             "deep-research",
             uid,
@@ -180,6 +200,105 @@ async def test_run_events_verbose_false_returns_compact_payload(test_client, sta
         assert "request_id" not in end_event[1]["payload"]["chunk"]
         assert "meta" not in end_event[1]["payload"]["chunk"]
     finally:
+        redis = await get_redis_client()
+        await redis.delete(f"run:events:{run_id}")
+        conn = await asyncpg.connect(_postgres_dsn())
+        try:
+            await conn.execute("DELETE FROM agent_runs WHERE id = $1", run_id)
+        finally:
+            await conn.close()
+
+
+async def test_run_events_delivers_new_redis_event_without_one_second_poll_delay(
+    test_client,
+    standard_user,
+    admin_headers,
+):
+    uid = str(standard_user["user"]["uid"])
+    run_id = str(uuid.uuid4())
+    thread_id = str(uuid.uuid4())
+    request_id = f"req-{uuid.uuid4()}"
+
+    conn = await asyncpg.connect(_postgres_dsn())
+    try:
+        await conn.execute(
+            """
+            INSERT INTO agent_runs
+                (
+                    id, conversation_thread_id, runtime_scope_id, agent_slug, uid, request_id,
+                    input_payload, token_usage, status, run_type, source, channel, origin_metadata
+                )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, '{}'::jsonb, $8, $9, 'chat', 'web', '{}'::jsonb)
+            """,
+            run_id,
+            thread_id,
+            thread_id,
+            "deep-research",
+            uid,
+            request_id,
+            json.dumps({"query": "SSE latency probe"}),
+            "running",
+            "chat",
+        )
+    finally:
+        await conn.close()
+
+    await append_run_stream_event(
+        run_id,
+        "messages",
+        {"items": [{"status": "loading", "response": "probe-ready"}]},
+        thread_id=thread_id,
+    )
+    first_event_received = asyncio.Event()
+    published_at = None
+
+    async def publish_terminal_event():
+        nonlocal published_at
+        await first_event_received.wait()
+        await asyncio.sleep(0.15)
+        await append_run_stream_event(
+            run_id,
+            "end",
+            {"status": "completed", "request_id": request_id},
+            thread_id=thread_id,
+        )
+        published_at = asyncio.get_running_loop().time()
+
+    publisher = asyncio.create_task(publish_terminal_event())
+    try:
+        async with test_client.stream(
+            "GET",
+            f"/api/agent/runs/{run_id}/events",
+            params={"verbose": "false"},
+            headers=standard_user["headers"],
+        ) as response:
+            assert response.status_code == 200, response.text
+            payloads = await _collect_sse_payloads(response, first_event_received=first_event_received)
+
+        assert published_at is not None
+        elapsed_after_publish = asyncio.get_running_loop().time() - published_at
+        assert elapsed_after_publish < 0.6
+        assert [event for event, _payload, _event_id in payloads] == ["messages", "end"]
+        assert payloads[-1][1]["payload"]["status"] == "completed"
+
+        async with test_client.stream(
+            "GET",
+            f"/api/agent/runs/{run_id}/events",
+            params={"verbose": "false"},
+            headers=admin_headers,
+        ) as response:
+            assert response.status_code == 200, response.text
+            unauthorized_payloads = await _collect_sse_payloads(response)
+
+        assert [event for event, _payload, _event_id in unauthorized_payloads] == ["error"]
+        assert unauthorized_payloads[0][1]["message"] == "运行任务不存在"
+    finally:
+        if not publisher.done():
+            publisher.cancel()
+            with suppress(asyncio.CancelledError):
+                await publisher
+        else:
+            await publisher
         redis = await get_redis_client()
         await redis.delete(f"run:events:{run_id}")
         conn = await asyncpg.connect(_postgres_dsn())

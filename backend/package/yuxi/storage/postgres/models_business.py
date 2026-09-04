@@ -1,6 +1,6 @@
 """PostgreSQL 业务数据模型 - 用户、部门、对话等相关表"""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -25,7 +25,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from yuxi.storage.minio.client import normalize_public_minio_url
-from yuxi.utils.datetime_utils import format_utc_datetime, utc_now_naive
+from yuxi.utils.datetime_utils import duration_ms, format_utc_datetime, utc_now_naive
 
 Base = declarative_base()
 
@@ -63,6 +63,29 @@ PROJECT_STATUS_CONSTRAINT_SQL = "status IN ('active', 'deleted')"
 # 新建线程的初始已查看标记，用于区分"尚无任何 Run"与"上线前的历史会话"，
 # 避免 startup 回填把后续新产生的未读状态误清为已读。不会与真实 Run id 冲突。
 UNVIEWED_RUN_MARKER = "__unviewed__"
+
+
+def build_agent_run_timing(
+    *,
+    created_at: datetime | None,
+    started_at: datetime | None,
+    prepared_at: datetime | None,
+    first_output_at: datetime | None,
+    finished_at: datetime | None,
+) -> dict[str, Any]:
+    """从 AgentRun 权威时间点生成统一的阶段时延投影。"""
+    return {
+        "created_at": format_utc_datetime(created_at),
+        "started_at": format_utc_datetime(started_at),
+        "prepared_at": format_utc_datetime(prepared_at),
+        "first_output_at": format_utc_datetime(first_output_at),
+        "finished_at": format_utc_datetime(finished_at),
+        "dispatch_latency_ms": duration_ms(created_at, started_at),
+        "preparation_latency_ms": duration_ms(started_at, prepared_at),
+        "model_first_output_latency_ms": duration_ms(prepared_at, first_output_at),
+        "first_output_latency_ms": duration_ms(created_at, first_output_at),
+        "total_latency_ms": duration_ms(created_at, finished_at),
+    }
 
 
 class Project(Base):
@@ -1170,6 +1193,8 @@ class AgentRun(Base):
     manifest_fingerprint = Column(String(64), nullable=True, comment="运行清单规范化 JSON 的 SHA-256 指纹")
     manifest_recorded_at = Column(DateTime, nullable=True, comment="运行清单固化时间")
     started_at = Column(DateTime, nullable=True, comment="Start time")
+    prepared_at = Column(DateTime, nullable=True, comment="当前 Run 首次完成模型调用前准备的时间")
+    first_output_at = Column(DateTime, nullable=True, comment="当前 Run 首次产生非空模型语义输出的时间")
     finished_at = Column(DateTime, nullable=True, comment="Finish time")
     created_at = Column(DateTime, default=utc_now_naive, comment="Creation time")
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, comment="Update time")
@@ -1209,9 +1234,18 @@ class AgentRun(Base):
             "manifest": self.manifest,
             "manifest_fingerprint": self.manifest_fingerprint,
             "started_at": format_utc_datetime(self.started_at),
+            "prepared_at": format_utc_datetime(self.prepared_at),
+            "first_output_at": format_utc_datetime(self.first_output_at),
             "finished_at": format_utc_datetime(self.finished_at),
             "created_at": format_utc_datetime(self.created_at),
             "updated_at": format_utc_datetime(self.updated_at),
+            "timing": build_agent_run_timing(
+                created_at=self.created_at,
+                started_at=self.started_at,
+                prepared_at=self.prepared_at,
+                first_output_at=self.first_output_at,
+                finished_at=self.finished_at,
+            ),
         }
 
 

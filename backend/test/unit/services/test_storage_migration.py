@@ -254,6 +254,8 @@ async def test_main_v2_business_schema_is_converged_and_versioned_as_current(mon
         ensure_business_schema=lambda: _record(calls, "business_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         migrate_business_schema_v3_to_v4=lambda: _record(calls, "business_v3_to_v4"),
+        migrate_business_schema_v4_to_v5=lambda: _record(calls, "business_v4_to_v5"),
+        migrate_business_schema_v5_to_v6=lambda: _record(calls, "business_v5_to_v6"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
         close=lambda: _record(calls, "close"),
@@ -284,7 +286,19 @@ async def test_main_v2_business_schema_is_converged_and_versioned_as_current(mon
 
 
 @pytest.mark.asyncio
-async def test_main_v3_business_schema_runs_audit_migration_before_versioning(monkeypatch):
+@pytest.mark.parametrize(
+    ("previous_version", "expected_migrations"),
+    [
+        (3, ["business_v3_to_v4", "business_v4_to_v5", "business_v5_to_v6"]),
+        (4, ["business_v4_to_v5", "business_v5_to_v6"]),
+        (5, ["business_v5_to_v6"]),
+    ],
+)
+async def test_main_upgrades_supported_business_schema_before_versioning(
+    monkeypatch,
+    previous_version: int,
+    expected_migrations: list[str],
+):
     calls: list[str] = []
     sessions = [_Session(), _Session(), _Session()]
 
@@ -296,7 +310,7 @@ async def test_main_v3_business_schema_runs_audit_migration_before_versioning(mo
         initialize=lambda: calls.append("initialize"),
         schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
         create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
-        get_schema_versions=lambda: _async_value({"business": 3, "knowledge": KNOWLEDGE_SCHEMA_VERSION}),
+        get_schema_versions=lambda: _async_value({"business": previous_version, "knowledge": KNOWLEDGE_SCHEMA_VERSION}),
         record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
@@ -304,6 +318,7 @@ async def test_main_v3_business_schema_runs_audit_migration_before_versioning(mo
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         migrate_business_schema_v3_to_v4=lambda: _record(calls, "business_v3_to_v4"),
         migrate_business_schema_v4_to_v5=lambda: _record(calls, "business_v4_to_v5"),
+        migrate_business_schema_v5_to_v6=lambda: _record(calls, "business_v5_to_v6"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
         close=lambda: _record(calls, "close"),
@@ -328,8 +343,9 @@ async def test_main_v3_business_schema_runs_audit_migration_before_versioning(mo
 
     await storage_migration.main()
 
-    assert calls.index("business_v3_to_v4") < calls.index("business_v4_to_v5")
-    assert calls.index("business_v4_to_v5") < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
+    migration_calls = [call for call in calls if call.startswith("business_v")]
+    assert migration_calls == expected_migrations
+    assert calls.index(expected_migrations[-1]) < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
     assert {"create_business", "business_schema", "checkpoint"}.isdisjoint(calls)
 
 

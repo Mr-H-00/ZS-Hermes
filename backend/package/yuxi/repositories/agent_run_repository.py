@@ -895,6 +895,67 @@ class AgentRunRepository:
         await self.db.flush()
         return run, True
 
+    async def record_prepared(
+        self,
+        run_id: str,
+        *,
+        worker_id: str,
+        observed_at: datetime | None = None,
+        checked_at: datetime | None = None,
+    ) -> tuple[AgentRun | None, bool]:
+        """由当前 lease owner write-once 记录运行准备完成时间。"""
+        run = await self._lock_run(run_id)
+        if run is None:
+            return None, False
+        if run.prepared_at is not None:
+            return run, False
+
+        lease_check_time = checked_at or utc_now_naive()
+        self._require_lease_owner(run, worker_id=worker_id, now=lease_check_time, action="记录运行准备时间")
+        event_time = observed_at or lease_check_time
+        if run.started_at is None or event_time < run.started_at:
+            raise ValueError("AgentRun 准备时间不能早于开始时间")
+
+        run.prepared_at = event_time
+        run.updated_at = lease_check_time
+        await self.db.flush()
+        return run, True
+
+    async def record_first_output(
+        self,
+        run_id: str,
+        *,
+        worker_id: str,
+        observed_at: datetime | None = None,
+        checked_at: datetime | None = None,
+    ) -> tuple[AgentRun | None, bool]:
+        """由当前 lease owner write-once 记录首个模型语义输出时间。"""
+        run = await self._lock_run(run_id)
+        if run is None:
+            return None, False
+        if run.first_output_at is not None:
+            return run, False
+
+        lease_check_time = checked_at or utc_now_naive()
+        self._require_lease_owner(run, worker_id=worker_id, now=lease_check_time, action="记录首次模型输出时间")
+        event_time = observed_at or lease_check_time
+        if run.prepared_at is None or event_time < run.prepared_at:
+            raise ValueError("AgentRun 首次输出时间不能早于准备完成时间")
+
+        run.first_output_at = event_time
+        run.updated_at = lease_check_time
+        await self.db.flush()
+        return run, True
+
+    async def list_run_attempts(self, run_id: str) -> list[AgentRunAttempt]:
+        """按执行序号读取一个 Run 的完整 attempt 历史。"""
+        result = await self.db.execute(
+            select(AgentRunAttempt)
+            .where(AgentRunAttempt.run_id == run_id)
+            .order_by(AgentRunAttempt.attempt_no.asc(), AgentRunAttempt.id.asc())
+        )
+        return list(result.scalars().all())
+
     async def _get_open_attempt(self, run_id: str, *, worker_id: str | None = None) -> AgentRunAttempt | None:
         """读取该 Run 仍开放（未终结）的 attempt；指定 worker 时限定为当前 owner。"""
         conditions = [AgentRunAttempt.run_id == run_id, AgentRunAttempt.finished_at.is_(None)]

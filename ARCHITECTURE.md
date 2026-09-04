@@ -58,7 +58,7 @@ Yuxi 只交付完整知识能力路径。API 始终注册 `external_kb`、`knowl
 
 - AgentRun：拥有 Conversation、Message、LangGraph interrupt、线程 FIFO 和 execution tree 语义，通过专用 Run/Attempt 表维护状态、输出与租约。
 - 用户定时 Agent：任务定义和 occurrence 独立持久化；worker 锁定到期任务后复用统一 AgentRun Request/Run 链路，排队与执行状态仍由 AgentRunRequest 和 AgentRun 拥有。
-- Durable Task：用于知识库解析、评估和图谱构建。API 只提交持久 `task_type + handler_version + payload`；`worker` 从 registry 惰性加载领域 Handler，并通过 Task 行的唯一 owner、heartbeat 和 lease 执行。知识文件中间态绑定 Task/attempt owner，失联 failure hook 与 Task 终态同事务收敛文件错误态；PG pending 行由启动与周期 publisher 补发。共享 ARQ worker 明确提供 10 个执行槽，Durable Task 的 PG claim 上限为 4，至少保留 6 个槽供 AgentRun。
+- Durable Task：用于知识库解析、评估和图谱构建。API 只提交持久 `task_type + handler_version + payload`；`worker` 从 registry 惰性加载领域 Handler，并通过 Task 行的唯一 owner、heartbeat 和 lease 执行。知识文件中间态绑定 Task/attempt owner，失联 failure hook 与 Task 终态同事务收敛文件错误态；PG pending 行由启动与周期 publisher 补发。共享 ARQ worker 的执行槽由 Compose 配置，Durable Task 的 PG claim 上限为 4，不能占满 AgentRun 容量。
 
 测试代码位于 `backend/test`，按 `unit`、`integration`、`e2e` 分层。新增或修改后端行为时，测试应放在最能覆盖真实风险的层级。
 
@@ -86,8 +86,8 @@ Yuxi 只交付完整知识能力路径。API 始终注册 `external_kb`、`knowl
 4. 服务在同一数据库事务中创建用户消息和 AgentRunRequest，并按用户、智能体和线程检查活跃 Run 与 FIFO 队头。
 5. 请求可以立即派发、进入等待队列或按 `reject` 策略拒绝；只有数据库提交成功后才向 ARQ 投递 Run。
 6. `worker` 中的 `run_worker` 使用进程 identity 与 job-attempt token 取得 AgentRun lease；未取得 ownership 的重复任务不会执行。执行期间 heartbeat 在独立事务中续租，再加载智能体配置和运行上下文执行对应 LangGraph。Langfuse 启用时，当前 lease owner 在模型流开始前固化预创建 trace ID；Model 与 Tool lifecycle 只在 start/terminal 使用受 lease 保护的短事务，delta 期间不写 PostgreSQL。远端观测不拥有 Run 终态。
-7. 智能体通过 middleware 组合 UserWorkspace 中的当前 Workdir、只读共享 Skills、MCP、SubAgent、审批、摘要和工具能力。根 Agent 与子 Agent 共享同一个 runtime 和 Workdir；知识库能力主要由内置 `knowledge-base` Skill 及其依赖工具按需开放。
-8. Run 事件写入 Redis Stream，取消通过 Redis key/pubsub 传递；AgentRun、消息投递状态、Model/Tool 审计和最终结果写入 PostgreSQL。运行中的 Model AIMessage 与 ToolMessage 分别使用 `model_audit`、`tool_audit` 类型，不进入普通历史、Memory、Dashboard 消息计数或最终输出；终态 State 按稳定 operation ID reconcile，Model 声明的 pending ToolCall 保留审批兼容，工具开始后的 effective input、输出、错误和状态只由 ToolMessage 单向覆盖，同 Run 的最后一条 AIMessage 由 `output_message_id` 转为可展示结果。调试面板通过权限受控的独立审计读接口读取 Model/Tool 最新有界时间线，并按 Message ID 或 `(run_id, role, operation_id)` 与 SSE 投影合并，不改变普通 History 契约。任何 assistant Message 写入前先在 Run 行锁内验证当前 attempt；正常输出、绑定和 `completed` 同事务提交。worker 失联后，过期 lease 会幂等收敛为带 `worker_lease_expired` 原因的 `failed`，残留 running Model 审计收敛为 `abandoned`。该失败只证明执行 ownership 已丢失，外部副作用仍需按 at-least-once 语义核对。
+7. 智能体通过 middleware 组合 UserWorkspace 中的当前 Workdir、只读共享 Skills、MCP、SubAgent、审批、摘要和工具能力。根 Agent 与子 Agent 共享同一个 runtime 和 Workdir；Sandbox 不在 Run 启动时预创建，只在首次 Sandbox-backed 文件或命令操作时按同一 runtime scope 惰性创建，失败在该操作处显式返回。知识库能力主要由内置 `knowledge-base` Skill 及其依赖工具按需开放。
+8. Run 事件写入 Redis Stream；取消先提交 PostgreSQL durable 状态，再通过 Redis key 轮询快速提示，PostgreSQL watcher 负责兜底，不使用 Pub/Sub。AgentRun、消息投递状态、阶段时间点、Model/Tool 审计和最终结果写入 PostgreSQL；阶段耗时从时间点统一派生，不把 Redis 事件或客户端观察值当作历史事实。运行中的 Model AIMessage 与 ToolMessage 分别使用 `model_audit`、`tool_audit` 类型，不进入普通历史、Memory、Dashboard 消息计数或最终输出；终态 State 按稳定 operation ID reconcile，Model 声明的 pending ToolCall 保留审批兼容，工具开始后的 effective input、输出、错误和状态只由 ToolMessage 单向覆盖，同 Run 的最后一条 AIMessage 由 `output_message_id` 转为可展示结果。调试面板通过权限受控的独立审计读接口读取 Model/Tool 最新有界时间线，并按 Message ID 或 `(run_id, role, operation_id)` 与 SSE 投影合并，不改变普通 History 契约。任何 assistant Message 写入前先在 Run 行锁内验证当前 attempt；正常输出、绑定和 `completed` 同事务提交。worker 失联后，过期 lease 会幂等收敛为带 `worker_lease_expired` 原因的 `failed`，残留 running Model 审计收敛为 `abandoned`。该失败只证明执行 ownership 已丢失，外部副作用仍需按 at-least-once 语义核对。
 9. 前端在排队阶段消费 Request SSE，派发后切换到 Run SSE，并根据数据库状态处理断线恢复和终态补偿。
 10. Conversation 保存不可变 `project_id`，每个 Project 一期绑定一个 `workdir_path`，多个 Project 可以共享同一路径。v0.7.1 Conversation 在一次性迁移中直接获得 implicit Project，不形成 Conversation 路径中间态。新 managed Project 使用服务端创建的 `projects/YYYY-MM-DD_HH-MM-SS_<project-id-prefix>[-N]`，既有 `projects/<uuid>` 继续有效；linked Project 可绑定当前 uid UserWorkspace 下除根目录外任意经过 no-follow 校验的已有目录。selectable Project 支持重命名；删除在同一事务中软删除 Project 与全部 Conversation，但不删除或修改 Workdir 字节。Workspace tree 仅展示 `/projects` 下属于 active selectable Project 的目录子树，隐藏 implicit、deleted 与尚未归属 Project 的匿名目录。`yuxi.workspace` 唯一拥有宿主路径和 fd-relative 文件访问，统一 Workdir resolver 通过 Project 为 Viewer、附件、Artifact、Run 和 SubAgent 提供同一持久路径。Agent Backend 单独把该路径映射为 `/home/gem/user-data/...` runtime 路径。目录的持久 POSIX 字节是 Agent 文件、附件、Viewer 和 artifact 的实时事实源，`uploads/outputs` 只是按需创建的目录约定。Run 终态清理 runtime 进程但保留 Workdir。
 
@@ -111,7 +111,7 @@ Yuxi 只交付完整知识能力路径。API 始终注册 `external_kb`、`knowl
 - Skill 的依赖工具只有在对应 Skill 被显式预加载或动态激活后才对模型开放；基础工具与受 Skill 门控的工具保持边界。
 - Shipping 进程始终装配知识库、图谱和评估能力；解析器等只服务实际动作的重运行时继续保持惰性加载。
 - 文件边界只使用三种跨层路径：数据库中的 Project `workdir_path`、Viewer 当前 scope 相对 `/foo`、Agent/artifact runtime 绝对 `/home/gem/user-data/...`；宿主 `Path` 由 `yuxi.workspace` 或显式 v0.7.1 storage migration 内部持有，普通 Service/Repository 不得取得。
-- 沙盒虚拟路径由当前 Project Workdir、User Data 与共享 Skills 根共同约束；个人 Skill 保存在 UserWorkspace 的 `agents/skills`，共享与内置 Skill 才投影到只读 `/home/gem/skills`。用户可见路径、对象存储 URL 与宿主机真实路径不能混用。
+- 沙盒虚拟路径由当前 Project Workdir、User Data 与共享 Skills 根共同约束；个人 Skill 保存在 UserWorkspace 的 `agents/skills`，共享与内置 Skill 才投影到只读 `/home/gem/skills`。Sandbox 的惰性创建不得绕过 runtime scope、uid、Workdir 或 generation 校验，Run 终态仍清理 runtime 进程并保留 Workdir。用户可见路径、对象存储 URL 与宿主机真实路径不能混用。
 - 面向用户和外部系统的输入在边界校验；内部服务优先依赖已有类型、事务和仓储约束，避免用静默回退掩盖设计错误。
 
 ## 跨切面关注点

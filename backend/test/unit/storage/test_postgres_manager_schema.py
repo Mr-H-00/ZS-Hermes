@@ -166,6 +166,18 @@ async def test_migrate_business_schema_v4_to_v5_drops_agent_run_cursor():
 
 
 @pytest.mark.asyncio
+async def test_migrate_business_schema_v5_to_v6_adds_agent_run_timing():
+    """v5→v6 迁移执行 AgentRun 阶段时间字段 DDL。"""
+    async with _recording_manager() as (manager, connection):
+        await manager.migrate_business_schema_v5_to_v6()
+
+    assert connection.statements == [
+        "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMP WITHOUT TIME ZONE",
+        "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS first_output_at TIMESTAMP WITHOUT TIME ZONE",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_ensure_business_schema_cleans_duplicate_active_agent_runs_before_unique_index():
     async with _recording_manager() as (manager, connection):
         await manager.ensure_business_schema()

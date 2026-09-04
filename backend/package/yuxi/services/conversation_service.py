@@ -20,6 +20,7 @@ from yuxi.storage.postgres.models_business import (
     AGENT_RUN_TERMINAL_STATUSES,
     AgentRun,
     User,
+    build_agent_run_timing,
 )
 from yuxi.utils.datetime_utils import format_utc_datetime
 from yuxi.utils.logging_config import logger
@@ -388,16 +389,29 @@ async def get_thread_history_view(
 
     run_ids_in_messages = {msg.run_id for msg in messages if msg.run_id}
     run_created_at: dict[str, Any] = {}
-    run_timing: dict[str, tuple[Any, Any]] = {}
+    run_timing: dict[str, dict[str, Any]] = {}
     if run_ids_in_messages:
         run_result = await db.execute(
-            select(AgentRun.id, AgentRun.created_at, AgentRun.started_at, AgentRun.finished_at)
+            select(
+                AgentRun.id,
+                AgentRun.created_at,
+                AgentRun.started_at,
+                AgentRun.prepared_at,
+                AgentRun.first_output_at,
+                AgentRun.finished_at,
+            )
             .where(AgentRun.id.in_(run_ids_in_messages))
             .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
         )
-        for run_id, created_at, started_at, finished_at in run_result.all():
+        for run_id, created_at, started_at, prepared_at, first_output_at, finished_at in run_result.all():
             run_created_at[run_id] = created_at
-            run_timing[run_id] = (started_at, finished_at)
+            run_timing[run_id] = build_agent_run_timing(
+                created_at=created_at,
+                started_at=started_at,
+                prepared_at=prepared_at,
+                first_output_at=first_output_at,
+                finished_at=finished_at,
+            )
     messages.sort(
         key=lambda message: (
             run_created_at.get(message.run_id) or message.created_at,
@@ -459,9 +473,10 @@ async def get_thread_history_view(
         }
 
         if msg.role == "assistant":
-            started_at, finished_at = run_timing.get(msg.run_id, (None, None))
-            msg_dict["run_started_at"] = _format_naive_utc_isoformat(started_at)
-            msg_dict["run_finished_at"] = _format_naive_utc_isoformat(finished_at)
+            timing = run_timing.get(msg.run_id)
+            msg_dict["run_timing"] = timing
+            msg_dict["run_started_at"] = timing.get("started_at") if timing else None
+            msg_dict["run_finished_at"] = timing.get("finished_at") if timing else None
 
         if msg.tool_calls:
             msg_dict["tool_calls"] = [_serialize_tool_call(tool_call) for tool_call in msg.tool_calls]
@@ -533,13 +548,6 @@ def _require_matching_thread_creation_intent(
     )
     if conversation.agent_id != agent_slug or not same_project_intent:
         raise HTTPException(status_code=409, detail="request_id 已用于其他 Conversation 创建意图")
-
-
-def _format_naive_utc_isoformat(value: Any) -> str | None:
-    """将数据库中的 naive UTC 时间序列化为带 Z 后缀的 ISO 字符串。"""
-    if value is None:
-        return None
-    return value.isoformat() + "Z"
 
 
 def _serialize_history_metadata(message: Any) -> dict[str, Any]:

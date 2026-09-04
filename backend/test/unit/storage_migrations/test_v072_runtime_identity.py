@@ -55,6 +55,7 @@ def test_runtime_identity_migration_preserves_symlink_without_following_target(
     workspace.mkdir(parents=True)
     outside = tmp_path / "outside"
     outside.mkdir()
+    outside.chmod(0o755)
     (workspace / "linked").symlink_to(outside, target_is_directory=True)
     ownership_updates: list[tuple[str, bool]] = []
     monkeypatch.setattr(migration.os, "fchown", lambda *_args: None)

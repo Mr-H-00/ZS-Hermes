@@ -135,6 +135,8 @@ async def test_queue_history_keeps_each_request_with_its_reply(session):
 async def test_thread_history_includes_run_timing_on_assistant_messages(session):
     started_at = datetime(2026, 7, 12, 9, 0, 0)
     run_started_at = started_at + timedelta(seconds=10)
+    run_prepared_at = started_at + timedelta(seconds=12)
+    run_first_output_at = started_at + timedelta(seconds=16)
     run_finished_at = started_at + timedelta(seconds=22)
     session.add(
         Conversation(
@@ -159,6 +161,8 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
             status="completed",
             created_at=started_at,
             started_at=run_started_at,
+            prepared_at=run_prepared_at,
+            first_output_at=run_first_output_at,
             finished_at=run_finished_at,
         )
     )
@@ -196,10 +200,23 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
     assistant_message = next(message for message in history["history"] if message["type"] == "ai")
     assert assistant_message["run_started_at"] == "2026-07-12T09:00:10Z"
     assert assistant_message["run_finished_at"] == "2026-07-12T09:00:22Z"
+    assert assistant_message["run_timing"] == {
+        "created_at": "2026-07-12T09:00:00Z",
+        "started_at": "2026-07-12T09:00:10Z",
+        "prepared_at": "2026-07-12T09:00:12Z",
+        "first_output_at": "2026-07-12T09:00:16Z",
+        "finished_at": "2026-07-12T09:00:22Z",
+        "dispatch_latency_ms": 10000,
+        "preparation_latency_ms": 2000,
+        "model_first_output_latency_ms": 4000,
+        "first_output_latency_ms": 16000,
+        "total_latency_ms": 22000,
+    }
 
     user_message = next(message for message in history["history"] if message["type"] == "human")
     assert "run_started_at" not in user_message
     assert "run_finished_at" not in user_message
+    assert "run_timing" not in user_message
 
 
 async def test_thread_history_handles_run_without_timing_fields(session):
@@ -251,6 +268,18 @@ async def test_thread_history_handles_run_without_timing_fields(session):
     assistant_message = next(message for message in history["history"] if message["type"] == "ai")
     assert assistant_message["run_started_at"] is None
     assert assistant_message["run_finished_at"] is None
+    assert assistant_message["run_timing"] == {
+        "created_at": "2026-07-12T09:00:00Z",
+        "started_at": None,
+        "prepared_at": None,
+        "first_output_at": None,
+        "finished_at": None,
+        "dispatch_latency_ms": None,
+        "preparation_latency_ms": None,
+        "model_first_output_latency_ms": None,
+        "first_output_latency_ms": None,
+        "total_latency_ms": None,
+    }
 
 
 async def test_thread_history_hides_internal_metadata_from_published_model_audit(session):

@@ -8,6 +8,7 @@ import time
 import weakref
 from dataclasses import dataclass
 
+from yuxi.config import get_int_env
 from yuxi.utils.logging_config import logger
 from yuxi.workspace.paths import normalize_workdir_path, workspace_uid_dirname
 
@@ -100,7 +101,11 @@ class ProvisionerSandboxProvider:
             raise ValueError("Only SANDBOX_PROVIDER=provisioner is supported.")
         provisioner_url = (os.getenv("SANDBOX_PROVISIONER_URL") or "http://sandbox-provisioner:8002").strip()
 
-        self._client = ProvisionerClient(provisioner_url, token=sandbox_provisioner_token())
+        self._client = ProvisionerClient(
+            provisioner_url,
+            token=sandbox_provisioner_token(),
+            delete_timeout_seconds=get_int_env("SANDBOX_PROVISIONER_DELETE_TIMEOUT_SECONDS", 120),
+        )
         self._lock = threading.Lock()
         # 活跃或等待中的调用者持有强引用；空闲作用域的锁自动回收。
         self._thread_locks: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValueDictionary()

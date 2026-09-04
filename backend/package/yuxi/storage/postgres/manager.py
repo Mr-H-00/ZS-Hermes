@@ -8,6 +8,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from yuxi.config import get_int_env
 from yuxi.storage.postgres.models_business import (
     AGENT_RUN_SHAPE_CONSTRAINT_NAME,
     AGENT_RUN_SHAPE_CONSTRAINT_SQL,
@@ -22,7 +23,7 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
-BUSINESS_SCHEMA_VERSION = 5
+BUSINESS_SCHEMA_VERSION = 6
 KNOWLEDGE_SCHEMA_VERSION = 2
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
@@ -34,9 +35,7 @@ AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
 AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS langfuse_trace_id VARCHAR(64)",
 )
-AGENT_RUN_CURSOR_SCHEMA_STATEMENTS = (
-    "ALTER TABLE IF EXISTS agent_runs DROP COLUMN IF EXISTS last_event_id",
-)
+AGENT_RUN_CURSOR_SCHEMA_STATEMENTS = ("ALTER TABLE IF EXISTS agent_runs DROP COLUMN IF EXISTS last_event_id",)
 MESSAGE_AUDIT_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS operation_id VARCHAR(128)",
     "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITHOUT TIME ZONE",
@@ -95,6 +94,10 @@ AGENT_RUN_FACT_SCHEMA_STATEMENTS = (
         "ON agent_run_attempts(run_id, attempt_no)"
     ),
     "CREATE INDEX IF NOT EXISTS ix_agent_run_attempts_open ON agent_run_attempts(run_id, finished_at)",
+)
+AGENT_RUN_TIMING_SCHEMA_STATEMENTS = (
+    "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMP WITHOUT TIME ZONE",
+    "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS first_output_at TIMESTAMP WITHOUT TIME ZONE",
 )
 WORKDIR_PATH_SCHEMA_STATEMENTS = (
     f"""
@@ -357,8 +360,9 @@ class PostgresManager(metaclass=SingletonMeta):
                 json_deserializer=json.loads,
                 pool_pre_ping=True,
                 pool_recycle=1800,
-                pool_size=10,
-                max_overflow=20,
+                pool_size=get_int_env("POSTGRES_POOL_SIZE", 10),
+                max_overflow=get_int_env("POSTGRES_MAX_OVERFLOW", 20, minimum=0),
+                pool_timeout=get_int_env("POSTGRES_POOL_TIMEOUT_SECONDS", 30),
             )
 
             # 创建异步会话工厂
@@ -379,7 +383,8 @@ class PostgresManager(metaclass=SingletonMeta):
             # 创建 LangGraph 专属连接池
             self.langgraph_pool = AsyncConnectionPool(
                 conninfo=langgraph_db_url,
-                max_size=10,  # 根据你的 Agent 并发情况设置，通常 5-10 足够了
+                max_size=get_int_env("LANGGRAPH_POSTGRES_POOL_SIZE", 10),
+                timeout=get_int_env("LANGGRAPH_POSTGRES_POOL_TIMEOUT_SECONDS", 30),
                 kwargs={"autocommit": True},  # LangGraph Checkpoint 强依赖 autocommit
                 check=AsyncConnectionPool.check_connection,
             )
@@ -924,6 +929,13 @@ class PostgresManager(metaclass=SingletonMeta):
             for statement in AGENT_RUN_CURSOR_SCHEMA_STATEMENTS:
                 await conn.execute(text(statement))
 
+    async def migrate_business_schema_v5_to_v6(self) -> None:
+        """为既有 business v5 数据库增加 AgentRun 阶段时间字段。"""
+        self._check_initialized()
+        async with self.async_engine.begin() as conn:
+            for statement in AGENT_RUN_TIMING_SCHEMA_STATEMENTS:
+                await conn.execute(text(statement))
+
     async def ensure_business_schema(self):
         """确保业务 schema 包含后续新增字段（运行时 schema 演进）。"""
         self._check_initialized()
@@ -1166,6 +1178,7 @@ class PostgresManager(metaclass=SingletonMeta):
             *AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
             *MESSAGE_AUDIT_SCHEMA_STATEMENTS,
             *AGENT_RUN_FACT_SCHEMA_STATEMENTS,
+            *AGENT_RUN_TIMING_SCHEMA_STATEMENTS,
             (
                 "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS "
                 "origin_metadata JSONB NOT NULL DEFAULT '{}'::jsonb"

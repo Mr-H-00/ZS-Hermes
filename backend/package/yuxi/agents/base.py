@@ -218,6 +218,8 @@ class BaseAgent:
             version="v3",
             transformers=[CustomTransformer],
         )
+        if on_prepared := kwargs.get("on_prepared"):
+            await on_prepared()
         subagent_routes: dict[tuple[str, ...], dict[str, str]] = {}
         route_task = asyncio.create_task(_collect_subagent_routes(run, context.thread_id, subagent_routes))
         try:

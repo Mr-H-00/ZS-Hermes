@@ -12,7 +12,7 @@ Owner：backend/package/yuxi/services/task_service.py
 
 PostgreSQL `tasks` 行拥有通用任务的持久执行意图、当前状态、去重键、Handler 版本、attempt owner、heartbeat 与 lease。API 提交 `task_type + handler_version + payload`，Task 行提交后向 Redis/ARQ 发布 task_id；发布失败保留 pending 事实，由 worker 启动和周期 publisher 补发。
 
-独立 `worker` 从静态 registry 惰性加载领域 service Handler。worker 用唯一 attempt token 原子 claim pending Task；只有 lease 仍有效的当前 owner 可以更新进度、结果和终态。领域 callback 完成后以 PostgreSQL 实时时钟再次验证 lease，失权会回滚 owning transaction。共享 worker 显式提供 10 个 ARQ 槽，Durable Task 的数据库 claim 上限为 4，使长知识任务无法占满 AgentRun 容量；每个终态 Task 接力发布有限数量的 pending intent，正常容量竞争不依赖周期修复器补位。重复 ARQ 消息不能取得运行中任务，旧 owner 在 lease 过期后不能提交迟到结果。worker 的 Durable Task reconciler 与 ARQ、AgentRun reconciler 一同发布单一短 TTL readiness 事实。
+独立 `worker` 从静态 registry 惰性加载领域 service Handler。worker 用唯一 attempt token 原子 claim pending Task；只有 lease 仍有效的当前 owner 可以更新进度、结果和终态。领域 callback 完成后以 PostgreSQL 实时时钟再次验证 lease，失权会回滚 owning transaction。共享 worker 的 ARQ 槽位由 Compose 的 `ARQ_MAX_JOBS` 配置，Durable Task 的数据库 claim 上限固定为 4，使长知识任务无法占满 AgentRun 容量；每个终态 Task 接力发布有限数量的 pending intent，正常容量竞争不依赖周期修复器补位。重复 ARQ 消息不能取得运行中任务，旧 owner 在 lease 过期后不能提交迟到结果。worker 的 Durable Task reconciler 与 ARQ、AgentRun reconciler 一同发布单一短 TTL readiness 事实。
 
 共享 worker 的事件循环同时承载 AgentRun 与 Durable Task heartbeat。知识执行器构造以及 Milvus 集合创建、加载、查询删除等同步 RPC 在线程边界执行；执行器缓存以异步锁维持单实例语义，避免 offload 后的并发重复初始化。Task 进度仍按数值增量节流，但新消息必须持久化；timeout 只要求正有限值，worker 默认值可配置为超过 24 小时，单任务可向下覆盖但不能超过该值，确保 ARQ 外层超时不会先于持久任务契约取消执行。
 
@@ -20,7 +20,7 @@ Task 失联时统一失败，failure hook 在 Task 终态事务内将仍属该 T
 
 知识库 ingest/parse/index、图谱和评估 Handler 位于各自 service，HTTP 路由只提交序列化 payload。评估领域对象与 Task intent 同事务创建或关联；数据库唯一约束拥有活跃任务去重，终态释放 dedupe key。worker 对 shipping registry 中的全部任务执行相同的 claim、取消、删除、裁剪与失联收敛规则，并只在执行对应任务时惰性加载知识 Handler。
 
-Durable Task 结构由 business v3 引入，当前 business schema 为 v4；knowledge schema 为 v2。支持的升级来源由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义。既有 Task 保留非终态和取消意图并标记 `handler_version=0`，只有该明确 legacy 版本使用当前 failure hook；其他未知 Handler 版本 fail-closed。worker 使用当前类型的 failure hook 原子收敛。knowledge 1→2 为文件增加 Task/attempt owner 字段，并把升级前无法归属 attempt 的 `parsing/indexing` 行一次性改为对应错误态；未版本化 baseline 创建当前结构后记录当前版本。
+Durable Task 结构由 business v3 引入，当前 business schema 版本由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义；knowledge schema 为 v2。既有 Task 保留非终态和取消意图并标记 `handler_version=0`，只有该明确 legacy 版本使用当前 failure hook；其他未知 Handler 版本 fail-closed。worker 使用当前类型的 failure hook 原子收敛。knowledge 1→2 为文件增加 Task/attempt owner 字段，并把升级前无法归属 attempt 的 `parsing/indexing` 行一次性改为对应错误态；未版本化 baseline 创建当前结构后记录当前版本。
 
 ## 替代方案
 
