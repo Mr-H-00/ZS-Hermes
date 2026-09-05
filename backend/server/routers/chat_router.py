@@ -85,7 +85,7 @@ async def call(
 async def get_thread_history(
     thread_id: str, current_user: User = Depends(get_required_user), db: AsyncSession = Depends(get_db)
 ):
-    """获取对话历史消息（需要登录）- 包含用户反馈状态"""
+    """读取当前用户的线程信息、Run 与历史消息。"""
     try:
         return await get_thread_history_view(
             thread_id=thread_id,
@@ -93,6 +93,8 @@ async def get_thread_history(
             db=db,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取对话历史消息出错: {e}, {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"获取对话历史消息出错: {str(e)}")

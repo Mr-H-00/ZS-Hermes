@@ -317,7 +317,7 @@ export function useAgentRunStream({
     ts.isStreaming = true
     saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
     if (typeof onRunStarted === 'function') {
-      onRunStarted({ threadId, runId })
+      onRunStarted({ threadId, runId, requestId: options.requestId })
     }
     const touchedThreadIds = new Set([threadId])
     let sawTerminalEvent = false

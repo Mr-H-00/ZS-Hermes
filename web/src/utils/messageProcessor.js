@@ -60,54 +60,45 @@ export class MessageProcessor {
    * @param {Array} serverHistory - 服务器历史记录
    * @returns {Array} 对话数组
    */
-  static convertServerHistoryToMessages(serverHistory) {
-    // Filter out standalone 'tool' messages since tool results are already in AI messages' tool_calls
-    // Backend new storage: tool results are embedded in AI messages' tool_calls array with tool_call_result field
-    const filteredHistory = serverHistory.filter(
-      (item) =>
-        item.type !== 'tool' &&
-        !(item.type === 'human' && item.extra_metadata?.source === 'ask_user_question_resume')
-    )
+  static convertServerHistoryToMessages(serverHistory, runs = []) {
+    const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'interrupted'])
+    const conversations = runs.map((run) => ({
+      run,
+      messages: [],
+      status: terminalStatuses.has(run.status) ? 'finished' : 'loading'
+    }))
+    const byRunId = new Map(conversations.map((conv) => [conv.run.run_id, conv]))
+    let legacyConv = null
 
-    // 按照对话分组
-    const conversations = []
-    let currentConv = null
-
-    for (const item of filteredHistory) {
-      if (item.type === 'human') {
-        // Start new conversation, finalize previous one
-        if (currentConv) {
-          // Find the last AI message and mark it as final
-          for (let i = currentConv.messages.length - 1; i >= 0; i--) {
-            if (currentConv.messages[i].type === 'ai') {
-              currentConv.messages[i].isLast = true
-              currentConv.status = 'finished'
-              break
-            }
-          }
-        }
-        currentConv = {
-          messages: [item],
-          status: 'loading'
-        }
-        conversations.push(currentConv)
-      } else if (item.type === 'ai' && currentConv) {
-        currentConv.messages.push(item)
+    for (const item of serverHistory) {
+      if (item.type === 'tool' ||
+          (item.type === 'human' && item.extra_metadata?.source === 'ask_user_question_resume')) {
+        continue
       }
+      const runId = item.run_id || item.extra_metadata?.run_id
+      let conv = runId ? byRunId.get(runId) : legacyConv
+      if (!conv || (!runId && item.type === 'human')) {
+        conv = { messages: [], status: 'loading' }
+        conversations.push(conv)
+        if (runId) byRunId.set(runId, conv)
+      }
+      conv.messages.push({ ...item })
+      // 没有 Run 关联的旧历史仍按用户轮次展示，不能挂到相邻 Run 上。
+      legacyConv = runId ? null : conv
     }
 
-    // Mark the last conversation as finished
-    if (currentConv && currentConv.messages.length > 0) {
-      // Find the last AI message and mark it as final
-      for (let i = currentConv.messages.length - 1; i >= 0; i--) {
-        if (currentConv.messages[i].type === 'ai') {
-          currentConv.messages[i].isLast = true
-          currentConv.status = 'finished'
-          break
-        }
+    conversations.sort((left, right) => {
+      const leftTime = left.run?.timing?.created_at || left.messages[0]?.created_at || ''
+      const rightTime = right.run?.timing?.created_at || right.messages[0]?.created_at || ''
+      return leftTime.localeCompare(rightTime)
+    })
+    for (const conv of conversations) {
+      const lastAi = conv.messages.findLast((message) => message.type === 'ai')
+      if (lastAi) {
+        lastAi.isLast = true
+        if (!conv.run) conv.status = 'finished'
       }
     }
-
     return conversations
   }
 

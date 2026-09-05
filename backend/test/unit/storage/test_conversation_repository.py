@@ -49,6 +49,50 @@ def test_normalize_title_trims_spaces():
 
 
 @pytest.mark.asyncio
+async def test_list_agent_runs_for_trace_returns_latest_bounded_window_in_order(conversation_session):
+    now = utc_now_naive()
+    conversation = Conversation(
+        thread_id="thread-run-trace-window",
+        project_id="project-run-trace-window",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Run trace window",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    conversation_session.add(conversation)
+    await conversation_session.flush()
+    for index in range(3):
+        created_at = now + timedelta(seconds=index)
+        conversation_session.add(
+            AgentRun(
+                id=f"run-trace-{index}",
+                conversation_thread_id=conversation.thread_id,
+                runtime_scope_id=conversation.thread_id,
+                agent_slug="main",
+                uid=conversation.uid,
+                status="completed",
+                request_id=f"request-trace-{index}",
+                conversation_id=conversation.id,
+                input_payload={},
+                created_at=created_at,
+                started_at=created_at,
+                finished_at=created_at,
+            )
+        )
+    await conversation_session.commit()
+
+    runs, truncated = await ConversationRepository(conversation_session).list_agent_runs_for_trace(
+        conversation.id,
+        limit=2,
+    )
+
+    assert [run.id for run in runs] == ["run-trace-1", "run-trace-2"]
+    assert truncated is True
+
+
+@pytest.mark.asyncio
 async def test_lock_conversation_refreshes_cached_lifecycle_state(tmp_path):
     """加锁读取必须刷新同一 Session 中已缓存的生命周期状态。"""
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'conversation-lock.db'}")

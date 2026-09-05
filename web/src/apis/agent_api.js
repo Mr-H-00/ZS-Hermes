@@ -70,6 +70,7 @@ export const agentApi = {
    * @param {string} threadId - 会话ID
    * @returns {Promise} - 历史消息
    */
+  // 线程阅读快照：{ thread, runs, history }，消息通过 run_id 关联运行。
   getAgentHistory: (threadId) => apiGet(`/api/chat/thread/${threadId}/history`),
 
   /**

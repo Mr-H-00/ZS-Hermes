@@ -25,10 +25,9 @@ before(async () => {
   ;({ useAgentRequestQueue } = await server.ssrLoadModule(
     '/src/composables/useAgentRequestQueue.js'
   ))
-  ;({
-    useAgentRunStream,
-    dispatchRunEventChunks
-  } = await server.ssrLoadModule('/src/composables/useAgentRunStream.js'))
+  ;({ useAgentRunStream, dispatchRunEventChunks } = await server.ssrLoadModule(
+    '/src/composables/useAgentRunStream.js'
+  ))
   ;({ useAgentStreamHandler } = await server.ssrLoadModule(
     '/src/composables/useAgentStreamHandler.js'
   ))
@@ -139,7 +138,9 @@ test('Run init 将权威 run_id 绑定到实时 User Message', () => {
     contextCompressing: false,
     onGoingConv: {
       msgChunks: {
-        'request-1': [{ id: 'request-1', type: 'human', content: '快排' }]
+        'request-1': [
+          { id: 'request-1', type: 'human', content: '快排', created_at: '2026-09-05T06:32:00Z' }
+        ]
       }
     }
   }
@@ -163,6 +164,7 @@ test('Run init 将权威 run_id 绑定到实时 User Message', () => {
   )
 
   const [message] = threadState.onGoingConv.msgChunks['request-1']
+  assert.equal(message.created_at, '2026-09-05T06:32:00Z')
   assert.equal(message.run_id, 'run-1')
   assert.equal(message.extra_metadata.run_id, 'run-1')
   assert.equal(message.extra_metadata.request_id, 'request-1')
@@ -254,7 +256,7 @@ test('恢复队列在同步后重新读取线程状态并启动当前请求流',
   agentApi.streamRequestEvents = async (requestId) =>
     new Response(`event: run_created\ndata: {"run_id":"run-for-${requestId}"}\n\n`, {
       headers: { 'Content-Type': 'text/event-stream' }
-  })
+    })
 
   try {
     const streamStarts = []
@@ -269,7 +271,9 @@ test('恢复队列在同步后重新读取线程状态并启动当前请求流',
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     assert.deepEqual(calls, [['sync', 'thread-1', 'agent-1']])
-    assert.deepEqual(streamStarts, [['thread-1', 'run-for-request-latest', '0-0']])
+    assert.deepEqual(streamStarts, [
+      ['thread-1', 'run-for-request-latest', '0-0', { requestId: 'request-latest' }]
+    ])
     assert.deepEqual(staleThreadState.queuedRequests, [
       { request_id: 'request-from-sync', status: 'queued' }
     ])
@@ -284,7 +288,12 @@ test('run_created 立即完成状态交接并订阅新 Run SSE', async () => {
   const threadState = {
     queuedRequests: [{ request_id: 'request-1', status: 'queued' }],
     requestStreams: {},
-    onGoingConv: { msgChunks: { old: [] } },
+    onGoingConv: {
+      msgChunks: {
+        old: [],
+        'request-1': [{ type: 'human', content: '待执行', request_id: 'request-1' }]
+      }
+    },
     pendingRequestId: null
   }
   const calls = []
@@ -311,8 +320,10 @@ test('run_created 立即完成状态交接并订阅新 Run SSE', async () => {
 
     assert.deepEqual(calls, [
       ['reset', 'thread-1', { preserveRequestStreams: true }],
-      ['start', 'thread-1', 'run-2', '0-0']
+      ['start', 'thread-1', 'run-2', '0-0', { requestId: 'request-1' }]
     ])
+    assert.equal(threadState.onGoingConv.msgChunks['request-1'][0].content, '待执行')
+    assert.equal(threadState.onGoingConv.msgChunks.old, undefined)
     assert.equal(threadState.pendingRequestId, 'request-1')
     assert.deepEqual(threadState.queuedRequests, [])
   } finally {
@@ -346,7 +357,7 @@ test('run_created 先到达时保留旧 Run 已渲染的内容', async () => {
 
     await queue.startRequestStream('thread-1', 'request-2')
 
-    assert.deepEqual(calls, [['start', 'thread-1', 'run-2', '0-0']])
+    assert.deepEqual(calls, [['start', 'thread-1', 'run-2', '0-0', { requestId: 'request-2' }]])
     assert.equal(threadState.onGoingConv.msgChunks, oldMessages)
     assert.equal(threadState.pendingRequestId, 'request-2')
   } finally {
@@ -613,7 +624,10 @@ test('自然断流后从 PG 终态复用统一清理并刷新历史', async () =
     assert.equal(threadState.replyLoadingVisible, false)
     assert.deepEqual(resetCalls, [{ preserveRequestStreams: true }])
     assert.deepEqual(refreshed, ['history', 'state'])
-    assert.deepEqual(notifications.map(({ runId }) => runId), ['run-1'])
+    assert.deepEqual(
+      notifications.map(({ runId }) => runId),
+      ['run-1']
+    )
   } finally {
     agentApi.streamAgentRunEvents = originalStreamAgentRunEvents
     agentApi.getAgentRun = originalGetAgentRun
@@ -705,7 +719,10 @@ test('恢复时没有 active Run 也走统一终态清理', async () => {
     assert.equal(threadState.runLastSeq, '0-0')
     assert.equal(threadState.pendingInterrupt, null)
     assert.deepEqual(refreshed, ['history', 'state'])
-    assert.deepEqual(notifications.map(({ runId }) => runId), [null])
+    assert.deepEqual(
+      notifications.map(({ runId }) => runId),
+      [null]
+    )
   } finally {
     agentApi.getThreadActiveRun = originalGetThreadActiveRun
     localStorage.removeItem(`active_run:${threadId}`)
@@ -753,5 +770,60 @@ test('恢复期间出现的新 Run 不会被旧的空闲查询结果清理', asy
   } finally {
     agentApi.getThreadActiveRun = originalGetThreadActiveRun
     localStorage.removeItem(`active_run:${threadId}`)
+  }
+})
+
+test('同步队列保留尚未收到接入响应的发送项，并以服务端已接收请求去重', async () => {
+  const threadState = {
+    queuedRequests: [
+      { request_id: 'sending', status: 'sending', content: '正在提交' },
+      { request_id: 'accepted', status: 'sending', content: '已接收' }
+    ]
+  }
+  const original = agentApi.listThreadQueuedRequests
+  agentApi.listThreadQueuedRequests = async () => ({
+    requests: [{ request_id: 'accepted', status: 'queued' }]
+  })
+  try {
+    const queue = useAgentRequestQueue({ getThreadState: () => threadState })
+    await queue.syncQueuedRequests('thread-1', 'agent-1')
+    assert.deepEqual(
+      threadState.queuedRequests.map(({ request_id, status }) => [request_id, status]),
+      [
+        ['accepted', 'queued'],
+        ['sending', 'sending']
+      ]
+    )
+  } finally {
+    agentApi.listThreadQueuedRequests = original
+  }
+})
+
+test('接入未完成的发送项只展示，不订阅或取消尚未持久化的 Request', async () => {
+  const threadState = { queuedRequests: [{ request_id: 'sending', status: 'sending' }] }
+  const originals = [
+    agentApi.listThreadQueuedRequests,
+    agentApi.streamRequestEvents,
+    agentApi.cancelRequest
+  ]
+  const unexpected = []
+  agentApi.listThreadQueuedRequests = async () => ({ requests: [] })
+  agentApi.streamRequestEvents = async () => {
+    unexpected.push('stream')
+    throw new Error('请求尚未入库')
+  }
+  agentApi.cancelRequest = async () => {
+    unexpected.push('cancel')
+    throw new Error('请求尚未入库')
+  }
+  try {
+    const queue = useAgentRequestQueue({ getThreadState: () => threadState })
+    await queue.resumeQueuedRequests('thread-1', 'agent-1')
+    assert.equal(await queue.cancelRequest('thread-1', 'sending'), false)
+    assert.deepEqual(unexpected, [])
+    assert.deepEqual(threadState.queuedRequests, [{ request_id: 'sending', status: 'sending' }])
+  } finally {
+    ;[agentApi.listThreadQueuedRequests, agentApi.streamRequestEvents, agentApi.cancelRequest] =
+      originals
   }
 })

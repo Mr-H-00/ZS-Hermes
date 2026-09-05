@@ -225,6 +225,7 @@
       >
         <MessageDebugPanel
           :messages="messages"
+          :runs="runs"
           :thread-id="threadId"
           :active="visible && activeSectionKey === 'message-debug'"
           :active-run-id="activeRunId"
@@ -303,6 +304,7 @@ import { parseDownloadFilename } from '@/utils/file_utils'
 import { threadApi } from '@/apis/agent_api'
 
 const props = defineProps({
+  runs: { type: Array, default: () => [] },
   agentState: {
     type: Object,
     default: () => ({})

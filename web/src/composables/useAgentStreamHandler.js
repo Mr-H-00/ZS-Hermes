@@ -115,6 +115,7 @@ export function useAgentStreamHandler({
             const initMessage = {
               ...msg,
               id: msg?.id || resolvedRequestId,
+              created_at: msg.created_at || localHumanMessage?.created_at,
               extra_metadata: {
                 ...initMetadata,
                 request_id: resolvedRequestId

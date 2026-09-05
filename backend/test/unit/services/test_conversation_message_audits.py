@@ -61,6 +61,15 @@ async def test_get_thread_message_audits_view_serializes_model_and_tool_facts(mo
         },
         tool_calls=[],
     )
+    run = SimpleNamespace(
+        id="run-1",
+        status="completed",
+        created_at=datetime(2026, 8, 30, 1, 0, 0),
+        started_at=datetime(2026, 8, 30, 1, 0, 1),
+        prepared_at=datetime(2026, 8, 30, 1, 0, 1),
+        first_output_at=datetime(2026, 8, 30, 1, 0, 2),
+        finished_at=datetime(2026, 8, 30, 1, 0, 3),
+    )
 
     class FakeConversationRepository:
         def __init__(self, _db):
@@ -74,6 +83,11 @@ async def test_get_thread_message_audits_view_serializes_model_and_tool_facts(mo
             assert limit == conversation_service.MESSAGE_AUDIT_LIMIT
             return [model_message, tool_message], True
 
+        async def list_agent_runs_for_trace(self, conversation_id, *, limit):
+            assert conversation_id == 7
+            assert limit == conversation_service.AGENT_RUN_TRACE_LIMIT
+            return [run], True
+
     monkeypatch.setattr(conversation_service, "ConversationRepository", FakeConversationRepository)
 
     result = await conversation_service.get_thread_message_audits_view(
@@ -84,6 +98,25 @@ async def test_get_thread_message_audits_view_serializes_model_and_tool_facts(mo
 
     assert [item["type"] for item in result["audits"]] == ["ai", "tool"]
     assert result["truncated"] is True
+    assert result["runs_truncated"] is True
+    assert result["runs"] == [
+        {
+            "run_id": "run-1",
+            "status": "completed",
+            "timing": {
+                "created_at": "2026-08-30T01:00:00Z",
+                "started_at": "2026-08-30T01:00:01Z",
+                "prepared_at": "2026-08-30T01:00:01Z",
+                "first_output_at": "2026-08-30T01:00:02Z",
+                "finished_at": "2026-08-30T01:00:03Z",
+                "dispatch_latency_ms": 1000,
+                "preparation_latency_ms": 0,
+                "model_first_output_latency_ms": 1000,
+                "first_output_latency_ms": 2000,
+                "total_latency_ms": 3000,
+            },
+        }
+    ]
     assert result["audits"][0] == {
         "id": 17,
         "type": "ai",
@@ -131,3 +164,62 @@ async def test_get_thread_message_audits_view_serializes_model_and_tool_facts(mo
         "namespace": [],
     }
     assert "private_internal_field" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_get_thread_message_audits_view_uses_agent_run_terminal_status(monkeypatch):
+    audit = SimpleNamespace(
+        id=21,
+        role="assistant",
+        content="",
+        created_at=datetime(2026, 8, 30, 1, 0, 0),
+        run_id="run-cancelled",
+        request_id="request-cancelled",
+        message_type="model_audit",
+        operation_id="model-cancelled",
+        started_at=datetime(2026, 8, 30, 1, 0, 0),
+        finished_at=datetime(2026, 8, 30, 1, 0, 1),
+        duration_ms=1000,
+        sequence=1,
+        execution_status="interrupted",
+        usage=None,
+        extra_metadata={},
+        tool_calls=[],
+    )
+    run = SimpleNamespace(
+        id="run-cancelled",
+        status="cancelled",
+        created_at=datetime(2026, 8, 30, 1, 0, 0),
+        started_at=datetime(2026, 8, 30, 1, 0, 0),
+        prepared_at=None,
+        first_output_at=None,
+        finished_at=datetime(2026, 8, 30, 1, 0, 1),
+    )
+
+    class FakeConversationRepository:
+        def __init__(self, _db):
+            pass
+
+        async def get_conversation_by_thread_id(self, _thread_id):
+            return SimpleNamespace(id=7, uid="user-1", status="active")
+
+        async def list_message_audits(self, _conversation_id, *, limit):
+            assert limit == conversation_service.MESSAGE_AUDIT_LIMIT
+            return [audit], False
+
+        async def list_agent_runs_for_trace(self, _conversation_id, *, limit):
+            assert limit == conversation_service.AGENT_RUN_TRACE_LIMIT
+            return [run], False
+
+    monkeypatch.setattr(conversation_service, "ConversationRepository", FakeConversationRepository)
+
+    result = await conversation_service.get_thread_message_audits_view(
+        thread_id="thread-1",
+        current_uid="user-1",
+        db=object(),
+    )
+
+    assert result["audits"][0]["execution_status"] == "interrupted"
+    assert result["runs_truncated"] is False
+    assert result["runs"][0]["status"] == "cancelled"
+    assert result["runs"][0]["timing"]["total_latency_ms"] == 1000

@@ -20,7 +20,7 @@ const defaultEnrichToolCalls = (message) => enrichTaskToolCalls(message?.tool_ca
 // 将 AI 消息拆成“正文块”和“工具块”，再跨消息合并相邻工具块。
 export const getConversationDisplayItems = (
   conv,
-  { enrichToolCalls = defaultEnrichToolCalls, collapseIntermediate = false } = {}
+  { enrichToolCalls = defaultEnrichToolCalls, collapseIntermediate = false, runTiming = null } = {}
 ) => {
   if (!Array.isArray(conv?.messages) || conv.messages.length === 0) return []
 
@@ -70,5 +70,5 @@ export const getConversationDisplayItems = (
   })
 
   flushToolGroup()
-  return collapseConversationProcess(items, collapseIntermediate)
+  return collapseConversationProcess(items, collapseIntermediate, runTiming)
 }

@@ -2,7 +2,20 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { buildProjectConversationGroups } from '../../src/utils/projectConversationGroups.js'
+import {
+  buildProjectConversationGroups,
+  deriveProjectThreadStatus
+} from '../../src/utils/projectConversationGroups.js'
+
+test('项目状态优先展示运行中，其次展示未读完成', () => {
+  assert.equal(deriveProjectThreadStatus([{ thread_status: 'ready' }]), 'ready')
+  assert.equal(
+    deriveProjectThreadStatus([{ thread_status: 'ready' }, { thread_status: 'loading' }]),
+    'loading'
+  )
+  assert.equal(deriveProjectThreadStatus([{ thread_status: 'done' }]), 'done')
+  assert.equal(deriveProjectThreadStatus([]), 'done')
+})
 
 test('项目视图按项目顺序分组并把 implicit 对话放在最后', () => {
   const projects = [
@@ -130,6 +143,31 @@ test('项目默认折叠且长名称不会挤压文件夹图标', () => {
   assert.match(source, /\.project-icon\s*{\s*flex: 0 0 17px;/)
 })
 
+test('项目运行态只在折叠时占据最右状态位，悬浮时让位给操作', () => {
+  const source = readFileSync(
+    new URL('../../src/components/ConversationNavSection.vue', import.meta.url),
+    'utf8'
+  )
+  const projectRowStart = source.indexOf('.project-row {')
+  const projectRowStyles = source.slice(projectRowStart, source.indexOf('.project-toggle {'))
+
+  assert.ok(projectRowStart >= 0)
+  assert.match(
+    source,
+    /group\.threadStatus === 'loading' &&\s*!isProjectExpanded\(group\.project\.id\)/
+  )
+  assert.match(source, /\.project-row\s*{\s*position: relative;/)
+  assert.match(source, /\.project-status\s*{[\s\S]*?position: absolute;[\s\S]*?right: 6px;/)
+  assert.match(
+    projectRowStyles,
+    /&:hover,\s*&:focus-within\s*{[\s\S]*?\.project-action\s*{[\s\S]*?opacity: 1;[\s\S]*?pointer-events: auto;[\s\S]*?\.project-status\s*{\s*display: none;/
+  )
+  assert.match(
+    source,
+    /\.project-action\s*{[\s\S]*?opacity: 0;[\s\S]*?pointer-events: none;/
+  )
+})
+
 test('页面内创建的 Project 会写入共享侧边栏导航 Owner', () => {
   const layoutSource = readFileSync(
     new URL('../../src/layouts/AppLayout.vue', import.meta.url),
@@ -155,4 +193,48 @@ test('对话选择与操作菜单使用并列按钮语义', () => {
   assert.match(source, /type="button"/)
   assert.doesNotMatch(source, /role="button"/)
   assert.doesNotMatch(source, /@keydown\.(?:enter|space)/)
+})
+
+test('对话状态拥有常驻遮罩且项目提供带项目上下文的新建入口', () => {
+  const itemSource = readFileSync(
+    new URL('../../src/components/ConversationNavItem.vue', import.meta.url),
+    'utf8'
+  )
+  const navigationSource = readFileSync(
+    new URL('../../src/components/ConversationNavSection.vue', import.meta.url),
+    'utf8'
+  )
+  const layoutSource = readFileSync(
+    new URL('../../src/layouts/AppLayout.vue', import.meta.url),
+    'utf8'
+  )
+  const agentViewSource = readFileSync(new URL('../../src/views/AgentView.vue', import.meta.url), 'utf8')
+  const chatSource = readFileSync(
+    new URL('../../src/components/AgentChatComponent.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(itemSource, /class="status-mask"/)
+  assert.match(itemSource, /v-if="chat\.thread_status === 'loading' \|\| chat\.thread_status === 'ready'"/)
+  assert.match(navigationSource, /class="project-status project-status-loading"/)
+  assert.match(navigationSource, /class="project-status project-status-ready"/)
+  assert.match(navigationSource, /@click\.stop="\$emit\('create-project-chat', group\.project\.id\)"/)
+  assert.match(layoutSource, /query: \{ project_id: projectId \}/)
+  const createProjectChatHandler = layoutSource.slice(
+    layoutSource.indexOf('const handleCreateProjectChat'),
+    layoutSource.indexOf('const searchWorkspace')
+  )
+  assert.match(createProjectChatHandler, /const handleCreateProjectChat = async/)
+  assert.ok(
+    createProjectChatHandler.indexOf('await router.push') <
+      createProjectChatHandler.indexOf('setCurrentThreadId(null)')
+  )
+  assert.match(agentViewSource, /:initial-project-id="routeDraftProjectId"/)
+  assert.match(chatSource, /if \(!threadId\) selectedProjectId\.value = initialProjectId \|\| AUTO_PROJECT_ID/)
+  assert.match(
+    chatSource,
+    /ensureActiveThread\.reset\(\)\s*selectedProjectId\.value = props\.initialProjectId \|\| AUTO_PROJECT_ID/
+  )
+  assert.doesNotMatch(chatSource, /ensureActiveThread\.reset\(\)\s*selectedProjectId\.value = AUTO_PROJECT_ID/)
+  assert.match(layoutSource, /\.foo\s*\{[\s\S]*?background: var\(--main-5\);/)
 })

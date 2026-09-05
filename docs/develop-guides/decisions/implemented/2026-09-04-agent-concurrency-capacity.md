@@ -50,7 +50,7 @@ AgentRun 持久保存五个可空 UTC 时间点：
 
 新增时间点只由当前有效 lease owner 写入且 write-once。观测写入使用短事务；失败记录 warning，但不能覆盖模型输出或 Run 终态。历史 Run 的缺失值保持 NULL，不补造时间。
 
-API 使用同一 serializer 派生 `dispatch_latency_ms`（创建到开工）、`preparation_latency_ms`（开工到准备完成）、`model_first_output_latency_ms`（准备完成到首次输出）、`first_output_latency_ms`（创建到首次输出）和 `total_latency_ms`（创建到终态），不冗余持久化毫秒值，也不产生负耗时。结果接口、Run 接口与对话历史复用同一投影；历史查询继续批量读取 Run，不增加逐消息请求。前端在完成消息底部显示低权重“首输出”入口，点击后渐进展示各阶段和口径。
+API 使用同一 serializer 派生 `dispatch_latency_ms`（创建到开工）、`preparation_latency_ms`（开工到准备完成）、`model_first_output_latency_ms`（准备完成到首次输出）、`first_output_latency_ms`（创建到首次输出）和 `total_latency_ms`（创建到终态），不冗余持久化毫秒值，也不产生负耗时。结果接口、Run 接口与对话历史复用同一投影；历史查询继续批量读取 Run，不增加逐消息请求。前端消息底部与折叠过程只读取同一 `total_latency_ms`，五段明细归入调试面板的 Run 分组；具体展示归属由 [前端优化](2026-09-05-frontend-optimization.md) 记录。
 
 这些时间点记录的是事务内状态转换，不包含随后提交本身、runtime cleanup 或前端等待与渲染耗时；`total_latency_ms` 因而是 Run 状态机耗时，不是完整的用户端请求时延。
 

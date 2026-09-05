@@ -9,6 +9,7 @@
         <ThreadMessageList
           v-else
           :messages="displayMessages"
+          :runs="runs"
           :ongoing-messages="streamedMessages"
           :is-processing="streamActive"
         />
@@ -40,6 +41,7 @@ const RUN_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'inte
 const loading = ref(false)
 const error = ref('')
 const messages = ref([])
+const runs = ref([])
 const currentRunId = ref('')
 const currentRunStatus = ref('')
 const streamActive = ref(false)
@@ -139,6 +141,7 @@ const scrollToBottom = async (force = false) => {
 const loadPersistedMessages = async () => {
   const response = await agentApi.getAgentHistory(props.threadId)
   messages.value = normalizeMessages(response.history || [])
+  runs.value = response.runs
 }
 const loadThread = async () => {
   if (!props.threadId) return

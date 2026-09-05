@@ -52,6 +52,33 @@
                         group.project.name
                       }}</span>
                     </button>
+                    <span
+                      v-if="
+                        group.threadStatus === 'loading' &&
+                        !isProjectExpanded(group.project.id)
+                      "
+                      class="project-status project-status-loading"
+                      role="status"
+                      title="项目中有对话正在运行"
+                    >
+                      <Loader2 :size="12" />
+                    </span>
+                    <span
+                      v-else-if="group.threadStatus === 'ready'"
+                      class="project-status project-status-ready"
+                      role="status"
+                      title="项目中有新回复"
+                    ></span>
+                    <button
+                      type="button"
+                      class="project-action project-create-chat"
+                      :aria-label="`在项目“${group.project.name}”中新建对话`"
+                      title="在此项目中新建对话"
+                      :disabled="projectPendingId === group.project.id"
+                      @click.stop="$emit('create-project-chat', group.project.id)"
+                    >
+                      <Plus :size="16" />
+                    </button>
                     <a-dropdown
                       :trigger="['click']"
                       :disabled="projectPendingId === group.project.id"
@@ -73,7 +100,12 @@
                           >
                         </a-menu>
                       </template>
-                      <button type="button" class="project-more" aria-label="项目操作" @click.stop>
+                      <button
+                        type="button"
+                        class="project-action project-more"
+                        aria-label="项目操作"
+                        @click.stop
+                      >
                         <MoreVertical :size="16" />
                       </button>
                     </a-dropdown>
@@ -148,7 +180,16 @@
 <script setup>
 import { computed, h, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { ChevronDown, FolderClosed, FolderOpen, MoreVertical, SquarePen, Trash2 } from '@lucide/vue'
+import {
+  ChevronDown,
+  FolderClosed,
+  FolderOpen,
+  Loader2,
+  MoreVertical,
+  Plus,
+  SquarePen,
+  Trash2
+} from '@lucide/vue'
 import ConversationNavItem from '@/components/ConversationNavItem.vue'
 import CollapseTransition from '@/components/common/CollapseTransition.vue'
 import { buildProjectConversationGroups } from '@/utils/projectConversationGroups'
@@ -174,6 +215,7 @@ const emit = defineEmits([
   'load-more-chats',
   'rename-project',
   'delete-project',
+  'create-project-chat',
   'retry-projects'
 ])
 const projectsExpanded = ref(true)
@@ -239,7 +281,7 @@ const confirmDeleteProject = (project) => {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  margin-top: 8px;
+  margin-top: 16px;
   overflow: hidden;
 }
 .history-panel {
@@ -296,15 +338,21 @@ const confirmDeleteProject = (project) => {
   margin-top: 2px;
 }
 .project-row {
+  position: relative;
   display: flex;
   align-items: center;
   min-height: 34px;
   border-radius: 8px;
   color: var(--gray-800);
-  &:hover {
+  &:hover,
+  &:focus-within {
     background: var(--gray-50);
-    .project-more {
+    .project-action {
       opacity: 1;
+      pointer-events: auto;
+    }
+    .project-status {
+      display: none;
     }
   }
   &.pending {
@@ -342,7 +390,27 @@ const confirmDeleteProject = (project) => {
 .project-icon {
   flex: 0 0 17px;
 }
-.project-more {
+.project-status {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--main-color);
+}
+.project-status-loading :deep(svg) {
+  animation: project-status-spin 1s linear infinite;
+}
+.project-status-ready {
+  flex-basis: 6px;
+  width: 6px;
+  height: 6px;
+  margin: 0 5px;
+  border-radius: 50%;
+  background: var(--main-color);
+}
+.project-action {
   display: inline-flex;
   flex: 0 0 28px;
   align-items: center;
@@ -356,10 +424,16 @@ const confirmDeleteProject = (project) => {
   color: var(--gray-500);
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
   &:focus-visible {
     opacity: 1;
     outline: 2px solid var(--main-300);
   }
+}
+.project-create-chat:hover,
+.project-more:hover {
+  background: var(--gray-100);
+  color: var(--gray-800);
 }
 .project-empty {
   padding: 3px 8px 7px 30px;
@@ -395,8 +469,26 @@ const confirmDeleteProject = (project) => {
   font-size: 12px;
 }
 @media (hover: none) {
-  .project-more {
+  .project-row {
+    min-height: 40px;
+    padding-right: 16px;
+    &:hover,
+    &:focus-within {
+      .project-status {
+        display: inline-flex;
+        right: 2px;
+      }
+    }
+  }
+  .project-toggle {
+    height: 40px;
+  }
+  .project-action {
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
     opacity: 1;
+    pointer-events: auto;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -405,6 +497,11 @@ const confirmDeleteProject = (project) => {
   .recent-list,
   .collapse-icon {
     transition-duration: 0.01ms !important;
+  }
+}
+@keyframes project-status-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

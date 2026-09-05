@@ -7,7 +7,7 @@ import uuid as uuid_lib
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from yuxi.storage.postgres.models_business import (
@@ -430,6 +430,42 @@ class ConversationRepository:
         messages = list(result.scalars().unique().all())
         truncated = len(messages) > limit
         return list(reversed(messages[:limit])), truncated
+
+    async def list_agent_runs_for_history(self, conversation_id: int) -> list[AgentRun]:
+        """按历史顺序读取当前会话全部轻量 Run，包含没有消息的运行。"""
+        result = await self.db.execute(
+            select(AgentRun)
+            .where(AgentRun.conversation_id == conversation_id)
+            .options(
+                load_only(
+                    AgentRun.id,
+                    AgentRun.request_id,
+                    AgentRun.run_type,
+                    AgentRun.created_by_run_id,
+                    AgentRun.status,
+                    AgentRun.created_at,
+                    AgentRun.started_at,
+                    AgentRun.prepared_at,
+                    AgentRun.first_output_at,
+                    AgentRun.finished_at,
+                    raiseload=True,
+                )
+            )
+            .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_agent_runs_for_trace(self, conversation_id: int, *, limit: int) -> tuple[list[AgentRun], bool]:
+        """按创建顺序返回有界 AgentRun 调试事实。"""
+        result = await self.db.execute(
+            select(AgentRun)
+            .where(AgentRun.conversation_id == conversation_id)
+            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+            .limit(limit + 1)
+        )
+        runs = list(result.scalars().all())
+        truncated = len(runs) > limit
+        return list(reversed(runs[:limit])), truncated
 
     async def get_messages_by_thread_id(
         self, thread_id: str, limit: int | None = None, offset: int = 0

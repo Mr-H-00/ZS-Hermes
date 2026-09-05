@@ -81,7 +81,9 @@ async def test_thread_message_audits_return_persisted_facts_without_leaking_into
 
     thread_id = await _create_thread_for_user(test_client, admin_headers)
     run_id = f"run-{uuid.uuid4()}"
+    failed_run_id = f"run-{uuid.uuid4()}"
     request_id = f"request-{uuid.uuid4()}"
+    failed_request_id = f"request-{uuid.uuid4()}"
     started_at = datetime(2026, 8, 30, 1, 0, 0)
 
     conn = await asyncpg.connect(_postgres_dsn())
@@ -96,9 +98,9 @@ async def test_thread_message_audits_return_persisted_facts_without_leaking_into
             INSERT INTO agent_runs
                 (id, conversation_thread_id, runtime_scope_id, agent_slug, uid, status,
                  request_id, source, channel, conversation_id, run_type, input_payload, token_usage,
-                 origin_metadata, started_at, finished_at)
+                 origin_metadata, created_at, started_at, finished_at)
             VALUES ($1, $2, $2, $3, $4, 'completed', $5, 'chat', 'web', $6, 'chat', '{}'::jsonb,
-                    '{}'::jsonb, '{}'::jsonb, $7, $8)
+                    '{}'::jsonb, '{}'::jsonb, $7, $8, $9)
             """,
             run_id,
             thread_id,
@@ -107,7 +109,38 @@ async def test_thread_message_audits_return_persisted_facts_without_leaking_into
             request_id,
             conversation["id"],
             started_at,
+            started_at,
             started_at + timedelta(seconds=3),
+        )
+        await conn.execute(
+            """
+            INSERT INTO agent_runs
+                (id, conversation_thread_id, runtime_scope_id, agent_slug, uid, status,
+                 request_id, source, channel, conversation_id, run_type, input_payload, token_usage,
+                 origin_metadata, error_type, created_at, started_at, finished_at)
+            VALUES ($1, $2, $2, $3, $4, 'failed', $5, 'chat', 'web', $6, 'chat', '{}'::jsonb,
+                    '{}'::jsonb, '{}'::jsonb, 'invalid_input', $7, $7, $8)
+            """,
+            failed_run_id,
+            thread_id,
+            conversation["agent_id"],
+            conversation["uid"],
+            failed_request_id,
+            conversation["id"],
+            started_at + timedelta(seconds=4),
+            started_at + timedelta(seconds=5),
+        )
+        await conn.execute(
+            """
+            INSERT INTO messages
+                (conversation_id, role, content, delivery_status, extra_metadata, run_id,
+                 request_id, created_at)
+            VALUES ($1, 'user', '会在审计前失败', 'failed', '{}'::jsonb, $2, $3, $4)
+            """,
+            conversation["id"],
+            failed_run_id,
+            failed_request_id,
+            started_at + timedelta(seconds=4),
         )
         await conn.executemany(
             """
@@ -224,6 +257,41 @@ async def test_thread_message_audits_return_persisted_facts_without_leaking_into
     timeline_payload = timeline_response.json()
     timeline = timeline_payload["audits"]
     assert timeline_payload["truncated"] is True
+    assert timeline_payload["runs_truncated"] is False
+    assert timeline_payload["runs"] == [
+        {
+            "run_id": run_id,
+            "status": "completed",
+            "timing": {
+                "created_at": "2026-08-30T01:00:00Z",
+                "started_at": "2026-08-30T01:00:00Z",
+                "prepared_at": None,
+                "first_output_at": None,
+                "finished_at": "2026-08-30T01:00:03Z",
+                "dispatch_latency_ms": 0,
+                "preparation_latency_ms": None,
+                "model_first_output_latency_ms": None,
+                "first_output_latency_ms": None,
+                "total_latency_ms": 3000,
+            },
+        },
+        {
+            "run_id": failed_run_id,
+            "status": "failed",
+            "timing": {
+                "created_at": "2026-08-30T01:00:04Z",
+                "started_at": "2026-08-30T01:00:04Z",
+                "prepared_at": None,
+                "first_output_at": None,
+                "finished_at": "2026-08-30T01:00:05Z",
+                "dispatch_latency_ms": 0,
+                "preparation_latency_ms": None,
+                "model_first_output_latency_ms": None,
+                "first_output_latency_ms": None,
+                "total_latency_ms": 1000,
+            },
+        },
+    ]
     assert len(timeline) == 500
     assert [audit["operation_id"] for audit in timeline[:2]] == ["call-1", "operation-2"]
     assert [audit["type"] for audit in timeline[:2]] == ["tool", "ai"]
@@ -250,10 +318,14 @@ async def test_thread_message_audits_return_persisted_facts_without_leaking_into
     history = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=admin_headers)
     assert history.status_code == 200, history.text
     history_items = history.json()["history"]
-    assert len(history_items) == 1
-    assert history_items[0]["content"] == "第一次模型输出"
-    assert history_items[0]["extra_metadata"] == {}
-    assert history_items[0]["tool_calls"][0]["id"] == "compat-call-proven"
+    assert len(history_items) == 2
+    failed_input = next(item for item in history_items if item["run_id"] == failed_run_id)
+    assert failed_input["type"] == "human"
+    assert failed_input["delivery_status"] == "failed"
+    proven_output = next(item for item in history_items if item["run_id"] == run_id)
+    assert proven_output["content"] == "第一次模型输出"
+    assert proven_output["extra_metadata"] == {}
+    assert proven_output["tool_calls"][0]["id"] == "compat-call-proven"
     assert "must-not-leak" not in history.text
     assert "must stay hidden" not in history.text
 
@@ -412,6 +484,101 @@ async def _create_thread_for_user(test_client, headers: dict[str, str]) -> str:
     thread_id = payload.get("thread_id") or payload.get("id")
     assert thread_id, f"Create thread response missing thread identifier: {payload}"
     return thread_id
+
+
+async def test_thread_history_envelope_has_all_runs_and_keeps_viewed_explicit(
+    test_client, admin_headers, standard_user
+):
+    """History 独立返回完整运行列表，读取不标记已读且不跨用户泄露。"""
+    thread_id = await _create_thread_for_user(test_client, admin_headers)
+    conn = await asyncpg.connect(_postgres_dsn())
+    prefix = uuid.uuid4().hex
+    started_at = datetime(2026, 9, 5, 0, 0, 0)
+    try:
+        empty = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=admin_headers)
+        assert empty.status_code == 200, empty.text
+        assert empty.json()["history"] == []
+        assert empty.json()["runs"] == []
+        assert empty.json()["thread"]["id"] == thread_id
+        assert empty.json()["thread"]["thread_status"] == "done"
+
+        conversation = await conn.fetchrow("SELECT * FROM conversations WHERE thread_id = $1", thread_id)
+        marker = conversation["last_viewed_run_id"]
+        # 超过审计窗口，验证普通历史不会静默截掉较早或零消息的 Run。
+        await conn.executemany(
+            """
+            INSERT INTO agent_runs
+                (id, conversation_thread_id, runtime_scope_id, agent_slug, uid, status,
+                 request_id, conversation_id, run_type, input_payload, created_at, finished_at)
+            VALUES ($1, $2, $2, $3, $4, 'cancelled', $5, $6, 'chat',
+                    '{"private_input":"must-not-leak"}'::jsonb, $7, $8)
+            """,
+            [
+                (
+                    f"{prefix}-{index:03}",
+                    thread_id,
+                    conversation["agent_id"],
+                    conversation["uid"],
+                    f"request-{prefix}-{index}",
+                    conversation["id"],
+                    started_at + timedelta(seconds=index * 2),
+                    started_at + timedelta(seconds=index * 2 + 1),
+                )
+                for index in range(501)
+            ],
+        )
+        await conn.execute(
+            """
+            INSERT INTO messages
+                (conversation_id, role, content, delivery_status, extra_metadata, run_id, created_at)
+            VALUES ($1, 'assistant', '历史回答', 'complete', '{}'::jsonb, $2, $3),
+                   ($1, 'assistant', '没有 Run 的旧回答', 'complete', '{}'::jsonb, NULL, $3)
+            """,
+            conversation["id"],
+            f"{prefix}-000",
+            started_at,
+        )
+        response = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=admin_headers)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert set(payload) == {"thread", "runs", "history"}
+        assert payload["thread"]["project_id"] == empty.json()["thread"]["project_id"]
+        assert payload["thread"]["workdir_path"] == empty.json()["thread"]["workdir_path"]
+        assert payload["thread"]["thread_status"] == "ready"
+        assert [run["run_id"] for run in payload["runs"]] == [f"{prefix}-{index:03}" for index in range(501)]
+        assert all(run["status"] == "cancelled" for run in payload["runs"])
+        assert payload["runs"][0]["timing"]["total_latency_ms"] == 1000
+        assert payload["runs"][-1]["request_id"] == f"request-{prefix}-500"
+        assert all(run["run_type"] == "chat" for run in payload["runs"])
+        assert len(payload["history"]) == 2
+        assert any(message["run_id"] is None for message in payload["history"])
+        assert all(
+            {"run_timing", "run_started_at", "run_finished_at"}.isdisjoint(message) for message in payload["history"]
+        )
+        assert "must-not-leak" not in response.text
+        assert (
+            await conn.fetchval("SELECT last_viewed_run_id FROM conversations WHERE thread_id = $1", thread_id)
+            == marker
+        )
+
+        denied = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=standard_user["headers"])
+        assert denied.status_code == 404
+        assert prefix not in denied.text
+        viewed = await test_client.post(f"/api/chat/thread/{thread_id}/viewed", headers=admin_headers)
+        assert viewed.status_code == 200, viewed.text
+        assert viewed.json()["thread_status"] == "done"
+        assert (
+            await conn.fetchval("SELECT last_viewed_run_id FROM conversations WHERE thread_id = $1", thread_id)
+            == f"{prefix}-500"
+        )
+        reread = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=admin_headers)
+        assert reread.json()["thread"]["thread_status"] == "done"
+        await test_client.delete(f"/api/chat/thread/{thread_id}", headers=admin_headers)
+        deleted = await test_client.get(f"/api/chat/thread/{thread_id}/history", headers=admin_headers)
+        assert deleted.status_code == 404
+    finally:
+        await conn.close()
+        await test_client.delete(f"/api/chat/thread/{thread_id}", headers=admin_headers)
 
 
 async def test_thread_tool_approval_mode_is_saved_in_conversation_metadata(test_client, admin_headers):

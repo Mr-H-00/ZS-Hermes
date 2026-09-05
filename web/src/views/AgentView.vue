@@ -6,6 +6,7 @@
         <AgentChatComponent
           ref="chatComponentRef"
           :single-mode="false"
+          :initial-project-id="routeDraftProjectId"
           @thread-change="handleThreadChange"
         >
           <template #input-actions-left="{ hasActiveThread, isCreatingThread }">
@@ -152,6 +153,12 @@ const getRouteAgentId = () => {
   const value = route.query.agent_id
   return typeof value === 'string' ? value : ''
 }
+
+const routeDraftProjectId = computed(() => {
+  if (getRouteThreadId()) return ''
+  const value = route.query.project_id
+  return typeof value === 'string' ? value : ''
+})
 
 const syncSelectedThreadFromRoute = async () => {
   const chatComponent = chatComponentRef.value

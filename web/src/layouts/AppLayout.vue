@@ -266,6 +266,12 @@ const handleCreateConversationFromSearch = () => {
   router.push({ name: 'AgentComp' })
 }
 
+const handleCreateProjectChat = async (projectId) => {
+  if (!projectId || projectPendingId.value || threadCreationInFlight.value) return
+  await router.push({ name: 'AgentComp', query: { project_id: projectId } })
+  chatThreadsStore.setCurrentThreadId(null)
+}
+
 const searchWorkspace = (query) => searchWorkspaceFiles(query)
 
 // 侧边栏搜索到工作区文件后跳转到工作区并打开对应文件
@@ -469,6 +475,7 @@ provide('settingsModal', {
           @toggle-pin="handleTogglePinChat"
           @rename-project="handleRenameProject"
           @delete-project="handleDeleteProject"
+          @create-project-chat="handleCreateProjectChat"
           @retry-projects="loadProjects"
           @load-more-chats="() => chatThreadsStore.loadMoreThreads()"
         />
@@ -592,7 +599,7 @@ div.header,
   flex: 0 0 @sidebar-width;
   justify-content: flex-start;
   align-items: stretch;
-  gap: 16px;
+  gap: 0;
   background-color: var(--main-5);
   height: 100%;
   width: @sidebar-width;
@@ -612,6 +619,7 @@ div.header,
     align-items: stretch;
     position: relative;
     gap: 2px;
+    margin-top: 12px;
   }
 
   .sidebar-conversations {
@@ -630,6 +638,13 @@ div.header,
   .fill {
     flex: 1 1 0;
     min-height: 0;
+  }
+
+  .foo {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    background: var(--main-5);
   }
 
   .sidebar-brand {

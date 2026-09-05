@@ -28,6 +28,7 @@ from yuxi.workspace.paths import ensure_bound_user_workdir
 from yuxi.workspace.workdir import Workdir
 
 MESSAGE_AUDIT_LIMIT = 500
+AGENT_RUN_TRACE_LIMIT = 500
 MODEL_HISTORY_METADATA_KEYS = frozenset(
     {"attachments", "source", "error_type", "error_message", "langfuse_trace_id", "model"}
 )
@@ -57,8 +58,14 @@ async def get_thread_message_audits_view(
         conversation.id,
         limit=MESSAGE_AUDIT_LIMIT,
     )
+    runs, runs_truncated = await repository.list_agent_runs_for_trace(
+        conversation.id,
+        limit=AGENT_RUN_TRACE_LIMIT,
+    )
     return {
         "audits": [_serialize_message_audit(message) for message in messages],
+        "runs": [_serialize_run_trace(run) for run in runs],
+        "runs_truncated": runs_truncated,
         "truncated": truncated,
     }
 
@@ -374,7 +381,7 @@ async def get_thread_history_view(
     current_uid: str,
     db: AsyncSession,
 ) -> dict:
-    """获取对话历史消息，包含用户反馈状态"""
+    """读取线程、Run 与历史消息，保留独立的已读写操作。"""
     conv_repo = ConversationRepository(db)
     conversation = await conv_repo.get_conversation_by_thread_id(thread_id)
     if not conversation or conversation.uid != str(current_uid) or conversation.status == "deleted":
@@ -387,31 +394,18 @@ async def get_thread_history_view(
         if not (message.role == "user" and message.delivery_status in {"queued", "cancelled", "rejected"})
     ]
 
-    run_ids_in_messages = {msg.run_id for msg in messages if msg.run_id}
-    run_created_at: dict[str, Any] = {}
-    run_timing: dict[str, dict[str, Any]] = {}
-    if run_ids_in_messages:
-        run_result = await db.execute(
-            select(
-                AgentRun.id,
-                AgentRun.created_at,
-                AgentRun.started_at,
-                AgentRun.prepared_at,
-                AgentRun.first_output_at,
-                AgentRun.finished_at,
-            )
-            .where(AgentRun.id.in_(run_ids_in_messages))
-            .order_by(AgentRun.created_at.asc(), AgentRun.id.asc())
-        )
-        for run_id, created_at, started_at, prepared_at, first_output_at, finished_at in run_result.all():
-            run_created_at[run_id] = created_at
-            run_timing[run_id] = build_agent_run_timing(
-                created_at=created_at,
-                started_at=started_at,
-                prepared_at=prepared_at,
-                first_output_at=first_output_at,
-                finished_at=finished_at,
-            )
+    runs = await conv_repo.list_agent_runs_for_history(conversation.id)
+    run_created_at = {run.id: run.created_at for run in runs}
+    latest_run = next((run for run in reversed(runs) if run.run_type in {"chat", "resume"}), None)
+    thread = await _serialize_thread(
+        conversation,
+        thread_status=_thread_status(
+            latest_run.id if latest_run else None,
+            latest_run.status if latest_run else None,
+            conversation.last_viewed_run_id,
+        ),
+        db=db,
+    )
     messages.sort(
         key=lambda message: (
             run_created_at.get(message.run_id) or message.created_at,
@@ -472,19 +466,25 @@ async def get_thread_history_view(
             "feedback": user_feedback,
         }
 
-        if msg.role == "assistant":
-            timing = run_timing.get(msg.run_id)
-            msg_dict["run_timing"] = timing
-            msg_dict["run_started_at"] = timing.get("started_at") if timing else None
-            msg_dict["run_finished_at"] = timing.get("finished_at") if timing else None
-
         if msg.tool_calls:
             msg_dict["tool_calls"] = [_serialize_tool_call(tool_call) for tool_call in msg.tool_calls]
 
         history.append(msg_dict)
 
     logger.info(f"Loaded {len(history)} messages with feedback for thread {thread_id}")
-    return {"history": history}
+    return {
+        "thread": thread,
+        "runs": [
+            {
+                **_serialize_run_trace(run),
+                "request_id": run.request_id,
+                "run_type": run.run_type,
+                "created_by_run_id": run.created_by_run_id,
+            }
+            for run in runs
+        ],
+        "history": history,
+    }
 
 
 def _thread_status(run_id: str | None, run_status: str | None, last_viewed_run_id: str | None) -> str:
@@ -576,6 +576,21 @@ def _serialize_message_audit(message: Any) -> dict[str, Any]:
     if message.role == "tool":
         return _serialize_tool_audit(message)
     return _serialize_model_audit(message)
+
+
+def _serialize_run_trace(run: AgentRun) -> dict[str, Any]:
+    """从 AgentRun Owner 投影调试面板所需的状态与阶段时间。"""
+    return {
+        "run_id": run.id,
+        "status": run.status,
+        "timing": build_agent_run_timing(
+            created_at=run.created_at,
+            started_at=run.started_at,
+            prepared_at=run.prepared_at,
+            first_output_at=run.first_output_at,
+            finished_at=run.finished_at,
+        ),
+    }
 
 
 def _serialize_model_audit(message: Any) -> dict[str, Any]:

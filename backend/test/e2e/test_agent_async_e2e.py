@@ -225,7 +225,9 @@ async def test_async_agent_run_stream_result_and_persistence(
             for message in history_payload["history"]
             if message.get("run_id") == run_id and message.get("type") == "ai"
         )
-        assert assistant_message["run_timing"]["first_output_latency_ms"] is not None
+        assert "run_timing" not in assistant_message
+        history_run = next(run for run in history_response.json()["runs"] if run["run_id"] == run_id)
+        assert history_run["timing"]["first_output_latency_ms"] is not None
 
         await _assert_run_persisted(
             run_id=run_id,

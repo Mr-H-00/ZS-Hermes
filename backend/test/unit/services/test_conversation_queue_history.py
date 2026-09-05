@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.services.conversation_service import get_thread_history_view
-from yuxi.storage.postgres.models_business import AgentRun, Base, Conversation, Message, ToolCall
+from yuxi.storage.postgres.models_business import AgentRun, Base, Conversation, Message, Project, ToolCall
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -18,6 +18,16 @@ async def session():
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:
+        db.add(
+            Project(
+                id="project-thread-1",
+                uid="user-1",
+                selection_status="implicit",
+                directory_mode="managed",
+                workdir_path="projects/project-thread-1",
+            )
+        )
+        await db.commit()
         yield db
     await engine.dispose()
 
@@ -132,7 +142,7 @@ async def test_queue_history_keeps_each_request_with_its_reply(session):
     ]
 
 
-async def test_thread_history_includes_run_timing_on_assistant_messages(session):
+async def test_thread_history_returns_run_timing_separately_from_messages(session):
     started_at = datetime(2026, 7, 12, 9, 0, 0)
     run_started_at = started_at + timedelta(seconds=10)
     run_prepared_at = started_at + timedelta(seconds=12)
@@ -198,9 +208,13 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
     )
 
     assistant_message = next(message for message in history["history"] if message["type"] == "ai")
-    assert assistant_message["run_started_at"] == "2026-07-12T09:00:10Z"
-    assert assistant_message["run_finished_at"] == "2026-07-12T09:00:22Z"
-    assert assistant_message["run_timing"] == {
+    assert assistant_message["run_id"] == "run-a"
+    assert history["thread"]["id"] == "thread-1"
+    assert history["thread"]["thread_status"] == "ready"
+    assert len(history["runs"]) == 1
+    assert history["runs"][0]["run_id"] == "run-a"
+    assert history["runs"][0]["status"] == "completed"
+    assert history["runs"][0]["timing"] == {
         "created_at": "2026-07-12T09:00:00Z",
         "started_at": "2026-07-12T09:00:10Z",
         "prepared_at": "2026-07-12T09:00:12Z",
@@ -213,10 +227,8 @@ async def test_thread_history_includes_run_timing_on_assistant_messages(session)
         "total_latency_ms": 22000,
     }
 
-    user_message = next(message for message in history["history"] if message["type"] == "human")
-    assert "run_started_at" not in user_message
-    assert "run_finished_at" not in user_message
-    assert "run_timing" not in user_message
+    for message in history["history"]:
+        assert {"run_started_at", "run_finished_at", "run_timing"}.isdisjoint(message)
 
 
 async def test_thread_history_handles_run_without_timing_fields(session):
@@ -266,9 +278,8 @@ async def test_thread_history_handles_run_without_timing_fields(session):
         db=session,
     )
     assistant_message = next(message for message in history["history"] if message["type"] == "ai")
-    assert assistant_message["run_started_at"] is None
-    assert assistant_message["run_finished_at"] is None
-    assert assistant_message["run_timing"] == {
+    assert "run_timing" not in assistant_message
+    assert history["runs"][0]["timing"] == {
         "created_at": "2026-07-12T09:00:00Z",
         "started_at": None,
         "prepared_at": None,

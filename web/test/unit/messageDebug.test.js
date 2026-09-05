@@ -1,17 +1,86 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
+  bindMessageRequestRun,
+  buildMessageDebugTraceSpans,
   buildMessageDebugEntries,
+  constrainMessageDebugInspectorHeight,
+  constrainMessageDebugInspectorWidth,
   extractMessageToolNames,
   formatAuditDuration,
+  formatMessageDebugContent,
   getMessageRequestId,
   getMessageRunId,
   groupMessageDebugEntries,
+  getMessageDebugEntryTimeRange,
+  isMessageDebugEntryInTimeRange,
+  isMessageDebugTimelineMarkSelected,
   mergeMessageDebugAudits,
   mergeMessageDebugMessages,
+  mergeMessageDebugRunGroups,
   resolveLangfuseRunUrl
 } from '../../src/utils/messageDebug.js'
+
+test('完整时间范围默认弱化手柄，悬浮聚焦或局部选择时恢复', () => {
+  const source = readFileSync(
+    new URL('../../src/components/MessageDebugPanel.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(source, /:class="\{ 'range-active': isTimelineRangeActive \}"/)
+  assert.match(source, /\.selected-window\s*{[\s\S]*?opacity: 0;/)
+  assert.match(source, /&::-webkit-slider-thumb\s*{[\s\S]*?opacity: 0;/)
+  assert.match(source, /&::-moz-range-thumb\s*{[\s\S]*?opacity: 0;/)
+  assert.match(
+    source,
+    /\.trace-track:hover,\s*\.trace-track:focus-within,\s*\.trace-track\.range-active\s*{[\s\S]*?\.selected-window,[\s\S]*?opacity: 1;/
+  )
+})
+
+test('时间概览只高亮当前选中记录，选中 Run 时高亮其全部时间条', () => {
+  assert.equal(isMessageDebugTimelineMarkSelected('run:run-a-0', 'run-a-0'), true)
+  assert.equal(isMessageDebugTimelineMarkSelected('run:run-a-0', 'run-a-0', 'model-a'), true)
+  assert.equal(isMessageDebugTimelineMarkSelected('run:run-a-0', 'run-b-1', 'model-b'), false)
+
+  assert.equal(isMessageDebugTimelineMarkSelected('item:run-a-0:model-a', 'run-a-0'), false)
+  assert.equal(
+    isMessageDebugTimelineMarkSelected('item:run-a-0:model-a', 'run-a-0', 'model-a'),
+    true
+  )
+  assert.equal(
+    isMessageDebugTimelineMarkSelected('item:run-a-0:model-a', 'run-a-0', 'tool-a'),
+    false
+  )
+  assert.equal(isMessageDebugTimelineMarkSelected('', 'run-a-0', 'model-a'), false)
+})
+
+test('调试概览忠实显示字符串和结构化消息正文', () => {
+  assert.equal(formatMessageDebugContent('第一行\n第二行'), '第一行\n第二行')
+  assert.equal(
+    formatMessageDebugContent([{ type: 'text', text: '内容' }]),
+    '[\n  {\n    "type": "text",\n    "text": "内容"\n  }\n]'
+  )
+  assert.equal(formatMessageDebugContent(null), '')
+})
+
+test('详情面板拖动保留记录区并约束异常高度', () => {
+  assert.equal(constrainMessageDebugInspectorHeight(600, 260), 260)
+  assert.equal(constrainMessageDebugInspectorHeight(600, -50), 180)
+  assert.equal(constrainMessageDebugInspectorHeight(600, 900), 476)
+  assert.equal(constrainMessageDebugInspectorHeight(200, 180), 76)
+  assert.equal(constrainMessageDebugInspectorHeight(0, 100), null)
+})
+
+test('宽屏详情面板拖动保留记录区并约束异常宽度', () => {
+  assert.equal(constrainMessageDebugInspectorWidth(1200, 504), 504)
+  assert.equal(constrainMessageDebugInspectorWidth(1200, -50), 260)
+  assert.equal(constrainMessageDebugInspectorWidth(1200, 900), 896)
+  assert.equal(constrainMessageDebugInspectorWidth(700, 500), 396)
+  assert.equal(constrainMessageDebugInspectorWidth(600, 252), 260)
+  assert.equal(constrainMessageDebugInspectorWidth(0, 100), null)
+})
 
 test('消息身份按 metadata 优先，并显式控制 human id fallback', () => {
   const message = {
@@ -77,12 +146,64 @@ test('消息调试按连续 Run 分组且不猜测无 run_id 消息的归属', (
   )
   assert.deepEqual(
     groups.map((group) => group.items.map((entry) => entry.id)),
+    [['user-a', 'ai-a'], ['system'], ['user-b']]
+  )
+})
+
+test('AgentRun 投影为零消息取消 Run 补齐可检查分组', () => {
+  const entries = buildMessageDebugEntries([
+    { id: 'user-a', type: 'human', run_id: 'run-a', content: '问题 A' }
+  ])
+  const groups = mergeMessageDebugRunGroups(entries, [
+    { run_id: 'run-a', status: 'completed' },
+    { run_id: 'run-cancelled', status: 'cancelled' },
+    { run_id: 'run-cancelled', status: 'cancelled' }
+  ])
+
+  assert.deepEqual(
+    groups.map((group) => ({ runId: group.runId, items: group.items.length })),
     [
-      ['user-a', 'ai-a'],
-      ['system'],
-      ['user-b']
+      { runId: 'run-a', items: 1 },
+      { runId: 'run-cancelled', items: 0 }
     ]
   )
+})
+
+test('AgentRun 投影补组时不重排未关联或重复 Run 的事实顺序', () => {
+  const entries = buildMessageDebugEntries([
+    { id: 'run-a-first', type: 'human', run_id: 'run-a', content: '问题 A' },
+    { id: 'unassigned', type: 'system', content: '未关联事实' },
+    { id: 'run-a-second', type: 'ai', run_id: 'run-a', content: '回答 A' },
+    { id: 'run-b', type: 'human', run_id: 'run-b', content: '问题 B' }
+  ])
+  const groups = mergeMessageDebugRunGroups(entries, [
+    { run_id: 'run-a', status: 'completed' },
+    { run_id: 'run-missing', status: 'cancelled' },
+    { run_id: 'run-b', status: 'completed' }
+  ])
+
+  assert.deepEqual(
+    groups.map((group) => ({ runId: group.runId, ids: group.items.map((item) => item.id) })),
+    [
+      { runId: 'run-a', ids: ['run-a-first'] },
+      { runId: null, ids: ['unassigned'] },
+      { runId: 'run-a', ids: ['run-a-second'] },
+      { runId: 'run-missing', ids: [] },
+      { runId: 'run-b', ids: ['run-b'] }
+    ]
+  )
+})
+
+test('模型调试条目只保留模型自身时间，Run 由独立列表分组', () => {
+  const [entry] = buildMessageDebugEntries([
+    {
+      id: 'ai-a', type: 'ai', run_id: 'run-a',
+      started_at: '2026-09-05T00:00:01Z', duration_ms: 800
+    }
+  ])
+  assert.equal(entry.durationMs, 800)
+  assert.equal('runTiming' in entry, false)
+  assert.equal(entry.runId, 'run-a')
 })
 
 test('Langfuse Run 地址仅接受后端确认的 HTTP(S) URL', () => {
@@ -97,6 +218,48 @@ test('Langfuse Run 地址仅接受后端确认的 HTTP(S) URL', () => {
   assert.equal(
     resolveLangfuseRunUrl({ available: false, url: 'https://langfuse.example/trace-1' }),
     null
+  )
+})
+
+test('Run 详情保留按稳定 run_id 打开 Langfuse Trace 的入口', () => {
+  const source = readFileSync(
+    new URL('../../src/components/MessageDebugPanel.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(source, /打开 Langfuse Trace/)
+  assert.match(source, /openRunInLangfuse\(selectedTarget\.group\.runId\)/)
+  assert.match(source, /agentApi\.getAgentRunLangfuseLink\(runId\)/)
+  assert.match(source, /resolveLangfuseRunUrl\(result\)/)
+})
+
+test('Run 行只读取审计接口返回的 AgentRun 状态而不从消息终态猜测', () => {
+  const source = readFileSync(
+    new URL('../../src/components/MessageDebugPanel.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(source, /runTraces\.value = Array\.isArray\(result\?\.runs\)/)
+  const persistedStatusRead = source.indexOf(
+    'if (group.runTrace?.status) return group.runTrace.status'
+  )
+  const liveFallbackRead = source.indexOf('if (props.runActive && props.activeRunId')
+  assert.ok(persistedStatusRead >= 0)
+  assert.ok(liveFallbackRead > persistedStatusRead)
+  assert.doesNotMatch(source, /terminalModel/)
+})
+
+test('窄调试工具栏压缩搜索并隐藏截断提示正文', () => {
+  const source = readFileSync(
+    new URL('../../src/components/MessageDebugPanel.vue', import.meta.url),
+    'utf8'
+  )
+
+  assert.match(source, /class="truncated-label">最新 500 条/)
+  assert.match(source, /@container \(max-width: 470px\)[\s\S]*?\.search-field[\s\S]*?min-width: 0/)
+  assert.match(
+    source,
+    /@container \(max-width: 470px\)[\s\S]*?\.truncated-label[\s\S]*?display: none/
   )
 })
 
@@ -455,4 +618,195 @@ test('工具名称按多种消息字段解析并去重', () => {
   })
 
   assert.deepEqual(names, ['search', 'read_file'])
+})
+
+test('Trace 记录位置只使用持久绝对时间，不从 monotonic 耗时推算', () => {
+  const entries = buildMessageDebugEntries([
+    {
+      id: 'user-1',
+      type: 'human',
+      created_at: '2026-09-04T08:00:01Z',
+      run_id: 'run-1'
+    },
+    {
+      id: 'model-1',
+      type: 'ai',
+      run_id: 'run-1',
+      operation_id: 'model-1',
+      started_at: '2026-09-04T08:00:02Z',
+      finished_at: '2026-09-04T08:00:06Z',
+      duration_ms: 3998
+    },
+    {
+      id: 'tool-without-time',
+      type: 'tool',
+      run_id: 'run-1',
+      duration_ms: 800
+    }
+  ])
+  const runWindow = {
+    startMs: Date.parse('2026-09-04T08:00:00Z'),
+    endMs: Date.parse('2026-09-04T08:00:08Z'),
+    durationMs: 8000
+  }
+
+  assert.deepEqual(getMessageDebugEntryTimeRange(entries[0]), {
+    startMs: Date.parse('2026-09-04T08:00:01Z'),
+    endMs: Date.parse('2026-09-04T08:00:01Z')
+  })
+  assert.equal(getMessageDebugEntryTimeRange(entries[2]), null)
+  assert.deepEqual(
+    buildMessageDebugTraceSpans(entries, runWindow).map(({ key, startOffsetMs, endOffsetMs }) => ({
+      key,
+      startOffsetMs,
+      endOffsetMs
+    })),
+    [
+      { key: 'user-1', startOffsetMs: 1000, endOffsetMs: 1000 },
+      { key: 'run-1:assistant:model-1', startOffsetMs: 2000, endOffsetMs: 6000 },
+      { key: 'tool-without-time', startOffsetMs: 0, endOffsetMs: 8000 }
+    ]
+  )
+  const fallbackSpan = buildMessageDebugTraceSpans(entries, runWindow).at(-1)
+  assert.equal(fallbackSpan.timingFallback, true)
+  assert.equal(
+    isMessageDebugTimelineMarkSelected(
+      `item:run-1-0:${fallbackSpan.key}`,
+      'run-1-0',
+      fallbackSpan.key
+    ),
+    true
+  )
+})
+
+test('调试投影把后端无时区数据库时间明确解释为 UTC', () => {
+  const [entry] = buildMessageDebugEntries([
+    {
+      id: 'user-1',
+      type: 'human',
+      created_at: '2026-09-04T11:09:41.123456',
+      run_id: 'run-1'
+    }
+  ])
+
+  assert.equal(entry.createdAt, '2026-09-04T11:09:41.123456Z')
+  assert.equal(
+    getMessageDebugEntryTimeRange(entry).startMs,
+    Date.parse('2026-09-04T11:09:41.123456Z')
+  )
+})
+
+test('范围筛选把 Run 内记录映射到拼接后的累计执行时间', () => {
+  const runWindow = {
+    startMs: Date.parse('2026-09-04T08:00:00Z'),
+    durationMs: 10_000
+  }
+  const outside = { createdAt: '2026-09-04T08:00:01Z' }
+  const inside = { startedAt: '2026-09-04T08:00:05Z', finishedAt: '2026-09-04T08:00:06Z' }
+  const context = { durationMs: 750 }
+
+  assert.equal(isMessageDebugEntryInTimeRange(outside, runWindow, 10_000, 30_000, 0.45, 0.6), false)
+  assert.equal(isMessageDebugEntryInTimeRange(inside, runWindow, 10_000, 30_000, 0.45, 0.6), true)
+  assert.equal(isMessageDebugEntryInTimeRange(context, runWindow, 10_000, 30_000, 0.45, 0.6), true)
+})
+
+test('会话范围筛选按 Run 拼接位置处理无时间记录', () => {
+  const earlyRunWindow = {
+    startMs: Date.parse('2026-09-04T08:00:00Z'),
+    endMs: Date.parse('2026-09-04T08:00:04Z'),
+    durationMs: 4000
+  }
+  const lateRunWindow = {
+    startMs: Date.parse('2026-09-04T08:00:12Z'),
+    endMs: Date.parse('2026-09-04T08:00:16Z'),
+    durationMs: 4000
+  }
+
+  assert.equal(isMessageDebugEntryInTimeRange({}, earlyRunWindow, 0, 8000, 0.625, 1), false)
+  assert.equal(isMessageDebugEntryInTimeRange({}, lateRunWindow, 4000, 8000, 0.625, 1), true)
+})
+
+test('待运行请求独立分组，Run 到达后保持分组和用户记录标识', () => {
+  const messages = [
+    {
+      id: 'req-a',
+      type: 'human',
+      request_id: 'req-a',
+      created_at: '2026-09-05T06:32:00Z',
+      content: 'A'
+    },
+    { id: 'req-b', type: 'human', request_id: 'req-b', delivery_status: 'queued', content: 'B' }
+  ]
+  const before = groupMessageDebugEntries(buildMessageDebugEntries(messages))
+  assert.equal(before.length, 2)
+  assert.equal(before[0].requestId, 'req-a')
+  assert.equal(before[1].requestId, 'req-b')
+  const after = groupMessageDebugEntries(
+    buildMessageDebugEntries([
+      { ...messages[0], id: 101, run_id: 'run-a' },
+      { id: 102, type: 'ai', run_id: 'run-a', content: '回答 A' },
+      messages[1]
+    ])
+  )
+  assert.equal(after[0].key, before[0].key)
+  assert.equal(after[0].items[0].id, before[0].items[0].id)
+  assert.equal(after[0].items.length, 2)
+  assert.equal(after[1].runId, null)
+  assert.equal(after[1].key, before[1].key)
+})
+
+test('明确接入关联只更新对应用户消息，保留已有运行事实', () => {
+  const messages = [
+    { type: 'human', request_id: 'req-a', created_at: '2026-09-05T06:32:00Z' },
+    { type: 'human', request_id: 'req-b' },
+    { type: 'ai', request_id: 'req-a' },
+    { type: 'human', request_id: 'req-a', run_id: 'existing-run' }
+  ]
+  bindMessageRequestRun(messages, 'req-a', 'run-a')
+  assert.equal(getMessageRunId(messages[0]), 'run-a')
+  assert.equal(messages[0].created_at, '2026-09-05T06:32:00Z')
+  assert.equal(getMessageRunId(messages[1]), null)
+  assert.equal(getMessageRunId(messages[2]), null)
+  assert.equal(getMessageRunId(messages[3]), 'existing-run')
+  bindMessageRequestRun(messages, 'req-b', null)
+  assert.equal(getMessageRunId(messages[1]), null)
+})
+
+test('活跃 Run 中的新请求通过队列投影独立展示且不重复已有消息', () => {
+  const requests = [
+    {
+      request_id: 'req-b',
+      status: 'queued',
+      content: '排队消息',
+      created_at: '2026-09-05T06:32:00Z'
+    }
+  ]
+  const history = [
+    { id: 1, type: 'human', request_id: 'req-a', run_id: 'run-a', content: '运行中' }
+  ]
+  const projected = mergeMessageDebugMessages(history, [], requests)
+  assert.equal(projected.length, 2)
+  assert.equal(projected[1].created_at, requests[0].created_at)
+  assert.equal(projected[1].delivery_status, 'queued')
+  const groups = groupMessageDebugEntries(buildMessageDebugEntries(projected))
+  assert.equal(groups.length, 2)
+  assert.equal(groups[1].requestId, 'req-b')
+  assert.equal(groups[1].runId, null)
+  const ongoing = [{ ...projected[1], run_id: 'run-b' }]
+  const merged = mergeMessageDebugMessages(history, ongoing, requests)
+  assert.equal(merged.length, 2)
+  assert.equal(getMessageRunId(merged[1]), 'run-b')
+  assert.equal(mergeMessageDebugMessages(projected, ongoing, requests).length, 2)
+})
+
+test('非连续同请求分段具有独立 key，不抢占其他分段的选择', () => {
+  const groups = groupMessageDebugEntries(
+    buildMessageDebugEntries([
+      { id: 1, type: 'human', request_id: 'req-a', run_id: 'run-a' },
+      { id: 2, type: 'human', request_id: 'req-b' },
+      { id: 3, type: 'ai', request_id: 'req-a', run_id: 'run-a' }
+    ])
+  )
+  assert.equal(groups.length, 3)
+  assert.equal(new Set(groups.map((group) => group.key)).size, 3)
 })

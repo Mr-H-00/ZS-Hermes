@@ -33,40 +33,14 @@
         <Copy v-else size="12" />
       </span>
 
-      <a-popover
-        v-if="showKey('timing') && runTimingRows.length"
-        trigger="click"
-        placement="topRight"
-      >
-        <template #content>
-          <div class="run-timing-panel">
-            <div class="run-timing-heading">Run 时延</div>
-            <div v-for="row in runTimingRows" :key="row.key" class="run-timing-row">
-              <span class="run-timing-label" :title="row.description">{{ row.label }}</span>
-              <span class="run-timing-value">{{ row.formattedValue }}</span>
-            </div>
-            <div class="run-timing-note">服务器时间，不包含浏览器网络与 SSE 展示等待</div>
-          </div>
-        </template>
-        <button
-          type="button"
-          class="item btn timing-trigger"
-          aria-label="查看 Run 时延明细"
-          title="查看 Run 时延明细"
-        >
-          <Gauge size="12" />
-          <span>{{ runTimingSummary }}</span>
-        </button>
-      </a-popover>
-
       <!-- 对话结束时间 / 执行耗时：纯文本，紧挨复制按钮展示 -->
       <span
         v-if="messageFinishedAt"
         class="time-entry"
-        :class="{ toggleable: messageDurationMs }"
+        :class="{ toggleable: hasMessageDuration }"
         @click="toggleTimeDisplay"
         :title="
-          messageDurationMs
+          hasMessageDuration
             ? showingDuration
               ? '点击显示结束时间'
               : '点击显示执行耗时'
@@ -145,18 +119,18 @@ import {
   Check,
   RotateCcw,
   BookOpen,
-  ChevronDown,
-  Gauge
+  ChevronDown
 } from '@lucide/vue'
 import { agentApi } from '@/apis'
-import { formatChatTime, parseToShanghai } from '@/utils/time'
+import { formatChatTime } from '@/utils/time'
 import KnowledgeSourceSection from '@/components/KnowledgeSourceSection.vue'
 import WebSearchSourceSection from '@/components/WebSearchSourceSection.vue'
-import { buildRunTimingRows, formatRunTimingSummary } from '@/utils/runTiming'
+import { formatRunTimingDuration, getRunTotalLatencyMs } from '@/utils/runTiming'
 
 const emit = defineEmits(['retry', 'openRefs'])
 const props = defineProps({
   message: Object,
+  run: { type: Object, default: null },
   showRefs: {
     type: [Array, Boolean],
     default: () => false
@@ -201,29 +175,19 @@ const feedbackState = reactive({
 // 对话结束时间 / 执行耗时切换
 const showingDuration = ref(false)
 const messageFinishedAt = computed(() => {
-  const finishedAt = msg.value?.run_finished_at || msg.value?.created_at
+  const finishedAt = props.run?.timing?.finished_at || msg.value?.created_at
   return finishedAt ? formatChatTime(finishedAt) : ''
 })
 const messageDurationMs = computed(() => {
-  const started = parseToShanghai(msg.value?.run_started_at)
-  const finished = parseToShanghai(msg.value?.run_finished_at || msg.value?.created_at)
-  if (!started || !finished) return 0
-  const duration = finished.valueOf() - started.valueOf()
-  return Number.isFinite(duration) && duration > 0 ? duration : 0
+  return getRunTotalLatencyMs(props.run?.timing)
 })
+const hasMessageDuration = computed(() => messageDurationMs.value !== null)
 const messageDurationLabel = computed(() => {
-  const ms = messageDurationMs.value
-  if (!ms) return ''
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `耗时 ${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const restSeconds = seconds % 60
-  return `耗时 ${minutes}分${restSeconds}s`
+  const duration = formatRunTimingDuration(messageDurationMs.value)
+  return duration ? `耗时 ${duration}` : ''
 })
-const runTimingRows = computed(() => buildRunTimingRows(msg.value?.run_timing))
-const runTimingSummary = computed(() => formatRunTimingSummary(msg.value?.run_timing))
 const toggleTimeDisplay = () => {
-  if (!messageDurationMs.value) return
+  if (!hasMessageDuration.value) return
   showingDuration.value = !showingDuration.value
 }
 
@@ -497,16 +461,6 @@ const cancelDislike = () => {
       }
     }
 
-    .timing-trigger {
-      border: 1px solid var(--gray-150);
-      font-variant-numeric: tabular-nums;
-      font-family: inherit;
-
-      &:focus-visible {
-        outline: 2px solid var(--main-color);
-        outline-offset: 2px;
-      }
-    }
   }
 
   .sources-panel-body {
@@ -519,45 +473,6 @@ const cancelDislike = () => {
     gap: 12px;
     animation: slideDown 0.2s ease-out;
   }
-}
-
-.run-timing-panel {
-  width: min(280px, calc(100vw - 32px));
-  display: grid;
-  gap: 8px;
-  color: var(--color-text);
-}
-
-.run-timing-heading {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.run-timing-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 24px;
-  font-size: 12px;
-}
-
-.run-timing-label {
-  color: var(--color-text-secondary);
-  cursor: help;
-}
-
-.run-timing-value {
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-}
-
-.run-timing-note {
-  padding-top: 8px;
-  border-top: 1px solid var(--gray-150);
-  color: var(--color-text-tertiary);
-  font-size: 11px;
-  line-height: 1.5;
 }
 
 @keyframes slideDown {

@@ -135,3 +135,26 @@ test('知识库来源与历史消息保持独立的归一化语义', () => {
     { content: '最终答案', reasoningContent: '推理过程' }
   )
 })
+
+
+test('History 按 Run ID 分组，保留零消息 Run、续写和无关联旧消息', () => {
+  const runs = [
+    { run_id: 'run-a', status: 'completed', timing: { created_at: '2026-09-05T00:00:00Z' } },
+    { run_id: 'run-resume', run_type: 'resume', created_by_run_id: 'run-a', status: 'completed', timing: { created_at: '2026-09-05T00:00:01Z' } },
+    { run_id: 'run-empty', status: 'failed', timing: { created_at: '2026-09-05T00:00:02Z' } }
+  ]
+  const history = [
+    { id: 'h', type: 'human', run_id: 'run-a', content: '问题' },
+    { id: 'resume', type: 'ai', run_id: 'run-resume', content: '续写' },
+    { id: 'a', type: 'ai', run_id: 'run-a', content: '首次回答' },
+    { id: 'old', type: 'ai', content: '没有 Run 的旧回答', created_at: '2026-09-04T00:00:00Z' }
+  ]
+  const groups = MessageProcessor.convertServerHistoryToMessages(history, runs)
+  assert.deepEqual(groups.map((group) => group.run?.run_id), [undefined, 'run-a', 'run-resume', 'run-empty'])
+  assert.deepEqual(groups[1].messages.map((message) => message.id), ['h', 'a'])
+  assert.equal(groups[2].messages[0].content, '续写')
+  assert.equal(groups[3].messages.length, 0)
+  assert.equal(groups[3].run.status, 'failed')
+  assert.equal(groups[0].messages[0].id, 'old')
+  assert.equal(history[2].isLast, undefined)
+})

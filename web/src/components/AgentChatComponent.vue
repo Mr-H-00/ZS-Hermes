@@ -80,6 +80,9 @@
           <div class="chat-box">
             <template v-for="row in conversationRows" :key="row.key">
               <div v-if="row.type === 'conversation'" class="conv-box">
+                <div v-if="row.timeLabel" class="conversation-time">
+                  {{ row.timeLabel }}
+                </div>
                 <template
                   v-for="(displayItem, itemIndex) in row.displayItems"
                   :key="displayItem.key"
@@ -108,6 +111,9 @@
                     :mention="mentionConfig"
                   />
                 </template>
+                <div v-if="!row.displayItems.length && row.conv.run" class="chat-inline-notice">
+                  {{ formatEmptyRunStatus(row.conv.run.status) }}
+                </div>
                 <AgentArtifactsCard
                   v-if="row.artifacts.length"
                   :artifacts="row.artifacts"
@@ -119,7 +125,8 @@
                 <RefsComponent
                   v-if="shouldShowRefs(row.conv)"
                   :message="getLastMessage(row.conv)"
-                  :show-refs="['model', 'copy', 'timing', 'sources']"
+                  :run="getMessageRun(getLastMessage(row.conv))"
+                  :show-refs="['model', 'copy', 'sources']"
                   :is-latest-message="false"
                   :sources="getConversationSources(row.conv)"
                 />
@@ -495,7 +502,10 @@
                       </div>
 
                       <div v-if="supportsContextCompression" class="context-compression-action">
-                        <p v-if="shouldSuggestContextCompression" class="context-compression-warning">
+                        <p
+                          v-if="shouldSuggestContextCompression"
+                          class="context-compression-warning"
+                        >
                           当前上下文已达到压缩阈值的
                           {{ tokenUsageHeaderPercentLabel }}，建议先压缩再开始下一次运行。
                         </p>
@@ -785,6 +795,7 @@
           :run-active="Boolean(currentThreadState?.activeRunId && currentThreadState?.isStreaming)"
           :visible="isFilePanelOpen"
           :messages="currentDebugMessages"
+          :runs="currentThreadRuns"
           :panel-ratio="panelRatio"
           :preview-tabs="agentPanelPreviewTabs"
           :preview-cache="agentPanelPreviewCache"
@@ -846,6 +857,7 @@ import ContextUsageRing from '@/components/ContextUsageRing.vue'
 import ToolApprovalModeSelector from '@/components/ToolApprovalModeSelector.vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
+import { formatEmptyRunStatus, isConversationSettled as isRunConversationSettled } from '@/utils/conversationProcessGrouping'
 import RefsComponent from '@/components/RefsComponent.vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import ConversationProcessGroupComponent from '@/components/ConversationProcessGroupComponent.vue'
@@ -871,9 +883,11 @@ import { storeToRefs } from 'pinia'
 import {
   getMessageRequestId,
   getMessageRunId,
-  mergeMessageDebugMessages
+  mergeMessageDebugMessages,
+  bindMessageRequestRun
 } from '@/utils/messageDebug'
 import { MessageProcessor } from '@/utils/messageProcessor'
+import dayjs, { parseToShanghai } from '@/utils/time'
 import { agentApi, threadApi } from '@/apis'
 import HumanApprovalModal from '@/components/HumanApprovalModal.vue'
 import { extractPendingInterrupt, useApproval } from '@/composables/useApproval'
@@ -918,6 +932,7 @@ import {
 // ==================== PROPS & EMITS ====================
 const props = defineProps({
   agentId: { type: String, default: '' },
+  initialProjectId: { type: String, default: '' },
   singleMode: { type: Boolean, default: true },
   sendDisabled: { type: Boolean, default: false }
 })
@@ -989,6 +1004,7 @@ const { getThreadState, resetOnGoingConv, stopThreadStream } = useAgentThreadSta
 
 // 组件级别的消息、附件与提示状态
 const threadMessages = ref({})
+const threadRuns = ref({})
 const threadAttachmentsMap = ref({})
 const attachmentUploadModalOpen = ref(false)
 const attachmentInitialFiles = ref([])
@@ -1342,6 +1358,14 @@ const currentAgent = computed(() => {
 })
 const currentChatId = computed(() => currentThreadId.value)
 
+watch(
+  [currentChatId, () => props.initialProjectId],
+  ([threadId, initialProjectId]) => {
+    if (!threadId) selectedProjectId.value = initialProjectId || AUTO_PROJECT_ID
+  },
+  { immediate: true }
+)
+
 // ==================== 对话级模型覆盖 ====================
 // 当前选择优先；否则依次使用 Conversation、智能体和系统默认模型。
 const DRAFT_MODEL_KEY = '__draft__'
@@ -1588,8 +1612,8 @@ const tokenUsageContextRatio = computed(() => {
   if (tokenUsageStackLimit.value === null || tokenUsagePressureEstimate.value === null) return null
   return Math.max(0, Math.min(tokenUsagePressureTotal.value / tokenUsageStackLimit.value, 1))
 })
-const shouldSuggestContextCompression = computed(
-  () => isContextCompressionSuggested(tokenUsageContextRatio.value)
+const shouldSuggestContextCompression = computed(() =>
+  isContextCompressionSuggested(tokenUsageContextRatio.value)
 )
 const isContextCompressionPending = computed(() =>
   Boolean(currentThreadState.value?.contextCompressing)
@@ -1900,6 +1924,9 @@ const { mentionConfig } = useAgentMentionConfig({
 })
 
 const currentThreadMessages = computed(() => threadMessages.value[currentChatId.value] || [])
+const currentThreadRuns = computed(() => threadRuns.value[currentChatId.value] || [])
+const currentRunById = computed(() => new Map(currentThreadRuns.value.map((run) => [run.run_id, run])))
+const getMessageRun = (message) => currentRunById.value.get(getMessageRunId(message)) || null
 const currentThreadHasHistory = computed(() => currentThreadMessages.value.length > 0)
 const currentThreadConfigNotice = computed(() => {
   if (!currentChatId.value) return null
@@ -1925,20 +1952,8 @@ const shouldSuppressRefsForApproval = () =>
     approvalState.threadId && currentChatId.value === approvalState.threadId && isProcessing.value
   )
 
-// 判断某轮对话是否已「收尾」，即可以展示 refs（来源/操作栏）：
-// - 后面紧跟的下一轮以 human message 开头（即用户开启了新一轮）→ 已收尾；
-// - 它是最后一轮，且当前没有正在生成回复 → 已收尾。
-// 反之（后面跟的是没有 human message 的 AI 续写，如 resume 续写；或仍在生成中）→ 未收尾，不展示。
-const isConversationSettled = (conv) => {
-  const convs = conversations.value
-  const idx = convs.indexOf(conv)
-  if (idx === -1) return false
-  const next = convs[idx + 1]
-  if (next) {
-    return next.messages?.[0]?.type === 'human'
-  }
-  return !(isProcessing.value || isReplyLoading.value)
-}
+const isConversationSettled = (conv) =>
+  isRunConversationSettled(conversations.value, conv, isProcessing.value || isReplyLoading.value)
 
 // 计算是否显示Refs组件的条件
 const shouldShowRefs = computed(() => {
@@ -1969,7 +1984,11 @@ const getThreadOngoingMessages = (threadId) => {
 
 const onGoingConvMessages = computed(() => getThreadOngoingMessages(currentChatId.value))
 const currentDebugMessages = computed(() =>
-  mergeMessageDebugMessages(currentThreadMessages.value, onGoingConvMessages.value)
+  mergeMessageDebugMessages(
+    currentThreadMessages.value,
+    onGoingConvMessages.value,
+    currentThreadState.value?.queuedRequests || []
+  )
 )
 
 // 供深层 TaskTool 读取子线程实时轨迹 / 首次运行时定位 child_thread_id
@@ -2116,7 +2135,7 @@ watch(
 )
 
 const historyConversations = computed(() => {
-  return MessageProcessor.convertServerHistoryToMessages(currentThreadMessages.value)
+  return MessageProcessor.convertServerHistoryToMessages(currentThreadMessages.value, currentThreadRuns.value)
 })
 
 function mergeLocalImageFields(message, localMessage) {
@@ -2146,7 +2165,9 @@ function mergeOngoingUserMessageIntoHistory(historyConvs, ongoingMessages) {
 
   const historyHuman = historyMessages[historyHumanIndex]
   const historyRequestId = getMessageRequestId(historyHuman, { allowMessageIdFallback: true })
-  const ongoingRequestId = getMessageRequestId(firstOngoingMessage, { allowMessageIdFallback: true })
+  const ongoingRequestId = getMessageRequestId(firstOngoingMessage, {
+    allowMessageIdFallback: true
+  })
   if (!historyRequestId || !ongoingRequestId || historyRequestId !== ongoingRequestId) {
     return { historyConvs, ongoingMessages }
   }
@@ -2179,7 +2200,18 @@ function mergeActiveRunOngoingIntoHistory(historyConvs, ongoingMessages, activeR
         (message) => !(message?.type === 'ai' && getMessageRunId(message) === activeRunId)
       )
     }))
-    .filter((conv) => conv.messages.length > 0)
+    .filter((conv) => conv.messages.length > 0 || conv.run)
+
+  const activeGroupIndex = filteredHistoryConvs.findIndex((conv) => conv.run?.run_id === activeRunId)
+  if (activeGroupIndex !== -1) {
+    const conv = filteredHistoryConvs[activeGroupIndex]
+    filteredHistoryConvs[activeGroupIndex] = {
+      ...conv,
+      messages: [...conv.messages, ...ongoingMessages],
+      status: 'streaming'
+    }
+    return { historyConvs: filteredHistoryConvs, ongoingMessages: [] }
+  }
 
   const firstOngoingMessage = ongoingMessages[0]
   if (firstOngoingMessage?.type === 'human' || filteredHistoryConvs.length === 0) {
@@ -2192,7 +2224,9 @@ function mergeActiveRunOngoingIntoHistory(historyConvs, ongoingMessages, activeR
   if (!lastHuman) return { historyConvs: filteredHistoryConvs, ongoingMessages }
 
   const historyRequestId = getMessageRequestId(lastHuman, { allowMessageIdFallback: true })
-  const ongoingRequestId = getMessageRequestId(firstOngoingMessage, { allowMessageIdFallback: true })
+  const ongoingRequestId = getMessageRequestId(firstOngoingMessage, {
+    allowMessageIdFallback: true
+  })
   const sameActiveRun =
     getMessageRunId(lastHuman) === activeRunId ||
     (Boolean(historyRequestId) &&
@@ -2231,11 +2265,33 @@ const conversations = computed(() => {
   return activeRunHistoryConvs
 })
 
+/** 间隔超过一小时时，在新用户消息上方显示发送时间。 */
+const getConversationTimeLabel = (conv, previousConv) => {
+  const sentAt = conv.messages.find((message) => message.type === 'human')?.created_at
+  const finishedAt = getMessageRun(previousConv?.messages.findLast((message) => message.type === 'ai'))?.timing?.finished_at
+  if (!sentAt || !finishedAt) return ''
+
+  // 历史消息的无时区时间来自 PostgreSQL UTC，不能按浏览器本地时间解析。
+  const sentTime = dayjs.utc(sentAt)
+  const finishedTime = dayjs.utc(finishedAt)
+  if (!sentTime.isValid() || !finishedTime.isValid()) return ''
+  if (sentTime.valueOf() - finishedTime.valueOf() <= 60 * 60 * 1000) return ''
+
+  const displayTime = parseToShanghai(sentTime.toISOString())
+  const today = parseToShanghai(Date.now())
+  if (displayTime.isSame(today, 'day')) return displayTime.format('今天 HH:mm')
+  if (displayTime.isSame(today.subtract(1, 'day'), 'day')) {
+    return displayTime.format('昨天 HH:mm')
+  }
+  return displayTime.format(displayTime.isSame(today, 'year') ? 'MM-DD HH:mm' : 'YYYY-MM-DD HH:mm')
+}
+
 const conversationRows = computed(() => {
   const rows = conversations.value.map((conv, index) => ({
     type: 'conversation',
     key: conv.status === 'streaming' ? 'ongoing-conversation' : `history-${index}`,
     conv,
+    timeLabel: getConversationTimeLabel(conv, conversations.value[index - 1]),
     displayItems: getDisplayItems(conv),
     artifacts: MessageProcessor.extractArtifactsFromConversation(conv)
   }))
@@ -2302,8 +2358,9 @@ const canSteerQueuedRequest = (request) =>
   request?.queue_policy === 'enqueue' &&
   request?.source === 'chat'
 const canCancelQueuedRequest = (request) =>
-  request?.queue_policy !== 'steer' ||
-  (!isStreaming.value && currentQueueSnapshot.value.status !== 'running')
+  request?.status !== 'sending' &&
+  (request?.queue_policy !== 'steer' ||
+    (!isStreaming.value && currentQueueSnapshot.value.status !== 'running'))
 const shouldRefreshStateWhileStreaming = computed(
   () => Boolean(currentChatId.value) && isStreaming.value && statePanelOpen.value
 )
@@ -2424,6 +2481,8 @@ const buildOptimisticHumanMessage = ({
     id: requestId,
     role: 'user',
     type: 'human',
+    created_at: new Date().toISOString(),
+    delivery_status: 'sending',
     content: text,
     message_type: imageContent ? 'multimodal_image' : 'text',
     extra_metadata: {
@@ -2778,6 +2837,8 @@ const fetchThreadMessages = async ({ agentId, threadId, delay = 0 }) => {
     const response = await agentApi.getAgentHistory(threadId)
     const history = response.history || []
     threadMessages.value[threadId] = history
+    threadRuns.value[threadId] = response.runs
+    chatThreadsStore.upsertThread(response.thread)
   } catch (error) {
     handleChatError(error, 'load')
     throw error
@@ -3012,22 +3073,20 @@ const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = 
       agentPanelFilesystemRefreshVersion.value += 1
     }
   },
-  onRunStarted: ({ threadId }) => {
+  onRunStarted: ({ threadId, runId, requestId }) => {
+    const chunks = getThreadState(threadId)?.onGoingConv?.msgChunks || {}
+    bindMessageRequestRun(Object.values(chunks).flat(), requestId, runId)
+    bindMessageRequestRun(threadMessages.value[threadId], requestId, runId)
     chatThreadsStore.setThreadStatus(threadId, 'loading')
   }
 })
-const {
-  stopAllRequestStreams,
-  cancelRequest,
-  resumeQueuedRequests,
-  continueQueue,
-  steerRequest
-} = useAgentRequestQueue({
-  getThreadState,
-  resetOnGoingConv,
-  startRunStream,
-  onStreamError: () => {}
-})
+const { stopAllRequestStreams, cancelRequest, resumeQueuedRequests, continueQueue, steerRequest } =
+  useAgentRequestQueue({
+    getThreadState,
+    resetOnGoingConv,
+    startRunStream,
+    onStreamError: () => {}
+  })
 
 const handleCancelQueuedRequest = async (requestId) => {
   const threadId = currentChatId.value
@@ -3281,6 +3340,13 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
       }))
     })
     threadState.isStreaming = true
+  } else {
+    threadState.queuedRequests.push({
+      request_id: requestId,
+      status: 'sending',
+      content: text,
+      created_at: new Date().toISOString()
+    })
   }
 
   try {
@@ -3299,6 +3365,12 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
     })
     const status = runResp?.status
     const runId = runResp?.run_id
+    const sendingRequest = threadState.queuedRequests.find(
+      (request) => request.request_id === requestId
+    )
+    threadState.queuedRequests = threadState.queuedRequests.filter(
+      (request) => request.request_id !== requestId
+    )
     if (status !== 'rejected' && modelSpec) {
       const thread = threads.value.find((item) => item.id === threadId)
       if (thread) {
@@ -3307,13 +3379,17 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
       }
     }
     if (status === 'queued' || (!runId && status !== 'rejected')) {
+      for (const msg of threadState.onGoingConv.msgChunks[requestId] || []) {
+        if (msg.type === 'human') msg.delivery_status = 'queued'
+      }
       threadState.queuedRequests = threadState.queuedRequests || []
       threadState.queuedRequests.push({
         request_id: requestId,
         status: 'queued',
         queue_policy: runResp?.queue_policy || queuePolicy,
         queue_position: runResp?.queue_position || 1,
-        content: text
+        content: text,
+        created_at: sendingRequest?.created_at
       })
       if (!hadActiveRun) {
         threadState.isStreaming = false
@@ -3321,12 +3397,28 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
       }
       await resumeQueuedRequests(threadId, resolveAgentSlugForThread(threadId))
     } else if (runId) {
+      if (sendingRequest) {
+        threadState.onGoingConv.msgChunks[requestId] = [
+          {
+            ...buildOptimisticHumanMessage({
+              requestId,
+              text,
+              imageContent,
+              attachments: pendingAttachments
+            }),
+            created_at: sendingRequest.created_at
+          }
+        ]
+      }
       threadState.pendingRequestId = requestId
-      await startRunStream(threadId, runId, 0)
+      await startRunStream(threadId, runId, 0, { requestId })
     } else {
       throw new Error('创建 run 失败：缺少 run_id')
     }
   } catch (error) {
+    threadState.queuedRequests = threadState.queuedRequests.filter(
+      (request) => request.request_id !== requestId
+    )
     if (!hadActiveRun) {
       threadState.isStreaming = false
       threadState.replyLoadingVisible = false
@@ -3612,6 +3704,7 @@ const getMessageToolCalls = (message) => {
 const getDisplayItems = (conv) =>
   getConversationDisplayItems(conv, {
     enrichToolCalls: getMessageToolCalls,
+    runTiming: getMessageRun(getLastMessage(conv))?.timing,
     collapseIntermediate: conv?.status !== 'streaming' && isConversationSettled(conv)
   })
 
@@ -3676,10 +3769,7 @@ const loadChatsList = async () => {
     if (props.singleMode && currentAgentId.value !== agentId) return
 
     // 如果当前线程不在线程列表中，清空当前线程
-    if (
-      currentThreadId.value &&
-      !threads.value.find((t) => t.id === currentThreadId.value)
-    ) {
+    if (currentThreadId.value && !threads.value.find((t) => t.id === currentThreadId.value)) {
       setCurrentThreadId(null)
     }
 
@@ -3746,6 +3836,7 @@ watch(
       // 清理当前线程状态
       setCurrentThreadId(null)
       threadMessages.value = {}
+      threadRuns.value = {}
       threadAttachmentsMap.value = {}
       resetAgentPanelState()
       // 清理所有线程状态
@@ -3815,7 +3906,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
   }
   if (!threadId) {
     ensureActiveThread.reset()
-    selectedProjectId.value = AUTO_PROJECT_ID
+    selectedProjectId.value = props.initialProjectId || AUTO_PROJECT_ID
     threadCreationRequestId.value = ''
   }
   if (threadId) {
@@ -4219,6 +4310,14 @@ watch(currentChatId, (threadId, oldThreadId) => {
 .conv-box {
   display: flex;
   flex-direction: column;
+}
+
+.conversation-time {
+  margin: 24px 0 16px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .chat-inline-notice {
