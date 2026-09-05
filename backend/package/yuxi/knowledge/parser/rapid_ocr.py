@@ -18,7 +18,6 @@ from yuxi.knowledge.parser.base import BaseDocumentProcessor, OCRException
 from yuxi.knowledge.parser.capabilities import get_parser_capability
 from yuxi.utils import logger
 
-
 _CAPABILITY = get_parser_capability("rapid_ocr")
 
 

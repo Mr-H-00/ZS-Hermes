@@ -13,8 +13,8 @@ from yuxi.services.attachment_service import serialize_attachment
 from yuxi.services.project_service import create_implicit_project
 from yuxi.services.workdir_service import (
     ensure_conversation_workdir_available,
-    workdir_binding_from_project,
     resolve_conversation_workdir_path,
+    workdir_binding_from_project,
 )
 from yuxi.storage.postgres.models_business import (
     AGENT_RUN_TERMINAL_STATUSES,

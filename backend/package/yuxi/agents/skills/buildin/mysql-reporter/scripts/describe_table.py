@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+
 from _mysql_common import create_connection, load_mysql_config
 
 

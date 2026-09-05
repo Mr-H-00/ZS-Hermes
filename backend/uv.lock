@@ -2558,6 +2558,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pypdf"
+version = "6.17.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5d/dc/34857a5e31cf708c163929f61a9ba4bd357a8850e49fc4e846ced527b51f/pypdf-6.17.0.tar.gz", hash = "sha256:097ad0d829778ec5b615aeaa5c6da4b6cac4992f8fd80b56f98a1a8c006573bb", size = 7018352, upload-time = "2026-09-04T11:30:44.256Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c1/08/1e9731038124a9127e1d27848952b86fb32b2f45f8f1b94adc7f0817a6ac/pypdf-6.17.0-py3-none-any.whl", hash = "sha256:5bd827266a21553b74d910e350131a6227b72f2ab4209bf372814b8195fa11c5", size = 388051, upload-time = "2026-09-04T11:30:42.681Z" },
+]
+
+[[package]]
 name = "pypdfium2"
 version = "5.13.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -3831,6 +3840,7 @@ dependencies = [
     { name = "pylatexenc" },
     { name = "pymilvus" },
     { name = "pymysql" },
+    { name = "pypdf" },
     { name = "pypdfium2" },
     { name = "pypinyin" },
     { name = "python-dotenv" },
@@ -3901,6 +3911,7 @@ requires-dist = [
     { name = "pylatexenc", specifier = ">=2.10,<3" },
     { name = "pymilvus", specifier = ">=2.5.8" },
     { name = "pymysql", specifier = ">=1.1.0" },
+    { name = "pypdf", specifier = ">=6.13.3" },
     { name = "pypdfium2", specifier = ">=5.0.0" },
     { name = "pypinyin", specifier = ">=0.55.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },

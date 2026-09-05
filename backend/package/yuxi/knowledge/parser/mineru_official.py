@@ -17,7 +17,6 @@ from yuxi.knowledge.parser.capabilities import get_parser_capability
 from yuxi.knowledge.parser.zip_utils import process_zip_file_sync
 from yuxi.utils import hashstr, logger
 
-
 _CAPABILITY = get_parser_capability("mineru_official")
 
 

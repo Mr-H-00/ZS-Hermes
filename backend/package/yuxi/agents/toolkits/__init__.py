@@ -2,6 +2,7 @@
 
 # 触发各模块的 @tool 装饰器执行，自动注册工具
 from . import buildin, debug
+from .kbs import get_common_kb_tools
 
 # 工具获取函数
 from .registry import (
@@ -11,8 +12,6 @@ from .registry import (
     get_extra_metadata,
     tool,
 )
-
-from .kbs import get_common_kb_tools
 
 __all__ = [
     "get_extra_metadata",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import re
+import shutil
 import time
 import zipfile
 from pathlib import Path
@@ -255,6 +256,9 @@ def test_slim_office_backends_convert_real_fixtures(
     filename: str,
     expected_fragments: tuple[str, ...],
 ) -> None:
+    if filename.endswith(".xls") and shutil.which("libreoffice") is None:
+        pytest.skip("旧版 Excel fixture 需要 LibreOffice 转换器")
+
     document = parser_unified._convert_office_document(PARSER_FIXTURES / filename)
 
     markdown = document.export_to_markdown()

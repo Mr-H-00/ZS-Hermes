@@ -687,6 +687,10 @@ async def test_stream_agent_run_events_refreshes_pg_before_cleanup_fallback(
         del run_id, after_seq, limit
         return []
 
+    async def fake_last_stream_seq(run_id: str):
+        del run_id
+        return "0-0"
+
     clock = 0.0
     sleep_intervals = []
 
@@ -698,6 +702,7 @@ async def test_stream_agent_run_events_refreshes_pg_before_cleanup_fallback(
     monkeypatch.setattr(agent_run_service, "_load_stream_run_for_user", fake_load_run)
     monkeypatch.setattr(agent_run_service, "_load_stream_run", fake_refresh_run)
     monkeypatch.setattr(agent_run_service, "list_run_stream_events", fake_list_events)
+    monkeypatch.setattr(agent_run_service, "get_last_run_stream_seq", fake_last_stream_seq)
     monkeypatch.setattr(agent_run_service.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(agent_run_service, "monotonic", lambda: clock)
     monkeypatch.setattr(agent_run_service, "uniform", lambda _low, _high: 1.2)

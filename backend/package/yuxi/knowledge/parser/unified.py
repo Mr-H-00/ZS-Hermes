@@ -31,7 +31,6 @@ from yuxi.knowledge.utils.pdf_utils import validate_pdf_page_tree_loadable
 from yuxi.storage.minio import get_minio_client
 from yuxi.utils import logger
 
-
 _OFFICE_BACKENDS = {
     ".docx": (InputFormat.DOCX, MsWordDocumentBackend),
     ".pptx": (InputFormat.PPTX, MsPowerpointDocumentBackend),
@@ -89,8 +88,7 @@ def parse_image(file, params=None):
 
     if opt_ocr == "disable":
         raise ValueError(
-            "图像文件必须启用OCR才能提取文本内容。"
-            f"请选择OCR方式 ({'/'.join(get_ocr_engine_ids())}) 或移除该文件。"
+            f"图像文件必须启用OCR才能提取文本内容。请选择OCR方式 ({'/'.join(get_ocr_engine_ids())}) 或移除该文件。"
         )
 
     image_bucket, image_prefix = _resolve_image_storage_params(processor_params)

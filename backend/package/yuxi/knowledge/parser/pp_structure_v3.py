@@ -16,7 +16,6 @@ from yuxi.knowledge.parser.base import BaseDocumentProcessor, DocumentParserExce
 from yuxi.knowledge.parser.capabilities import get_parser_capability
 from yuxi.utils import logger
 
-
 _CAPABILITY = get_parser_capability("pp_structure_v3_ocr")
 
 

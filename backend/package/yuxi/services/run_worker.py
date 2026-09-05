@@ -38,6 +38,10 @@ from yuxi.services.run_queue_service import (
     publish_cancel_signals,
     wait_for_cancel_signal,
 )
+from yuxi.services.scheduled_agent_service import (
+    claim_and_dispatch_due_jobs,
+    recover_scheduled_dispatches,
+)
 from yuxi.services.task_queue_service import (
     TASK_RECONCILIATION_HEALTH_KEY,
     TASK_RECONCILIATION_HEALTH_TTL_SECONDS,
@@ -45,10 +49,6 @@ from yuxi.services.task_queue_service import (
     reconcile_and_publish_tasks,
 )
 from yuxi.services.task_service import TASKER_DEFAULT_TIMEOUT_SECONDS, process_task
-from yuxi.services.scheduled_agent_service import (
-    claim_and_dispatch_due_jobs,
-    recover_scheduled_dispatches,
-)
 from yuxi.services.workdir_service import (
     AuthorizedWorkdir,
     resolve_authorized_workdir,

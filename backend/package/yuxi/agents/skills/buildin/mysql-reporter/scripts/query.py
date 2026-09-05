@@ -13,9 +13,8 @@ import sys
 from typing import Any
 
 import pymysql
-from pymysql.cursors import DictCursor
-
 from _mysql_common import create_connection, load_mysql_config
+from pymysql.cursors import DictCursor
 
 
 class QueryTimeoutError(Exception):

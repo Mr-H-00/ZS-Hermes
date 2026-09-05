@@ -55,6 +55,7 @@ dependencies = [
     "pyjwt>=2.13.0",
     "pymilvus>=2.5.8",
     "pymysql>=1.1.0",
+    "pypdf>=6.13.3",
     "pypdfium2>=5.0.0",
     "pypinyin>=0.55.0",
     "python-dotenv>=1.1.0",
