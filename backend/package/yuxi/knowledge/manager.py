@@ -242,21 +242,14 @@ class KnowledgeBaseManager:
                 normalized[key] = 0
         return normalized
 
-    async def _refresh_database_stats(
-        self,
-        kb_id: str,
-        stats: dict[str, int] | None = None,
-    ) -> dict[str, int]:
+    async def _refresh_database_stats(self, kb_id: str) -> dict[str, int]:
         """刷新并持久化知识库聚合统计。"""
         from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 
-        if stats is None:
-            stats = await self._get_database_file_stats(kb_id)
-        normalized_stats = self._normalize_database_stats(stats)
-        kb = await KnowledgeBaseRepository().update_stats(kb_id, normalized_stats)
+        kb = await KnowledgeBaseRepository().refresh_stats(kb_id)
         if kb is None:
             raise KBNotFoundError(f"Database {kb_id} not found")
-        return normalized_stats
+        return self._normalize_database_stats(kb.additional_params["stats"])
 
     async def _run_with_stats_refresh(self, kb_id: str, operation: Awaitable[Any]) -> Any:
         """执行文件操作并刷新统计，同时保留原始操作异常。"""
@@ -1007,7 +1000,7 @@ class KnowledgeBaseManager:
         """修复历史文件缺失的 Chunk/Token 统计，并刷新知识库聚合统计。"""
         kb_instance = await self.get_kb_executor(kb_id)
         result = await kb_instance.repair_missing_file_stats(kb_id)
-        result["stats"] = await self._refresh_database_stats(kb_id, result["stats"])
+        result["stats"] = await self._refresh_database_stats(kb_id)
         return result
 
     async def get_file_basic_info(self, kb_id: str, file_id: str) -> dict:

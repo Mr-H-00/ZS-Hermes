@@ -1047,10 +1047,8 @@ class KnowledgeBase(ABC):
                     updated_files += 1
                     await file_repo.update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
 
-        stats = await file_repo.get_kb_file_stats(kb_id)
         return {
             "status": "success",
-            "stats": stats,
             "scanned_files": scanned_files,
             "scanned_indexed_files": scanned_indexed_files,
             "skipped_unindexed_files": skipped_file_count,

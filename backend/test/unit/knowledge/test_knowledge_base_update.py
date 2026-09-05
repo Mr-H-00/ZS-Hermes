@@ -54,8 +54,11 @@ class FakeKnowledgeBaseRepository:
     async def get_by_kb_id(self, kb_id: str):
         return self.row if kb_id == "db" else None
 
-    async def update_stats(self, kb_id: str, stats: dict[str, int]):
+    async def refresh_stats(self, kb_id: str):
         assert kb_id == "db"
+        from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
+
+        stats = await KnowledgeFileRepository().get_kb_file_stats(kb_id)
         self.update_calls.append({"stats": stats})
         self.row.additional_params = {**self.row.additional_params, "stats": stats}
         return self.row

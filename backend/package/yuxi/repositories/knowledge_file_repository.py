@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import DateTime, String, case, cast, func, literal, or_, select, union_all, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import TaskRecord
@@ -661,49 +662,43 @@ class KnowledgeFileRepository:
         except Exception as exc:
             logger.warning(f"Failed to load kb file stats cache {cache_key}: {exc}")
 
-        stats = await self._query_kb_file_stats(kb_id)
+        async with pg_manager.get_async_session_context() as session:
+            stats = await self.query_kb_file_stats(kb_id, session=session)
         try:
             await redis_client.set(cache_key, json.dumps(stats), ex=KB_FILE_STATS_CACHE_TTL)
         except Exception as exc:
             logger.warning(f"Failed to store kb file stats cache {cache_key}: {exc}")
         return stats
 
-    async def _query_kb_file_stats(self, kb_id: str) -> dict[str, int]:
-        """直接查询数据库计算知识库文件统计。"""
+    async def query_kb_file_stats(self, kb_id: str, *, session: AsyncSession) -> dict[str, int]:
+        """在调用方事务中直接聚合文件统计，绕过读取缓存。"""
         non_folder = KnowledgeFile.is_folder.is_(False)
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(
-                select(
-                    func.count(KnowledgeFile.file_id).label("row_count"),
-                    func.sum(case((non_folder, 1), else_=0)).label("file_count"),
-                    func.sum(case((KnowledgeFile.is_folder.is_(True), 1), else_=0)).label("folder_count"),
-                    func.coalesce(func.sum(case((non_folder, KnowledgeFile.file_size), else_=0)), 0).label(
-                        "total_size"
-                    ),
-                    func.coalesce(func.sum(case((non_folder, KnowledgeFile.chunk_count), else_=0)), 0).label(
-                        "chunk_count"
-                    ),
-                    func.coalesce(func.sum(case((non_folder, KnowledgeFile.token_count), else_=0)), 0).label(
-                        "token_count"
-                    ),
-                    func.sum(case((non_folder & (KnowledgeFile.status == "uploaded"), 1), else_=0)).label(
-                        "pending_parse_count"
-                    ),
-                    func.sum(
-                        case((non_folder & KnowledgeFile.status.in_(["parsed", "error_indexing"]), 1), else_=0)
-                    ).label("pending_index_count"),
-                    func.sum(
-                        case(
-                            (
-                                non_folder & KnowledgeFile.status.in_(["processing", "waiting", "parsing", "indexing"]),
-                                1,
-                            ),
-                            else_=0,
-                        )
-                    ).label("processing_count"),
-                ).where(KnowledgeFile.kb_id == kb_id)
-            )
-            row = result.one()
+        result = await session.execute(
+            select(
+                func.count(KnowledgeFile.file_id).label("row_count"),
+                func.sum(case((non_folder, 1), else_=0)).label("file_count"),
+                func.sum(case((KnowledgeFile.is_folder.is_(True), 1), else_=0)).label("folder_count"),
+                func.coalesce(func.sum(case((non_folder, KnowledgeFile.file_size), else_=0)), 0).label("total_size"),
+                func.coalesce(func.sum(case((non_folder, KnowledgeFile.chunk_count), else_=0)), 0).label("chunk_count"),
+                func.coalesce(func.sum(case((non_folder, KnowledgeFile.token_count), else_=0)), 0).label("token_count"),
+                func.sum(case((non_folder & (KnowledgeFile.status == "uploaded"), 1), else_=0)).label(
+                    "pending_parse_count"
+                ),
+                func.sum(case((non_folder & KnowledgeFile.status.in_(["parsed", "error_indexing"]), 1), else_=0)).label(
+                    "pending_index_count"
+                ),
+                func.sum(
+                    case(
+                        (
+                            non_folder & KnowledgeFile.status.in_(["processing", "waiting", "parsing", "indexing"]),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("processing_count"),
+            ).where(KnowledgeFile.kb_id == kb_id)
+        )
+        row = result.one()
 
         return {
             "row_count": int(row.row_count or 0),
