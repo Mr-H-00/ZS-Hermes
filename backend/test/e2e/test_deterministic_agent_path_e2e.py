@@ -1115,7 +1115,11 @@ async def test_attachment_is_written_to_user_workspace_workdir_and_survives_runt
         )
         missing_result = sandbox.read(attachment_path)
         assert missing_result.file_data is None
-        assert missing_result.error and "does not exist" in missing_result.error.lower()
+        assert missing_result.error
+        missing_error = missing_result.error.lower()
+        assert attachment_path.lower() in missing_error
+        canonical_not_found = f"file '{attachment_path.lower()}' not found"
+        assert any(marker in missing_error for marker in ("does not exist", canonical_not_found, "filenotfounderror"))
     finally:
         if thread_id:
             try:
