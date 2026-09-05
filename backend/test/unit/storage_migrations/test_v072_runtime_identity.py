@@ -12,7 +12,6 @@ def _configure_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[P
     monkeypatch.setattr(migration, "get_user_data_dir", lambda: roots[0])
     monkeypatch.setattr(migration, "get_skill_data_dir", lambda: roots[1])
     monkeypatch.setattr(migration, "get_skill_projection_dir", lambda: roots[2])
-    monkeypatch.delenv("NLTK_DATA", raising=False)
     monkeypatch.setattr(migration.os, "geteuid", lambda: 0)
     return roots
 

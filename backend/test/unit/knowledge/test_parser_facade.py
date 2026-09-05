@@ -14,8 +14,6 @@ import yuxi.knowledge.parser.factory as factory_module
 import yuxi.knowledge.parser.unified as parser_unified
 from docx import Document
 from PIL import Image
-from pypdf import PdfWriter
-from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from yuxi.knowledge.parser.base import DocumentParserException
 from yuxi.knowledge.parser.capabilities import PARSER_CAPABILITIES
@@ -156,25 +154,33 @@ def test_rapid_ocr_health_check_does_not_load_model(monkeypatch: pytest.MonkeyPa
 
 
 def _build_pdf(file_path: Path, text: str) -> None:
-    """用 pypdf 构造带文本的最小 PDF（pypdfium2 只读不能写，测试造 PDF 改用 pypdf）。"""
-    writer = PdfWriter()
-    page = writer.add_blank_page(width=595, height=842)
+    """用标准库构造带文本的最小 PDF，避免测试引入额外 PDF 依赖。"""
     escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-    stream = DecodedStreamObject()
-    stream.set_data(f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode())
-    page[NameObject("/Contents")] = writer._add_object(stream)
-    font = DictionaryObject(
-        {
-            NameObject("/Type"): NameObject("/Font"),
-            NameObject("/Subtype"): NameObject("/Type1"),
-            NameObject("/BaseFont"): NameObject("/Helvetica"),
-            NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
-        }
-    )
-    resources = DictionaryObject()
-    resources[NameObject("/Font")] = DictionaryObject({NameObject("/F1"): font})
-    page[NameObject("/Resources")] = writer._add_object(resources)
-    writer.write(str(file_path))
+    stream = f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode("latin-1")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Font << /F1 6 0 R >> >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    ]
+    pdf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for object_number, object_body in enumerate(objects, start=1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{object_number} 0 obj\n".encode())
+        pdf.extend(object_body)
+        pdf.extend(b"\nendobj\n")
+
+    xref_offset = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode())
+    pdf.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n".encode())
+    pdf.extend(f"startxref\n{xref_offset}\n%%EOF\n".encode())
+    file_path.write_bytes(pdf)
 
 
 def _build_docx(file_path: Path, text: str) -> None:

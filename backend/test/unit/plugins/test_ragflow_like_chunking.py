@@ -9,7 +9,7 @@ import pytest
 
 from yuxi.knowledge.chunking.ragflow_like.dispatcher import chunk_markdown
 from yuxi.knowledge.chunking.ragflow_like.nlp import bullets_category, count_tokens
-from yuxi.knowledge.chunking.ragflow_like.utils.semantic_utils import split_sentences_chinese
+from yuxi.knowledge.chunking.ragflow_like.utils.semantic_utils import split_mixed_sentences, split_sentences_chinese
 from yuxi.knowledge.chunking.ragflow_like.presets import (
     CHUNK_ENGINE_VERSION,
     CHUNK_PRESET_IDS,
@@ -177,6 +177,24 @@ def test_split_sentences_chinese_should_keep_quote_boundary() -> None:
     sentences = split_sentences_chinese(text)
 
     assert sentences == ["他说：“你好。”", "然后问：“你在吗？”", "最后结束！"]
+
+
+def test_split_mixed_sentences_handles_english_abbreviations_without_external_tokenizer() -> None:
+    text = "Dr. Smith arrived at 3.14 p.m. He left."
+
+    assert split_mixed_sentences(text) == ["Dr. Smith arrived at 3.14 p.m.", "He left."]
+    assert split_mixed_sentences("The U.S. Government acted. Next sentence.") == [
+        "The U.S. Government acted.",
+        "Next sentence.",
+    ]
+    assert split_mixed_sentences("I live in the U.S. Next sentence.") == [
+        "I live in the U.S.",
+        "Next sentence.",
+    ]
+    assert split_mixed_sentences("He listed items, etc. Next sentence.") == [
+        "He listed items, etc.",
+        "Next sentence.",
+    ]
 
 
 @pytest.mark.parametrize(

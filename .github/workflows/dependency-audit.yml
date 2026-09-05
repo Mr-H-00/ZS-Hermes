@@ -97,11 +97,5 @@ jobs:
         working-directory: ${{ matrix.project }}
         run: pnpm audit --audit-level=high --prod
       - name: Exercise Node.js audit negative control
-        working-directory: scripts/dependency-audit-fixtures/node
         run: |
-          if pnpm audit --audit-level=high --prod >node-audit-negative.log 2>&1; then
-            echo "Expected the vulnerable Node.js fixture to fail." >&2
-            exit 1
-          fi
-          grep -q "js-yaml" node-audit-negative.log
-          grep -q "GHSA-5p4m-2wfm-xmqj" node-audit-negative.log
+          bash scripts/dependency-audit-fixtures/run-node-negative-control.sh

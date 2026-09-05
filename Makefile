@@ -72,9 +72,7 @@ audit-dependencies:
 	@if uv audit --script scripts/dependency-audit-fixtures/vulnerable.py > /tmp/yuxi-python-audit-negative.log 2>&1; then echo "Expected the vulnerable Python fixture to fail"; exit 1; fi
 	grep -q "aiohttp 3.14.1 has" /tmp/yuxi-python-audit-negative.log
 	grep -q "GHSA-cq5v-8q36-5273" /tmp/yuxi-python-audit-negative.log
-	@if cd scripts/dependency-audit-fixtures/node && pnpm audit --audit-level=high --prod > /tmp/yuxi-node-audit-negative.log 2>&1; then echo "Expected the vulnerable Node.js fixture to fail"; exit 1; fi
-	grep -q "js-yaml" /tmp/yuxi-node-audit-negative.log
-	grep -q "GHSA-5p4m-2wfm-xmqj" /tmp/yuxi-node-audit-negative.log
+	bash scripts/dependency-audit-fixtures/run-node-negative-control.sh
 
 audit-licenses:
 	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run --isolated --no-dev --with pip-licenses pip-licenses --from mixed --format markdown
