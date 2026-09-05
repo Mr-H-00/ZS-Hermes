@@ -40,7 +40,6 @@ const agentModalActiveTab = ref('basic')
 const agentIconUploading = ref(false)
 const saving = ref(false)
 const agentShareConfigFormRef = ref(null)
-const runtimeConfigFormRef = ref(null)
 const agentNameInputRef = ref(null)
 const agentShareConfig = ref({
   version: 2,
@@ -360,18 +359,10 @@ const saveAgent = async () => {
   try {
     const payload = buildAgentPayload()
     if (editingAgentId.value) {
-      const validatedConfig = runtimeConfigFormRef.value?.validateAndFilterConfig?.()
-      if (
-        validatedConfig &&
-        JSON.stringify(validatedConfig) !== JSON.stringify(agentStore.agentConfig)
-      ) {
-        agentStore.updateAgentConfig(validatedConfig)
-      }
       if (agentStore.hasConfigChanges) {
-        payload.config_json = { context: agentStore.agentConfig }
+        payload.config_json = { context: agentStore.changedAgentConfig }
       }
       const updated = await agentStore.updateAgentProfile(editingAgentId.value, payload)
-      agentStore.originalAgentConfig = { ...agentStore.agentConfig }
       captureProfileBaseline()
       emit('saved', { mode: 'edit', agent: updated })
       message.success('智能体已保存')
@@ -552,11 +543,7 @@ defineExpose({
           v-show="isRuntimeAgentModalTab(agentModalActiveTab)"
           class="agent-modal-section runtime-section"
         >
-          <AgentRuntimeConfigForm
-            ref="runtimeConfigFormRef"
-            :segment="runtimeConfigSegment"
-            :show-segmented="false"
-          />
+          <AgentRuntimeConfigForm :segment="runtimeConfigSegment" :show-segmented="false" />
         </section>
       </div>
     </div>

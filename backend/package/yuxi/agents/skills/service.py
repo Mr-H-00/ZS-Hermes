@@ -949,8 +949,7 @@ async def enable_personal_skills_for_agent_config(
     if not agent or agent.created_by != str(uid):
         return False
 
-    config = dict(agent.config_json or {})
-    context = dict(config.get("context") or {})
+    context = (agent.config_json or {}).get("context") or {}
     configured_skills = context.get("skills")
     if configured_skills is None:
         return True
@@ -960,9 +959,12 @@ async def enable_personal_skills_for_agent_config(
     if updated_skills == selected_skills:
         return True
 
-    context["skills"] = updated_skills
-    config["context"] = context
-    await agent_repo.update(agent, config_json=config, updated_by=str(uid))
+    await agent_repo.update(
+        agent,
+        config_json={"context": {"skills": updated_skills}},
+        config_resource_access={"skills": set(skill_slugs)},
+        updated_by=str(uid),
+    )
     return True
 
 
