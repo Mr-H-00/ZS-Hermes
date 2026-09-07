@@ -202,6 +202,77 @@ def test_load_chat_model_keeps_non_siliconflow_openai_streaming(monkeypatch):
     assert explicit.disable_streaming is True
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_id", ["opencode", "opencode-go", "openai-compatible"])
+async def test_opencode_session_headers_reach_stream_and_regular_requests(monkeypatch, provider_id):
+    """真实 SDK 请求携带稳定会话头，其他供应商不受影响。"""
+    monkeypatch.setattr(
+        "yuxi.agents.models.model_cache.get_model_info",
+        lambda _spec: _chat_model_info(provider_id, "test-model"),
+    )
+    requests_seen = []
+
+    def respond(request):
+        """捕获出站协议并返回确定性模型结果。"""
+        requests_seen.append(request)
+        body = json.loads(request.content)
+        assert "session_id" not in body
+        if body.get("stream"):
+            event = {
+                "id": "chatcmpl-test",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "test-model",
+                "choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}],
+            }
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                text=f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n",
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test-model",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        for session_id in ["thread-a", "thread-a", "thread-b"]:
+            model = load_chat_model(
+                f"{provider_id}:test-model",
+                session_id=session_id,
+                http_async_client=client,
+                default_headers={"X-Test": "preserved"},
+            )
+            assert (await model.ainvoke("hi")).text == "ok"
+            assert "".join([chunk.text async for chunk in model.astream("hi")]) == "ok"
+
+    assert len(requests_seen) == 6
+    for request, session_id in zip(requests_seen, ["thread-a"] * 4 + ["thread-b"] * 2, strict=True):
+        assert request.headers["X-Test"] == "preserved"
+        if provider_id in {"opencode", "opencode-go"}:
+            assert request.headers["x-opencode-session"] == session_id
+            assert request.headers["user-agent"].startswith("yuxi/")
+        else:
+            assert "x-opencode-session" not in request.headers
+
+
+def test_opencode_standalone_models_have_distinct_stable_sessions(monkeypatch):
+    """无 Thread 的独立操作使用各模型实例自己的会话 ID。"""
+    monkeypatch.setattr(
+        "yuxi.agents.models.model_cache.get_model_info", lambda _spec: _chat_model_info("opencode-go", "test-model")
+    )
+    first = load_chat_model("opencode-go:test-model")
+    second = load_chat_model("opencode-go:test-model")
+    assert first.default_headers["x-opencode-session"]
+    assert first.default_headers["x-opencode-session"] != second.default_headers["x-opencode-session"]
+
+
 def test_load_chat_model_merges_request_body_overrides_into_extra_body(monkeypatch):
     captured_body = {}
 

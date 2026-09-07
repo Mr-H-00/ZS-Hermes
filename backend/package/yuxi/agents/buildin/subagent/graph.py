@@ -120,7 +120,7 @@ class SubAgentBackend(BaseAgent):
         backend = create_agent_composite_backend(context)
 
         return create_agent(
-            model=load_chat_model(fully_specified_name=model_spec),
+            model=load_chat_model(fully_specified_name=model_spec, session_id=context.thread_id),
             tools=_filter_disabled_tools(await resolve_configured_runtime_tools(context), disabled_tools),
             system_prompt=build_prompt_with_context(context),
             middleware=await _build_middlewares(context, backend, tool_approval_mode),

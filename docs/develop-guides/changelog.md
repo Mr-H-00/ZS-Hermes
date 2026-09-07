@@ -25,6 +25,7 @@ beta2 延续 beta1 的存储与数据库迁移边界。从 v0.7.1 或更早版�
 
 ## 0.7.3 （当前）
 
+- OpenCode/Go 模型请求附加 Yuxi User-Agent 与稳定的 `x-opencode-session`，主模型和摘要模型沿用当前 Thread ID，修复缺少会话头导致的 `MissingSessionID`；其他供应商与已保存模型配置不变。
 - 修复普通 HTTP 部署中点击创建 API Key 无响应的问题（[#998](https://github.com/xerrors/Yuxi/issues/998)）：使用浏览器安全随机源生成幂等请求 ID，失败重试保留 ID，成功或取消后清除，不改变服务端密钥生成规则。
 - 默认对话模型和快速响应模型改为硅基流动 `deepseek-ai/DeepSeek-V4-Flash`，管理员已保存的模型选择保持优先；同步中英文 README、部署示例和软件包版本到 0.7.3，定时任务入口标注 Beta。
 - 本版本包含知识库统计刷新绕过过期缓存的修复（[#997](https://github.com/xerrors/Yuxi/issues/997)），以及知识库带时区字段统一使用 UTC 的修复（[#988](https://github.com/xerrors/Yuxi/issues/988)）。

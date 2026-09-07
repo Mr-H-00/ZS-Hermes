@@ -1,7 +1,10 @@
+from uuid import uuid4
+
 from langchain.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
+from yuxi import get_version
 from yuxi.models.providers.cache import model_cache
 from yuxi.utils import get_docker_safe_url
 from yuxi.utils.logging_config import logger
@@ -19,7 +22,8 @@ def resolve_chat_model_spec(model_spec: str | None, *, fallback: str | None = No
     raise ValueError("model spec 不能为空")
 
 
-def load_chat_model(fully_specified_name: str | None, **kwargs) -> BaseChatModel:
+def load_chat_model(fully_specified_name: str | None, *, session_id: str | None = None, **kwargs) -> BaseChatModel:
+    """加载模型，为 OpenCode 请求绑定稳定会话路由。"""
     fully_specified_name = resolve_chat_model_spec(fully_specified_name)
 
     info = model_cache.get_model_info(fully_specified_name)
@@ -36,6 +40,12 @@ def load_chat_model(fully_specified_name: str | None, **kwargs) -> BaseChatModel
 
     api_key = info.api_key
     base_url = get_docker_safe_url(info.base_url)
+    if info.provider_id in {"opencode", "opencode-go"}:
+        kwargs["default_headers"] = {
+            **(kwargs.get("default_headers") or {}),
+            "User-Agent": f"yuxi/{get_version()}",
+            "x-opencode-session": session_id or str(uuid4()),
+        }
     if info.request_body_overrides:
         extra_body = dict(kwargs.get("extra_body") or {})
         extra_body.update(info.request_body_overrides)
