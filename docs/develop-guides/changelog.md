@@ -25,6 +25,9 @@ beta2 延续 beta1 的存储与数据库迁移边界。从 v0.7.1 或更早版�
 
 ## 0.7.3 （当前）
 
+- 修复普通 HTTP 部署中点击创建 API Key 无响应的问题（[#998](https://github.com/xerrors/Yuxi/issues/998)）：使用浏览器安全随机源生成幂等请求 ID，失败重试保留 ID，成功或取消后清除，不改变服务端密钥生成规则。
+- 默认对话模型和快速响应模型改为硅基流动 `deepseek-ai/DeepSeek-V4-Flash`，管理员已保存的模型选择保持优先；同步中英文 README、部署示例和软件包版本到 0.7.3，定时任务入口标注 Beta。
+- 本版本包含知识库统计刷新绕过过期缓存的修复（[#997](https://github.com/xerrors/Yuxi/issues/997)），以及知识库带时区字段统一使用 UTC 的修复（[#988](https://github.com/xerrors/Yuxi/issues/988)）。
 - 优化 Agent 模型请求前的并发等待：Worker 更及时地领取任务，独立运行不再共享 checkpoint saver 实例锁；减少重复 Skill 投影复制、工具 Schema 推导、执行配置解析和最终状态读取，并将同步追踪 flush 移出事件循环。同线程 FIFO、权限与 lease ownership 保持不变。
 - AgentRun 新增首次模型请求时间及派生耗时，由 `agents/callbacks` 中的回调捕获并按当前 owner 写入。业务迁移从 `v0.7.2` tag 一次补齐当前结构，不维护未发布中间版本的逐级升级分支；升级时先停止 API/Worker、备份并执行迁移器，再协调重启。此指标从 Run 创建计时，与实验中的 API 接入→首次模型 HTTP 发送口径分开。
 - 完善正常完成、取消与恢复的执行关闭顺序：最终 checkpoint、消息和审计绑定同一 Run，执行流清理完成后再释放 owner，避免重复取消打断清理或后台执行遗留。

@@ -10,6 +10,19 @@ from yuxi.config import options
 from yuxi.storage.postgres.models_business import Base
 
 
+@pytest.mark.parametrize("key", ["default_model", "fast_model"])
+def test_system_chat_model_defaults_to_deepseek_flash(key):
+    """未配置的对话与快速模型使用硅基流动 DeepSeek Flash。"""
+    assert options.system_options.resolve({})[key] == "siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash"
+
+
+@pytest.mark.parametrize("key", ["default_model", "fast_model"])
+def test_system_chat_model_preserves_saved_selection(key):
+    """默认值更新不覆盖管理员已保存的模型选择。"""
+    saved_model = "siliconflow-cn:Pro/MiniMaxAI/MiniMax-M2.5"
+    assert options.system_options.resolve({key: saved_model})[key] == saved_model
+
+
 class FakeRedis:
     def __init__(self):
         self.values: dict[str, str] = {}

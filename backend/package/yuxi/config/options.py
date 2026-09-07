@@ -95,13 +95,13 @@ system_options = Option(
                 "key": "default_model",
                 "label": "默认对话模型",
                 "type": "model",
-                "default": "siliconflow-cn:Pro/MiniMaxAI/MiniMax-M2.5",
+                "default": "siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash",
             },
             {
                 "key": "fast_model",
                 "label": "快速响应模型",
                 "type": "model",
-                "default": "siliconflow-cn:Pro/MiniMaxAI/MiniMax-M2.5",
+                "default": "siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash",
             },
             {
                 "key": "embed_model",

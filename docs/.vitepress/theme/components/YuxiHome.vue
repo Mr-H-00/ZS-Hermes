@@ -689,7 +689,7 @@ onBeforeUnmount(() => {
               <span>Docker Compose</span>
             </div>
             <pre><code><span># 获取当前发布版本</span>
-git clone --branch v0.7.2 --depth 1 \
+git clone --branch v0.7.3 --depth 1 \
   https://github.com/xerrors/Yuxi.git
 cd Yuxi
 
