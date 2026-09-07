@@ -24,6 +24,7 @@ from yuxi.services.agent_request_queue_service import (
     steer_queued_request,
     stream_request_events,
 )
+from yuxi.services.agent_config_service import prepare_agent_config_write
 from yuxi.services.agent_run_service import (
     cancel_agent_run_view,
     create_agent_run_view,
@@ -158,13 +159,20 @@ async def get_default_agent(current_user: User = Depends(get_required_user), db:
 async def create_agent(
     payload: AgentCreate, current_user: User = Depends(get_required_user), db: AsyncSession = Depends(get_db)
 ):
-    if not agent_manager.get_agent(payload.backend_id):
+    backend = agent_manager.get_agent(payload.backend_id)
+    if not backend:
         raise HTTPException(status_code=404, detail=f"智能体后端 {payload.backend_id} 不存在")
     if payload.set_default:
         raise HTTPException(status_code=422, detail="默认智能体已固定为内置智能助手")
 
     repo = AgentRepository(db)
     try:
+        config_json, config_resource_access = await prepare_agent_config_write(
+            payload.config_json or {},
+            context_schema=backend.context_schema,
+            db=db,
+            user=current_user,
+        )
         item = await repo.create(
             name=payload.name,
             slug=payload.slug,
@@ -172,7 +180,8 @@ async def create_agent(
             description=payload.description,
             icon=payload.icon,
             pics=payload.pics,
-            config_json=_filter_agent_config_json(payload.backend_id, payload.config_json, current_user.role),
+            config_json=config_json,
+            config_resource_access=config_resource_access,
             share_config=payload.share_config,
             is_default=payload.set_default,
             is_subagent=payload.is_subagent,
@@ -216,15 +225,25 @@ async def update_agent(
         if "icon" in fields_set and payload.icon is None:
             item.icon = None
 
+        config_json = None
+        config_resource_access = None
+        if payload.config_json is not None:
+            backend = agent_manager.get_agent(item.backend_id)
+            config_json, config_resource_access = await prepare_agent_config_write(
+                payload.config_json,
+                context_schema=backend.context_schema if backend else None,
+                db=db,
+                user=current_user,
+            )
+
         updated = await repo.update(
             item,
             name=payload.name,
             description=payload.description,
             icon=payload.icon,
             pics=payload.pics,
-            config_json=_filter_agent_config_json(item.backend_id, payload.config_json, current_user.role)
-            if payload.config_json is not None
-            else None,
+            config_json=config_json,
+            config_resource_access=config_resource_access,
             share_config=payload.share_config,
             is_subagent=payload.is_subagent,
             updated_by=str(current_user.uid),

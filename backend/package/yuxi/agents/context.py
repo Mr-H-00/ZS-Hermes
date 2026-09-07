@@ -410,7 +410,7 @@ class BaseContext:
 
 _DEFAULT_ALL_CONTEXT_FIELDS = frozenset({"tools", "knowledges", "mcps", "skills"})
 _EMPTY_ALL_CONTEXT_FIELDS = frozenset({"subagents"})
-_AGENT_RESOURCE_FIELDS = _DEFAULT_ALL_CONTEXT_FIELDS | _EMPTY_ALL_CONTEXT_FIELDS
+AGENT_RUNTIME_RESOURCE_FIELDS = _DEFAULT_ALL_CONTEXT_FIELDS | _EMPTY_ALL_CONTEXT_FIELDS
 
 
 def _normalize_selected_resource_keys(value: Any, available: list[str]) -> list[str]:
@@ -465,7 +465,7 @@ async def resolve_agent_resource_options(
     db,
     user,
 ) -> dict[str, list[dict[str, str]]]:
-    fields_to_load = _AGENT_RESOURCE_FIELDS if resource_fields is None else resource_fields
+    fields_to_load = AGENT_RUNTIME_RESOURCE_FIELDS if resource_fields is None else resource_fields
     if not fields_to_load:
         return {}
 
@@ -526,7 +526,7 @@ async def normalize_agent_context_config(
     filtered = filter_config_by_role({"context": raw_context}, getattr(user, "role", None), schema)
     field_names = {item.name for item in fields(schema)}
     normalized = dict(filtered.get("context") or {})
-    resource_fields = _AGENT_RESOURCE_FIELDS & field_names
+    resource_fields = AGENT_RUNTIME_RESOURCE_FIELDS & field_names
     fields_to_load = _resource_fields_requiring_available_keys(normalized, resource_fields)
     if fields_to_load:
         resource_options = await resolve_agent_resource_options(fields_to_load, db=db, user=user)
@@ -566,7 +566,7 @@ async def prepare_agent_runtime_context(
     from yuxi.repositories.user_repository import UserRepository
     from yuxi.storage.postgres.manager import pg_manager
 
-    resource_fields = _AGENT_RESOURCE_FIELDS
+    resource_fields = AGENT_RUNTIME_RESOURCE_FIELDS
     context_resource_fields = resource_fields | {"preload_skills"}
     async with pg_manager.get_async_session_context() as db:
         if not str(getattr(context, "model", "") or "").strip():

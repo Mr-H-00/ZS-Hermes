@@ -216,7 +216,8 @@ async def test_enable_skills_updates_explicit_agent_selection(monkeypatch, confi
     assert calls["thread_id"] == "thread-1"
     assert calls["agent_slug"] == "agent-1"
     assert calls["update"]["updated_by"] == "user-1"
-    assert calls["update"]["config_json"] == {"context": {"skills": expected_skills, "model": "provider:model"}}
+    assert calls["update"]["config_json"] == {"context": {"skills": expected_skills}}
+    assert calls["update"]["config_resource_access"] == {"skills": {"existing-skill", "new-skill"}}
 
 
 @pytest.mark.asyncio

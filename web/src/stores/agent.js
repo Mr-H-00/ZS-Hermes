@@ -73,9 +73,14 @@ export const useAgentStore = defineStore(
     })
 
     const availableTools = computed(() => configurableItems.value.tools?.options || [])
-    const hasConfigChanges = computed(
-      () => JSON.stringify(agentConfig.value) !== JSON.stringify(originalAgentConfig.value)
+    const changedAgentConfig = computed(() =>
+      Object.fromEntries(
+        Object.entries(agentConfig.value).filter(
+          ([key, value]) => JSON.stringify(value) !== JSON.stringify(originalAgentConfig.value[key])
+        )
+      )
     )
+    const hasConfigChanges = computed(() => Object.keys(changedAgentConfig.value).length > 0)
 
     async function fetchMentionResources() {
       try {
@@ -210,14 +215,9 @@ export const useAgentStore = defineStore(
       const targetAgentId = selectedAgentId.value
       if (!targetAgentId) return
       try {
-        const response = await agentApi.updateAgent(targetAgentId, {
-          config_json: { context: agentConfig.value }
+        await updateAgentProfile(targetAgentId, {
+          config_json: { context: changedAgentConfig.value }
         })
-        const updated = normalizeAgent(response.agent)
-        agentDetails.value[targetAgentId] = updated
-        const index = agents.value.findIndex((item) => item.id === targetAgentId)
-        if (index >= 0) agents.value.splice(index, 1, updated)
-        originalAgentConfig.value = { ...agentConfig.value }
       } catch (err) {
         console.error('Failed to save agent config:', err)
         handleChatError(err, 'save')
@@ -246,6 +246,14 @@ export const useAgentStore = defineStore(
       agentDetails.value[updated.id] = updated
       const index = agents.value.findIndex((item) => item.id === updated.id)
       if (index >= 0) agents.value.splice(index, 1, updated)
+      if (selectedAgentId.value === updated.id) {
+        const loadedConfig = applyConfigDefaults(
+          extractContext(updated),
+          updated.configurable_items || {}
+        )
+        agentConfig.value = loadedConfig
+        originalAgentConfig.value = { ...loadedConfig }
+      }
       return updated
     }
 
@@ -308,6 +316,7 @@ export const useAgentStore = defineStore(
       configurableItems,
       availableTools,
       hasConfigChanges,
+      changedAgentConfig,
       initialize,
       fetchAgents,
       fetchAgentDetail,
