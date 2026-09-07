@@ -25,6 +25,21 @@ def test_business_and_knowledge_metadata_are_disjoint():
     assert "users" not in KnowledgeBase.metadata.tables
 
 
+def test_parent_child_tables_and_active_version_index_are_in_fresh_schema():
+    """Fresh schema 必须包含父子块表，并只限制同一文件的 active 版本。"""
+    versions = KnowledgeBase.metadata.tables["knowledge_document_versions"]
+    parents = KnowledgeBase.metadata.tables["knowledge_parent_chunks"]
+    children = KnowledgeBase.metadata.tables["knowledge_child_chunks"]
+
+    assert versions.c.version_id.primary_key is True
+    assert versions.c.processing_params.nullable is False
+    assert "uq_knowledge_document_versions_active_file" in {index.name for index in versions.indexes}
+    assert parents.c.metadata.nullable is False
+    assert children.c.spans.nullable is False
+    assert next(iter(children.c.parent_id.foreign_keys)).target_fullname == "knowledge_parent_chunks.parent_id"
+    assert "knowledge_chunks" in KnowledgeBase.metadata.tables
+
+
 @pytest.mark.asyncio
 async def test_require_current_schema_rejects_missing_or_incompatible_domains(monkeypatch):
     manager = PostgresManager()
@@ -300,3 +315,26 @@ async def test_ensure_knowledge_schema_rebuilds_vectors_for_incomplete_legacy_ch
     assert "mention.entity_id = entity.entity_id AND chunk.graph_indexed IS NOT TRUE" in statements
     assert "mention.triple_id = triple.triple_id AND chunk.graph_indexed IS NOT TRUE" in statements
     assert "THEN 'pending' ELSE 'indexed'" in statements
+
+
+@pytest.mark.asyncio
+async def test_ensure_knowledge_schema_creates_parent_child_tables_before_indexes():
+    """升级 SQL 必须按版本、父块、子块顺序建表，再创建 active 与定位索引。"""
+    async with _recording_manager() as (manager, connection):
+        await manager.ensure_knowledge_schema()
+
+    statements = "\n".join(connection.statements)
+    assert "CREATE TABLE IF NOT EXISTS knowledge_document_versions" in statements
+    assert "CREATE TABLE IF NOT EXISTS knowledge_parent_chunks" in statements
+    assert "CREATE TABLE IF NOT EXISTS knowledge_child_chunks" in statements
+    assert "WHERE status = 'active'" in statements
+    assert "ix_knowledge_child_chunks_parent_id" in statements
+    assert statements.index("CREATE TABLE IF NOT EXISTS knowledge_document_versions") < statements.index(
+        "CREATE TABLE IF NOT EXISTS knowledge_parent_chunks"
+    )
+    assert statements.index("CREATE TABLE IF NOT EXISTS knowledge_parent_chunks") < statements.index(
+        "CREATE TABLE IF NOT EXISTS knowledge_child_chunks"
+    )
+    assert statements.index("CREATE TABLE IF NOT EXISTS knowledge_child_chunks") < statements.index(
+        "uq_knowledge_document_versions_active_file"
+    )

@@ -110,3 +110,43 @@ test('知识库文件夹移动与重命名 API 使用管理端 PUT 契约', asyn
     await server.close()
   }
 })
+
+test('文档重切 API 使用精确端点并原样提交任务参数', async () => {
+  const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' })
+  const requests = []
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({
+      url,
+      method: options.method,
+      body: options.body ? JSON.parse(options.body) : undefined
+    })
+    return new Response(JSON.stringify({ status: 'queued', task_id: 'task-reslice-1' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })
+  }
+
+  try {
+    setActivePinia(createPinia())
+    const { useUserStore } = await server.ssrLoadModule('/src/stores/user.js')
+    useUserStore().userRole = 'superadmin'
+    const { documentApi } = await server.ssrLoadModule('/src/apis/knowledge_api.js')
+    const params = {
+      chunk_preset_id: 'general',
+      parent_child: { enabled: true },
+      embedding_features: { bge_m3_sparse_enabled: true }
+    }
+
+    await documentApi.resliceDocuments('kb-1', ['file-1', 'file-2'], params)
+
+    assert.deepEqual(requests, [
+      {
+        url: '/api/knowledge/databases/kb-1/documents/reslice',
+        method: 'POST',
+        body: { file_ids: ['file-1', 'file-2'], params }
+      }
+    ])
+  } finally {
+    await server.close()
+  }
+})

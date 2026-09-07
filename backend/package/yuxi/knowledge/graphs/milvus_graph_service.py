@@ -8,18 +8,26 @@ from typing import Any
 
 from yuxi.knowledge.graphs.extractors import GraphExtractor, GraphExtractorFactory, normalize_extraction_result
 from yuxi.knowledge.graphs.graph_utils import (
+    ParentChildGraphMappingError,
     build_graph_payload,
     compute_entity_id,
     compute_triple_id,
+    cypher_merge_child_chunk,
     cypher_merge_chunk,
     cypher_merge_entity_mention,
+    cypher_merge_parent_chunk,
+    cypher_merge_parent_entity_mention,
+    cypher_merge_parent_relation,
     cypher_merge_relation,
+    expand_parent_scores_to_child_candidates,
     normalize_entity_name,
+    validate_parent_child_graph_mapping,
 )
 from yuxi.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
 from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from yuxi.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
 from yuxi.repositories.knowledge_graph_repository import KnowledgeGraphRepository
+from yuxi.repositories.knowledge_parent_child_chunk_repository import KnowledgeParentChildChunkRepository
 from yuxi.storage.neo4j import (
     Neo4jConnectionManager,
     get_shared_neo4j_connection,
@@ -96,11 +104,13 @@ class MilvusGraphService:
         graph_repo: KnowledgeGraphRepository | None = None,
         graph_vector_store: MilvusGraphVectorStore | None = None,
         neo4j_connection: Neo4jConnectionManager | None = None,
+        parent_child_repo: KnowledgeParentChildChunkRepository | None = None,
     ):
         self.kb_id = kb_id
         self.kb_repo = kb_repo or KnowledgeBaseRepository()
         self.chunk_repo = chunk_repo or KnowledgeChunkRepository()
         self.graph_repo = graph_repo or KnowledgeGraphRepository()
+        self.parent_child_repo = parent_child_repo or KnowledgeParentChildChunkRepository()
         self._graph_vector_store = graph_vector_store
         self._graph_vector_store_lock = asyncio.Lock()
         self._connection = neo4j_connection
@@ -133,12 +143,14 @@ class MilvusGraphService:
         kb = await self._get_milvus_kb(kb_id)
         params = dict(kb.additional_params or {})
         config = params.get(GRAPH_CONFIG_KEY) or {}
+        parent_child_enabled = (params.get("parent_child") or {}).get("enabled") is True
+        chunk_owner = self.parent_child_repo if parent_child_enabled else self.chunk_repo
         status_values = await asyncio.gather(
-            self.chunk_repo.count_by_kb_id(kb_id),
-            self.chunk_repo.count_graph_pending_by_kb_id(kb_id),
-            self.chunk_repo.count_graph_indexed_by_kb_id(kb_id),
-            self.chunk_repo.count_graph_structure_indexed_by_kb_id(kb_id),
-            self.chunk_repo.count_graph_extraction_statuses_by_kb_id(kb_id),
+            chunk_owner.count_by_kb_id(kb_id),
+            chunk_owner.count_graph_pending_by_kb_id(kb_id),
+            chunk_owner.count_graph_indexed_by_kb_id(kb_id),
+            chunk_owner.count_graph_structure_indexed_by_kb_id(kb_id),
+            chunk_owner.count_graph_extraction_statuses_by_kb_id(kb_id),
             self.graph_repo.count_by_kb_id(kb_id),
             self.graph_repo.count_vector_statuses_by_kb_id(kb_id),
         )
@@ -223,12 +235,18 @@ class MilvusGraphService:
         return config
 
     async def get_failed_chunk_samples(self, kb_id: str, limit: int = 10) -> dict[str, Any]:
-        await self._get_milvus_kb(kb_id)
-        samples = await self.chunk_repo.list_graph_extraction_failed_samples(kb_id, limit)
+        kb = await self._get_milvus_kb(kb_id)
+        params = dict(kb.additional_params or {})
+        chunk_owner = (
+            self.parent_child_repo if (params.get("parent_child") or {}).get("enabled") is True else self.chunk_repo
+        )
+        samples = await chunk_owner.list_graph_extraction_failed_samples(kb_id, limit)
         return {"kb_id": kb_id, "samples": samples}
 
     async def build_pending_chunks(self, kb_id: str, *, context=None) -> dict[str, Any]:
         kb = await self._get_milvus_kb(kb_id)
+        if (dict(kb.additional_params or {}).get("parent_child") or {}).get("enabled") is True:
+            return await self._build_pending_parent_chunks(kb_id, kb, context=context)
         config = self._get_locked_config(kb.additional_params or {})
         extractor_options = self._runtime_extractor_options(config)
         extractor = GraphExtractorFactory.create(config["extractor_type"], extractor_options)
@@ -508,6 +526,247 @@ class MilvusGraphService:
             )
         return result
 
+    async def _build_pending_parent_chunks(self, kb_id: str, kb, *, context=None) -> dict[str, Any]:
+        """按 active document version 构建 Parent-Child 图谱。"""
+        config = self._get_locked_config(kb.additional_params or {})
+        extractor_options = self._runtime_extractor_options(config)
+        extractor = GraphExtractorFactory.create(config["extractor_type"], extractor_options)
+        worker_count = self._get_worker_count(config)
+        total_pending = await self.parent_child_repo.count_graph_pending_by_kb_id(kb_id)
+        extraction_failed = 0
+        write_failed = 0
+        fetch_size = max(GRAPH_BUILD_FETCH_MIN_SIZE, min(worker_count * 2, GRAPH_BUILD_FETCH_MAX_SIZE))
+        extraction_queue: asyncio.Queue[Any | None] = asyncio.Queue(maxsize=max(worker_count * 2, 1))
+        write_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=max(worker_count * 2, 1))
+        structure_done = asyncio.Event()
+        vector_wakeup = asyncio.Event()
+
+        async def put_queue_item(queue: asyncio.Queue, item) -> None:
+            while True:
+                if context is not None:
+                    await context.raise_if_cancelled()
+                try:
+                    await asyncio.wait_for(queue.put(item), timeout=0.5)
+                    return
+                except TimeoutError:
+                    continue
+
+        async def extraction_worker(worker_index: int) -> None:
+            nonlocal extraction_failed
+            while True:
+                parent = await extraction_queue.get()
+                try:
+                    if parent is None:
+                        return
+                    if context is not None:
+                        await context.raise_if_cancelled()
+                    try:
+                        await self._get_parent_extraction_result(kb_id, parent, extractor)
+                        await put_queue_item(write_queue, parent.parent_id)
+                    except Exception as exc:
+                        extraction_failed += 1
+                        logger.error(
+                            f"ParentChunk 图谱抽取失败 kb_id={kb_id} parent_id={parent.parent_id} "
+                            f"worker={worker_index}: {exc}"
+                        )
+                finally:
+                    extraction_queue.task_done()
+
+        async def write_worker() -> None:
+            nonlocal write_failed
+            while True:
+                parent_id = await write_queue.get()
+                try:
+                    if parent_id is None:
+                        return
+                    if context is not None:
+                        await context.raise_if_cancelled()
+                    parent = await self.parent_child_repo.get_by_parent_id(parent_id)
+                    if parent is None:
+                        raise ValueError(f"找不到 ParentChunk: {parent_id}")
+                    records_by_parent = await self.parent_child_repo.list_children_by_parent_ids([parent_id])
+                    children = records_by_parent.get(parent_id) or []
+                    if not children:
+                        raise ValueError(f"ParentChunk {parent_id} 缺少 ChildChunk")
+                    extraction_result = await self._get_parent_extraction_result(kb_id, parent, extractor)
+                    entities, triples = await asyncio.to_thread(
+                        self.write_parent_child_graph,
+                        kb_id,
+                        parent,
+                        children,
+                        extraction_result,
+                    )
+                    await self.graph_repo.upsert_parent_graph(
+                        kb_id=kb_id,
+                        file_id=parent.file_id,
+                        parent_id=parent.parent_id,
+                        entities=entities,
+                        triples=triples,
+                    )
+                    await self.parent_child_repo.mark_graph_structure_indexed(
+                        parent.parent_id,
+                        ent_ids=[entity["entity_id"] for entity in entities],
+                    )
+                    vector_wakeup.set()
+                except Exception as exc:
+                    write_failed += 1
+                    logger.error(f"ParentChunk 图谱写入失败 kb_id={kb_id} parent_id={parent_id}: {exc}")
+                finally:
+                    write_queue.task_done()
+
+        async def index_vector_batch(record_type: str) -> int:
+            lock_token, records = await self.graph_repo.claim_vector_records(
+                kb_id=kb_id,
+                record_type=record_type,
+                limit=GRAPH_VECTOR_BATCH_SIZE,
+                lease_seconds=GRAPH_VECTOR_LEASE_SECONDS,
+            )
+            if not records:
+                return 0
+            record_ids = [record["id"] for record in records]
+            try:
+                graph_vector_store = await self.get_graph_vector_store()
+                await graph_vector_store.upsert_graph_records(
+                    kb_id=kb_id,
+                    embedding_model_spec=kb.embedding_model_spec,
+                    record_type=record_type,
+                    records=records,
+                )
+                await self.graph_repo.mark_vector_records_indexed(
+                    record_type=record_type,
+                    record_ids=record_ids,
+                    lock_token=lock_token,
+                )
+            except asyncio.CancelledError as exc:
+                await self.graph_repo.mark_vector_records_failed(
+                    record_type=record_type,
+                    record_ids=record_ids,
+                    lock_token=lock_token,
+                    error=str(exc) or "cancelled",
+                )
+                raise
+            except Exception as exc:
+                await self.graph_repo.mark_vector_records_failed(
+                    record_type=record_type,
+                    record_ids=record_ids,
+                    lock_token=lock_token,
+                    error=str(exc),
+                )
+                logger.error(f"Parent-Child 图谱向量索引失败 kb_id={kb_id} type={record_type}: {exc}")
+            return len(records)
+
+        async def vector_worker() -> None:
+            while True:
+                if context is not None:
+                    await context.raise_if_cancelled()
+                entity_count, triple_count = await asyncio.gather(
+                    index_vector_batch("entity"),
+                    index_vector_batch("triple"),
+                )
+                if entity_count or triple_count:
+                    await self.graph_repo.finalize_graph_indexed_chunks(kb_id)
+                    continue
+                vector_counts = await self.graph_repo.count_vector_statuses_by_kb_id(kb_id)
+                if structure_done.is_set() and not vector_counts["pending"] and not vector_counts["processing"]:
+                    await self.graph_repo.finalize_graph_indexed_chunks(kb_id)
+                    return
+                vector_wakeup.clear()
+                try:
+                    await asyncio.wait_for(vector_wakeup.wait(), timeout=1.0)
+                except TimeoutError:
+                    pass
+
+        extraction_workers = [
+            asyncio.create_task(extraction_worker(index + 1), name=f"parent-graph-extractor-{index + 1}")
+            for index in range(worker_count)
+        ]
+        writer_task = asyncio.create_task(write_worker(), name="parent-graph-writer")
+        vector_task = asyncio.create_task(vector_worker(), name="parent-graph-vector-indexer")
+        try:
+            after_parent_id = ""
+            while True:
+                if context is not None:
+                    await context.raise_if_cancelled()
+                parents = await self.parent_child_repo.list_graph_pending_by_kb_id(
+                    kb_id,
+                    fetch_size,
+                    after_parent_id=after_parent_id,
+                )
+                if not parents:
+                    break
+                for parent in parents:
+                    after_parent_id = parent.parent_id
+                    if getattr(parent, "graph_structure_indexed", False):
+                        vector_wakeup.set()
+                    elif getattr(parent, "extraction_result", None):
+                        await put_queue_item(write_queue, parent.parent_id)
+                    else:
+                        await put_queue_item(extraction_queue, parent)
+            for _ in extraction_workers:
+                await put_queue_item(extraction_queue, None)
+            await asyncio.gather(*extraction_workers)
+            await put_queue_item(write_queue, None)
+            await writer_task
+            structure_done.set()
+            vector_wakeup.set()
+            await vector_task
+        except BaseException:
+            for task in [*extraction_workers, writer_task, vector_task]:
+                task.cancel()
+            await asyncio.gather(*extraction_workers, writer_task, vector_task, return_exceptions=True)
+            raise
+        remaining = await self.parent_child_repo.count_graph_pending_by_kb_id(kb_id)
+        vector_counts = await self.graph_repo.count_vector_statuses_by_kb_id(kb_id)
+        extraction_counts = await self.parent_child_repo.count_graph_extraction_statuses_by_kb_id(kb_id)
+        incomplete = max(remaining - extraction_counts["failed"], 0)
+        result = {
+            "kb_id": kb_id,
+            "success": max(total_pending - remaining, 0),
+            "failed": extraction_failed + write_failed,
+            "extraction_failed": extraction_failed,
+            "write_failed": write_failed,
+            "remaining": remaining,
+            "vector_failed": vector_counts["failed"],
+        }
+        if incomplete or write_failed or vector_counts["failed"]:
+            raise RuntimeError(
+                f"Parent-Child 图谱构建执行异常：chunk_incomplete={incomplete}, "
+                f"write_failed={write_failed}, vector_failed={vector_counts['failed']}"
+            )
+        return result
+
+    async def _get_parent_extraction_result(self, kb_id: str, parent, extractor: GraphExtractor) -> dict[str, Any]:
+        """读取或生成 ParentChunk 的规范化图谱抽取结果。"""
+        extractor_type = extractor.extractor_type
+        if parent.extraction_result:
+            return normalize_extraction_result(parent.extraction_result, extractor_type)
+        details = getattr(parent, "graph_extraction_details", None) or {}
+        if details.get("status") == "failed":
+            await self.parent_child_repo.mark_graph_extraction_pending(parent.parent_id)
+        metadata = {
+            "kb_id": kb_id,
+            "parent_id": parent.parent_id,
+            "file_id": parent.file_id,
+            "parent_index": parent.parent_index,
+        }
+        for attempt in range(1, GRAPH_EXTRACTION_MAX_ATTEMPTS + 1):
+            try:
+                extraction_result = await extractor.extract(parent.parent_text, chunk_metadata=metadata)
+                normalized_result = normalize_extraction_result(extraction_result, extractor_type)
+                await self.parent_child_repo.update_extraction_result(
+                    parent.parent_id,
+                    normalized_result,
+                    attempt,
+                )
+                return normalized_result
+            except Exception as exc:
+                if attempt >= GRAPH_EXTRACTION_MAX_ATTEMPTS:
+                    await self.parent_child_repo.mark_graph_extraction_failed(parent.parent_id, attempt, str(exc))
+                    raise
+                delay = GRAPH_EXTRACTION_RETRY_DELAYS_SECONDS[attempt - 1]
+                await asyncio.sleep(delay)
+        raise RuntimeError(f"ParentChunk 图谱抽取未返回结果: {parent.parent_id}")
+
     @staticmethod
     def _get_worker_count(config: dict[str, Any]) -> int:
         if (config.get("extractor_type") or "").lower() != "llm":
@@ -644,6 +903,187 @@ class MilvusGraphService:
         neo4j_write(self.driver, query)
         return entity_records, triple_records
 
+    def write_parent_child_graph(
+        self,
+        kb_id: str,
+        parent,
+        children: list,
+        normalized_result: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """以父块为语义主体写入图谱，并建立可回溯的父子边。"""
+        parent_payload = self._parent_graph_payload(parent)
+        child_payloads = [self._child_graph_payload(child) for child in children]
+        validate_parent_child_graph_mapping(parent_payload, child_payloads)
+
+        label = safe_neo4j_label(kb_id)
+        graph_payload = build_graph_payload(normalized_result)
+        entities = graph_payload["entities"]
+        relations = graph_payload["relations"]
+        entity_by_id = {entity["id"]: entity for entity in entities}
+        entity_records = self._build_entity_records(kb_id, entities)
+        entity_record_by_local_id = {
+            entity["id"]: record for entity, record in zip(entities, entity_records, strict=True)
+        }
+        triple_records = self._build_triple_records(kb_id, relations, entity_record_by_local_id, graph_payload)
+        merge_parent_cypher = cypher_merge_parent_chunk(label)
+        merge_child_cypher = cypher_merge_child_chunk(label)
+        merge_entity_cypher = cypher_merge_parent_entity_mention(label)
+        merge_relation_cypher = cypher_merge_parent_relation(label)
+        extractor_type = graph_payload["metadata"].get("extractor_type", "unknown")
+
+        def query(tx):
+            tx.run(
+                merge_parent_cypher,
+                parent_id=parent_payload["parent_id"],
+                kb_id=kb_id,
+                file_id=parent_payload["file_id"],
+                doc_id=parent_payload["doc_id"],
+                version_id=parent_payload["version_id"],
+                parent_index=parent_payload["parent_index"],
+                content_preview=(parent_payload["parent_text"] or "")[:300],
+                start_offset=parent_payload["start_offset"],
+                end_offset=parent_payload["end_offset"],
+            )
+            for child in child_payloads:
+                tx.run(
+                    merge_child_cypher,
+                    parent_id=parent_payload["parent_id"],
+                    child_id=child["child_id"],
+                    kb_id=kb_id,
+                    file_id=child["file_id"],
+                    doc_id=child["doc_id"],
+                    version_id=child["version_id"],
+                    child_index=child["child_index"],
+                    content_preview=(child["child_text"] or "")[:300],
+                    start_offset=child["start_offset"],
+                    end_offset=child["end_offset"],
+                )
+
+            for entity in entities:
+                entity_record = entity_record_by_local_id[entity["id"]]
+                tx.run(
+                    merge_entity_cypher,
+                    parent_id=parent_payload["parent_id"],
+                    file_id=parent_payload["file_id"],
+                    kb_id=kb_id,
+                    entity_id=entity_record["entity_id"],
+                    normalized_name=entity_record["normalized_name"],
+                    entity_label=entity_record["label"],
+                    name=entity_record["name"],
+                    attributes=json.dumps(entity_record["attributes"], ensure_ascii=False),
+                )
+
+            for relation in relations:
+                source = entity_by_id[relation["source"]]
+                target = entity_by_id[relation["target"]]
+                source_record = entity_record_by_local_id[relation["source"]]
+                target_record = entity_record_by_local_id[relation["target"]]
+                relation_type = relation.get("label") or "RELATED_TO"
+                tx.run(
+                    merge_relation_cypher,
+                    kb_id=kb_id,
+                    parent_id=parent_payload["parent_id"],
+                    file_id=parent_payload["file_id"],
+                    version_id=parent_payload["version_id"],
+                    source_name=normalize_entity_name(source["text"]),
+                    source_label=source.get("label") or "Entity",
+                    target_name=normalize_entity_name(target["text"]),
+                    target_label=target.get("label") or "Entity",
+                    relation_type=relation_type,
+                    triple_id=compute_triple_id(
+                        kb_id,
+                        source_record["normalized_name"],
+                        source_record["label"],
+                        relation_type,
+                        target_record["normalized_name"],
+                        target_record["label"],
+                    ),
+                    text=relation["text"],
+                    extractor_type=extractor_type,
+                )
+
+        neo4j_write(self.driver, query)
+        return entity_records, triple_records
+
+    async def map_parent_graph_scores_to_children(
+        self,
+        parent_scores: list[tuple[str, float]],
+    ) -> list[dict[str, Any]]:
+        """从 PostgreSQL 事实展开图谱父块命中，返回可参与融合的子块身份。"""
+        parent_ids = [parent_id for parent_id, _score in parent_scores]
+        records_by_parent = await self.parent_child_repo.list_children_by_parent_ids(parent_ids)
+        children_by_parent = {
+            parent_id: [self._child_graph_payload(child) for child in children]
+            for parent_id, children in records_by_parent.items()
+        }
+        return expand_parent_scores_to_child_candidates(parent_scores, children_by_parent)
+
+    async def query_and_rank_child_chunks_by_ppr(
+        self,
+        kb_id: str,
+        seed_weights: dict[str, float],
+        *,
+        version_ids: list[str],
+        max_nodes: int,
+        top_k: int,
+        damping: float,
+    ) -> list[dict[str, Any]]:
+        """将 ParentChunk 图谱命中展开为带 parent_id 的 child 候选。"""
+        parent_scores = await self.query_and_rank_parent_chunks_by_ppr(
+            kb_id,
+            seed_weights,
+            version_ids=version_ids,
+            max_nodes=max_nodes,
+            top_k=top_k,
+            damping=damping,
+        )
+        return await self.map_parent_graph_scores_to_children(parent_scores)
+
+    @staticmethod
+    def _parent_graph_payload(parent) -> dict[str, Any]:
+        """把 ORM 或字典父块规范为图谱写入字段。"""
+        fields = (
+            "parent_id",
+            "file_id",
+            "doc_id",
+            "version_id",
+            "parent_index",
+            "parent_text",
+            "start_offset",
+            "end_offset",
+        )
+        payload = {
+            field: parent.get(field) if isinstance(parent, dict) else getattr(parent, field, None) for field in fields
+        }
+        required = ("parent_id", "file_id", "doc_id", "version_id", "parent_text")
+        missing = [field for field in required if payload.get(field) in {None, ""}]
+        if missing:
+            raise ParentChildGraphMappingError(f"Parent-Child 父块图谱字段缺失: {', '.join(missing)}")
+        return payload
+
+    @staticmethod
+    def _child_graph_payload(child) -> dict[str, Any]:
+        """把 ORM 或字典子块规范为可验证的图谱映射字段。"""
+        fields = (
+            "child_id",
+            "parent_id",
+            "file_id",
+            "doc_id",
+            "version_id",
+            "child_index",
+            "child_text",
+            "start_offset",
+            "end_offset",
+        )
+        payload = {
+            field: child.get(field) if isinstance(child, dict) else getattr(child, field, None) for field in fields
+        }
+        required = ("child_id", "parent_id", "file_id", "doc_id", "version_id", "child_text")
+        missing = [field for field in required if payload.get(field) in {None, ""}]
+        if missing:
+            raise ParentChildGraphMappingError(f"Parent-Child 子块图谱字段缺失: {', '.join(missing)}")
+        return payload
+
     def _build_entity_records(self, kb_id: str, entities: list[dict[str, Any]]) -> list[dict[str, Any]]:
         records = []
         for entity in entities:
@@ -707,7 +1147,11 @@ class MilvusGraphService:
         kb = await self._get_milvus_kb(kb_id)
         await asyncio.to_thread(self.delete_graph, kb_id)
         await self.graph_repo.delete_by_kb_id(kb_id)
-        reset_chunks = await self.chunk_repo.reset_graph_state_by_kb_id(kb_id, clear_extraction_result)
+        params = dict(kb.additional_params or {})
+        chunk_owner = (
+            self.parent_child_repo if (params.get("parent_child") or {}).get("enabled") is True else self.chunk_repo
+        )
+        reset_chunks = await chunk_owner.reset_graph_state_by_kb_id(kb_id, clear_extraction_result)
         if clear_config:
             additional_params = dict(kb.additional_params or {})
             additional_params.pop(GRAPH_CONFIG_KEY, None)
@@ -742,13 +1186,81 @@ class MilvusGraphService:
         self.graph_vector_store.drop_graph_collections(kb_id)
 
     async def delete_file_graph(self, kb_id: str, file_id: str) -> None:
-        orphan_entity_ids, orphan_triple_ids = await self.graph_repo.delete_file_references(file_id)
+        """删除文件图谱投影，并在外部成功后提交 PostgreSQL 清理。"""
+        orphan_entity_ids, orphan_triple_ids = await self.graph_repo.list_file_deletion_targets(file_id)
+        await asyncio.to_thread(self._delete_file_graph_from_neo4j, kb_id, file_id)
         await self.graph_vector_store.delete_graph_records(
             kb_id,
             entity_ids=orphan_entity_ids,
             triple_ids=orphan_triple_ids,
         )
-        await asyncio.to_thread(self._delete_file_graph_from_neo4j, kb_id, file_id)
+        await self.graph_repo.delete_file_references(file_id)
+
+    async def delete_parent_child_version_graph(self, kb_id: str, file_id: str, version_id: str) -> None:
+        """删除一个 superseded 父子版本的图谱投影与孤立向量记录。"""
+        orphan_entity_ids, orphan_triple_ids = await self.graph_repo.list_parent_version_deletion_targets(version_id)
+        await asyncio.to_thread(
+            self._delete_parent_child_version_graph_from_neo4j,
+            kb_id,
+            file_id,
+            version_id,
+        )
+        await self.graph_vector_store.delete_graph_records(
+            kb_id,
+            entity_ids=orphan_entity_ids,
+            triple_ids=orphan_triple_ids,
+        )
+        await self.graph_repo.delete_parent_version_references(version_id)
+
+    def _delete_parent_child_version_graph_from_neo4j(
+        self,
+        kb_id: str,
+        file_id: str,
+        version_id: str,
+    ) -> None:
+        """按显式版本删除 ParentChunk、ChildChunk 及其专属图关系。"""
+        label = safe_neo4j_label(kb_id)
+
+        def query(tx):
+            tx.run(
+                f"""
+                MATCH (:Entity:MilvusKB:`{label}`)-[r:RELATION {{
+                    kb_id: $kb_id, file_id: $file_id, version_id: $version_id
+                }}]->(:Entity:MilvusKB:`{label}`)
+                DELETE r
+                """,
+                kb_id=kb_id,
+                file_id=file_id,
+                version_id=version_id,
+            )
+            tx.run(
+                f"""
+                MATCH (p:ParentChunk:MilvusKB:`{label}` {{
+                    kb_id: $kb_id, file_id: $file_id, version_id: $version_id
+                }})-[m:MENTIONS]->(e:Entity:MilvusKB:`{label}`)
+                DELETE m
+                WITH DISTINCT e
+                WHERE NOT ()-[:MENTIONS]->(e)
+                DETACH DELETE e
+                """,
+                kb_id=kb_id,
+                file_id=file_id,
+                version_id=version_id,
+            )
+            tx.run(
+                f"""
+                MATCH (c:MilvusKB:`{label}` {{
+                    kb_id: $kb_id, file_id: $file_id, version_id: $version_id
+                }})
+                WHERE c:ParentChunk OR c:ChildChunk
+                DETACH DELETE c
+                """,
+                kb_id=kb_id,
+                file_id=file_id,
+                version_id=version_id,
+            )
+
+        neo4j_write(self.driver, query)
 
     def _delete_file_graph_from_neo4j(self, kb_id: str, file_id: str) -> None:
         label = safe_neo4j_label(kb_id)
@@ -765,8 +1277,9 @@ class MilvusGraphService:
             )
             tx.run(
                 f"""
-                MATCH (:Chunk:MilvusKB:`{label}` {{kb_id: $kb_id, file_id: $file_id}})-[m:MENTIONS]->
+                MATCH (c:MilvusKB:`{label}` {{kb_id: $kb_id, file_id: $file_id}})-[m:MENTIONS]->
                     (e:Entity:MilvusKB:`{label}`)
+                WHERE c:Chunk OR c:ParentChunk
                 DELETE m
                 WITH DISTINCT e
                 WHERE NOT ()-[:MENTIONS]->(e)
@@ -777,7 +1290,8 @@ class MilvusGraphService:
             )
             tx.run(
                 f"""
-                MATCH (c:Chunk:MilvusKB:`{label}` {{kb_id: $kb_id, file_id: $file_id}})
+                MATCH (c:MilvusKB:`{label}` {{kb_id: $kb_id, file_id: $file_id}})
+                WHERE c:Chunk OR c:ParentChunk OR c:ChildChunk
                 DETACH DELETE c
                 """,
                 kb_id=kb_id,
@@ -849,15 +1363,24 @@ class MilvusGraphService:
         *,
         entity_ids: list[str],
         max_nodes: int,
+        version_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         if not entity_ids:
             return {"nodes": [], "edges": []}
         seed_entity_ids = list(dict.fromkeys(entity_ids))
         label = safe_neo4j_label(kb_id)
+        version_filter = ""
+        if version_ids is not None:
+            version_filter = """
+        WHERE all(path_node IN nodes(p) WHERE
+            NOT (path_node:ParentChunk OR path_node:ChildChunk)
+            OR path_node.version_id IN $version_ids)
+            """
         cypher = f"""
         MATCH (seed:Entity:MilvusKB:`{label}`)
         WHERE seed.entity_id IN $entity_ids
         MATCH p = (seed)-[*1..2]-(n:MilvusKB:`{label}`)
+        {version_filter}
         WITH p LIMIT $path_limit
         WITH collect(p) AS paths
         UNWIND paths AS node_path
@@ -874,6 +1397,7 @@ class MilvusGraphService:
                 cypher,
                 seed_entity_ids,
                 max_nodes,
+                version_ids,
             )
         except Exception as e:
             logger.error(f"Milvus seed subgraph query failed: {e}")
@@ -885,12 +1409,18 @@ class MilvusGraphService:
         cypher: str,
         entity_ids: list[str],
         max_nodes: int,
+        version_ids: list[str] | None,
     ) -> dict[str, Any]:
         with self.driver.session() as session:
+            query_params = {
+                "entity_ids": entity_ids,
+                "path_limit": max(max_nodes, 1) * 4,
+            }
+            if version_ids is not None:
+                query_params["version_ids"] = version_ids
             record = session.run(
                 cypher,
-                entity_ids=entity_ids,
-                path_limit=max(max_nodes, 1) * 4,
+                **query_params,
             ).single()
             if not record:
                 return {"nodes": [], "edges": []}
@@ -913,6 +1443,27 @@ class MilvusGraphService:
             max_nodes=max_nodes,
         )
         return self.rank_chunks_by_ppr(subgraph, seed_weights, top_k=top_k, damping=damping)
+
+    async def query_and_rank_parent_chunks_by_ppr(
+        self,
+        kb_id: str,
+        seed_weights: dict[str, float],
+        *,
+        version_ids: list[str],
+        max_nodes: int,
+        top_k: int,
+        damping: float,
+    ) -> list[tuple[str, float]]:
+        """查询 ParentChunk 图谱并返回父块分数，后续必须显式映射到 child_id。"""
+        if not seed_weights:
+            return []
+        subgraph = await self.query_seed_subgraph(
+            kb_id,
+            entity_ids=list(seed_weights.keys()),
+            max_nodes=max_nodes,
+            version_ids=version_ids,
+        )
+        return self.rank_parent_chunks_by_ppr(subgraph, seed_weights, top_k=top_k, damping=damping)
 
     @staticmethod
     def rank_chunks_by_ppr(
@@ -964,6 +1515,63 @@ class MilvusGraphService:
         scores = nx.pagerank(graph, alpha=min(max(damping, 0.1), 0.99), personalization=personalization)
         ranked = sorted(
             ((chunk_id, float(scores[index])) for index, chunk_id in chunk_node_indexes),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        return ranked[:top_k]
+
+    @staticmethod
+    def rank_parent_chunks_by_ppr(
+        subgraph: dict[str, Any],
+        seed_weights: dict[str, float],
+        *,
+        top_k: int,
+        damping: float,
+    ) -> list[tuple[str, float]]:
+        """对 ParentChunk 节点执行 PPR，返回显式 parent_id 及分数。"""
+        nodes = subgraph.get("nodes") or []
+        edges = subgraph.get("edges") or []
+        if not nodes:
+            return []
+
+        import networkx as nx
+
+        node_ids = [node["id"] for node in nodes]
+        index_by_id = {node_id: index for index, node_id in enumerate(node_ids)}
+        edge_indices = [
+            (index_by_id[edge["source_id"]], index_by_id[edge["target_id"]])
+            for edge in edges
+            if edge.get("source_id") in index_by_id and edge.get("target_id") in index_by_id
+        ]
+        if not edge_indices:
+            return []
+
+        graph = nx.Graph()
+        graph.add_nodes_from(range(len(nodes)))
+        graph.add_edges_from(edge_indices)
+        reset = [0.0] * len(nodes)
+        parent_node_indexes: list[tuple[int, str]] = []
+        for index, node in enumerate(nodes):
+            properties = node.get("properties") or {}
+            node_type = node.get("type")
+            if node_type == "ParentChunk" and properties.get("parent_id"):
+                parent_node_indexes.append((index, properties["parent_id"]))
+                continue
+            entity_id = properties.get("entity_id")
+            if entity_id in seed_weights:
+                reset[index] = seed_weights[entity_id]
+
+        reset_total = sum(reset)
+        if reset_total <= 0 or not parent_node_indexes:
+            return []
+        reset = [value / reset_total for value in reset]
+        scores = nx.pagerank(
+            graph,
+            alpha=min(max(damping, 0.1), 0.99),
+            personalization={index: value for index, value in enumerate(reset)},
+        )
+        ranked = sorted(
+            ((parent_id, float(scores[index])) for index, parent_id in parent_node_indexes),
             key=lambda item: item[1],
             reverse=True,
         )
@@ -1060,11 +1668,13 @@ class MilvusGraphService:
     def _build_where(exclude_chunk: bool, keyword: str) -> str:
         clauses = []
         if exclude_chunk:
-            clauses.append("NOT n:Chunk")
+            clauses.extend(("NOT n:Chunk", "NOT n:ParentChunk", "NOT n:ChildChunk"))
         if keyword and keyword != "*":
             clauses.append(
                 "(toLower(coalesce(n.name, '')) CONTAINS toLower($keyword)"
                 " OR toLower(coalesce(n.content_preview, '')) CONTAINS toLower($keyword)"
+                " OR toLower(coalesce(n.parent_id, '')) CONTAINS toLower($keyword)"
+                " OR toLower(coalesce(n.child_id, '')) CONTAINS toLower($keyword)"
                 " OR toLower(coalesce(n.chunk_id, '')) CONTAINS toLower($keyword))"
             )
         return "WHERE " + " AND ".join(clauses) if clauses else ""
@@ -1082,7 +1692,7 @@ class MilvusGraphService:
 
         path_node_filter = f"path_node:MilvusKB AND path_node:`{label}`"
         if exclude_chunk:
-            path_node_filter += " AND NOT path_node:Chunk"
+            path_node_filter += " AND NOT path_node:Chunk AND NOT path_node:ParentChunk AND NOT path_node:ChildChunk"
 
         return f"""
         MATCH (n:MilvusKB:`{label}`)
@@ -1181,8 +1791,22 @@ class MilvusGraphService:
         effective_kb_id = kb_id or self.kb_id
         db_label = properties.get("kb_id") or effective_kb_id
         filtered_labels = [label for label in labels if label not in {"MilvusKB", db_label}]
-        entity_type = "Chunk" if "Chunk" in labels else properties.get("label", "Entity")
-        name = properties.get("name") or properties.get("content_preview") or properties.get("chunk_id") or "Unknown"
+        if "ParentChunk" in labels:
+            entity_type = "ParentChunk"
+        elif "ChildChunk" in labels:
+            entity_type = "ChildChunk"
+        elif "Chunk" in labels:
+            entity_type = "Chunk"
+        else:
+            entity_type = properties.get("label", "Entity")
+        name = (
+            properties.get("name")
+            or properties.get("content_preview")
+            or properties.get("parent_id")
+            or properties.get("child_id")
+            or properties.get("chunk_id")
+            or "Unknown"
+        )
         return {
             "id": node_id,
             "name": name,

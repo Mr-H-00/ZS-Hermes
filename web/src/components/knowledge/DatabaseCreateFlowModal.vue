@@ -137,6 +137,228 @@
               <small v-if="field.description">{{ field.description }}</small>
             </div>
           </div>
+          <template v-if="selectedTypeInfo?.requires_embedding_model">
+            <div class="form-grid indexing-options">
+              <div
+                v-if="isBgeM3EmbeddingModelSpec(form.embedding_model_spec)"
+                class="form-section"
+              >
+                <label class="chunk-parameter-label">
+                  BGE-M3 稀疏向量
+                  <a-tooltip title="启用后由 BGE-M3 同时生成稀疏向量，与稠密向量共同参与检索">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-select
+                  v-model:value="form.additional_params.embedding_features.bge_m3_sparse_enabled"
+                  :options="featureToggleOptions"
+                  aria-label="BGE-M3 稀疏向量"
+                  class="full-width"
+                />
+              </div>
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  Parent-Child
+                  <a-tooltip title="启用后使用子块召回，并返回完整父块">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-select
+                  v-model:value="form.additional_params.parent_child.enabled"
+                  :options="featureToggleOptions"
+                  aria-label="Parent-Child"
+                  class="full-width"
+                />
+              </div>
+            </div>
+
+            <div
+              v-if="!form.additional_params.parent_child.enabled"
+              class="form-grid chunk-parameter-grid legacy-chunk-parameter-grid"
+            >
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  最大 Token 数
+                  <a-tooltip title="每个文本片段的最大 Token 数，默认值为 512">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-input-number
+                  :value="displayDefaultValue(
+                    form.additional_params.chunk_parser_config.chunk_token_num,
+                    512
+                  )"
+                  :min="100"
+                  :max="10000"
+                  placeholder="默认 512"
+                  class="full-width"
+                  @update:value="
+                    updateDefaultValue(
+                      form.additional_params.chunk_parser_config,
+                      'chunk_token_num',
+                      $event,
+                      512
+                    )
+                  "
+                />
+              </div>
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  重叠比例 (%)
+                  <a-tooltip title="相邻文本片段按 Token 数计算的重叠比例，默认值为 0%">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-input-number
+                  :value="displayDefaultValue(
+                    form.additional_params.chunk_parser_config.overlapped_percent,
+                    0
+                  )"
+                  :min="0"
+                  :max="99"
+                  placeholder="默认 0"
+                  class="full-width"
+                  @update:value="
+                    updateDefaultValue(
+                      form.additional_params.chunk_parser_config,
+                      'overlapped_percent',
+                      $event,
+                      0
+                    )
+                  "
+                />
+              </div>
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  分隔符
+                  <a-tooltip title="支持 \n、\t 等转义字符，默认使用换行符 \n">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-input
+                  :value="displayDefaultValue(
+                    form.additional_params.chunk_parser_config.delimiter,
+                    '\\n'
+                  )"
+                  placeholder="默认 \n，可输入 \n\n 或 ---"
+                  class="full-width"
+                  @update:value="
+                    updateDefaultValue(
+                      form.additional_params.chunk_parser_config,
+                      'delimiter',
+                      $event,
+                      '\\n'
+                    )
+                  "
+                />
+              </div>
+            </div>
+
+            <div v-else class="form-grid chunk-parameter-grid">
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  父块 Token 数
+                  <a-tooltip title="父块作为最终返回的完整上下文，默认最大 Token 数为 1000">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-input-number
+                  :value="displayDefaultValue(
+                    form.additional_params.parent_child.parent_token_num,
+                    1000
+                  )"
+                  :min="256"
+                  :max="4096"
+                  placeholder="默认 1000"
+                  class="full-width"
+                  @update:value="
+                    updateDefaultValue(
+                      form.additional_params.parent_child,
+                      'parent_token_num',
+                      $event,
+                      1000
+                    )
+                  "
+                />
+              </div>
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  子块 Token 数
+                  <a-tooltip title="子块用于检索召回，默认最大 Token 数为 200">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-input-number
+                  :value="displayDefaultValue(
+                    form.additional_params.parent_child.child_token_num,
+                    200
+                  )"
+                  :min="64"
+                  :max="1024"
+                  placeholder="默认 200"
+                  class="full-width"
+                  @update:value="
+                    updateDefaultValue(
+                      form.additional_params.parent_child,
+                      'child_token_num',
+                      $event,
+                      200
+                    )
+                  "
+                />
+              </div>
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  子块重叠比例 (%)
+                  <a-tooltip title="相邻子块按 Token 数计算的重叠比例，默认值为 15%">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-input-number
+                  :value="displayDefaultValue(
+                    form.additional_params.parent_child.child_overlap_percent,
+                    15
+                  )"
+                  :min="0"
+                  :max="99"
+                  placeholder="默认 15"
+                  class="full-width"
+                  @update:value="
+                    updateDefaultValue(
+                      form.additional_params.parent_child,
+                      'child_overlap_percent',
+                      $event,
+                      15
+                    )
+                  "
+                />
+              </div>
+              <div class="form-section">
+                <label class="chunk-parameter-label">
+                  分隔符
+                  <a-tooltip title="父块和子块切分使用的分隔符，默认使用换行符 \n">
+                    <QuestionCircleOutlined class="chunk-parameter-help-icon" />
+                  </a-tooltip>
+                </label>
+                <a-input
+                  :value="displayDefaultValue(
+                    form.additional_params.parent_child.separator,
+                    '\\n'
+                  )"
+                  placeholder="默认 \n"
+                  class="full-width"
+                  @update:value="
+                    updateDefaultValue(
+                      form.additional_params.parent_child,
+                      'separator',
+                      $event,
+                      '\\n'
+                    )
+                  "
+                />
+              </div>
+            </div>
+          </template>
           <div class="form-section">
             <label>知识库描述</label>
             <small>描述会帮助智能体判断何时使用这个知识库。</small>
@@ -177,6 +399,28 @@
                 <span class="summary-label">分块策略</span>
                 <span class="summary-value">{{ selectedPresetLabel }}</span>
               </div>
+              <div
+                v-if="
+                  selectedTypeInfo?.requires_embedding_model &&
+                  isBgeM3EmbeddingModelSpec(form.embedding_model_spec)
+                "
+                class="summary-item"
+              >
+                <span class="summary-label">BGE-M3 稀疏向量</span>
+                <span class="summary-value">{{
+                  form.additional_params.embedding_features.bge_m3_sparse_enabled
+                    ? '已启用'
+                    : '未启用'
+                }}</span>
+              </div>
+              <div v-if="selectedTypeInfo?.requires_embedding_model" class="summary-item">
+                <span class="summary-label">Parent-Child</span>
+                <span class="summary-value">{{
+                  form.additional_params.parent_child.enabled
+                    ? `已启用 · 父 ${form.additional_params.parent_child.parent_token_num} / 子 ${form.additional_params.parent_child.child_token_num} Token`
+                    : '未启用'
+                }}</span>
+              </div>
               <div v-if="createParamOptions.length" class="summary-item">
                 <span class="summary-label">连接配置</span>
                 <span class="summary-value"
@@ -215,6 +459,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { DatabaseZap, X } from '@lucide/vue'
 import AiTextarea from '@/components/AiTextarea.vue'
@@ -228,6 +473,7 @@ import {
   buildDatabaseRequest,
   createDefaultShareConfig,
   createEmptyDatabaseForm,
+  isBgeM3EmbeddingModelSpec,
   selectDatabaseType,
   validateDatabaseConfig
 } from '@/utils/databaseCreateForm'
@@ -247,6 +493,15 @@ const {
 } = useChunkPresetOptions()
 
 const stepLabels = ['类型', '配置', '权限']
+const featureToggleOptions = [
+  { label: '启用', value: true },
+  { label: '关闭', value: false }
+]
+const displayDefaultValue = (value, defaultValue) =>
+  value === defaultValue ? undefined : value
+const updateDefaultValue = (target, key, value, defaultValue) => {
+  target[key] = value === undefined || value === null || value === '' ? defaultValue : value
+}
 const currentStep = ref(0)
 const form = reactive(createEmptyDatabaseForm(configStore.config?.embed_model))
 const shareConfig = ref(createDefaultShareConfig())
@@ -346,6 +601,15 @@ const handleCreate = async () => {
   }
 }
 
+watch(
+  () => form.embedding_model_spec,
+  (embeddingModelSpec) => {
+    const embeddingFeatures = form.additional_params?.embedding_features
+    if (embeddingFeatures && !isBgeM3EmbeddingModelSpec(embeddingModelSpec)) {
+      embeddingFeatures.bge_m3_sparse_enabled = false
+    }
+  }
+)
 watch(
   () => props.open,
   (open) => {
@@ -552,6 +816,27 @@ watch(
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
+.indexing-options {
+  align-items: end;
+  padding: 2px 0;
+}
+.chunk-parameter-grid {
+  padding-top: 2px;
+}
+.legacy-chunk-parameter-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.chunk-parameter-label {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+}
+.chunk-parameter-help-icon {
+  color: var(--gray-500);
+  cursor: help;
+  font-size: 14px;
+}
 .form-section {
   display: flex;
   min-width: 0;
@@ -568,6 +853,9 @@ watch(
 }
 .full-width {
   width: 100%;
+}
+.full-span {
+  grid-column: 1 / -1;
 }
 .summary-card {
   display: flex;

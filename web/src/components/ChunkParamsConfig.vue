@@ -25,7 +25,15 @@
         </p>
       </a-form-item>
 
-      <div class="chunk-row">
+      <div class="indexing-features-section">
+        <div class="section-title">索引能力</div>
+        <IndexingFeaturesConfig
+          :params="localParams"
+          :embedding-model-spec="embeddingModelSpec"
+        />
+      </div>
+
+      <div v-if="!parentChildEnabled" class="chunk-row">
         <a-form-item v-if="showChunkSizeOverlap" name="chunk_token_num">
           <template #label>
             <span class="chunk-preset-label">
@@ -76,6 +84,7 @@
           />
         </a-form-item>
       </div>
+
     </a-form>
   </div>
 </template>
@@ -83,6 +92,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
+import IndexingFeaturesConfig from '@/components/IndexingFeaturesConfig.vue'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID, isPlainObject } from '@/utils/chunkUtils'
 
@@ -110,6 +120,10 @@ const props = defineProps({
   databasePresetId: {
     type: String,
     default: DEFAULT_CHUNK_PRESET_ID
+  },
+  embeddingModelSpec: {
+    type: String,
+    default: ''
   }
 })
 
@@ -129,6 +143,7 @@ const parserConfig = computed(() => {
   }
   return props.tempChunkParams.chunk_parser_config
 })
+const parentChildEnabled = computed(() => props.tempChunkParams.parent_child?.enabled === true)
 
 const presetOptions = computed(() => {
   const options = []
@@ -184,6 +199,20 @@ onMounted(() => {
 .chunk-row > .ant-form-item {
   flex: 1;
   margin-bottom: 0;
+}
+
+.indexing-features-section {
+  margin-bottom: 18px;
+  padding: 16px 0;
+  border-top: 1px solid var(--gray-200);
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.section-title {
+  margin-bottom: 14px;
+  color: var(--gray-800);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .param-description {

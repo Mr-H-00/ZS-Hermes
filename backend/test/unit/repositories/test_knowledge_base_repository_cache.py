@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import yuxi.repositories.knowledge_base_repository as repository_module
+from yuxi.knowledge.config_normalization import normalize_query_params
 from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 
 pytestmark = pytest.mark.unit
@@ -161,6 +162,38 @@ async def test_merge_query_params_options_preserves_concurrent_partial_updates(m
 
     assert row.query_params == {"options": {"top_k": 5, "use_reranker": True}}
     assert all("FOR UPDATE" in str(session.statements[0]) for session in sessions)
+
+
+@pytest.mark.asyncio
+async def test_merge_query_params_options_rejects_invalid_final_combination(monkeypatch):
+    """验证最终组合校验发生在行锁内且不会写入非法父子数量。"""
+    row = SimpleNamespace(
+        kb_id="kb_1",
+        query_params={"options": {"top_k_child": 30, "top_k_parent": 10}},
+        additional_params={
+            "embedding_features": {"bge_m3_sparse_enabled": False},
+            "parent_child": {"enabled": True},
+        },
+    )
+    session = _FakeSession(row)
+    _patch_session(monkeypatch, session)
+    _patch_cache_lock(monkeypatch, [])
+
+    await KnowledgeBaseRepository().merge_query_params_options(
+        "kb_1",
+        {"top_k_child": 15},
+        normalizer=normalize_query_params,
+    )
+
+    with pytest.raises(ValueError, match="top_k_child"):
+        await KnowledgeBaseRepository().merge_query_params_options(
+            "kb_1",
+            {"top_k_parent": 20},
+            normalizer=normalize_query_params,
+        )
+
+    assert row.query_params["options"]["top_k_child"] == 15
+    assert row.query_params["options"]["top_k_parent"] == 10
 
 
 @pytest.mark.asyncio

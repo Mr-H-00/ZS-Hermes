@@ -32,7 +32,7 @@ class ModelInfo:
     # 运行时配置
     api_key: str
     base_url: str
-    provider_type: str  # openai / anthropic / gemini / openrouter
+    provider_type: str  # openai / anthropic / gemini / openrouter / local
 
     # 可选配置
     headers: dict[str, str] = field(default_factory=dict)

@@ -33,8 +33,10 @@ class ReadOnlyConnectors(KnowledgeBase):
         operator_id: str | None = None,
         *,
         additional_params: dict[str, Any],
+        embedding_model_spec: str | None = None,
     ) -> dict:
-        del kb_id, item, params, operator_id, additional_params
+        """拒绝向只读连接器添加文件记录。"""
+        del kb_id, item, params, operator_id, additional_params, embedding_model_spec
         raise self._readonly_error()
 
     async def parse_file(
@@ -44,8 +46,10 @@ class ReadOnlyConnectors(KnowledgeBase):
         operator_id: str | None = None,
         *,
         additional_params: dict[str, Any],
+        embedding_model_spec: str | None = None,
     ) -> dict:
-        del kb_id, file_id, operator_id, additional_params
+        """拒绝在只读连接器中解析文件。"""
+        del kb_id, file_id, operator_id, additional_params, embedding_model_spec
         raise self._readonly_error()
 
     async def update_file_params(
@@ -56,8 +60,10 @@ class ReadOnlyConnectors(KnowledgeBase):
         operator_id: str | None = None,
         *,
         additional_params: dict[str, Any],
+        embedding_model_spec: str | None = None,
     ) -> None:
-        del kb_id, file_id, params, operator_id, additional_params
+        """拒绝更新只读连接器的文件处理参数。"""
+        del kb_id, file_id, params, operator_id, additional_params, embedding_model_spec
         raise self._readonly_error()
 
     async def create_folder(

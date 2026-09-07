@@ -1,7 +1,10 @@
 import asyncio
+import inspect
+import math
 import os
 import time
 import traceback
+import uuid
 import weakref
 from dataclasses import MISSING, dataclass, field, fields
 from functools import partial
@@ -24,11 +27,25 @@ from pymilvus import (
 from yuxi.config.options import system_options
 from yuxi.knowledge.base import FileStatus, KnowledgeBase
 from yuxi.knowledge.chunking.ragflow_like.dispatcher import chunk_markdown
+from yuxi.knowledge.chunking.ragflow_like.parent_child import chunk_markdown_parent_child
 from yuxi.knowledge.chunking.ragflow_like.nlp import count_tokens
+from yuxi.knowledge.config_normalization import is_bge_m3_embedding_model_spec
+from yuxi.knowledge.parent_child_cache import (
+    active_versions_fingerprint,
+    cache_parent,
+    cache_query,
+    get_cached_parent,
+    get_cached_query,
+    invalidate_parent_cache,
+    invalidate_parent_version,
+    invalidate_query_cache,
+    query_fingerprint,
+)
 from yuxi.knowledge.read_models import KnowledgeBaseConfig
 from yuxi.knowledge.utils.kb_utils import resolve_processing_params
 from yuxi.models.providers.cache import model_cache
 from yuxi.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
+from yuxi.repositories.knowledge_parent_child_chunk_repository import KnowledgeParentChildChunkRepository
 from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
 from yuxi.services.ocr_service import parse_document
 from yuxi.utils import hashstr, logger
@@ -38,6 +55,11 @@ MILVUS_AVAILABLE = True
 CONTENT_SPARSE_FIELD = "content_sparse"
 CONTENT_ANALYZER_PARAMS = {"type": "chinese"}
 VECTOR_METRIC_TYPE = "COSINE"
+CHILD_COLLECTION_PREFIX = "rag_child_chunk_"
+CHILD_DENSE_FIELD = "dense_vector"
+CHILD_SPARSE_FIELD = "bge_m3_sparse_vector"
+CHILD_TEXT_FIELD = "child_text"
+CHILD_KB_FIELD = "knowledge_base_id"
 MILVUS_CHUNK_EMBED_BATCH_SIZE = 200
 MILVUS_QUERY_OFFLOAD_LIMIT = 8
 _milvus_query_offload_semaphore_refs: dict[
@@ -107,6 +129,26 @@ class MilvusRetrievalConfig:
             "description": "重排序后返回给前端的文档数量",
         },
     )
+    top_k_child: int = field(
+        default=30,
+        metadata={
+            "label": "子块召回数量",
+            "type": "number",
+            "min": 1,
+            "max": 500,
+            "description": "Parent-Child 检索进入融合前保留的子块数量",
+        },
+    )
+    top_k_parent: int = field(
+        default=10,
+        metadata={
+            "label": "父块返回数量",
+            "type": "number",
+            "min": 1,
+            "max": 100,
+            "description": "Parent-Child 检索最终返回的父块数量",
+        },
+    )
     similarity_threshold: float = field(
         default=0.0,
         metadata={
@@ -159,6 +201,48 @@ class MilvusRetrievalConfig:
             "max": 1.0,
             "step": 0.1,
             "description": "BM25 检索时丢弃低分稀疏项的比例，数值越大检索越快但可能降低召回",
+        },
+    )
+    use_vector_score_fusion: bool = field(
+        default=False,
+        metadata={
+            "label": "稠密与稀疏向量融合",
+            "type": "boolean",
+            "visible_when": {"any": [{"search_mode": "vector"}, {"search_mode": "hybrid"}]},
+            "description": "对稠密向量与 BGE-M3 稀疏向量分数加权融合",
+        },
+    )
+    dense_vector_weight: float = field(
+        default=0.7,
+        metadata={
+            "label": "稠密向量权重",
+            "type": "number",
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.1,
+            "depend_on": ("use_vector_score_fusion", True),
+            "description": "稠密向量分数的原始融合权重",
+        },
+    )
+    sparse_vector_weight: float = field(
+        default=0.3,
+        metadata={
+            "label": "稀疏向量权重",
+            "type": "number",
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.1,
+            "depend_on": ("use_vector_score_fusion", True),
+            "description": "BGE-M3 稀疏向量分数的原始融合权重",
+        },
+    )
+    use_rrf: bool = field(
+        default=False,
+        metadata={
+            "label": "RRF 倒排融合",
+            "type": "boolean",
+            "visible_when": {"any": [{"search_mode": "hybrid"}, {"use_graph_retrieval": True}]},
+            "description": "在重排序前以固定常数 60 融合向量、BM25 与图检索排名",
         },
     )
     include_distances: bool = field(
@@ -265,6 +349,7 @@ class MilvusRetrievalConfig:
 
 
 def _retrieval_config_options() -> list[dict[str, Any]]:
+    """把 Milvus 检索配置字段转换为前端可读取的参数定义。"""
     options = []
     for config_field in fields(MilvusRetrievalConfig):
         metadata = dict(config_field.metadata)
@@ -315,6 +400,7 @@ class MilvusKB(KnowledgeBase):
 
         # 存储集合映射 {kb_id: Collection}
         self.collections: dict[str, Any] = {}
+        self.child_collections: dict[int, Any] = {}
 
         # 初始化连接
         self._init_connection()
@@ -364,17 +450,16 @@ class MilvusKB(KnowledgeBase):
                 expected_model = embedding_info.model_id
 
                 if expected_model not in description:
-                    logger.warning(
+                    raise ValueError(
                         f"Collection {collection_name} model mismatch: "
                         f"expected='{expected_model}', found_in_description='{description}'"
                     )
-                    utility.drop_collection(collection_name, using=self.connection_alias)
-                    return self._create_new_collection(collection_name, embedding_info, kb_id)
 
                 if not self._collection_supports_bm25(collection):
-                    logger.warning(f"Collection {collection_name} schema does not support BM25, recreating")
-                    utility.drop_collection(collection_name, using=self.connection_alias)
-                    return self._create_new_collection(collection_name, embedding_info, kb_id)
+                    logger.warning(
+                        f"Legacy collection {collection_name} does not support BM25; "
+                        "keeping it available for vector queries"
+                    )
 
                 logger.info(f"Retrieved existing collection: {collection_name}")
                 return collection
@@ -409,6 +494,7 @@ class MilvusKB(KnowledgeBase):
             FieldSchema(name="file_id", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="chunk_index", dtype=DataType.INT64),
             FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=embedding_dim),
+            FieldSchema(name=CHILD_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR),
             FieldSchema(name=CONTENT_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR),
         ]
         bm25_function = Function(
@@ -436,10 +522,497 @@ class MilvusKB(KnowledgeBase):
             "params": {"inverted_index_algo": "DAAT_MAXSCORE"},
         }
         collection.create_index(CONTENT_SPARSE_FIELD, sparse_index_params)
+        collection.create_index(
+            CHILD_SPARSE_FIELD,
+            {
+                "metric_type": "IP",
+                "index_type": "SPARSE_INVERTED_INDEX",
+                "params": {"inverted_index_algo": "DAAT_MAXSCORE"},
+            },
+        )
 
         logger.info(f"Created new Milvus collection: {collection_name} '{model_name=}', {embedding_dim=}")
 
         return collection
+
+    @staticmethod
+    def _child_collection_name(embedding_dimension: int) -> str:
+        """根据正整数向量维度返回 Parent-Child 集合名。"""
+        if isinstance(embedding_dimension, bool) or not isinstance(embedding_dimension, int):
+            raise ValueError("Parent-Child embedding dimension must be an integer")
+        if embedding_dimension <= 0:
+            raise ValueError("Parent-Child embedding dimension must be positive")
+        return f"{CHILD_COLLECTION_PREFIX}{embedding_dimension}"
+
+    @staticmethod
+    def _child_field_map(collection: Collection) -> dict[str, Any]:
+        """返回 child collection 的字段映射，供 schema 校验与调用方使用。"""
+        return {field.name: field for field in collection.schema.fields}
+
+    @classmethod
+    def _validate_child_collection_schema(
+        cls,
+        collection: Collection,
+        embedding_dimension: int,
+        *,
+        sparse_enabled: bool,
+    ) -> None:
+        """校验 child collection 的字段、维度和 BM25 函数，不匹配时拒绝继续写入。"""
+        fields_by_name = cls._child_field_map(collection)
+        required_types = {
+            "id": DataType.VARCHAR,
+            CHILD_KB_FIELD: DataType.VARCHAR,
+            "file_id": DataType.VARCHAR,
+            "doc_id": DataType.VARCHAR,
+            "version_id": DataType.VARCHAR,
+            "child_id": DataType.VARCHAR,
+            "parent_id": DataType.VARCHAR,
+            CHILD_TEXT_FIELD: DataType.VARCHAR,
+            "chunk_index": DataType.INT64,
+            "meta_info": DataType.JSON,
+            CHILD_DENSE_FIELD: DataType.FLOAT_VECTOR,
+            CONTENT_SPARSE_FIELD: DataType.SPARSE_FLOAT_VECTOR,
+        }
+        for field_name, expected_type in required_types.items():
+            field = fields_by_name.get(field_name)
+            if field is None or field.dtype != expected_type:
+                raise ValueError(f"Child collection schema missing or invalid field: {field_name}")
+
+        dense_field = fields_by_name[CHILD_DENSE_FIELD]
+        if int(dense_field.params.get("dim", 0)) != embedding_dimension:
+            raise ValueError(
+                f"Child collection dimension mismatch: expected {embedding_dimension}, "
+                f"found {dense_field.params.get('dim')}"
+            )
+        text_field = fields_by_name[CHILD_TEXT_FIELD]
+        if text_field.params.get("enable_analyzer") is not True:
+            raise ValueError("Child collection child_text must enable analyzer for BM25")
+
+        sparse_field = fields_by_name.get(CHILD_SPARSE_FIELD)
+        if sparse_enabled:
+            if sparse_field is None or sparse_field.dtype != DataType.SPARSE_FLOAT_VECTOR:
+                raise ValueError("BGE-M3 sparse retrieval requires bge_m3_sparse_vector in child collection")
+
+        functions = getattr(collection.schema, "functions", ())
+        if not any(
+            function.type == FunctionType.BM25
+            and function.input_field_names == [CHILD_TEXT_FIELD]
+            and function.output_field_names == [CONTENT_SPARSE_FIELD]
+            for function in functions
+        ):
+            raise ValueError("Child collection is missing the child_text BM25 function")
+
+    def _create_new_child_collection(
+        self,
+        embedding_dimension: int,
+        *,
+        sparse_enabled: bool,
+    ) -> Collection:
+        """创建按向量维度共享的 Parent-Child 子块集合及其索引。"""
+        collection_name = self._child_collection_name(embedding_dimension)
+        fields = [
+            FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=100, is_primary=True),
+            FieldSchema(name=CHILD_KB_FIELD, dtype=DataType.VARCHAR, max_length=100),
+            FieldSchema(name="file_id", dtype=DataType.VARCHAR, max_length=100),
+            FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=100),
+            FieldSchema(name="version_id", dtype=DataType.VARCHAR, max_length=100),
+            FieldSchema(name="child_id", dtype=DataType.VARCHAR, max_length=100),
+            FieldSchema(name="parent_id", dtype=DataType.VARCHAR, max_length=100),
+            FieldSchema(
+                name=CHILD_TEXT_FIELD,
+                dtype=DataType.VARCHAR,
+                max_length=65535,
+                enable_analyzer=True,
+                analyzer_params=CONTENT_ANALYZER_PARAMS,
+            ),
+            FieldSchema(name="chunk_index", dtype=DataType.INT64),
+            FieldSchema(name="meta_info", dtype=DataType.JSON),
+            FieldSchema(name=CHILD_DENSE_FIELD, dtype=DataType.FLOAT_VECTOR, dim=embedding_dimension),
+        ]
+        # 稀疏向量字段始终存在，避免共享集合的 schema 随首个调用变化。
+        fields.append(FieldSchema(name=CHILD_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR))
+        fields.append(FieldSchema(name=CONTENT_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR))
+        bm25_function = Function(
+            name="child_text_bm25",
+            input_field_names=[CHILD_TEXT_FIELD],
+            output_field_names=[CONTENT_SPARSE_FIELD],
+            function_type=FunctionType.BM25,
+        )
+        schema = CollectionSchema(
+            fields=fields,
+            description=f"Parent-Child child collection dim={embedding_dimension}",
+            functions=[bm25_function],
+        )
+        collection = Collection(name=collection_name, schema=schema, using=self.connection_alias)
+        collection.create_index(
+            CHILD_DENSE_FIELD,
+            {"metric_type": "IP", "index_type": "IVF_FLAT", "params": {"nlist": 1024}},
+        )
+        collection.create_index(
+            CHILD_SPARSE_FIELD,
+            {
+                "metric_type": "IP",
+                "index_type": "SPARSE_INVERTED_INDEX",
+                "params": {"inverted_index_algo": "DAAT_MAXSCORE"},
+            },
+        )
+        collection.create_index(
+            CONTENT_SPARSE_FIELD,
+            {
+                "metric_type": "BM25",
+                "index_type": "SPARSE_INVERTED_INDEX",
+                "params": {"inverted_index_algo": "DAAT_MAXSCORE"},
+            },
+        )
+        self._validate_child_collection_schema(collection, embedding_dimension, sparse_enabled=sparse_enabled)
+        return collection
+
+    async def _get_or_create_child_collection(
+        self,
+        embedding_model_spec: str | None,
+        *,
+        sparse_enabled: bool = False,
+    ) -> Collection:
+        """按 embedding 模型维度获取或创建 child collection，并拒绝不兼容 schema。"""
+        if not embedding_model_spec:
+            raise ValueError("Parent-Child embedding model spec is required")
+        if sparse_enabled and not is_bge_m3_embedding_model_spec(embedding_model_spec):
+            raise ValueError("Only BGE-M3 embedding models can enable bge_m3_sparse_enabled")
+        embedding_info = model_cache.get_model_info(embedding_model_spec)
+        if not embedding_info or embedding_info.model_type != "embedding":
+            raise ValueError(f"Unsupported embedding model: {embedding_model_spec}")
+        dimension = embedding_info.dimension
+        collection_name = self._child_collection_name(dimension)
+        child_collections = getattr(self, "child_collections", None)
+        if child_collections is None:
+            child_collections = self.child_collections = {}
+        cached = child_collections.get(dimension)
+        if cached is not None:
+            self._validate_child_collection_schema(cached, dimension, sparse_enabled=sparse_enabled)
+            return cached
+
+        if utility.has_collection(collection_name, using=self.connection_alias):
+            collection = Collection(name=collection_name, using=self.connection_alias)
+            self._validate_child_collection_schema(collection, dimension, sparse_enabled=sparse_enabled)
+        else:
+            collection = self._create_new_child_collection(dimension, sparse_enabled=sparse_enabled)
+        await self._initialize_kb_instance(collection)
+        child_collections[dimension] = collection
+        return collection
+
+    def _get_existing_child_collection(self, embedding_dimension: int) -> Collection | None:
+        """读取已有 child collection，不因删除操作隐式创建集合。"""
+        collection_name = self._child_collection_name(embedding_dimension)
+        child_collections = getattr(self, "child_collections", {})
+        cached = child_collections.get(embedding_dimension)
+        if cached is not None:
+            return cached
+        if not utility.has_collection(collection_name, using=self.connection_alias):
+            return None
+        collection = Collection(name=collection_name, using=self.connection_alias)
+        child_collections[embedding_dimension] = collection
+        return collection
+
+    @staticmethod
+    def _validate_child_sparse_vector(vector: Any) -> dict[int, float]:
+        """校验并复制单条 BGE-M3 稀疏向量，拒绝非法键和值。"""
+        if not isinstance(vector, dict) or not vector:
+            raise ValueError("BGE-M3 sparse vector must be a non-empty mapping")
+        normalized: dict[int, float] = {}
+        for key, value in vector.items():
+            if isinstance(key, bool) or not isinstance(key, int) or key < 0:
+                raise ValueError("BGE-M3 sparse vector indexes must be non-negative integers")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError("BGE-M3 sparse vector values must be finite numbers")
+            numeric_value = float(value)
+            if not math.isfinite(numeric_value):
+                raise ValueError("BGE-M3 sparse vector values must be finite numbers")
+            normalized[key] = numeric_value
+        return normalized
+
+    @classmethod
+    def _build_child_entities(
+        cls,
+        kb_id: str,
+        children: list[dict[str, Any]],
+        dense_embeddings: list[list[float]],
+        sparse_embeddings: list[dict[int, float]] | None = None,
+    ) -> list[list[Any]]:
+        """把子块记录转换为 child collection 的列式写入实体并执行边界校验。"""
+        if len(children) != len(dense_embeddings):
+            raise ValueError("Child records and dense embeddings must have the same length")
+        if sparse_embeddings is not None and len(sparse_embeddings) != len(children):
+            raise ValueError("Child records and sparse embeddings must have the same length")
+        rows: list[dict[str, Any]] = []
+        for index, (child, dense) in enumerate(zip(children, dense_embeddings, strict=True)):
+            child_id = child.get("child_id")
+            parent_id = child.get("parent_id")
+            if not isinstance(child_id, str) or not child_id:
+                raise ValueError(f"Child record {index} is missing child_id")
+            if not isinstance(parent_id, str) or not parent_id:
+                raise ValueError(f"Child record {child_id} is missing parent_id")
+            child_text = child.get("child_text", child.get("content"))
+            if not isinstance(child_text, str) or not child_text:
+                raise ValueError(f"Child record {child_id} is missing child_text")
+            if not isinstance(dense, list) or not dense:
+                raise ValueError(f"Child record {child_id} has an invalid dense vector")
+            rows.append(
+                {
+                    "id": child_id,
+                    CHILD_KB_FIELD: kb_id,
+                    "file_id": str(child.get("file_id") or ""),
+                    "doc_id": str(child.get("doc_id") or ""),
+                    "version_id": str(child.get("version_id") or ""),
+                    "child_id": child_id,
+                    "parent_id": parent_id,
+                    CHILD_TEXT_FIELD: child_text,
+                    "chunk_index": int(child.get("child_index", child.get("chunk_index", index))),
+                    "meta_info": dict(child.get("metadata") or child.get("meta_info") or {}),
+                    CHILD_DENSE_FIELD: dense,
+                }
+            )
+        columns = [[row[field] for row in rows] for field in rows[0]] if rows else []
+        if sparse_embeddings is not None and rows:
+            columns.append([cls._validate_child_sparse_vector(vector) for vector in sparse_embeddings])
+        return columns
+
+    @staticmethod
+    def _child_scope_expr(kb_id: str, file_id: str | None = None) -> str:
+        """构造 child collection 的知识库隔离过滤表达式。"""
+        escaped_kb_id = str(kb_id).replace('"', '\\"')
+        expression = f'{CHILD_KB_FIELD} == "{escaped_kb_id}"'
+        if file_id is not None:
+            escaped_file_id = str(file_id).replace('"', '\\"')
+            expression += f' and file_id == "{escaped_file_id}"'
+        return expression
+
+    async def _insert_child_chunks_to_milvus(
+        self,
+        kb_id: str,
+        collection: Collection,
+        children: list[dict[str, Any]],
+        dense_embeddings: list[list[float]],
+        *,
+        sparse_embeddings: list[dict[int, float]] | None = None,
+    ) -> None:
+        """仅把带父块引用的子块写入 Milvus child collection。"""
+        if not children:
+            return
+        fields_by_name = self._child_field_map(collection)
+        dense_field = fields_by_name.get(CHILD_DENSE_FIELD)
+        expected_dimension = int((dense_field.params if dense_field is not None else {}).get("dim", 0))
+        if expected_dimension <= 0 or any(len(vector) != expected_dimension for vector in dense_embeddings):
+            raise ValueError(f"Dense embeddings must have dimension {expected_dimension}")
+        has_sparse_field = CHILD_SPARSE_FIELD in fields_by_name
+        if sparse_embeddings is not None and not has_sparse_field:
+            raise ValueError("Sparse embeddings were provided to a child collection without sparse field")
+        entities = self._build_child_entities(kb_id, children, dense_embeddings, sparse_embeddings)
+        if sparse_embeddings is None and has_sparse_field:
+            # Milvus 2.5 不允许 nullable 向量；空映射满足固定 schema，但不伪造稀疏坐标。
+            entities.append([{} for _ in children])
+        await asyncio.to_thread(collection.insert, entities)
+
+    async def _delete_file_child_chunks_from_milvus(
+        self,
+        collection: Collection,
+        kb_id: str,
+        file_id: str,
+    ) -> None:
+        """按知识库和文件删除 child collection 中的子块，不影响其他知识库。"""
+        expr = self._child_scope_expr(kb_id, file_id)
+        await asyncio.to_thread(collection.delete, expr)
+
+    def _list_existing_child_collections(self) -> list[Collection]:
+        """枚举已存在的共享 child collection，不因清理动作创建集合。"""
+        names = set(getattr(self, "child_collections", {}).keys())
+        collections_by_name: dict[str, Collection] = {}
+        for dimension in names:
+            collection = self._get_existing_child_collection(dimension)
+            if collection is not None:
+                collections_by_name[collection.name] = collection
+        child_collection_names = utility.list_collections(using=self.connection_alias)
+        for name in child_collection_names:
+            if not name.startswith(CHILD_COLLECTION_PREFIX):
+                continue
+            if name in collections_by_name:
+                continue
+            collection = Collection(name=name, using=self.connection_alias)
+            collections_by_name[name] = collection
+        return list(collections_by_name.values())
+
+    async def _delete_file_child_chunks_from_all_collections(self, kb_id: str, file_id: str) -> None:
+        """从所有按维度共享的 child collection 删除指定文件投影。"""
+        for collection in self._list_existing_child_collections():
+            await self._delete_file_child_chunks_from_milvus(collection, kb_id, file_id)
+
+    async def _delete_kb_child_chunks_from_all_collections(self, kb_id: str) -> None:
+        """从所有按维度共享的 child collection 删除指定知识库投影。"""
+        for collection in self._list_existing_child_collections():
+            escaped_kb_id = str(kb_id).replace('"', '\\"')
+            await asyncio.to_thread(
+                collection.delete,
+                f'{CHILD_KB_FIELD} == "{escaped_kb_id}"',
+            )
+
+    async def _delete_child_version_from_milvus(
+        self,
+        collection: Collection,
+        kb_id: str,
+        version_id: str,
+    ) -> None:
+        """按知识库和版本删除尚未激活的子块，避免影响旧 active 版本。"""
+        escaped_kb_id = str(kb_id).replace('"', '\\"')
+        escaped_version_id = str(version_id).replace('"', '\\"')
+        expression = f'knowledge_base_id == "{escaped_kb_id}" and version_id == "{escaped_version_id}"'
+        await asyncio.to_thread(collection.delete, expression)
+
+    async def _index_parent_child_file(
+        self,
+        *,
+        kb_id: str,
+        file_id: str,
+        file_meta: dict[str, Any],
+        params: dict[str, Any],
+        embedding_model_spec: str,
+        embedding_function,
+        markdown_content: str | None = None,
+    ) -> dict:
+        """以 staging -> Milvus -> flush -> active 顺序写入 Parent-Child 版本。"""
+        model_info = model_cache.get_model_info(embedding_model_spec)
+        dimension = int(getattr(model_info, "dimension", 0) or 0)
+        if dimension <= 0:
+            raise ValueError("Parent-Child embedding model must expose a positive dimension")
+
+        repository = KnowledgeParentChildChunkRepository()
+        active_version = await repository.get_active_version(kb_id, file_id)
+        doc_id = f"doc_{uuid.uuid4().hex}"
+        version = await repository.create_staging_version(
+            kb_id=kb_id,
+            file_id=file_id,
+            doc_id=doc_id,
+            params=params,
+            embedding_model_spec=embedding_model_spec,
+            embedding_dimension=dimension,
+        )
+        version_id = version.version_id
+        child_collection: Collection | None = None
+        inserted = False
+        try:
+            child_collection = await self._get_or_create_child_collection(
+                embedding_model_spec,
+                sparse_enabled=(params.get("embedding_features") or {}).get("bge_m3_sparse_enabled") is True,
+            )
+            sparse_enabled = (params.get("embedding_features") or {}).get("bge_m3_sparse_enabled") is True
+            if markdown_content is None:
+                markdown_content = await self._read_markdown_from_minio(file_meta["markdown_file"])
+            chunked = chunk_markdown_parent_child(
+                markdown_content,
+                file_id,
+                kb_id,
+                version_id,
+                params,
+                filename=str(file_meta.get("filename") or ""),
+            )
+            parents = [{**parent, "file_id": file_id, "doc_id": doc_id} for parent in chunked["parents"]]
+            children = [
+                {
+                    **child,
+                    "file_id": file_id,
+                    "doc_id": doc_id,
+                    "version_id": version_id,
+                    # repository 在版本内以 child_index 唯一，转换为全局顺序避免跨父块冲突。
+                    "child_index": child_index,
+                }
+                for child_index, child in enumerate(chunked["children"])
+            ]
+            await repository.batch_insert_parent_chunks(version_id, parents)
+            await repository.batch_insert_child_chunks(version_id, children)
+
+            if children:
+                child_texts = [child["child_text"] for child in children]
+                sparse_embeddings = None
+                if sparse_enabled:
+                    sparse_encoder = getattr(embedding_function, "abatch_encode_with_sparse", None)
+                    model = getattr(embedding_function, "__self__", None) or getattr(
+                        getattr(embedding_function, "func", None), "__self__", None
+                    )
+                    sparse_encoder = sparse_encoder or getattr(model, "abatch_encode_with_sparse", None)
+                    if not callable(sparse_encoder):
+                        raise ValueError("BGE-M3 sparse 已启用，但 embedding provider 未提供 sparse 输出")
+                    embeddings, sparse_embeddings = await sparse_encoder(child_texts)
+                else:
+                    embeddings = await embedding_function(child_texts)
+                # insert 可能在服务端部分成功，调用前即标记以确保异常路径也执行按版本清理。
+                inserted = True
+                await self._insert_child_chunks_to_milvus(
+                    kb_id,
+                    child_collection,
+                    children,
+                    embeddings,
+                    sparse_embeddings=sparse_embeddings,
+                )
+                await asyncio.to_thread(child_collection.flush)
+                escaped_version_id = version_id.replace('"', '\\"')
+                rows = await asyncio.to_thread(
+                    child_collection.query,
+                    expr=f'version_id == "{escaped_version_id}"',
+                    output_fields=["child_id"],
+                    limit=max(len(children), 1),
+                )
+                if len(rows) != len(children):
+                    raise RuntimeError("Milvus child write could not be read back after flush")
+
+            await repository.activate_version(version_id)
+            await invalidate_query_cache(kb_id)
+            if active_version is not None:
+                await invalidate_parent_version(kb_id, active_version.version_id)
+            old_external_storage_clean = True
+            if active_version is not None:
+                from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
+
+                try:
+                    await MilvusGraphService().delete_parent_child_version_graph(
+                        kb_id,
+                        file_id,
+                        active_version.version_id,
+                    )
+                except Exception as cleanup_error:
+                    old_external_storage_clean = False
+                    logger.warning(
+                        f"Failed to clean superseded graph version {active_version.version_id}: {cleanup_error}"
+                    )
+            if active_version is not None and child_collection is not None:
+                try:
+                    await self._delete_child_version_from_milvus(child_collection, kb_id, active_version.version_id)
+                except Exception as cleanup_error:
+                    old_external_storage_clean = False
+                    logger.warning(
+                        f"Failed to clean superseded child version {active_version.version_id}: {cleanup_error}"
+                    )
+            if active_version is not None and old_external_storage_clean:
+                try:
+                    await repository.delete_version(active_version.version_id)
+                except Exception as cleanup_error:
+                    logger.warning(
+                        f"Failed to clean superseded PostgreSQL version {active_version.version_id}: {cleanup_error}"
+                    )
+
+            chunk_stats = {
+                "chunk_count": len(children),
+                "token_count": sum(int(parent.get("token_count") or 0) for parent in parents),
+            }
+            return {**file_meta, **chunk_stats, "status": FileStatus.INDEXED, "error": None}
+        except (Exception, asyncio.CancelledError):
+            if inserted and child_collection is not None:
+                try:
+                    await self._delete_child_version_from_milvus(child_collection, kb_id, version_id)
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to rollback Milvus child version {version_id}: {cleanup_error}")
+            try:
+                await repository.delete_version(version_id)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to rollback PostgreSQL child version {version_id}: {cleanup_error}")
+            raise
 
     def _collection_supports_bm25(self, collection: Collection) -> bool:
         """检查集合是否具备 Milvus 内置 BM25 所需的 schema。"""
@@ -461,6 +1034,14 @@ class MilvusKB(KnowledgeBase):
             ):
                 return True
         return False
+
+    @staticmethod
+    def _validate_single_collection_sparse_schema(collection: Collection) -> None:
+        """确认单层集合具备真实模型 sparse 字段。"""
+        fields = {field.name: field for field in collection.schema.fields}
+        sparse_field = fields.get(CHILD_SPARSE_FIELD)
+        if sparse_field is None or sparse_field.dtype != DataType.SPARSE_FLOAT_VECTOR:
+            raise ValueError("BGE-M3 sparse retrieval requires bge_m3_sparse_vector in the Milvus collection")
 
     async def _initialize_kb_instance(self, instance: Any) -> None:
         """初始化 Milvus 集合（加载到内存）"""
@@ -496,6 +1077,24 @@ class MilvusKB(KnowledgeBase):
             logger.error(f"Failed to create Milvus collection for {kb_id}: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
+
+    async def _get_or_create_collection_for_config(
+        self,
+        kb_id: str,
+        embedding_model_spec: str | None,
+        additional_params: dict[str, Any] | None,
+    ) -> Collection | None:
+        """按知识库当前配置选择唯一的旧单层或 Parent-Child 集合。"""
+        params = additional_params or {}
+        parent_child = params.get("parent_child") or {}
+        if parent_child.get("enabled") is True:
+            embedding_features = params.get("embedding_features") or {}
+            sparse_enabled = embedding_features.get("bge_m3_sparse_enabled") is True
+            return await self._get_or_create_child_collection(
+                embedding_model_spec,
+                sparse_enabled=sparse_enabled,
+            )
+        return await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
 
     def _get_existing_milvus_collection(self, kb_id: str) -> Collection | None:
         """获取已存在的集合，不因删除操作创建新集合。"""
@@ -543,6 +1142,8 @@ class MilvusKB(KnowledgeBase):
         collection: Collection,
         chunks: list[dict],
         embeddings: list,
+        *,
+        sparse_embeddings: list[dict[int, float]] | None = None,
     ) -> None:
         if not chunks:
             return
@@ -555,6 +1156,17 @@ class MilvusKB(KnowledgeBase):
             [chunk["chunk_index"] for chunk in chunks],
             embeddings,
         ]
+        fields = getattr(getattr(collection, "schema", None), "fields", ())
+        has_model_sparse_field = any(field.name == CHILD_SPARSE_FIELD for field in fields)
+        if sparse_embeddings is not None and not has_model_sparse_field:
+            raise ValueError("BGE-M3 sparse indexing requires bge_m3_sparse_vector in the Milvus collection")
+        if sparse_embeddings is not None and len(sparse_embeddings) != len(chunks):
+            raise ValueError("BGE-M3 sparse provider returned a different number of vectors than chunks")
+        if has_model_sparse_field:
+            if sparse_embeddings is None:
+                entities.append([{} for _ in chunks])
+            else:
+                entities.append([self._validate_child_sparse_vector(vector) for vector in sparse_embeddings])
         chunk_repo = KnowledgeChunkRepository()
 
         def _insert_milvus_records():
@@ -587,6 +1199,7 @@ class MilvusKB(KnowledgeBase):
         embedding_function,
         *,
         chunk_batch_size: int = MILVUS_CHUNK_EMBED_BATCH_SIZE,
+        sparse_enabled: bool = False,
     ) -> None:
         """对 chunks 进行分批嵌入并存储到 Milvus 和 PostgreSQL"""
         if not chunks:
@@ -596,14 +1209,28 @@ class MilvusKB(KnowledgeBase):
         for start in range(0, len(chunks), chunk_batch_size):
             batch_chunks = chunks[start : start + chunk_batch_size]
             texts = [chunk["content"] for chunk in batch_chunks]
-            embeddings = await embedding_function(texts)
-            await self._insert_chunks_to_stores(
-                kb_id,
-                file_id,
-                collection,
-                batch_chunks,
-                embeddings,
-            )
+            sparse_embeddings = None
+            if sparse_enabled:
+                model = getattr(embedding_function, "__self__", None) or getattr(
+                    getattr(embedding_function, "func", None), "__self__", None
+                )
+                sparse_encoder = getattr(model, "abatch_encode_with_sparse", None)
+                if not callable(sparse_encoder):
+                    raise ValueError("BGE-M3 sparse 已启用，但 embedding provider 未提供 sparse 输出")
+                embeddings, sparse_embeddings = await sparse_encoder(texts)
+            else:
+                embeddings = await embedding_function(texts)
+            if sparse_embeddings is None:
+                await self._insert_chunks_to_stores(kb_id, file_id, collection, batch_chunks, embeddings)
+            else:
+                await self._insert_chunks_to_stores(
+                    kb_id,
+                    file_id,
+                    collection,
+                    batch_chunks,
+                    embeddings,
+                    sparse_embeddings=sparse_embeddings,
+                )
 
     async def _delete_file_chunks_from_milvus(self, collection: Collection, file_id: str) -> None:
         expr = f'file_id == "{file_id}"'
@@ -659,25 +1286,7 @@ class MilvusKB(KnowledgeBase):
         embedding_model_spec: str | None,
         additional_params: dict[str, Any],
     ) -> dict:
-        """
-        Index parsed file (Status: INDEXING -> INDEXED/ERROR_INDEXING)
-
-        Args:
-            kb_id: Database ID
-            file_id: File ID
-            operator_id: ID of the user performing the operation
-            params: Override processing params to apply during indexing (merged on top of stored params)
-
-        Returns:
-            Updated file metadata
-        """
-        # Get/Create collection
-        collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
-        if not collection:
-            raise ValueError(f"Failed to get Milvus collection for {kb_id}")
-
-        embedding_function = self._get_embedding_function(embedding_model_spec)
-
+        """按最终处理参数索引已解析文件，并更新索引状态与统计。"""
         file_meta = await self._load_file_meta(kb_id, file_id)
         allowed_statuses = {
             FileStatus.PARSED,
@@ -689,6 +1298,7 @@ class MilvusKB(KnowledgeBase):
             kb_additional_params=additional_params,
             file_processing_params=file_meta.get("processing_params"),
             request_params=params,
+            embedding_model_spec=embedding_model_spec,
         )
 
         claim_data = {
@@ -721,6 +1331,41 @@ class MilvusKB(KnowledgeBase):
         logger.debug(f"[index_file] file_id={file_id}, processing_params={params}")
 
         try:
+            if params.get("indexing_path") == "parent_child":
+                if not embedding_model_spec:
+                    raise ValueError("Parent-Child indexing requires an embedding model")
+                embedding_function = self._get_embedding_function(embedding_model_spec)
+                result = await self._index_parent_child_file(
+                    kb_id=kb_id,
+                    file_id=file_id,
+                    file_meta=file_meta,
+                    params=params,
+                    embedding_model_spec=embedding_model_spec,
+                    embedding_function=embedding_function,
+                )
+                update_data = {
+                    "status": FileStatus.INDEXED,
+                    "error_message": None,
+                    "chunk_count": result["chunk_count"],
+                    "token_count": result["token_count"],
+                }
+                if operator_id:
+                    update_data["updated_by"] = operator_id
+                updated_record = await KnowledgeFileRepository().update_fields(
+                    file_id=file_id,
+                    kb_id=kb_id,
+                    data=update_data,
+                )
+                return self._file_record_to_meta(updated_record) if updated_record is not None else result
+
+            # 保持旧 single_chunk 路径的集合和写入语义。
+            collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
+            if not collection:
+                raise ValueError(f"Failed to get Milvus collection for {kb_id}")
+            sparse_enabled = (params.get("embedding_features") or {}).get("bge_m3_sparse_enabled") is True
+            if sparse_enabled:
+                self._validate_single_collection_sparse_schema(collection)
+            embedding_function = self._get_embedding_function(embedding_model_spec)
             chunk_parser_config = dict(params.get("chunk_parser_config") or {})
             chunk_parser_config.setdefault("embed_model_id", (await system_options.get())["embed_model"])
             params["chunk_parser_config"] = chunk_parser_config
@@ -742,7 +1387,14 @@ class MilvusKB(KnowledgeBase):
             await self.delete_file_chunks_only(kb_id, file_id)
 
             if chunks:
-                await self._embed_and_store_chunks(kb_id, file_id, collection, chunks, embedding_function)
+                await self._embed_and_store_chunks(
+                    kb_id,
+                    file_id,
+                    collection,
+                    chunks,
+                    embedding_function,
+                    sparse_enabled=sparse_enabled,
+                )
 
             logger.info(f"Indexed file {file_id} into Milvus")
 
@@ -791,11 +1443,8 @@ class MilvusKB(KnowledgeBase):
         additional_params: dict[str, Any],
     ) -> list[dict]:
         """更新内容 - 根据file_ids重新解析文件并更新向量库"""
-        collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
-        if not collection:
-            raise ValueError(f"Failed to get Milvus collection for {kb_id}")
-
         embedding_function = self._get_embedding_function(embedding_model_spec)
+        collection: Collection | None = None
 
         # 处理默认参数
         if params is None:
@@ -822,6 +1471,7 @@ class MilvusKB(KnowledgeBase):
                     kb_additional_params=additional_params,
                     file_processing_params=file_meta.get("processing_params"),
                     request_params=params,
+                    embedding_model_spec=embedding_model_spec,
                 )
                 file_meta["processing_params"] = resolved_params
                 file_meta["status"] = FileStatus.INDEXING
@@ -844,6 +1494,37 @@ class MilvusKB(KnowledgeBase):
                     "image_prefix": f"{kb_id}/kb-images",
                 }
                 markdown_content = await parse_document(source=file_path, params=parse_params)
+                if resolved_params.get("indexing_path") == "parent_child":
+                    if not embedding_model_spec:
+                        raise ValueError("Parent-Child indexing requires an embedding model")
+                    parent_child_result = await self._index_parent_child_file(
+                        kb_id=kb_id,
+                        file_id=file_id,
+                        file_meta=file_meta,
+                        params=resolved_params,
+                        embedding_model_spec=embedding_model_spec,
+                        embedding_function=embedding_function,
+                        markdown_content=markdown_content,
+                    )
+                    chunk_stats = {
+                        "chunk_count": parent_child_result["chunk_count"],
+                        "token_count": parent_child_result["token_count"],
+                    }
+                    file_meta.update(parent_child_result)
+                    await KnowledgeFileRepository().update_fields(
+                        file_id=file_id,
+                        kb_id=kb_id,
+                        data={"status": FileStatus.INDEXED, "error_message": None, **chunk_stats},
+                    )
+                    processed_items_info.append({**file_meta, "file_id": file_id, "status": FileStatus.INDEXED})
+                    continue
+                if collection is None:
+                    collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
+                    if not collection:
+                        raise ValueError(f"Failed to get Milvus collection for {kb_id}")
+                sparse_enabled = (resolved_params.get("embedding_features") or {}).get("bge_m3_sparse_enabled") is True
+                if sparse_enabled:
+                    self._validate_single_collection_sparse_schema(collection)
 
                 # 重新生成 chunks
                 chunks = self._split_text_into_chunks(markdown_content, file_id, filename, resolved_params)
@@ -854,7 +1535,14 @@ class MilvusKB(KnowledgeBase):
                 await self.delete_file_chunks_only(kb_id, file_id)
 
                 if chunks:
-                    await self._embed_and_store_chunks(kb_id, file_id, collection, chunks, embedding_function)
+                    await self._embed_and_store_chunks(
+                        kb_id,
+                        file_id,
+                        collection,
+                        chunks,
+                        embedding_function,
+                        sparse_enabled=sparse_enabled,
+                    )
 
                 logger.info(f"Updated file {file_path} in Milvus. Done.")
 
@@ -913,6 +1601,808 @@ class MilvusKB(KnowledgeBase):
             chunk["distance"] = hit.distance
         return chunk
 
+    async def _aquery_single_features(
+        self,
+        query_text: str,
+        kb_id: str,
+        *,
+        config: KnowledgeBaseConfig,
+        collection: Collection,
+        merged_kwargs: dict[str, Any],
+    ) -> list[dict]:
+        """执行单层 chunk 的模型 sparse 融合或全链路 RRF。"""
+        embedding_model_spec = config.embedding_model_spec
+        final_top_k = max(int(merged_kwargs.get("final_top_k", 10)), 1)
+        similarity_threshold = float(merged_kwargs.get("similarity_threshold", 0.2))
+        include_distances = bool(merged_kwargs.get("include_distances", True))
+        search_mode = str(merged_kwargs.get("search_mode", "vector")).lower()
+        if search_mode not in {"vector", "keyword", "hybrid"}:
+            search_mode = "vector"
+        use_vector_fusion = bool(merged_kwargs.get("use_vector_score_fusion", False))
+        use_rrf = bool(merged_kwargs.get("use_rrf", False))
+        use_reranker = bool(merged_kwargs.get("use_reranker", False))
+        use_graph_retrieval = bool(merged_kwargs.get("use_graph_retrieval", False))
+        recall_top_k = final_top_k
+        if use_reranker or use_graph_retrieval:
+            recall_top_k = max(int(merged_kwargs.get("recall_top_k", 50)), final_top_k)
+
+        if use_vector_fusion:
+            sparse_enabled = (config.additional_params.get("embedding_features") or {}).get(
+                "bge_m3_sparse_enabled"
+            ) is True
+            if not sparse_enabled:
+                raise ValueError("use_vector_score_fusion requires bge_m3_sparse_enabled")
+            self._validate_single_collection_sparse_schema(collection)
+
+        file_expr = await self._build_file_name_expr(kb_id, merged_kwargs.get("file_name"))
+        output_fields = ["content", "chunk_id", "file_id", "chunk_index"]
+        dense_candidates: list[dict[str, Any]] = []
+        sparse_candidates: list[dict[str, Any]] = []
+        bm25_candidates: list[dict[str, Any]] = []
+
+        if search_mode in {"vector", "hybrid"}:
+            if not embedding_model_spec:
+                raise ValueError("Vector query requires an embedding model")
+            embedding_function = self._get_embedding_function(embedding_model_spec, sync=True)
+            query_embedding = await _run_milvus_query_io(embedding_function, [query_text])
+            dense_results = await _run_milvus_query_io(
+                collection.search,
+                data=query_embedding,
+                anns_field="embedding",
+                param={"metric_type": VECTOR_METRIC_TYPE, "params": {"nprobe": 10}},
+                limit=recall_top_k,
+                expr=file_expr,
+                output_fields=output_fields,
+            )
+            dense_candidates = [
+                self._build_chunk_from_hit(hit, hit.distance, include_distances, score_field="dense_score")
+                for hit in (dense_results[0] if dense_results else [])
+            ]
+            if use_vector_fusion:
+                sparse_vector = await self._get_sparse_query_vector(embedding_model_spec, query_text)
+                sparse_results = await _run_milvus_query_io(
+                    collection.search,
+                    data=[sparse_vector],
+                    anns_field=CHILD_SPARSE_FIELD,
+                    param={"metric_type": "IP", "params": {"drop_ratio_search": 0.0}},
+                    limit=recall_top_k,
+                    expr=file_expr,
+                    output_fields=output_fields,
+                )
+                sparse_candidates = [
+                    self._build_chunk_from_hit(hit, hit.distance, include_distances, score_field="sparse_score")
+                    for hit in (sparse_results[0] if sparse_results else [])
+                ]
+
+        if search_mode in {"keyword", "hybrid"}:
+            bm25_results = await _run_milvus_query_io(
+                collection.search,
+                data=[query_text],
+                anns_field=CONTENT_SPARSE_FIELD,
+                param={
+                    "metric_type": "BM25",
+                    "params": {"drop_ratio_search": float(merged_kwargs.get("bm25_drop_ratio_search", 0.0))},
+                },
+                limit=max(int(merged_kwargs.get("bm25_top_k", recall_top_k)), 1),
+                expr=file_expr,
+                output_fields=output_fields,
+            )
+            bm25_candidates = [
+                self._build_chunk_from_hit(hit, hit.distance, include_distances, score_field="bm25_score")
+                for hit in (bm25_results[0] if bm25_results else [])
+            ]
+
+        if use_vector_fusion and (dense_candidates or sparse_candidates):
+            vector_candidates = self._merge_vector_candidates(
+                dense_candidates,
+                sparse_candidates,
+                float(merged_kwargs.get("dense_vector_weight", 0.7)),
+                float(merged_kwargs.get("sparse_vector_weight", 0.3)),
+                identity_key="chunk_id",
+            )
+        else:
+            vector_candidates = dense_candidates
+
+        graph_candidates: list[dict[str, Any]] = []
+        if use_graph_retrieval:
+            graph_candidates = await self._retrieve_graph_chunks(
+                query_text,
+                kb_id,
+                vector_candidates + bm25_candidates,
+                merged_kwargs,
+                embedding_model_spec,
+            )
+
+        if use_rrf:
+            candidate_lists = []
+            if search_mode in {"vector", "hybrid"}:
+                candidate_lists.append(
+                    [
+                        candidate
+                        for candidate in vector_candidates
+                        if float(candidate.get("score") or 0.0) >= similarity_threshold
+                    ]
+                )
+            if search_mode in {"keyword", "hybrid"}:
+                candidate_lists.append(
+                    [
+                        candidate
+                        for candidate in bm25_candidates
+                        if float(candidate.get("score") or 0.0) >= similarity_threshold
+                    ]
+                )
+            if graph_candidates:
+                candidate_lists.append(
+                    [
+                        candidate
+                        for candidate in graph_candidates
+                        if float(candidate.get("score") or 0.0) >= similarity_threshold
+                    ]
+                )
+            retrieved_chunks = self._rrf_candidates(candidate_lists, identity_key="chunk_id")
+        elif search_mode == "hybrid":
+            retrieved_chunks = self._merge_ranked_candidates(
+                [vector_candidates, bm25_candidates],
+                [
+                    float(merged_kwargs.get("vector_weight", 0.7)),
+                    float(merged_kwargs.get("bm25_weight", 0.3)),
+                ],
+                identity_key="chunk_id",
+            )
+        elif search_mode == "keyword":
+            retrieved_chunks = bm25_candidates
+        else:
+            retrieved_chunks = vector_candidates
+
+        if graph_candidates and not use_rrf:
+            retrieved_chunks = self._fuse_chunk_rankings(
+                retrieved_chunks,
+                graph_candidates,
+                float(merged_kwargs.get("graph_weight", 1.0)),
+            )
+        if use_rrf:
+            retrieved_chunks = retrieved_chunks[:recall_top_k]
+        else:
+            retrieved_chunks = [
+                chunk for chunk in retrieved_chunks if float(chunk.get("score") or 0.0) >= similarity_threshold
+            ][:recall_top_k]
+        if not retrieved_chunks:
+            return []
+
+        await self._hydrate_chunk_sources(kb_id, retrieved_chunks)
+        if use_reranker:
+            reranker_model = merged_kwargs.get("reranker_model")
+            if not reranker_model:
+                raise ValueError("Reranker model must be specified when use_reranker=True")
+            from yuxi.models.rerank import get_reranker
+
+            reranker = get_reranker(reranker_model)
+            try:
+                scores = await reranker.acompute_score(
+                    [query_text, [chunk["content"] for chunk in retrieved_chunks]],
+                    normalize=True,
+                )
+                for chunk, score in zip(retrieved_chunks, scores, strict=False):
+                    chunk["rerank_score"] = float(score)
+                    chunk["score"] = float(score)
+                retrieved_chunks.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+            finally:
+                await reranker.aclose()
+        return retrieved_chunks[:final_top_k]
+
+    @staticmethod
+    def _candidate_identity(candidate: dict[str, Any], identity_key: str) -> str:
+        """从候选或其 metadata 读取稳定身份。"""
+        identity = candidate.get(identity_key)
+        metadata = candidate.get("metadata")
+        if identity is None and isinstance(metadata, dict):
+            identity = metadata.get(identity_key)
+        if identity is None:
+            raise ValueError(f"Retrieval candidate is missing {identity_key}")
+        return str(identity)
+
+    @classmethod
+    def _min_max_normalize(
+        cls,
+        candidates: list[dict[str, Any]],
+        *,
+        identity_key: str = "child_id",
+    ) -> dict[str, float]:
+        """在本次候选集内按指定身份执行 Min-Max 归一化。"""
+        if not candidates:
+            return {}
+        scores = {cls._candidate_identity(item, identity_key): float(item.get("score") or 0.0) for item in candidates}
+        minimum, maximum = min(scores.values()), max(scores.values())
+        if minimum == maximum:
+            return {identity: 1.0 for identity in scores}
+        return {identity: (score - minimum) / (maximum - minimum) for identity, score in scores.items()}
+
+    @classmethod
+    def _merge_vector_candidates(
+        cls,
+        dense_candidates: list[dict[str, Any]],
+        sparse_candidates: list[dict[str, Any]],
+        dense_weight: float,
+        sparse_weight: float,
+        *,
+        identity_key: str = "child_id",
+    ) -> list[dict[str, Any]]:
+        """归一化并按原始权重融合 dense 与 BGE-M3 sparse 候选。"""
+        branches = [
+            ("dense", dense_candidates, float(dense_weight)),
+            ("sparse", sparse_candidates, float(sparse_weight)),
+        ]
+        branches = [(name, items, weight) for name, items, weight in branches if items and weight > 0]
+        if not branches:
+            raise ValueError("dense_vector_weight 与 sparse_vector_weight 不能同时为 0")
+        total_weight = sum(weight for _, _, weight in branches)
+        merged: dict[str, dict[str, Any]] = {}
+        for name, candidates, weight in branches:
+            normalized = cls._min_max_normalize(candidates, identity_key=identity_key)
+            for candidate in candidates:
+                identity = cls._candidate_identity(candidate, identity_key)
+                result = merged.setdefault(identity, dict(candidate))
+                if result.get("_fusion_initialized") is not True:
+                    result["score"] = 0.0
+                    result["_fusion_initialized"] = True
+                result["score"] = float(result.get("score") or 0.0) + weight / total_weight * normalized[identity]
+                result[f"{name}_score"] = float(candidate.get("score") or 0.0)
+                for key, value in candidate.items():
+                    if value is not None and result.get(key) is None:
+                        result[key] = value
+        for result in merged.values():
+            result["vector_score"] = result["score"]
+            result.pop("_fusion_initialized", None)
+        return sorted(merged.values(), key=lambda item: float(item["score"]), reverse=True)
+
+    @classmethod
+    def _merge_ranked_candidates(
+        cls,
+        lists: list[list[dict[str, Any]]],
+        weights: list[float],
+        *,
+        identity_key: str = "child_id",
+    ) -> list[dict[str, Any]]:
+        """按 Min-Max 分数和归一化权重合并多路 child 候选。"""
+        branches = [(items, float(weights[index])) for index, items in enumerate(lists) if items and weights[index] > 0]
+        if not branches:
+            return []
+        total = sum(weight for _, weight in branches)
+        merged: dict[str, dict[str, Any]] = {}
+        for candidates, weight in branches:
+            normalized = cls._min_max_normalize(candidates, identity_key=identity_key)
+            for candidate in candidates:
+                identity = cls._candidate_identity(candidate, identity_key)
+                result = merged.setdefault(identity, dict(candidate))
+                if result.get("_fusion_initialized") is not True:
+                    result["score"] = 0.0
+                    result["_fusion_initialized"] = True
+                result["score"] = float(result.get("score") or 0.0) + weight / total * normalized[identity]
+                for key, value in candidate.items():
+                    if value is not None and result.get(key) is None:
+                        result[key] = value
+        for result in merged.values():
+            result.pop("_fusion_initialized", None)
+        return sorted(merged.values(), key=lambda item: float(item.get("score") or 0.0), reverse=True)
+
+    @classmethod
+    def _rrf_candidates(
+        cls,
+        lists: list[list[dict[str, Any]]],
+        *,
+        identity_key: str = "child_id",
+    ) -> list[dict[str, Any]]:
+        """以固定常数 60 在指定候选身份粒度执行 RRF。"""
+        fused: dict[str, dict[str, Any]] = {}
+        for candidates in lists:
+            for rank, candidate in enumerate(candidates, start=1):
+                identity = cls._candidate_identity(candidate, identity_key)
+                result = fused.setdefault(identity, dict(candidate))
+                result["rrf_score"] = float(result.get("rrf_score") or 0.0) + 1.0 / (60.0 + rank)
+                result["score"] = result["rrf_score"]
+                for key, value in candidate.items():
+                    if value is not None and result.get(key) is None:
+                        result[key] = value
+        return sorted(fused.values(), key=lambda item: float(item.get("score") or 0.0), reverse=True)
+
+    @staticmethod
+    def _child_candidate_from_hit(hit: Any, score: float, *, score_field: str | None = None) -> dict[str, Any]:
+        """将 child collection 的 Milvus hit 转为可融合的子块候选。"""
+        entity = hit.entity
+        child_id = entity.get("child_id") or entity.get("id")
+        parent_id = entity.get("parent_id")
+        if not child_id or not parent_id:
+            raise ValueError("Parent-Child Milvus hit 缺少 child_id 或 parent_id")
+        metadata = entity.get("meta_info") or {}
+        candidate = {
+            "child_id": str(child_id),
+            "parent_id": str(parent_id),
+            "child_text": entity.get(CHILD_TEXT_FIELD, ""),
+            "score": float(score or 0.0),
+            "file_id": entity.get("file_id"),
+            "doc_id": entity.get("doc_id"),
+            "version_id": entity.get("version_id"),
+            "chunk_index": entity.get("chunk_index"),
+            "meta_info": dict(metadata) if isinstance(metadata, dict) else {},
+        }
+        if score_field:
+            candidate[score_field] = float(score or 0.0)
+        return candidate
+
+    async def _get_sparse_query_vector(self, embedding_model_spec: str, query_text: str) -> dict[int, float]:
+        """从 embedding provider 获取 sparse 查询向量，缺少能力时拒绝查询。"""
+        from yuxi.models.embed import select_embedding_model
+
+        model = select_embedding_model(embedding_model_spec)
+        with_sparse = getattr(model, "aencode_with_sparse", None)
+        if callable(with_sparse):
+            _dense, sparse = await with_sparse([query_text])
+            if not sparse:
+                raise ValueError("BGE-M3 sparse provider returned no query vector")
+            return self._validate_child_sparse_vector(sparse[0])
+        method = next(
+            (
+                getattr(model, name, None)
+                for name in (
+                    "aencode_sparse",
+                    "encode_sparse",
+                    "abatch_encode_sparse",
+                    "batch_encode_sparse",
+                    "aencode_with_sparse",
+                    "encode_with_sparse",
+                )
+                if callable(getattr(model, name, None))
+            ),
+            None,
+        )
+        if method is None:
+            raise ValueError("BGE-M3 sparse 已启用，但 embedding provider 未提供 sparse 输出")
+        result = method([query_text]) if "batch" in getattr(method, "__name__", "") else method(query_text)
+        if inspect.isawaitable(result):
+            result = await result
+        if isinstance(result, tuple) and len(result) == 2:
+            result = result[1]
+        if isinstance(result, list):
+            result = result[0] if result else None
+        return self._validate_child_sparse_vector(result)
+
+    async def _retrieve_parent_child_graph_candidates(
+        self,
+        query_text: str,
+        kb_id: str,
+        base_candidates: list[dict[str, Any]],
+        query_params: dict[str, Any],
+        embedding_model_spec: str | None,
+        active_version_ids: list[str],
+        repository: KnowledgeParentChildChunkRepository,
+    ) -> list[dict[str, Any]]:
+        """从 ParentChunk 图谱 PPR 显式展开 active child 候选。"""
+        try:
+            from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
+            from yuxi.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
+
+            if not embedding_model_spec:
+                return []
+            entity_top_k = max(int(query_params.get("graph_entity_top_k", 10)), 1)
+            triple_top_k = max(int(query_params.get("graph_triple_top_k", 10)), 1)
+            graph_top_k = max(int(query_params.get("graph_top_k", 20)), 1)
+            graph_max_nodes = max(int(query_params.get("graph_max_nodes", 10000)), 1)
+            vector_store = await _run_milvus_query_io(MilvusGraphVectorStore)
+            entity_hits, triple_hits = await asyncio.gather(
+                vector_store.search_entities(
+                    kb_id=kb_id,
+                    query_text=query_text,
+                    embedding_model_spec=embedding_model_spec,
+                    top_k=entity_top_k,
+                ),
+                vector_store.search_triples(
+                    kb_id=kb_id,
+                    query_text=query_text,
+                    embedding_model_spec=embedding_model_spec,
+                    top_k=triple_top_k,
+                ),
+            )
+            seed_weights: dict[str, float] = {}
+
+            def add_seed(entity_id: str | None, score: float, weight: float) -> None:
+                if entity_id:
+                    seed_weights[entity_id] = seed_weights.get(entity_id, 0.0) + max(float(score or 0.0), 0.0) * weight
+
+            for hit in entity_hits:
+                add_seed(hit.get("id"), hit.get("score", 0.0), 1.0)
+            for hit in triple_hits:
+                score = float(hit.get("score") or 0.0)
+                add_seed(hit.get("source_id"), score, 0.8)
+                add_seed(hit.get("target_id"), score, 0.8)
+
+            parent_scores: dict[str, float] = {}
+            for candidate in base_candidates:
+                parent_id = str(candidate.get("parent_id") or "")
+                if parent_id:
+                    parent_scores[parent_id] = max(
+                        parent_scores.get(parent_id, 0.0),
+                        float(candidate.get("score") or 0.0),
+                    )
+            if parent_scores:
+                parent_records = await repository.list_parents_by_ids(list(parent_scores))
+                active_versions = {str(version_id) for version_id in active_version_ids}
+                for parent in parent_records:
+                    if (
+                        str(getattr(parent, "kb_id", "")) != str(kb_id)
+                        or str(getattr(parent, "version_id", "")) not in active_versions
+                    ):
+                        continue
+                    for entity_id in getattr(parent, "ent_ids", None) or []:
+                        add_seed(str(entity_id), parent_scores.get(str(parent.parent_id), 0.0), 0.3)
+
+            total = sum(seed_weights.values())
+            if total <= 0:
+                return []
+            seed_weights = {entity_id: value / total for entity_id, value in seed_weights.items()}
+            graph_service = MilvusGraphService()
+            graph_hits = await graph_service.query_and_rank_child_chunks_by_ppr(
+                kb_id,
+                seed_weights,
+                version_ids=active_version_ids,
+                max_nodes=graph_max_nodes,
+                top_k=graph_top_k,
+                damping=float(query_params.get("ppr_damping", 0.85)),
+            )
+            if not graph_hits:
+                return []
+
+            records = await repository.list_children_by_ids([str(candidate["child_id"]) for candidate in graph_hits])
+            records_by_id = {str(record.child_id): record for record in records}
+            active_versions = {str(version_id) for version_id in active_version_ids}
+            candidates = []
+            for graph_hit in graph_hits:
+                child_id = str(graph_hit.get("child_id") or "")
+                record = records_by_id.get(child_id)
+                if record is None:
+                    continue
+                if (
+                    str(record.kb_id) != str(kb_id)
+                    or str(record.version_id) not in active_versions
+                    or str(record.parent_id) != str(graph_hit.get("parent_id") or "")
+                ):
+                    continue
+                metadata = dict(getattr(record, "chunk_metadata", None) or {})
+                metadata.setdefault("spans", getattr(record, "spans", None) or [])
+                graph_score = float(graph_hit.get("graph_score") or 0.0)
+                candidates.append(
+                    {
+                        "child_id": child_id,
+                        "parent_id": str(record.parent_id),
+                        "child_text": record.child_text,
+                        "score": graph_score,
+                        "graph_score": graph_score,
+                        "file_id": record.file_id,
+                        "doc_id": record.doc_id,
+                        "version_id": record.version_id,
+                        "chunk_index": record.child_index,
+                        "meta_info": metadata,
+                        "start_offset": record.start_offset,
+                        "end_offset": record.end_offset,
+                    }
+                )
+            return candidates[:graph_top_k]
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Parent-Child graph retrieval failed for {kb_id}: {exc}")
+            raise RuntimeError(f"Parent-Child graph retrieval failed for {kb_id}") from exc
+
+    async def _aquery_parent_child(
+        self,
+        query_text: str,
+        kb_id: str,
+        *,
+        config: KnowledgeBaseConfig,
+        merged_kwargs: dict[str, Any],
+        agent_call: bool = False,
+    ) -> list[dict]:
+        """执行 Parent-Child 子块检索、融合、重排和父块回读。"""
+        del agent_call
+        repository = KnowledgeParentChildChunkRepository()
+        active_version_ids = await repository.list_active_version_ids(kb_id)
+        if not active_version_ids:
+            return []
+        cache_scope = active_versions_fingerprint(active_version_ids)
+        fingerprint = query_fingerprint(query_text, merged_kwargs)
+        cached_results = await get_cached_query(kb_id, cache_scope, fingerprint)
+        if cached_results is not None:
+            return cached_results
+        embedding_model_spec = config.embedding_model_spec
+        collection = await self._get_or_create_collection_for_config(
+            kb_id,
+            embedding_model_spec,
+            config.additional_params,
+        )
+        if collection is None:
+            raise ValueError(f"Parent-Child collection for {kb_id} is unavailable")
+        top_k_child = max(int(merged_kwargs.get("top_k_child", 30)), 1)
+        top_k_parent = max(int(merged_kwargs.get("top_k_parent", merged_kwargs.get("final_top_k", 10))), 1)
+        search_mode = str(merged_kwargs.get("search_mode", "vector")).lower()
+        if search_mode not in {"vector", "keyword", "hybrid"}:
+            search_mode = "vector"
+        expression = self._child_scope_expr(kb_id)
+        escaped_versions = ", ".join(
+            '"' + str(version_id).replace('"', '\\"') + '"' for version_id in active_version_ids
+        )
+        expression = f"{expression} and version_id in [{escaped_versions}]"
+        file_expr = await self._build_file_name_expr(kb_id, merged_kwargs.get("file_name"))
+        if file_expr:
+            expression = f"{expression} and ({file_expr})"
+        output_fields = [
+            "child_id",
+            "parent_id",
+            CHILD_TEXT_FIELD,
+            "file_id",
+            "doc_id",
+            "version_id",
+            "chunk_index",
+            "meta_info",
+        ]
+        recall_limit = max(top_k_child, int(merged_kwargs.get("recall_top_k", top_k_child)))
+        dense_candidates: list[dict[str, Any]] = []
+        sparse_candidates: list[dict[str, Any]] = []
+        bm25_candidates: list[dict[str, Any]] = []
+
+        if search_mode in {"vector", "hybrid"}:
+            if not embedding_model_spec:
+                raise ValueError("Parent-Child vector query requires an embedding model")
+            embedding_function = self._get_embedding_function(embedding_model_spec, sync=True)
+            query_embedding = await _run_milvus_query_io(embedding_function, [query_text])
+            dense_results = await _run_milvus_query_io(
+                collection.search,
+                data=query_embedding,
+                anns_field=CHILD_DENSE_FIELD,
+                param={"metric_type": "IP", "params": {"nprobe": 10}},
+                limit=recall_limit,
+                expr=expression,
+                output_fields=output_fields,
+            )
+            dense_candidates = [
+                self._child_candidate_from_hit(hit, hit.distance, score_field="dense_score")
+                for hit in (dense_results[0] if dense_results else [])
+            ]
+            if bool(merged_kwargs.get("use_vector_score_fusion", False)):
+                sparse_vector = await self._get_sparse_query_vector(embedding_model_spec, query_text)
+                sparse_results = await _run_milvus_query_io(
+                    collection.search,
+                    data=[sparse_vector],
+                    anns_field=CHILD_SPARSE_FIELD,
+                    param={"metric_type": "IP", "params": {"drop_ratio_search": 0.0}},
+                    limit=recall_limit,
+                    expr=expression,
+                    output_fields=output_fields,
+                )
+                sparse_candidates = [
+                    self._child_candidate_from_hit(hit, hit.distance, score_field="sparse_score")
+                    for hit in (sparse_results[0] if sparse_results else [])
+                ]
+
+        if search_mode in {"keyword", "hybrid"}:
+            bm25_results = await _run_milvus_query_io(
+                collection.search,
+                data=[query_text],
+                anns_field=CONTENT_SPARSE_FIELD,
+                param={
+                    "metric_type": "BM25",
+                    "params": {"drop_ratio_search": float(merged_kwargs.get("bm25_drop_ratio_search", 0.0))},
+                },
+                limit=max(int(merged_kwargs.get("bm25_top_k", recall_limit)), 1),
+                expr=expression,
+                output_fields=output_fields,
+            )
+            bm25_candidates = [
+                self._child_candidate_from_hit(hit, hit.distance, score_field="bm25_score")
+                for hit in (bm25_results[0] if bm25_results else [])
+            ]
+
+        if bool(merged_kwargs.get("use_vector_score_fusion", False)) and (dense_candidates or sparse_candidates):
+            vector_candidates = self._merge_vector_candidates(
+                dense_candidates,
+                sparse_candidates,
+                float(merged_kwargs.get("dense_vector_weight", 0.7)),
+                float(merged_kwargs.get("sparse_vector_weight", 0.3)),
+            )
+        else:
+            vector_candidates = dense_candidates
+        graph_candidates = []
+        if bool(merged_kwargs.get("use_graph_retrieval", False)):
+            graph_candidates = await self._retrieve_parent_child_graph_candidates(
+                query_text,
+                kb_id,
+                vector_candidates + bm25_candidates,
+                merged_kwargs,
+                embedding_model_spec,
+                active_version_ids,
+                repository,
+            )
+
+        candidate_lists: list[list[dict[str, Any]]] = []
+        candidate_weights: list[float] = []
+        if search_mode in {"vector", "hybrid"}:
+            candidate_lists.append(vector_candidates)
+            candidate_weights.append(float(merged_kwargs.get("vector_weight", 0.7)) if search_mode == "hybrid" else 1.0)
+        if search_mode in {"keyword", "hybrid"}:
+            candidate_lists.append(bm25_candidates)
+            candidate_weights.append(float(merged_kwargs.get("bm25_weight", 0.3)) if search_mode == "hybrid" else 1.0)
+        if graph_candidates:
+            candidate_lists.append(graph_candidates)
+            candidate_weights.append(float(merged_kwargs.get("graph_weight", 1.0)))
+        use_rrf = bool(merged_kwargs.get("use_rrf", False))
+        threshold = float(merged_kwargs.get("similarity_threshold", 0.0))
+        if use_rrf:
+            candidate_lists = [
+                [item for item in candidate_list if float(item.get("score") or 0.0) >= threshold]
+                for candidate_list in candidate_lists
+            ]
+            candidates = self._rrf_candidates(candidate_lists)
+        elif len(candidate_lists) == 1:
+            candidates = candidate_lists[0]
+        else:
+            candidates = self._merge_ranked_candidates(candidate_lists, candidate_weights)
+        if use_rrf:
+            candidates = candidates[:recall_limit]
+        else:
+            candidates = [item for item in candidates if float(item.get("score") or 0.0) >= threshold][:recall_limit]
+        if not candidates:
+            await cache_query(kb_id, cache_scope, fingerprint, [])
+            return []
+
+        if bool(merged_kwargs.get("use_reranker", False)):
+            reranker_model = merged_kwargs.get("reranker_model")
+            if not reranker_model:
+                raise ValueError("Reranker model must be specified when use_reranker=True")
+            from yuxi.models.rerank import get_reranker
+
+            reranker = get_reranker(reranker_model)
+            try:
+                scores = await reranker.acompute_score(
+                    [query_text, [item.get("child_text", "") for item in candidates]],
+                    normalize=True,
+                )
+                for item, score in zip(candidates, scores, strict=False):
+                    item["rerank_score"] = float(score)
+                    item["score"] = float(score)
+                candidates.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+            finally:
+                await reranker.aclose()
+
+        grouped: dict[str, dict[str, Any]] = {}
+        for item in candidates:
+            parent_id = str(item["parent_id"])
+            group = grouped.setdefault(parent_id, {"parent_id": parent_id, "score": float("-inf"), "children": []})
+            group["children"].append(item)
+            group["score"] = max(group["score"], float(item.get("score") or 0.0))
+        parents: dict[str, Any] = {}
+        missing_parent_ids = []
+        for parent_id, group in grouped.items():
+            version_id = str(group["children"][0].get("version_id") or "")
+            cached = await get_cached_parent(kb_id, version_id, parent_id) if version_id else None
+            if cached is None:
+                missing_parent_ids.append(parent_id)
+            else:
+                parents[parent_id] = cached
+        parent_records = await repository.list_parents_by_ids(missing_parent_ids)
+        for record in parent_records:
+            parents[str(record.parent_id)] = record
+            record_version_id = str(getattr(record, "version_id", "") or "")
+            if record_version_id:
+                await cache_parent(
+                    kb_id,
+                    record_version_id,
+                    str(record.parent_id),
+                    {
+                        "parent_id": record.parent_id,
+                        "parent_text": record.parent_text,
+                        "doc_id": record.doc_id,
+                        "file_id": record.file_id,
+                        "version_id": record_version_id,
+                        "parent_index": getattr(record, "parent_index", None),
+                    },
+                )
+        # child collection 已携带 spans 与 chunk_index；父块正文只从 PostgreSQL 权威回读。
+        child_records = await repository.list_children_by_ids(
+            [str(item.get("child_id") or "") for item in candidates if item.get("child_id")]
+        )
+        children_by_id = {str(record.child_id): record for record in child_records}
+        active_version_set = {str(value) for value in active_version_ids}
+        results = []
+        for parent_id, group in sorted(grouped.items(), key=lambda pair: pair[1]["score"], reverse=True):
+            parent = parents.get(parent_id)
+            if parent is None:
+                continue
+            if isinstance(parent, dict):
+                parent_text = parent.get("parent_text")
+                parent_identity = parent.get("parent_id")
+                parent_kb_id = parent.get("kb_id")
+                parent_version = parent.get("version_id")
+                parent_doc_id = parent.get("doc_id")
+                parent_file_id = parent.get("file_id")
+            else:
+                parent_text = getattr(parent, "parent_text", None)
+                parent_identity = getattr(parent, "parent_id", None)
+                parent_kb_id = getattr(parent, "kb_id", None)
+                parent_version = getattr(parent, "version_id", None)
+                parent_doc_id = getattr(parent, "doc_id", None)
+                parent_file_id = getattr(parent, "file_id", None)
+            if parent_identity is not None and str(parent_identity) != parent_id:
+                continue
+            if parent_kb_id is not None and str(parent_kb_id) != str(kb_id):
+                continue
+            if parent_version is not None and str(parent_version) not in active_version_set:
+                continue
+            if not isinstance(parent_text, str):
+                continue
+            candidate_version = group["children"][0].get("version_id") if group.get("children") else None
+            if candidate_version and parent_version and str(parent_version) != str(candidate_version):
+                # Milvus 中残留的旧版本投影不能借用当前父块正文。
+                continue
+            child_hits = []
+            for item in group["children"]:
+                record = children_by_id.get(str(item["child_id"]))
+                if record is None:
+                    continue
+                record_kb_id = getattr(record, "kb_id", None)
+                record_parent_id = getattr(record, "parent_id", None)
+                record_version_id = getattr(record, "version_id", None)
+                if (
+                    (record_kb_id is not None and str(record_kb_id) != str(kb_id))
+                    or (record_parent_id is not None and str(record_parent_id) != parent_id)
+                    or (record_version_id is not None and str(record_version_id) not in active_version_set)
+                    or (record_version_id is not None and str(record_version_id) != str(item.get("version_id") or ""))
+                ):
+                    continue
+                metadata = dict(item.get("meta_info") or {})
+                metadata["spans"] = record.spans
+                item["start_offset"] = record.start_offset
+                item["end_offset"] = record.end_offset
+                item["chunk_index"] = record.child_index
+                child_hits.append(
+                    {
+                        "child_id": item["child_id"],
+                        "parent_id": parent_id,
+                        "score": item.get("score", 0.0),
+                        "dense_score": item.get("dense_score"),
+                        "sparse_score": item.get("sparse_score"),
+                        "bm25_score": item.get("bm25_score"),
+                        "rrf_score": item.get("rrf_score"),
+                        "rerank_score": item.get("rerank_score"),
+                        "chunk_index": item.get("chunk_index"),
+                        "start_offset": item.get("start_offset"),
+                        "end_offset": item.get("end_offset"),
+                        "spans": metadata.get("spans", []),
+                        "metadata": metadata,
+                    }
+                )
+            if not child_hits:
+                continue
+            results.append(
+                {
+                    "id": parent_id,
+                    "content": parent_text,
+                    "score": group["score"],
+                    "child_hits": child_hits,
+                    "metadata": {
+                        "result_type": "parent_child_parent",
+                        "kb_id": kb_id,
+                        "doc_id": parent_doc_id,
+                        "file_id": parent_file_id,
+                        "parent_id": parent_id,
+                        "parent_score": group["score"],
+                        "child_hits": child_hits,
+                        "child_id": child_hits[0]["child_id"] if child_hits else None,
+                        "child_index": child_hits[0].get("chunk_index") if child_hits else None,
+                        "spans": child_hits[0].get("spans", []) if child_hits else [],
+                    },
+                }
+            )
+            if len(results) >= top_k_parent:
+                break
+        await cache_query(kb_id, cache_scope, fingerprint, results)
+        return results
+
     async def aquery(
         self,
         query_text: str,
@@ -923,10 +2413,27 @@ class MilvusKB(KnowledgeBase):
         **kwargs,
     ) -> list[dict]:
         """异步查询知识库"""
+        merged_kwargs = {**config.query_options, **kwargs}
+        if (config.additional_params.get("parent_child") or {}).get("enabled") is True:
+            return await self._aquery_parent_child(
+                query_text,
+                kb_id,
+                config=config,
+                merged_kwargs=merged_kwargs,
+            )
         embedding_model_spec = config.embedding_model_spec
         collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
         if not collection:
             raise ValueError(f"Database {kb_id} not found")
+
+        if bool(merged_kwargs.get("use_vector_score_fusion", False)) or bool(merged_kwargs.get("use_rrf", False)):
+            return await self._aquery_single_features(
+                query_text,
+                kb_id,
+                config=config,
+                collection=collection,
+                merged_kwargs=merged_kwargs,
+            )
 
         # 合并查询参数：kwargs（临时参数）优先级高于 query_params（持久化参数）
         # 这样允许用户在单次查询中临时覆盖持久化配置
@@ -1112,6 +2619,8 @@ class MilvusKB(KnowledgeBase):
 
         except Exception as e:
             logger.error(f"Milvus query error: {e}, {traceback.format_exc()}")
+            if bool(merged_kwargs.get("use_graph_retrieval", False)):
+                raise
             return []
 
     async def _retrieve_graph_chunks(
@@ -1172,7 +2681,7 @@ class MilvusKB(KnowledgeBase):
             ]
         except Exception as exc:  # noqa: BLE001
             logger.error(f"Graph retrieval failed for {kb_id}: {exc}")
-            return []
+            raise RuntimeError(f"Graph retrieval failed for {kb_id}") from exc
 
     async def _build_graph_seed_weights(
         self,
@@ -1258,22 +2767,15 @@ class MilvusKB(KnowledgeBase):
     async def delete_file_chunks_only(self, kb_id: str, file_id: str) -> None:
         """仅删除文件的chunks数据，保留元数据（用于更新操作）"""
         chunk_repo = KnowledgeChunkRepository()
-        if await chunk_repo.count_graph_indexed_by_file_id(file_id):
-            from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
+        from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 
-            try:
-                await MilvusGraphService().delete_file_graph(kb_id, file_id)
-            except Exception as e:
-                logger.error(f"Failed to delete graph data for file {file_id}: {e}")
-        await chunk_repo.delete_by_file_id(file_id)
+        await MilvusGraphService().delete_file_graph(kb_id, file_id)
         collection = self._get_existing_milvus_collection(kb_id)
 
         if collection:
-            # 先查询文件是否存在，避免不必要的删除操作
-            try:
-                await self._delete_file_chunks_from_milvus(collection, file_id)
-            except Exception as e:
-                logger.error(f"Error checking file existence in Milvus: {e}")
+            await self._delete_file_chunks_from_milvus(collection, file_id)
+        await self._delete_file_child_chunks_from_all_collections(kb_id, file_id)
+        await chunk_repo.delete_by_file_id(file_id)
         await KnowledgeFileRepository().update_fields(
             file_id=file_id,
             kb_id=kb_id,
@@ -1286,6 +2788,8 @@ class MilvusKB(KnowledgeBase):
         await self.delete_file_chunks_only(kb_id, file_id)
 
         await KnowledgeFileRepository().delete(file_id)
+        await invalidate_parent_cache(kb_id)
+        await invalidate_query_cache(kb_id)
 
     async def get_file_basic_info(self, kb_id: str, file_id: str) -> dict:
         """获取文件基本信息（仅元数据）"""
@@ -1294,28 +2798,52 @@ class MilvusKB(KnowledgeBase):
     async def _get_file_content_from_meta(self, file_id: str, file_meta: dict) -> dict:
         content_info = {"lines": []}
         try:
-            chunks = await KnowledgeChunkRepository().list_by_file_id(file_id)
-            content_info["lines"] = [
-                {
-                    "id": chunk.chunk_id,
-                    "content": chunk.content,
-                    "chunk_order_index": chunk.chunk_index,
-                    "start_char_pos": chunk.start_char_pos,
-                    "end_char_pos": chunk.end_char_pos,
-                    "start_token_pos": chunk.start_token_pos,
-                    "end_token_pos": chunk.end_token_pos,
-                    "graph_indexed": chunk.graph_indexed,
-                    "ent_ids": chunk.ent_ids,
-                    "tags": chunk.tags,
-                    "extraction_result": chunk.extraction_result,
-                }
-                for chunk in chunks
-            ]
+            if self._is_parent_child_file_meta(file_meta):
+                parents = await KnowledgeParentChildChunkRepository().list_parents_by_file_id(file_id)
+                content_info["lines"] = [
+                    {
+                        "id": parent.parent_id,
+                        "content": parent.parent_text,
+                        "chunk_order_index": parent.parent_index,
+                        "start_char_pos": parent.start_offset,
+                        "end_char_pos": parent.end_offset,
+                        "start_token_pos": None,
+                        "end_token_pos": None,
+                        "graph_indexed": parent.graph_indexed,
+                        "ent_ids": parent.ent_ids,
+                        "tags": parent.tags,
+                        "extraction_result": parent.extraction_result,
+                    }
+                    for parent in parents
+                ]
+            else:
+                chunks = await KnowledgeChunkRepository().list_by_file_id(file_id)
+                content_info["lines"] = [
+                    {
+                        "id": chunk.chunk_id,
+                        "content": chunk.content,
+                        "chunk_order_index": chunk.chunk_index,
+                        "start_char_pos": chunk.start_char_pos,
+                        "end_char_pos": chunk.end_char_pos,
+                        "start_token_pos": chunk.start_token_pos,
+                        "end_token_pos": chunk.end_token_pos,
+                        "graph_indexed": chunk.graph_indexed,
+                        "ent_ids": chunk.ent_ids,
+                        "tags": chunk.tags,
+                        "extraction_result": chunk.extraction_result,
+                    }
+                    for chunk in chunks
+                ]
         except Exception as e:
             logger.error(f"Failed to get file content from PostgreSQL: {e}")
 
         if not content_info["lines"]:
-            logger.warning(f"No chunks found in PostgreSQL for file {file_id}, file may not have been indexed")
+            if self._is_parent_child_file_meta(file_meta):
+                logger.warning(
+                    f"No parent chunks found in PostgreSQL for file {file_id}, file may not have been indexed"
+                )
+            else:
+                logger.warning(f"No chunks found in PostgreSQL for file {file_id}, file may not have been indexed")
 
         # Try to read markdown content if available
         if file_meta.get("markdown_file"):
@@ -1342,22 +2870,22 @@ class MilvusKB(KnowledgeBase):
         """清理知识库资源，同时删除 Milvus 集合。"""
 
         def delete_milvus_collections() -> None:
-            try:
-                if utility.has_collection(kb_id, using=self.connection_alias):
-                    utility.drop_collection(kb_id, using=self.connection_alias)
-                    logger.info(f"Dropped Milvus collection for {kb_id}")
-                else:
-                    logger.info(f"Milvus collection {kb_id} does not exist, skipping")
-            except Exception as e:
-                logger.error(f"Failed to drop Milvus collection {kb_id}: {e}")
-
-            from yuxi.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
-
-            MilvusGraphVectorStore().drop_graph_collections(kb_id)
+            if utility.has_collection(kb_id, using=self.connection_alias):
+                utility.drop_collection(kb_id, using=self.connection_alias)
+                logger.info(f"Dropped Milvus collection for {kb_id}")
+            else:
+                logger.info(f"Milvus collection {kb_id} does not exist, skipping")
 
         await asyncio.to_thread(delete_milvus_collections)
+        from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 
-        return await super().cleanup_database_resources(kb_id)
+        await asyncio.to_thread(MilvusGraphService().delete_graph, kb_id)
+        await self._delete_kb_child_chunks_from_all_collections(kb_id)
+
+        result = await super().cleanup_database_resources(kb_id)
+        await invalidate_parent_cache(kb_id)
+        await invalidate_query_cache(kb_id)
+        return result
 
     async def detect_data_inconsistencies(
         self,
@@ -1407,7 +2935,27 @@ class MilvusKB(KnowledgeBase):
 
     def get_query_params_config(self, kb_id: str, **kwargs) -> dict:
         """获取 Milvus 知识库的查询参数配置"""
-        return {"type": "milvus", "options": _retrieval_config_options()}
+        if "additional_params" not in kwargs:
+            return {"type": "milvus", "options": _retrieval_config_options()}
+
+        additional_params = kwargs.get("additional_params") or {}
+        parent_child = additional_params.get("parent_child") or {}
+        embedding_features = additional_params.get("embedding_features") or {}
+        parent_child_enabled = parent_child.get("enabled") is True
+        sparse_enabled = embedding_features.get("bge_m3_sparse_enabled") is True
+        parent_child_keys = {"top_k_child", "top_k_parent"}
+        sparse_keys = {
+            "use_vector_score_fusion",
+            "dense_vector_weight",
+            "sparse_vector_weight",
+        }
+        options = [
+            option
+            for option in _retrieval_config_options()
+            if (parent_child_enabled or option["key"] not in parent_child_keys)
+            and (sparse_enabled or option["key"] not in sparse_keys)
+        ]
+        return {"type": "milvus", "options": options}
 
     def __del__(self):
         """清理连接"""

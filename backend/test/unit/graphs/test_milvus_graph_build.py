@@ -15,6 +15,152 @@ from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 from yuxi.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
 
 
+@pytest.mark.asyncio
+async def test_failed_samples_use_parent_owner_for_parent_child_kb():
+    """Parent-Child 知识库的失败样例不能回退到 legacy chunk。"""
+    kb = SimpleNamespace(kb_type="milvus", additional_params={"parent_child": {"enabled": True}})
+    legacy_repo = SimpleNamespace(
+        list_graph_extraction_failed_samples=AsyncMock(side_effect=AssertionError("不得查询 legacy chunk"))
+    )
+    parent_repo = SimpleNamespace(list_graph_extraction_failed_samples=AsyncMock(return_value=[{"chunk_id": "p1"}]))
+    service = MilvusGraphService(
+        kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)),
+        chunk_repo=legacy_repo,
+        parent_child_repo=parent_repo,
+    )
+
+    result = await service.get_failed_chunk_samples("kb_test", limit=3)
+
+    assert result == {"kb_id": "kb_test", "samples": [{"chunk_id": "p1"}]}
+    parent_repo.list_graph_extraction_failed_samples.assert_awaited_once_with("kb_test", 3)
+
+
+@pytest.mark.asyncio
+async def test_parent_child_graph_build_uses_parent_owner(monkeypatch):
+    """Parent-Child 配置必须把图谱构建委托给 ParentChunk owner。"""
+    kb = SimpleNamespace(
+        kb_type="milvus",
+        additional_params={"parent_child": {"enabled": True}},
+    )
+    service = MilvusGraphService(kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)))
+    expected = {"kb_id": "kb_test", "success": 1}
+    build = AsyncMock(return_value=expected)
+    monkeypatch.setattr(service, "_build_pending_parent_chunks", build)
+
+    result = await service.build_pending_chunks("kb_test")
+
+    assert result == expected
+    build.assert_awaited_once_with("kb_test", kb, context=None)
+
+
+@pytest.mark.asyncio
+async def test_parent_child_graph_build_writes_explicit_parent_mapping(monkeypatch):
+    """ParentChunk 构建应读取 active 子块并写入 parent graph owner。"""
+    parent = SimpleNamespace(
+        parent_id="parent-1",
+        file_id="file-1",
+        doc_id="doc-1",
+        version_id="version-1",
+        parent_index=0,
+        parent_text="parent text",
+        extraction_result={"entities": [], "relations": [], "metadata": {"extractor_type": "llm"}},
+        graph_structure_indexed=False,
+        graph_indexed=False,
+    )
+    child = SimpleNamespace(
+        child_id="child-1",
+        parent_id="parent-1",
+        file_id="file-1",
+        doc_id="doc-1",
+        version_id="version-1",
+        child_index=0,
+        child_text="child text",
+        start_offset=0,
+        end_offset=5,
+    )
+    kb = SimpleNamespace(
+        kb_type="milvus",
+        embedding_model_spec="test/embedding",
+        additional_params={
+            "parent_child": {"enabled": True},
+            "graph_build_config": {
+                "locked": True,
+                "extractor_type": "llm",
+                "extractor_options": {"model_spec": "test/model", "concurrency_count": 1},
+            },
+        },
+    )
+
+    class ParentRepo:
+        async def count_graph_pending_by_kb_id(self, _kb_id):
+            return int(not parent.graph_indexed)
+
+        async def count_graph_indexed_by_kb_id(self, _kb_id):
+            return int(parent.graph_indexed)
+
+        async def count_graph_extraction_statuses_by_kb_id(self, _kb_id):
+            return {"pending": 0, "succeeded": 1, "failed": 0}
+
+        async def list_graph_pending_by_kb_id(self, _kb_id, _limit, *, after_parent_id=""):
+            return [parent] if not after_parent_id else []
+
+        async def get_by_parent_id(self, _parent_id):
+            return parent
+
+        async def list_children_by_parent_ids(self, _parent_ids):
+            return {"parent-1": [child]}
+
+        async def mark_graph_structure_indexed(self, _parent_id, ent_ids):
+            parent.graph_structure_indexed = True
+
+    class GraphRepo:
+        def __init__(self):
+            self.claimed = False
+
+        async def upsert_parent_graph(self, **kwargs):
+            self.parent_graph = kwargs
+
+        async def claim_vector_records(self, *, record_type, **_kwargs):
+            if record_type == "entity" and not self.claimed:
+                self.claimed = True
+                return "token", [{"id": "entity-1", "content": "entity"}]
+            return "token", []
+
+        async def mark_vector_records_indexed(self, **_kwargs):
+            parent.graph_indexed = True
+
+        async def count_vector_statuses_by_kb_id(self, _kb_id):
+            return {"pending": 0, "processing": 0, "indexed": int(self.claimed), "failed": 0}
+
+        async def finalize_graph_indexed_chunks(self, _kb_id):
+            parent.graph_indexed = True
+            return 1
+
+    class Extractor:
+        extractor_type = "llm"
+
+    graph_repo = GraphRepo()
+    parent_repo = ParentRepo()
+    service = MilvusGraphService(
+        kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)),
+        graph_repo=graph_repo,
+        parent_child_repo=parent_repo,
+        graph_vector_store=SimpleNamespace(upsert_graph_records=AsyncMock()),
+    )
+    monkeypatch.setattr(GraphExtractorFactory, "create", lambda *_args: Extractor())
+    monkeypatch.setattr(
+        service,
+        "write_parent_child_graph",
+        lambda *_args: ([{"entity_id": "entity-1"}], []),
+    )
+
+    result = await service.build_pending_chunks("kb_test")
+
+    assert result["success"] == 1
+    assert graph_repo.parent_graph["parent_id"] == "parent-1"
+    assert parent.graph_structure_indexed is True
+
+
 def test_graph_vector_store_initializes_database_with_connection_alias(monkeypatch):
     store = MilvusGraphVectorStore.__new__(MilvusGraphVectorStore)
     store.connection_alias = "graph-alias"
@@ -901,6 +1047,154 @@ def test_graph_vector_store_uses_idempotent_upsert():
     collection.insert.assert_not_called()
 
 
+def test_graph_vector_store_drop_collections_propagates_failure(monkeypatch):
+    """图向量集合删除失败必须传播给资源清理 Owner。"""
+    store = MilvusGraphVectorStore.__new__(MilvusGraphVectorStore)
+    store.connection_alias = "graph-alias"
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_vector_store.utility.has_collection",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_vector_store.utility.drop_collection",
+        MagicMock(side_effect=RuntimeError("drop failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="drop failed"):
+        store.drop_graph_collections("kb_test")
+
+
+@pytest.mark.asyncio
+async def test_file_graph_vector_delete_failure_keeps_postgres_retryable(monkeypatch):
+    """文件图向量删除失败时保留 PostgreSQL 引用供同一请求重试。"""
+    calls = []
+
+    class FakeGraphRepository:
+        def __init__(self):
+            self.deleted = False
+
+        async def list_file_deletion_targets(self, file_id):
+            assert self.deleted is False
+            calls.append(("targets", file_id))
+            return ["entity-file"], ["triple-file"]
+
+        async def delete_file_references(self, file_id):
+            calls.append(("postgres", file_id))
+            self.deleted = True
+            return ["entity-file"], ["triple-file"]
+
+    class FakeGraphVectorStore:
+        def __init__(self):
+            self.attempts = 0
+
+        async def delete_graph_records(self, kb_id, *, entity_ids, triple_ids):
+            self.attempts += 1
+            calls.append(("vectors", kb_id, entity_ids, triple_ids))
+            if self.attempts == 1:
+                raise RuntimeError("vector delete failed")
+
+    graph_repo = FakeGraphRepository()
+    service = MilvusGraphService(graph_repo=graph_repo, graph_vector_store=FakeGraphVectorStore())
+    monkeypatch.setattr(
+        service,
+        "_delete_file_graph_from_neo4j",
+        lambda kb_id, file_id: calls.append(("neo4j", kb_id, file_id)),
+    )
+
+    with pytest.raises(RuntimeError, match="vector delete failed"):
+        await service.delete_file_graph("kb-1", "file-1")
+
+    assert graph_repo.deleted is False
+    await service.delete_file_graph("kb-1", "file-1")
+
+    assert calls == [
+        ("targets", "file-1"),
+        ("neo4j", "kb-1", "file-1"),
+        ("vectors", "kb-1", ["entity-file"], ["triple-file"]),
+        ("targets", "file-1"),
+        ("neo4j", "kb-1", "file-1"),
+        ("vectors", "kb-1", ["entity-file"], ["triple-file"]),
+        ("postgres", "file-1"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_file_graph_neo4j_delete_failure_keeps_other_stores_unchanged(monkeypatch):
+    """文件 Neo4j 删除失败时不得继续删除 Milvus 或 PostgreSQL。"""
+    graph_repo = SimpleNamespace(
+        list_file_deletion_targets=AsyncMock(return_value=(["entity-file"], ["triple-file"])),
+        delete_file_references=AsyncMock(),
+    )
+    vector_store = SimpleNamespace(delete_graph_records=AsyncMock())
+    service = MilvusGraphService(graph_repo=graph_repo, graph_vector_store=vector_store)
+
+    def fail_neo4j_delete(_kb_id, _file_id):
+        """模拟 Neo4j 删除失败。"""
+        raise RuntimeError("neo4j delete failed")
+
+    monkeypatch.setattr(service, "_delete_file_graph_from_neo4j", fail_neo4j_delete)
+
+    with pytest.raises(RuntimeError, match="neo4j delete failed"):
+        await service.delete_file_graph("kb-1", "file-1")
+
+    vector_store.delete_graph_records.assert_not_awaited()
+    graph_repo.delete_file_references.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_parent_version_vector_delete_failure_keeps_postgres_retryable(monkeypatch):
+    """旧父子版本向量删除失败时保留 PostgreSQL 引用供同一请求重试。"""
+    calls = []
+
+    class FakeGraphRepository:
+        def __init__(self):
+            self.deleted = False
+
+        async def list_parent_version_deletion_targets(self, version_id):
+            assert self.deleted is False
+            calls.append(("targets", version_id))
+            return ["entity-old"], ["triple-old"]
+
+        async def delete_parent_version_references(self, version_id):
+            calls.append(("postgres", version_id))
+            self.deleted = True
+            return ["entity-old"], ["triple-old"]
+
+    class FakeGraphVectorStore:
+        def __init__(self):
+            self.attempts = 0
+
+        async def delete_graph_records(self, kb_id, *, entity_ids, triple_ids):
+            self.attempts += 1
+            calls.append(("vectors", kb_id, entity_ids, triple_ids))
+            if self.attempts == 1:
+                raise RuntimeError("vector delete failed")
+
+    graph_repo = FakeGraphRepository()
+    service = MilvusGraphService(graph_repo=graph_repo, graph_vector_store=FakeGraphVectorStore())
+    monkeypatch.setattr(
+        service,
+        "_delete_parent_child_version_graph_from_neo4j",
+        lambda kb_id, file_id, version_id: calls.append(("neo4j", kb_id, file_id, version_id)),
+    )
+
+    with pytest.raises(RuntimeError, match="vector delete failed"):
+        await service.delete_parent_child_version_graph("kb-1", "file-1", "version-old")
+
+    assert graph_repo.deleted is False
+    await service.delete_parent_child_version_graph("kb-1", "file-1", "version-old")
+
+    assert calls == [
+        ("targets", "version-old"),
+        ("neo4j", "kb-1", "file-1", "version-old"),
+        ("vectors", "kb-1", ["entity-old"], ["triple-old"]),
+        ("targets", "version-old"),
+        ("neo4j", "kb-1", "file-1", "version-old"),
+        ("vectors", "kb-1", ["entity-old"], ["triple-old"]),
+        ("postgres", "version-old"),
+    ]
+
+
 def test_milvus_graph_service_delete_file_graph_uses_scoped_streaming_queries():
     tx = MagicMock()
     session = MagicMock()
@@ -980,9 +1274,7 @@ def test_milvus_graph_service_delete_file_graph_uses_scoped_streaming_queries():
         ),
     ],
 )
-def test_milvus_graph_service_process_query_result(
-    payload, limit, exclude_chunk, expected_node_ids, expected_edge_ids
-):
+def test_milvus_graph_service_process_query_result(payload, limit, exclude_chunk, expected_node_ids, expected_edge_ids):
     service = MilvusGraphService()
     result = service._process_query_result(payload, limit=limit, kb_id="kb_test", exclude_chunk=exclude_chunk)
 

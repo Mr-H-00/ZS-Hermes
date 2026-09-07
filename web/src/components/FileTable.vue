@@ -34,7 +34,7 @@
       </div>
     </a-modal>
 
-    <!-- 入库/重新入库参数配置模态框 -->
+    <!-- 入库/重新入库/重切片参数配置模态框 -->
     <a-modal
       v-model:open="indexConfigModalVisible"
       :title="indexConfigModalTitle"
@@ -44,9 +44,23 @@
     >
       <template #footer>
         <a-button key="back" @click="handleIndexConfigCancel">取消</a-button>
-        <a-button key="submit" type="primary" @click="handleIndexConfigConfirm">确定</a-button>
+        <a-button
+          key="submit"
+          type="primary"
+          :loading="indexConfigModalLoading"
+          @click="handleIndexConfigConfirm"
+        >
+          {{ isResliceOperation ? '开始重新切片' : '确定' }}
+        </a-button>
       </template>
       <div class="index-params">
+        <a-alert
+          v-if="isResliceOperation"
+          class="index-pending-alert"
+          type="info"
+          show-icon
+          message="重新切片会构建并校验新版本，成功后才替换当前生效版本。"
+        />
         <a-alert
           v-if="isPendingIndexOperation"
           class="index-pending-alert"
@@ -61,6 +75,7 @@
           :show-preset="true"
           :allow-preset-follow-default="true"
           :database-preset-id="store.database?.additional_params?.chunk_preset_id || 'general'"
+          :embedding-model-spec="store.database?.embedding_model_spec || ''"
         />
       </div>
     </a-modal>
@@ -448,6 +463,17 @@
                   </a-button>
 
                   <a-button
+                    v-if="!readonly && canReindexFile(row)"
+                    type="text"
+                    block
+                    @click="handleResliceFile(row)"
+                    :disabled="lock"
+                  >
+                    <template #icon><component :is="h(ListRestart)" size="14" /></template>
+                    重新切片
+                  </a-button>
+
+                  <a-button
                     v-if="!readonly"
                     type="text"
                     block
@@ -825,10 +851,12 @@ const handleBreadcrumbDrop = async ({ item }) => {
   await moveDocument(record, item.file_id || null)
 }
 
-// 入库/重新入库参数配置相关
+// 入库/重新入库/重切片参数配置相关
 const indexConfigModalVisible = ref(false)
 const indexConfigModalLoading = computed(() => store.state.chunkLoading)
 const indexConfigModalTitle = ref('入库参数配置')
+const indexOperation = ref('index')
+const isResliceOperation = computed(() => indexOperation.value === 'reslice')
 
 // 解析/批量解析/重试解析参数配置相关
 const DEFAULT_OCR_ENGINE = 'rapid_ocr'
@@ -870,10 +898,8 @@ const resetParseParams = (processingParams = null) => {
   }
 }
 
-const createDefaultIndexParams = () => ({
-  chunk_preset_id: '',
-  chunk_parser_config: {}
-})
+const createDefaultIndexParams = (processingParams = null) =>
+  createIndexingParams(store.database?.additional_params, processingParams)
 
 const indexParams = ref(createDefaultIndexParams())
 
@@ -1124,8 +1150,10 @@ const handleBatchIndex = async () => {
   currentIndexFileIds.value = [...validKeys]
   isBatchIndexOperation.value = true
   isPendingIndexOperation.value = false
+  indexOperation.value = 'index'
   pendingIndexTotal.value = 0
   indexConfigModalTitle.value = '批量入库参数配置'
+  resetIndexParams()
   indexConfigModalVisible.value = true
 }
 
@@ -1144,6 +1172,7 @@ const startPendingIndex = (count = 0) => {
   currentIndexFileIds.value = []
   isBatchIndexOperation.value = false
   isPendingIndexOperation.value = true
+  indexOperation.value = 'index'
   pendingIndexTotal.value = total
   indexConfigModalTitle.value = '待入库文件参数配置'
   resetIndexParams()
@@ -1282,16 +1311,7 @@ const handleStatusAction = async (record) => {
 }
 
 const resetIndexParams = (processingParams = null) => {
-  if (!processingParams) {
-    indexParams.value = createDefaultIndexParams()
-    return
-  }
-
-  const chunkParserConfig = processingParams.chunk_parser_config
-  indexParams.value = {
-    chunk_preset_id: processingParams.chunk_preset_id || '',
-    chunk_parser_config: isPlainObject(chunkParserConfig) ? { ...chunkParserConfig } : {}
-  }
+  indexParams.value = createDefaultIndexParams(processingParams)
 }
 
 const loadRecordProcessingParams = async (record) => {
@@ -1308,6 +1328,7 @@ const handleIndexFile = async (record) => {
   currentIndexFileIds.value = [record.file_id]
   isBatchIndexOperation.value = false
   isPendingIndexOperation.value = false
+  indexOperation.value = 'index'
   pendingIndexTotal.value = 0
   indexConfigModalTitle.value = '入库参数配置'
 
@@ -1322,6 +1343,7 @@ const handleReindexFile = async (record) => {
   currentIndexFileIds.value = [record.file_id]
   isBatchIndexOperation.value = false
   isPendingIndexOperation.value = false
+  indexOperation.value = 'index'
   pendingIndexTotal.value = 0
   indexConfigModalTitle.value = '重新入库参数配置'
 
@@ -1331,13 +1353,33 @@ const handleReindexFile = async (record) => {
   indexConfigModalVisible.value = true
 }
 
-// 入库确认 (统一处理 Index 和 Reindex)
+const handleResliceFile = async (record) => {
+  closePopover(record.file_id)
+  currentIndexFileIds.value = [record.file_id]
+  isBatchIndexOperation.value = false
+  isPendingIndexOperation.value = false
+  indexOperation.value = 'reslice'
+  pendingIndexTotal.value = 0
+  indexConfigModalTitle.value = '重新切片参数配置'
+
+  const processingParams = await loadRecordProcessingParams(record)
+  resetIndexParams(processingParams)
+
+  indexConfigModalVisible.value = true
+}
+
+// 入库确认 (统一处理 Index、Reindex 和 Reslice)
 const handleIndexConfigConfirm = async () => {
   try {
     const params = buildIndexParamsPayload()
-    const result = isPendingIndexOperation.value
-      ? await store.indexPendingFiles(params, pendingIndexTotal.value)
-      : await store.indexFiles(currentIndexFileIds.value, params)
+    let result
+    if (isResliceOperation.value) {
+      result = await store.resliceFiles(currentIndexFileIds.value, params)
+    } else if (isPendingIndexOperation.value) {
+      result = await store.indexPendingFiles(params, pendingIndexTotal.value)
+    } else {
+      result = await store.indexFiles(currentIndexFileIds.value, params)
+    }
     if (result) {
       currentIndexFileIds.value = []
       pendingIndexTotal.value = 0
@@ -1350,6 +1392,7 @@ const handleIndexConfigConfirm = async () => {
 
       isBatchIndexOperation.value = false
       isPendingIndexOperation.value = false
+      indexOperation.value = 'index'
       resetIndexParams()
     } else {
       // message.error(`入库失败: ${result.message}`); // store already shows message
@@ -1367,6 +1410,7 @@ const handleIndexConfigCancel = () => {
   currentIndexFileIds.value = []
   isBatchIndexOperation.value = false
   isPendingIndexOperation.value = false
+  indexOperation.value = 'index'
   pendingIndexTotal.value = 0
   resetIndexParams()
 }
@@ -1408,7 +1452,7 @@ const formatChunkAmount = (file) => `${formatContentCount(file?.chunk_count)} Ch
 
 // 导入工具函数
 import { parseToShanghai } from '@/utils/time'
-import { buildChunkParamsPayload, isPlainObject } from '@/utils/chunkUtils'
+import { buildChunkParamsPayload, createIndexingParams } from '@/utils/chunkUtils'
 import ChunkParamsConfig from '@/components/ChunkParamsConfig.vue'
 import FileBrowserTable from '@/components/common/FileBrowserTable.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'

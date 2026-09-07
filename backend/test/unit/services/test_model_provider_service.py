@@ -147,6 +147,63 @@ def test_normalize_payload_accepts_anthropic_provider_type():
     assert payload["enabled_models"][0]["id"] == "mimo-v2.5-pro"
 
 
+def test_normalize_payload_accepts_local_bge_m3_provider_type():
+    """local provider 只声明 BGE-M3 embedding 时可以通过规范化。"""
+    payload = _normalize_payload(
+        {
+            "provider_id": "local-bge-m3",
+            "display_name": "Local BGE-M3",
+            "provider_type": "local",
+            "base_url": "rag_qa/models/bge-m3",
+            "capabilities": ["embedding"],
+            "enabled_models": [
+                {
+                    "id": "BAAI/bge-m3",
+                    "type": "embedding",
+                    "display_name": "BAAI/bge-m3 (Local)",
+                    "dimension": "1024",
+                    "batch_size": "4",
+                    "source": "manual",
+                }
+            ],
+        }
+    )
+
+    assert payload["provider_type"] == "local"
+    assert payload["enabled_models"][0]["dimension"] == 1024
+    assert payload["enabled_models"][0]["batch_size"] == 4
+
+
+def test_normalize_payload_rejects_local_provider_with_chat_capability():
+    """local provider 不允许声明 embedding 之外的能力。"""
+    with pytest.raises(ValueError, match="仅支持 embedding 能力"):
+        _normalize_payload(
+            {
+                "provider_id": "local-bge-m3",
+                "display_name": "Local BGE-M3",
+                "provider_type": "local",
+                "base_url": "rag_qa/models/bge-m3",
+                "capabilities": ["chat", "embedding"],
+                "enabled_models": [{"id": "BAAI/bge-m3", "type": "embedding", "dimension": 1024}],
+            }
+        )
+
+
+def test_normalize_payload_rejects_local_provider_with_non_bge_model():
+    """local provider 不允许绑定非 BGE-M3 模型。"""
+    with pytest.raises(ValueError, match="仅支持 BAAI/bge-m3"):
+        _normalize_payload(
+            {
+                "provider_id": "local-bge-m3",
+                "display_name": "Local BGE-M3",
+                "provider_type": "local",
+                "base_url": "rag_qa/models/bge-m3",
+                "capabilities": ["embedding"],
+                "enabled_models": [{"id": "BAAI/other", "type": "embedding", "dimension": 1024}],
+            }
+        )
+
+
 def test_normalize_payload_rejects_unknown_enabled_model_type():
     with pytest.raises(ValueError, match="type 必须是"):
         _normalize_payload(
@@ -231,6 +288,16 @@ async def test_fetch_remote_models_loads_embedding_only_when_capability_enabled(
     assert [model["type"] for model in models] == ["chat", "embedding"]
 
 
+@pytest.mark.asyncio
+async def test_fetch_remote_models_returns_empty_for_local_provider():
+    """local provider 没有远端模型列表，拉取操作直接返回空列表。"""
+
+    class Provider:
+        provider_type = "local"
+
+    assert await fetch_remote_models(Provider()) == []
+
+
 def test_normalize_payload_rejects_ollama_provider_type():
     with pytest.raises(ValueError, match="provider_type 必须是"):
         _normalize_payload(
@@ -256,8 +323,10 @@ def test_builtin_provider_templates_default_to_openai_provider_type():
         )["provider_type"]
         for provider in BUILTIN_PROVIDERS
     }
-    assert provider_types == {"openai"}
+    assert provider_types == {"openai", "local"}
     assert all("ollama" not in provider["provider_id"] for provider in BUILTIN_PROVIDERS)
+    local_provider = next(provider for provider in BUILTIN_PROVIDERS if provider["provider_id"] == "local-bge-m3")
+    assert local_provider["is_enabled"] is False
 
 
 @pytest.mark.parametrize(
@@ -280,6 +349,37 @@ def test_check_credential_status(monkeypatch, is_enabled, api_key, api_key_env, 
     provider = SimpleNamespace(is_enabled=is_enabled, api_key=api_key, api_key_env=api_key_env)
 
     assert check_credential_status(provider) == expected
+
+
+def test_check_credential_status_allows_enabled_local_provider_without_key():
+    """local provider 不需要 API Key 或 API Key 环境变量。"""
+    provider = SimpleNamespace(is_enabled=True, provider_type="local", api_key=None, api_key_env=None)
+
+    assert check_credential_status(provider) == "ok"
+
+
+@pytest.mark.asyncio
+async def test_update_provider_config_rejects_local_type_with_existing_chat_model(monkeypatch):
+    """已有 chat 模型的 provider 不能被部分更新成 local 类型。"""
+    provider = SimpleNamespace(
+        provider_id="openai-local",
+        provider_type="openai",
+        capabilities=["chat"],
+        enabled_models=[{"id": "chat-model", "type": "chat"}],
+    )
+
+    async def fake_get_model_provider(db, provider_id):
+        del db
+        return provider if provider_id == "openai-local" else None
+
+    async def fail_update_model_provider(db, provider, data):
+        pytest.fail("不应写入违反 local provider 范围的配置")
+
+    monkeypatch.setattr("yuxi.models.providers.service.get_model_provider", fake_get_model_provider)
+    monkeypatch.setattr("yuxi.models.providers.service.update_model_provider", fail_update_model_provider)
+
+    with pytest.raises(ValueError, match="仅支持 embedding 能力"):
+        await update_provider_config(None, "openai-local", {"provider_type": "local"}, "tester")
 
 
 # ==================== 手动添加模型 / source 字段 ====================

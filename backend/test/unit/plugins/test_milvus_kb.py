@@ -191,6 +191,11 @@ def patch_file_repository(monkeypatch, file_repo: FakeKnowledgeFileRepository) -
     monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeFileRepository", lambda: file_repo)
 
 
+async def _record_async(calls, value):
+    """记录异步调用参数。"""
+    calls.append(value)
+
+
 def make_chunk(index: int, content: str = "content") -> dict:
     return {
         "id": f"id-{index}",
@@ -221,16 +226,14 @@ async def test_cleanup_database_resources_offloads_milvus_cleanup(monkeypatch):
         lambda kb_id, using: record_cleanup("drop_collection"),
     )
 
-    class FakeGraphVectorStore:
-        def __init__(self):
-            record_cleanup("graph_init")
-
-        def drop_graph_collections(self, kb_id):
-            record_cleanup("drop_graph_collections")
+    class FakeGraphService:
+        def delete_graph(self, kb_id):
+            assert kb_id == "db"
+            record_cleanup("delete_graph")
 
     monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_vector_store.MilvusGraphVectorStore",
-        FakeGraphVectorStore,
+        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
+        FakeGraphService,
     )
 
     async def delete_base(self, kb_id):
@@ -238,13 +241,65 @@ async def test_cleanup_database_resources_offloads_milvus_cleanup(monkeypatch):
         return {"message": "删除成功"}
 
     monkeypatch.setattr(KnowledgeBase, "cleanup_database_resources", delete_base)
+    monkeypatch.setattr(
+        milvus_module,
+        "invalidate_parent_cache",
+        lambda kb_id: _record_async(calls, f"invalidate_parent:{kb_id}"),
+    )
+    monkeypatch.setattr(
+        milvus_module,
+        "invalidate_query_cache",
+        lambda kb_id: _record_async(calls, f"invalidate_query:{kb_id}"),
+    )
+    kb._delete_kb_child_chunks_from_all_collections = lambda kb_id: _record_async(calls, f"delete_children:{kb_id}")
 
     result = await kb.cleanup_database_resources("db")
 
     assert result == {"message": "删除成功"}
-    assert calls == ["has_collection", "drop_collection", "graph_init", "drop_graph_collections", "delete_base"]
+    assert calls == [
+        "has_collection",
+        "drop_collection",
+        "delete_graph",
+        "delete_children:db",
+        "delete_base",
+        "invalidate_parent:db",
+        "invalidate_query:db",
+    ]
     assert cleanup_threads
     assert all(thread_id != event_loop_thread for thread_id in cleanup_threads)
+
+
+async def test_cleanup_database_resources_preserves_postgres_owner_when_collection_drop_fails(monkeypatch):
+    """知识库 Milvus collection 删除失败时不得继续删除 PostgreSQL Owner。"""
+    kb = MilvusKB.__new__(MilvusKB)
+    kb.connection_alias = "test-alias"
+    calls = []
+    monkeypatch.setattr(milvus_module.utility, "has_collection", lambda name, using: True)
+
+    def fail_drop(name, using):
+        assert (name, using) == ("db", "test-alias")
+        raise RuntimeError("drop unavailable")
+
+    monkeypatch.setattr(milvus_module.utility, "drop_collection", fail_drop)
+
+    class FakeGraphService:
+        def delete_graph(self, kb_id):
+            calls.append(("graph", kb_id))
+
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
+        FakeGraphService,
+    )
+
+    async def delete_base(self, kb_id):
+        calls.append(("postgres", kb_id))
+
+    monkeypatch.setattr(KnowledgeBase, "cleanup_database_resources", delete_base)
+
+    with pytest.raises(RuntimeError, match="drop unavailable"):
+        await kb.cleanup_database_resources("db")
+
+    assert calls == []
 
 
 async def test_detect_data_inconsistencies_stays_in_milvus_executor(monkeypatch):
@@ -373,8 +428,16 @@ async def test_index_file_persists_chunk_stats(monkeypatch):
     async def delete_file_chunks_only(kb_id, file_id):
         deleted_files.append((kb_id, file_id))
 
-    async def embed_and_store_chunks(kb_id, file_id, collection_arg, chunk_records, embedding_fn):
-        store_calls.append((kb_id, file_id, collection_arg, list(chunk_records), embedding_fn))
+    async def embed_and_store_chunks(
+        kb_id,
+        file_id,
+        collection_arg,
+        chunk_records,
+        embedding_fn,
+        *,
+        sparse_enabled=False,
+    ):
+        store_calls.append((kb_id, file_id, collection_arg, list(chunk_records), embedding_fn, sparse_enabled))
 
     kb._get_or_create_milvus_collection = get_collection
     kb._read_markdown_from_minio = read_markdown
@@ -400,6 +463,7 @@ async def test_index_file_persists_chunk_stats(monkeypatch):
     assert deleted_files == [("db", "file-1")]
     assert len(store_calls) == 1
     assert [chunk["chunk_id"] for chunk in store_calls[0][3]] == ["chunk-0", "chunk-1"]
+    assert store_calls[0][5] is False
     assert result["status"] == FileStatus.INDEXED
     assert result["chunk_count"] == 2
     assert result["token_count"] == count_tokens("alpha beta") + count_tokens("中文")
@@ -495,6 +559,16 @@ async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
             return 2
 
     monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
+    graph_cleanup_calls = []
+
+    class FakeGraphService:
+        async def delete_file_graph(self, kb_id, file_id):
+            graph_cleanup_calls.append((kb_id, file_id))
+
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
+        FakeGraphService,
+    )
     file_repo = FakeKnowledgeFileRepository(
         {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
     )
@@ -506,13 +580,212 @@ async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
         return None
 
     kb._get_existing_milvus_collection = get_collection
+    kb._delete_file_child_chunks_from_all_collections = lambda kb_id, file_id: _record_async([], (kb_id, file_id))
 
     await kb.delete_file_chunks_only("db", "file-1")
 
+    assert graph_cleanup_calls == [("db", "file-1")]
     assert repos[0].delete_calls == ["file-1"]
     assert file_repo.records["file-1"].chunk_count == 0
     assert file_repo.records["file-1"].token_count == 0
     assert file_repo.update_calls == [("file-1", "db", {"chunk_count": 0, "token_count": 0})]
+
+
+async def test_delete_file_chunks_only_stops_when_graph_cleanup_fails(monkeypatch):
+    """图谱清理失败时保留 PostgreSQL chunk 与文件统计，避免外部数据失去 Owner。"""
+    chunk_delete_calls = []
+
+    class FakeChunkRepo:
+        async def delete_by_file_id(self, file_id):
+            chunk_delete_calls.append(file_id)
+
+    class FakeGraphService:
+        async def delete_file_graph(self, kb_id, file_id):
+            del kb_id, file_id
+            raise RuntimeError("graph unavailable")
+
+    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
+        FakeGraphService,
+    )
+    file_repo = FakeKnowledgeFileRepository(
+        {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
+    )
+    patch_file_repository(monkeypatch, file_repo)
+    kb = MilvusKB.__new__(MilvusKB)
+    kb._get_existing_milvus_collection = lambda _kb_id: None
+
+    with pytest.raises(RuntimeError, match="graph unavailable"):
+        await kb.delete_file_chunks_only("db", "file-1")
+
+    assert chunk_delete_calls == []
+    assert file_repo.records["file-1"].chunk_count == 2
+    assert file_repo.records["file-1"].token_count == 10
+    assert file_repo.update_calls == []
+
+
+async def test_delete_file_chunks_only_stops_when_legacy_milvus_cleanup_fails(monkeypatch):
+    """旧单层 Milvus 删除失败时不得删除 PostgreSQL chunk 或重置统计。"""
+    chunk_delete_calls = []
+
+    class FakeChunkRepo:
+        async def delete_by_file_id(self, file_id):
+            chunk_delete_calls.append(file_id)
+
+    class FakeGraphService:
+        async def delete_file_graph(self, kb_id, file_id):
+            del kb_id, file_id
+
+    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
+        FakeGraphService,
+    )
+    file_repo = FakeKnowledgeFileRepository(
+        {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
+    )
+    patch_file_repository(monkeypatch, file_repo)
+    kb = MilvusKB.__new__(MilvusKB)
+    collection = object()
+    kb._get_existing_milvus_collection = lambda _kb_id: collection
+
+    async def fail_legacy_cleanup(collection_arg, file_id):
+        assert collection_arg is collection
+        assert file_id == "file-1"
+        raise RuntimeError("legacy milvus unavailable")
+
+    kb._delete_file_chunks_from_milvus = fail_legacy_cleanup
+    kb._delete_file_child_chunks_from_all_collections = lambda *_args: pytest.fail(
+        "child cleanup must not start after legacy cleanup fails"
+    )
+
+    with pytest.raises(RuntimeError, match="legacy milvus unavailable"):
+        await kb.delete_file_chunks_only("db", "file-1")
+
+    assert chunk_delete_calls == []
+    assert file_repo.records["file-1"].chunk_count == 2
+    assert file_repo.update_calls == []
+
+
+async def test_delete_file_chunks_only_stops_when_child_milvus_cleanup_fails(monkeypatch):
+    """共享 child collection 删除失败时保留 PostgreSQL Owner 与文件统计。"""
+    chunk_delete_calls = []
+
+    class FakeChunkRepo:
+        async def delete_by_file_id(self, file_id):
+            chunk_delete_calls.append(file_id)
+
+    class FakeGraphService:
+        async def delete_file_graph(self, kb_id, file_id):
+            del kb_id, file_id
+
+    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
+        FakeGraphService,
+    )
+    file_repo = FakeKnowledgeFileRepository(
+        {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
+    )
+    patch_file_repository(monkeypatch, file_repo)
+    kb = MilvusKB.__new__(MilvusKB)
+    kb._get_existing_milvus_collection = lambda _kb_id: None
+
+    async def fail_child_cleanup(kb_id, file_id):
+        assert (kb_id, file_id) == ("db", "file-1")
+        raise RuntimeError("child milvus unavailable")
+
+    kb._delete_file_child_chunks_from_all_collections = fail_child_cleanup
+
+    with pytest.raises(RuntimeError, match="child milvus unavailable"):
+        await kb.delete_file_chunks_only("db", "file-1")
+
+    assert chunk_delete_calls == []
+    assert file_repo.records["file-1"].chunk_count == 2
+    assert file_repo.update_calls == []
+
+
+@pytest.mark.asyncio
+async def test_delete_file_chunks_only_cleans_shared_parent_child_collections(monkeypatch):
+    """文件删除必须在所有按维度共享的 child collection 中按 kb/file 隔离清理。"""
+    delete_calls = []
+
+    class FakeChunkRepo:
+        async def count_graph_indexed_by_file_id(self, file_id):
+            del file_id
+            return 0
+
+        async def delete_by_file_id(self, file_id):
+            del file_id
+            return 0
+
+    class FakeCollection:
+        def __init__(self, name):
+            self.name = name
+
+        def delete(self, expression):
+            delete_calls.append((self.name, expression))
+
+    class FakeFileRepo:
+        async def update_fields(self, **kwargs):
+            del kwargs
+
+    kb = MilvusKB.__new__(MilvusKB)
+    kb.connection_alias = "test-alias"
+    kb.child_collections = {768: FakeCollection("rag_child_chunk_768")}
+    kb._get_existing_milvus_collection = lambda _kb_id: None
+    monkeypatch.setattr(milvus_module.utility, "list_collections", lambda using: ["rag_child_chunk_768"])
+    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr(milvus_module, "KnowledgeFileRepository", lambda: FakeFileRepo())
+    graph_cleanup_calls = []
+
+    class FakeGraphService:
+        async def delete_file_graph(self, kb_id, file_id):
+            graph_cleanup_calls.append((kb_id, file_id))
+
+    monkeypatch.setattr(
+        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
+        FakeGraphService,
+    )
+
+    await kb.delete_file_chunks_only('kb"quoted', "file-1")
+
+    assert graph_cleanup_calls == [('kb"quoted', "file-1")]
+    assert delete_calls == [
+        (
+            "rag_child_chunk_768",
+            'knowledge_base_id == "kb\\"quoted" and file_id == "file-1"',
+        )
+    ]
+
+
+async def test_delete_file_invalidates_parent_child_cache_after_metadata_delete(monkeypatch):
+    """文件删除提交后必须清理知识库范围内的父块与查询缓存。"""
+    kb = MilvusKB.__new__(MilvusKB)
+    file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record(status=FileStatus.INDEXED)})
+    patch_file_repository(monkeypatch, file_repo)
+    calls = []
+    kb.delete_file_chunks_only = lambda kb_id, file_id: _record_async(calls, ("chunks", kb_id, file_id))
+    monkeypatch.setattr(
+        milvus_module,
+        "invalidate_parent_cache",
+        lambda kb_id: _record_async(calls, ("parent_cache", kb_id)),
+    )
+    monkeypatch.setattr(
+        milvus_module,
+        "invalidate_query_cache",
+        lambda kb_id: _record_async(calls, ("query_cache", kb_id)),
+    )
+
+    await kb.delete_file("db", "file-1")
+
+    assert file_repo.deleted == ["file-1"]
+    assert calls == [
+        ("chunks", "db", "file-1"),
+        ("parent_cache", "db"),
+        ("query_cache", "db"),
+    ]
 
 
 async def test_insert_chunks_to_stores_inserts_current_batch(monkeypatch):
@@ -606,8 +879,16 @@ async def test_update_content_uses_streaming_chunk_store(monkeypatch):
     async def delete_file_chunks_only(kb_id, file_id):
         deleted_files.append((kb_id, file_id))
 
-    async def embed_and_store_chunks(kb_id, file_id, collection_arg, chunks, embedding_function):
-        store_calls.append((kb_id, file_id, collection_arg, list(chunks), embedding_function))
+    async def embed_and_store_chunks(
+        kb_id,
+        file_id,
+        collection_arg,
+        chunks,
+        embedding_function,
+        *,
+        sparse_enabled=False,
+    ):
+        store_calls.append((kb_id, file_id, collection_arg, list(chunks), embedding_function, sparse_enabled))
 
     async def parse_file(source, params):
         return "# markdown"
@@ -636,6 +917,7 @@ async def test_update_content_uses_streaming_chunk_store(monkeypatch):
     assert store_calls[0][2] is collection
     assert [chunk["chunk_id"] for chunk in store_calls[0][3]] == ["chunk-0", "chunk-1"]
     assert store_calls[0][4] is forbidden_embedding
+    assert store_calls[0][5] is False
     assert result[0]["status"] == FileStatus.INDEXED
     assert file_repo.records["file-1"].status == FileStatus.INDEXED
     assert file_repo.update_calls[0][2]["status"] == FileStatus.INDEXING

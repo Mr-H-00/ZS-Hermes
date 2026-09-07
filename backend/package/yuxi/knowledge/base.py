@@ -130,6 +130,19 @@ class KnowledgeBase(ABC):
             "updated_by": str(meta.get("updated_by")) if meta.get("updated_by") else None,
         }
 
+    @staticmethod
+    def _is_parent_child_file_meta(file_meta: dict[str, Any]) -> bool:
+        """判断文件是否走 Parent-Child 索引链路。"""
+        processing_params = file_meta.get("processing_params")
+        if not isinstance(processing_params, dict):
+            return False
+
+        if processing_params.get("indexing_path") == "parent_child":
+            return True
+
+        parent_child = processing_params.get("parent_child")
+        return isinstance(parent_child, dict) and parent_child.get("enabled") is True
+
     async def _load_file_meta(self, kb_id: str, file_id: str, *, refresh: bool = False) -> dict:
         del refresh
 
@@ -191,19 +204,9 @@ class KnowledgeBase(ABC):
         operator_id: str | None = None,
         *,
         additional_params: dict[str, Any],
+        embedding_model_spec: str | None = None,
     ) -> dict:
-        """
-        Add a file record to metadata (Status: UPLOADED)
-
-        Args:
-            kb_id: Database ID
-            item: File path or URL
-            params: Parameters
-            operator_id: Operator ID who created the file
-
-        Returns:
-            File metadata record
-        """
+        """按知识库默认配置规范化文件参数，并创建 uploaded 状态的文件记录。"""
         from yuxi.knowledge.utils.kb_utils import prepare_item_metadata
 
         params = params or {}
@@ -215,6 +218,7 @@ class KnowledgeBase(ABC):
         metadata["processing_params"] = resolve_processing_params(
             kb_additional_params=additional_params,
             file_processing_params=metadata.get("processing_params"),
+            embedding_model_spec=embedding_model_spec,
         )
 
         # Fallback: fetch file size from MinIO if not provided
@@ -250,18 +254,9 @@ class KnowledgeBase(ABC):
         operator_id: str | None = None,
         *,
         additional_params: dict[str, Any],
+        embedding_model_spec: str | None = None,
     ) -> dict:
-        """
-        Parse file to Markdown and save to MinIO (Status: PARSING -> PARSED/ERROR_PARSING)
-
-        Args:
-            kb_id: Database ID
-            file_id: File ID
-            operator_id: ID of the user performing the operation
-
-        Returns:
-            Updated file metadata
-        """
+        """按最终处理参数把文件解析为 Markdown，并更新解析状态。"""
         # Validate current status - only allow parsing from these states
         allowed_statuses = {
             FileStatus.UPLOADED,
@@ -306,6 +301,7 @@ class KnowledgeBase(ABC):
             params = resolve_processing_params(
                 kb_additional_params=additional_params,
                 file_processing_params=file_meta.get("processing_params"),
+                embedding_model_spec=embedding_model_spec,
             )
             from yuxi.storage.minio import get_minio_client
 
@@ -366,8 +362,9 @@ class KnowledgeBase(ABC):
         operator_id: str | None = None,
         *,
         additional_params: dict[str, Any],
+        embedding_model_spec: str | None = None,
     ) -> None:
-        """Update file processing params"""
+        """合并并保存文件的任务级处理参数。"""
         # Skip if no params to update
         if not params:
             return
@@ -380,6 +377,7 @@ class KnowledgeBase(ABC):
             kb_additional_params=additional_params,
             file_processing_params=current_params,
             request_params=params,
+            embedding_model_spec=embedding_model_spec,
         )
 
         file_meta["processing_params"] = current_params
@@ -971,8 +969,10 @@ class KnowledgeBase(ABC):
         from yuxi.knowledge.chunking.ragflow_like.nlp import count_tokens
         from yuxi.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
         from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
+        from yuxi.repositories.knowledge_parent_child_chunk_repository import KnowledgeParentChildChunkRepository
 
         chunk_repo = KnowledgeChunkRepository()
+        parent_child_repo = KnowledgeParentChildChunkRepository()
         file_repo = KnowledgeFileRepository()
         after_file_id = None
         scanned_files = 0
@@ -998,11 +998,31 @@ class KnowledgeBase(ABC):
             indexed_records = [record for record in records if _should_repair_file_stats({"status": record.status})]
             indexed_file_ids = [record.file_id for record in indexed_records]
             indexed_file_id_set = set(indexed_file_ids)
-            chunk_counts = await chunk_repo.count_by_file_ids(indexed_file_ids)
+
+            def _is_parent_child_record(record: Any) -> bool:
+                return self._is_parent_child_file_meta(
+                    {"processing_params": getattr(record, "processing_params", None)}
+                )
+
+            parent_child_file_ids = [record.file_id for record in indexed_records if _is_parent_child_record(record)]
+            parent_child_file_id_set = set(parent_child_file_ids)
+            legacy_file_ids = [file_id for file_id in indexed_file_ids if file_id not in parent_child_file_id_set]
+            chunk_counts = {}
+            chunk_counts.update(await chunk_repo.count_by_file_ids(legacy_file_ids))
+            chunk_counts.update(await parent_child_repo.count_by_file_ids(parent_child_file_ids))
             token_file_ids = [record.file_id for record in indexed_records if int(record.token_count or 0) <= 0]
+            legacy_token_file_ids = [file_id for file_id in token_file_ids if file_id not in parent_child_file_id_set]
+            parent_child_token_file_ids = [
+                file_id for file_id in token_file_ids if file_id in parent_child_file_id_set
+            ]
             token_counts = {file_id: 0 for file_id in token_file_ids}
-            for chunk in await chunk_repo.list_by_file_ids(token_file_ids):
+            for chunk in await chunk_repo.list_by_file_ids(legacy_token_file_ids):
                 token_counts[chunk.file_id] = token_counts.get(chunk.file_id, 0) + count_tokens(chunk.content or "")
+            parent_child_token_counts = await parent_child_repo.sum_token_count_by_file_ids(
+                parent_child_token_file_ids
+            )
+            for file_id, token_count in parent_child_token_counts.items():
+                token_counts[file_id] = token_counts.get(file_id, 0) + token_count
             size_updates = await self._fill_missing_file_sizes_for_records(records)
 
             scanned_files += len(records)

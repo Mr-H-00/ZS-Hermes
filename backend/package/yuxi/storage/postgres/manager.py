@@ -23,7 +23,7 @@ from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
 BUSINESS_SCHEMA_VERSION = 2
-KNOWLEDGE_SCHEMA_VERSION = 1
+KNOWLEDGE_SCHEMA_VERSION = 3
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS worker_id VARCHAR(128)",
@@ -594,6 +594,70 @@ class PostgresManager(metaclass=SingletonMeta):
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_document_versions (
+                version_id VARCHAR(64) PRIMARY KEY,
+                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
+                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
+                doc_id VARCHAR(64) NOT NULL,
+                indexing_path VARCHAR(32) NOT NULL,
+                embedding_model_spec VARCHAR(512) NOT NULL,
+                embedding_dimension INTEGER NOT NULL,
+                chunk_preset_id VARCHAR(32) NOT NULL,
+                processing_params JSONB NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                activated_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_parent_chunks (
+                parent_id VARCHAR(64) PRIMARY KEY,
+                version_id VARCHAR(64) NOT NULL
+                    REFERENCES knowledge_document_versions(version_id) ON DELETE CASCADE,
+                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
+                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
+                doc_id VARCHAR(64) NOT NULL,
+                parent_index INTEGER NOT NULL,
+                parent_text TEXT NOT NULL,
+                start_offset INTEGER NOT NULL,
+                end_offset INTEGER NOT NULL,
+                token_count INTEGER NOT NULL,
+                metadata JSONB NOT NULL,
+                graph_structure_indexed BOOLEAN NOT NULL DEFAULT FALSE,
+                graph_indexed BOOLEAN NOT NULL DEFAULT FALSE,
+                graph_extraction_details JSONB NOT NULL
+                    DEFAULT jsonb_build_object('status', 'pending', 'attempt_count', 0),
+                ent_ids JSONB,
+                tags JSONB,
+                extraction_result JSONB,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_knowledge_parent_chunks_version_index UNIQUE (version_id, parent_index)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_child_chunks (
+                child_id VARCHAR(64) PRIMARY KEY,
+                parent_id VARCHAR(64) NOT NULL REFERENCES knowledge_parent_chunks(parent_id) ON DELETE CASCADE,
+                version_id VARCHAR(64) NOT NULL
+                    REFERENCES knowledge_document_versions(version_id) ON DELETE CASCADE,
+                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
+                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
+                doc_id VARCHAR(64) NOT NULL,
+                child_index INTEGER NOT NULL,
+                child_text TEXT NOT NULL,
+                start_offset INTEGER NOT NULL,
+                end_offset INTEGER NOT NULL,
+                token_count INTEGER NOT NULL,
+                spans JSONB NOT NULL,
+                metadata JSONB NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_knowledge_child_chunks_version_index UNIQUE (version_id, child_index)
+            )
+            """,
             "ALTER TABLE IF EXISTS knowledge_chunks ADD COLUMN IF NOT EXISTS extraction_result JSONB",
             (
                 "ALTER TABLE IF EXISTS knowledge_chunks ADD COLUMN IF NOT EXISTS "
@@ -656,6 +720,17 @@ class PostgresManager(metaclass=SingletonMeta):
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS knowledge_parent_graph_entity_mentions (
+                id SERIAL PRIMARY KEY,
+                entity_id VARCHAR(64) NOT NULL REFERENCES knowledge_graph_entities(entity_id) ON DELETE CASCADE,
+                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
+                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
+                parent_id VARCHAR(64) NOT NULL REFERENCES knowledge_parent_chunks(parent_id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_knowledge_parent_graph_entity_mentions_entity_parent UNIQUE (entity_id, parent_id)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS knowledge_graph_triples (
                 id SERIAL PRIMARY KEY,
                 triple_id VARCHAR(64) NOT NULL UNIQUE,
@@ -687,6 +762,19 @@ class PostgresManager(metaclass=SingletonMeta):
                 CONSTRAINT uq_knowledge_graph_triple_mentions_triple_chunk UNIQUE (triple_id, chunk_id)
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_parent_graph_triple_mentions (
+                id SERIAL PRIMARY KEY,
+                triple_id VARCHAR(64) NOT NULL REFERENCES knowledge_graph_triples(triple_id) ON DELETE CASCADE,
+                kb_id VARCHAR(80) NOT NULL REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE,
+                file_id VARCHAR(64) NOT NULL REFERENCES knowledge_files(file_id) ON DELETE CASCADE,
+                parent_id VARCHAR(64) NOT NULL REFERENCES knowledge_parent_chunks(parent_id) ON DELETE CASCADE,
+                text TEXT,
+                extractor_type VARCHAR(128),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_knowledge_parent_graph_triple_mentions_triple_parent UNIQUE (triple_id, parent_id)
+            )
+            """,
             "ALTER TABLE IF EXISTS knowledge_bases ALTER COLUMN kb_id TYPE VARCHAR(80)",
             "ALTER TABLE IF EXISTS knowledge_graph_entities ADD COLUMN IF NOT EXISTS vector_status VARCHAR(16)",
             (
@@ -705,6 +793,10 @@ class PostgresManager(metaclass=SingletonMeta):
                 "SELECT 1 FROM knowledge_graph_entity_mentions AS mention "
                 "JOIN knowledge_chunks AS chunk ON chunk.chunk_id = mention.chunk_id "
                 "WHERE mention.entity_id = entity.entity_id AND chunk.graph_indexed IS NOT TRUE"
+                ") OR EXISTS ("
+                "SELECT 1 FROM knowledge_parent_graph_entity_mentions AS mention "
+                "JOIN knowledge_parent_chunks AS parent ON parent.parent_id = mention.parent_id "
+                "WHERE mention.entity_id = entity.entity_id AND parent.graph_indexed IS NOT TRUE"
                 ") THEN 'pending' ELSE 'indexed' END WHERE entity.vector_status IS NULL"
             ),
             "ALTER TABLE IF EXISTS knowledge_graph_entities ALTER COLUMN vector_status SET DEFAULT 'pending'",
@@ -724,6 +816,10 @@ class PostgresManager(metaclass=SingletonMeta):
                 "SELECT 1 FROM knowledge_graph_triple_mentions AS mention "
                 "JOIN knowledge_chunks AS chunk ON chunk.chunk_id = mention.chunk_id "
                 "WHERE mention.triple_id = triple.triple_id AND chunk.graph_indexed IS NOT TRUE"
+                ") OR EXISTS ("
+                "SELECT 1 FROM knowledge_parent_graph_triple_mentions AS mention "
+                "JOIN knowledge_parent_chunks AS parent ON parent.parent_id = mention.parent_id "
+                "WHERE mention.triple_id = triple.triple_id AND parent.graph_indexed IS NOT TRUE"
                 ") THEN 'pending' ELSE 'indexed' END WHERE triple.vector_status IS NULL"
             ),
             "ALTER TABLE IF EXISTS knowledge_graph_triples ALTER COLUMN vector_status SET DEFAULT 'pending'",
@@ -772,6 +868,17 @@ class PostgresManager(metaclass=SingletonMeta):
                 "ON knowledge_chunks(kb_id, ((graph_extraction_details->>'status')))"
             ),
             (
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_document_versions_kb_file_status "
+                "ON knowledge_document_versions(kb_id, file_id, status)"
+            ),
+            (
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_document_versions_active_file "
+                "ON knowledge_document_versions(kb_id, file_id) WHERE status = 'active'"
+            ),
+            "CREATE INDEX IF NOT EXISTS ix_knowledge_child_chunks_parent_id ON knowledge_child_chunks(parent_id)",
+            "CREATE INDEX IF NOT EXISTS ix_knowledge_child_chunks_file_id ON knowledge_child_chunks(file_id)",
+            "CREATE INDEX IF NOT EXISTS ix_knowledge_child_chunks_kb_id ON knowledge_child_chunks(kb_id)",
+            (
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_graph_entities_entity_id "
                 "ON knowledge_graph_entities(entity_id)"
             ),
@@ -793,6 +900,18 @@ class PostgresManager(metaclass=SingletonMeta):
                 "ON knowledge_graph_entity_mentions(chunk_id)"
             ),
             (
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_parent_graph_entity_mentions_kb_id "
+                "ON knowledge_parent_graph_entity_mentions(kb_id)"
+            ),
+            (
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_parent_graph_entity_mentions_file_id "
+                "ON knowledge_parent_graph_entity_mentions(file_id)"
+            ),
+            (
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_parent_graph_entity_mentions_parent_id "
+                "ON knowledge_parent_graph_entity_mentions(parent_id)"
+            ),
+            (
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_graph_triples_triple_id "
                 "ON knowledge_graph_triples(triple_id)"
             ),
@@ -812,6 +931,18 @@ class PostgresManager(metaclass=SingletonMeta):
             (
                 "CREATE INDEX IF NOT EXISTS ix_knowledge_graph_triple_mentions_chunk_id "
                 "ON knowledge_graph_triple_mentions(chunk_id)"
+            ),
+            (
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_parent_graph_triple_mentions_kb_id "
+                "ON knowledge_parent_graph_triple_mentions(kb_id)"
+            ),
+            (
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_parent_graph_triple_mentions_file_id "
+                "ON knowledge_parent_graph_triple_mentions(file_id)"
+            ),
+            (
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_parent_graph_triple_mentions_parent_id "
+                "ON knowledge_parent_graph_triple_mentions(parent_id)"
             ),
         ]
 

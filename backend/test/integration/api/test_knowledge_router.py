@@ -10,11 +10,70 @@ import uuid
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+import pytest_asyncio
+from sqlalchemy import delete, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.knowledge.chunking.ragflow_like.presets import CHUNK_PRESET_IDS
+from yuxi.storage.postgres.models_business import APIKey, Department, User
+from yuxi.utils.auth_utils import AuthUtils
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+
+
+@pytest_asyncio.fixture
+async def parent_child_admin_headers():
+    """创建并清理 Parent-Child API 契约测试专用管理员身份。"""
+    unique = uuid.uuid4().hex
+    uid = f"pytest_pc_{unique[:16]}"
+    engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    department_id = None
+    user_id = None
+    api_key_id = None
+
+    try:
+        async with session_factory() as db:
+            department = Department(name=f"pytest-pc-{unique[:16]}")
+            db.add(department)
+            await db.flush()
+            department_id = department.id
+
+            user = User(
+                username=uid,
+                uid=uid,
+                password_hash="integration-api-key-only",
+                role="superadmin",
+                department_id=department.id,
+            )
+            db.add(user)
+            await db.flush()
+            user_id = user.id
+
+            api_key_secret, key_hash, key_prefix = AuthUtils.generate_api_key()
+            api_key = APIKey(
+                key_hash=key_hash,
+                key_prefix=key_prefix,
+                name="pytest parent-child API contract",
+                user_id=user.id,
+                department_id=department.id,
+                created_by=uid,
+            )
+            db.add(api_key)
+            await db.flush()
+            api_key_id = api_key.id
+            await db.commit()
+
+        yield {"Authorization": f"Bearer {api_key_secret}"}
+    finally:
+        async with session_factory() as db:
+            if api_key_id is not None:
+                await db.execute(delete(APIKey).where(APIKey.id == api_key_id))
+            if user_id is not None:
+                await db.execute(delete(User).where(User.id == user_id))
+            if department_id is not None:
+                await db.execute(delete(Department).where(Department.id == department_id))
+            await db.commit()
+        await engine.dispose()
 
 
 def _assert_forbidden_response(response):
@@ -301,14 +360,18 @@ async def test_knowledge_virtual_folder_migration_runs_without_sse_and_is_resuma
         assert final_detection.json()["has_virtual_folders"] is False
         async with engine.connect() as connection:
             folder_creators = (
-                await connection.execute(
-                    text(
-                        "SELECT created_by FROM knowledge_files WHERE kb_id = :kb "
-                        "AND is_folder IS TRUE AND filename IN (:root, 'shared', 'other')"
-                    ),
-                    {"kb": kb_id, "root": f"history-{prefix}"},
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT created_by FROM knowledge_files WHERE kb_id = :kb "
+                            "AND is_folder IS TRUE AND filename IN (:root, 'shared', 'other')"
+                        ),
+                        {"kb": kb_id, "root": f"history-{prefix}"},
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         assert len(folder_creators) == 3
         assert all(folder_creators)
     finally:
@@ -362,26 +425,28 @@ async def test_virtual_folder_migration_keeps_conflicts_and_commits_other_paths(
 
         async with engine.connect() as connection:
             rows = (
-                await connection.execute(
-                    text(
-                        "SELECT filename, parent_id FROM knowledge_files WHERE file_id IN "
-                        "(:blocked_file, :movable_file) ORDER BY file_id"
-                    ),
-                    {
-                        "blocked_file": f"file_{suffix}_blocked",
-                        "movable_file": f"file_{suffix}_movable",
-                    },
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT filename, parent_id FROM knowledge_files WHERE file_id IN "
+                            "(:blocked_file, :movable_file) ORDER BY file_id"
+                        ),
+                        {
+                            "blocked_file": f"file_{suffix}_blocked",
+                            "movable_file": f"file_{suffix}_movable",
+                        },
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
         assert {row["filename"] for row in rows} == {f"{blocked}/a.txt", "b.txt"}
         assert sum(row["parent_id"] is not None for row in rows) == 1
     finally:
         await engine.dispose()
 
 
-async def test_folder_mutations_reject_invalid_name_and_directory_cycle(
-    test_client, admin_headers, knowledge_database
-):
+async def test_folder_mutations_reject_invalid_name_and_directory_cycle(test_client, admin_headers, knowledge_database):
     kb_id = knowledge_database["kb_id"]
 
     parent_response = await test_client.post(
@@ -530,6 +595,210 @@ async def test_create_database_with_chunk_preset(test_client, admin_headers):
     assert delete_response.status_code == 200, delete_response.text
 
 
+async def test_parent_child_config_round_trip_and_query_params_projection(test_client, parent_child_admin_headers):
+    """验证父子配置经 HTTP 与 PostgreSQL 回读，并发布条件查询参数。"""
+    admin_headers = parent_child_admin_headers
+    kb_id = None
+    payload = {
+        "database_name": f"pytest_parent_child_{uuid.uuid4().hex[:8]}",
+        "description": "Parent-Child API contract test",
+        "embedding_model_spec": "siliconflow-cn:BAAI/bge-m3",
+        "kb_type": "milvus",
+        "additional_params": {
+            "chunk_preset_id": "book",
+            "embedding_features": {"bge_m3_sparse_enabled": True},
+            "parent_child": {
+                "enabled": True,
+                "parent_token_num": 1200,
+                "child_token_num": 240,
+                "child_overlap_percent": 20,
+                "separator": "\\n",
+            },
+        },
+    }
+
+    try:
+        create_response = await test_client.post("/api/knowledge/databases", json=payload, headers=admin_headers)
+        assert create_response.status_code == 200, create_response.text
+        created = create_response.json()
+        kb_id = created["kb_id"]
+        assert created["additional_params"]["embedding_features"] == {"bge_m3_sparse_enabled": True}
+        assert created["additional_params"]["parent_child"]["parent_token_num"] == 1200
+
+        detail_response = await test_client.get(f"/api/knowledge/databases/{kb_id}", headers=admin_headers)
+        assert detail_response.status_code == 200, detail_response.text
+        detail = detail_response.json()
+        assert detail["additional_params"]["parent_child"]["child_token_num"] == 240
+
+        updated_additional_params = detail["additional_params"]
+        updated_additional_params["parent_child"]["child_token_num"] = 260
+        update_database_response = await test_client.put(
+            f"/api/knowledge/databases/{kb_id}",
+            json={
+                "name": detail["name"],
+                "description": detail["description"],
+                "additional_params": updated_additional_params,
+            },
+            headers=admin_headers,
+        )
+        assert update_database_response.status_code == 200, update_database_response.text
+        updated_database = update_database_response.json()["database"]
+        assert updated_database["additional_params"]["parent_child"]["child_token_num"] == 260
+
+        engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+        try:
+            async with engine.connect() as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            text("SELECT additional_params FROM knowledge_bases WHERE kb_id = :kb_id"),
+                            {"kb_id": kb_id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+            assert row["additional_params"]["embedding_features"]["bge_m3_sparse_enabled"] is True
+            assert row["additional_params"]["parent_child"]["child_overlap_percent"] == 20
+            assert row["additional_params"]["parent_child"]["child_token_num"] == 260
+        finally:
+            await engine.dispose()
+
+        config_response = await test_client.get(
+            f"/api/knowledge/databases/{kb_id}/query-params",
+            headers=admin_headers,
+        )
+        assert config_response.status_code == 200, config_response.text
+        config_options = {option["key"]: option for option in config_response.json()["params"]["options"]}
+        assert config_options["top_k_child"]["default"] == 30
+        assert config_options["use_vector_score_fusion"]["visible_when"] == {
+            "any": [{"search_mode": "vector"}, {"search_mode": "hybrid"}]
+        }
+        assert config_options["use_rrf"]["visible_when"] == {
+            "any": [{"search_mode": "hybrid"}, {"use_graph_retrieval": True}]
+        }
+
+        update_response = await test_client.put(
+            f"/api/knowledge/databases/{kb_id}/query-params",
+            json={
+                "search_mode": "hybrid",
+                "top_k_child": 40,
+                "top_k_parent": 8,
+                "use_vector_score_fusion": True,
+                "dense_vector_weight": 0.7,
+                "sparse_vector_weight": 0.5,
+                "use_rrf": True,
+            },
+            headers=admin_headers,
+        )
+        assert update_response.status_code == 200, update_response.text
+        assert update_response.json()["data"]["dense_vector_weight"] == 0.7
+        assert update_response.json()["data"]["sparse_vector_weight"] == 0.5
+
+        saved_response = await test_client.get(
+            f"/api/knowledge/databases/{kb_id}/query-params",
+            headers=admin_headers,
+        )
+        assert saved_response.status_code == 200, saved_response.text
+        saved_options = {option["key"]: option["default"] for option in saved_response.json()["params"]["options"]}
+        assert saved_options["dense_vector_weight"] == 0.7
+        assert saved_options["sparse_vector_weight"] == 0.5
+        assert saved_options["use_rrf"] is True
+
+        invalid_weights = await test_client.put(
+            f"/api/knowledge/databases/{kb_id}/query-params",
+            json={
+                "use_vector_score_fusion": True,
+                "dense_vector_weight": 0,
+                "sparse_vector_weight": 0,
+            },
+            headers=admin_headers,
+        )
+        assert invalid_weights.status_code == 400, invalid_weights.text
+
+        invalid_query = await test_client.post(
+            f"/api/knowledge/databases/{kb_id}/query",
+            json={"query": "contract shape", "meta": {"top_k_child": 5, "top_k_parent": 8}},
+            headers=admin_headers,
+        )
+        assert invalid_query.status_code == 400, invalid_query.text
+        assert "top_k_child" in invalid_query.json()["detail"]
+
+        first_response, second_response = await asyncio.gather(
+            test_client.put(
+                f"/api/knowledge/databases/{kb_id}/query-params",
+                json={"top_k_child": 15},
+                headers=admin_headers,
+            ),
+            test_client.put(
+                f"/api/knowledge/databases/{kb_id}/query-params",
+                json={"top_k_parent": 20},
+                headers=admin_headers,
+            ),
+        )
+        assert sorted([first_response.status_code, second_response.status_code]) == [200, 400]
+
+        engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+        try:
+            async with engine.connect() as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            text("SELECT query_params FROM knowledge_bases WHERE kb_id = :kb_id"),
+                            {"kb_id": kb_id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+            persisted_options = row["query_params"]["options"]
+            assert persisted_options["top_k_child"] >= persisted_options["top_k_parent"]
+            assert persisted_options["dense_vector_weight"] == 0.7
+            assert persisted_options["sparse_vector_weight"] == 0.5
+        finally:
+            await engine.dispose()
+    finally:
+        if kb_id:
+            delete_response = await test_client.delete(
+                f"/api/knowledge/databases/{kb_id}",
+                headers=admin_headers,
+            )
+            assert delete_response.status_code == 200, delete_response.text
+
+
+async def test_non_bge_embedding_rejects_sparse_config(test_client, parent_child_admin_headers):
+    """验证有效的非 BGE-M3 embedding 不能把 sparse 配置落库。"""
+    admin_headers = parent_child_admin_headers
+    database_name = f"pytest_non_bge_sparse_{uuid.uuid4().hex[:8]}"
+    response = await test_client.post(
+        "/api/knowledge/databases",
+        json={
+            "database_name": database_name,
+            "description": "Sparse capability rejection test",
+            "embedding_model_spec": "siliconflow-cn:Qwen/Qwen3-Embedding-0.6B",
+            "kb_type": "milvus",
+            "additional_params": {
+                "embedding_features": {"bge_m3_sparse_enabled": True},
+            },
+        },
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert "BGE-M3" in response.json()["detail"]
+
+    engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            count = await connection.scalar(
+                text("SELECT COUNT(*) FROM knowledge_bases WHERE name = :name"),
+                {"name": database_name},
+            )
+        assert count == 0
+    finally:
+        await engine.dispose()
+
+
 async def test_get_chunk_presets_returns_configured_options(test_client, admin_headers):
     response = await test_client.get("/api/knowledge/chunk-presets", headers=admin_headers)
     assert response.status_code == 200, response.text
@@ -604,9 +873,7 @@ async def test_knowledge_routes_enforce_permissions(test_client, standard_user, 
     _assert_forbidden_response(forbidden_exists)
 
 
-async def test_kb_image_proxy_requires_auth_and_streams_private_image(
-    test_client, admin_headers, knowledge_database
-):
+async def test_kb_image_proxy_requires_auth_and_streams_private_image(test_client, admin_headers, knowledge_database):
     """知识库图片代理：未登录不可访问，鉴权后可读取私有 bucket 图片"""
     from yuxi.storage.minio.client import MinIOClient, get_minio_client
 

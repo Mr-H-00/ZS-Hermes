@@ -80,6 +80,15 @@ class Task:
         )
 
 
+class TaskPayloadConflictError(RuntimeError):
+    """活动任务的 payload 与新任务存在业务冲突。"""
+
+    def __init__(self, task: Task) -> None:
+        """保存发生冲突的活动任务，供调用方生成领域错误。"""
+        self.task = task
+        super().__init__(f"任务 payload 与活动任务 {task.id} 冲突")
+
+
 class TaskContext:
     def __init__(self, tasker: "Tasker", task_id: str, payload: dict[str, Any] | None = None):
         self._tasker = tasker
@@ -200,14 +209,29 @@ class Tasker:
         coroutine: TaskCoroutine,
         payload_match: dict[str, Any],
         statuses: set[str] | None = None,
+        conflict_predicate: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
         timeout_seconds: float | None = None,
     ) -> tuple[Task, bool]:
+        """在同一把提交锁内复用等价任务，并拒绝调用方定义的 payload 冲突。"""
         effective_timeout = self._resolve_timeout_seconds(timeout_seconds)
         task_payload = payload or {}
         async with self._lock:
             existing = self._find_task_by_payload_locked(task_type, payload_match, statuses)
             if existing:
                 return existing, False
+            if conflict_predicate is not None:
+                conflicting = next(
+                    (
+                        task
+                        for task in self._tasks.values()
+                        if task.type == task_type
+                        and (statuses is None or task.status in statuses)
+                        and conflict_predicate(task.payload, task_payload)
+                    ),
+                    None,
+                )
+                if conflicting is not None:
+                    raise TaskPayloadConflictError(conflicting)
             task_id = uuid.uuid4().hex
             task = Task(id=task_id, name=name, type=task_type, payload=task_payload)
             self._tasks[task_id] = task
@@ -513,4 +537,4 @@ class Tasker:
 tasker = Tasker()
 
 
-__all__ = ["tasker", "TaskContext", "Tasker"]
+__all__ = ["tasker", "TaskContext", "Tasker", "TaskPayloadConflictError"]

@@ -314,6 +314,20 @@ export const documentApi = {
   },
 
   /**
+   * 使用指定参数重新切分并索引文档
+   * @param {string} kbId - 知识库ID
+   * @param {Array} fileIds - 文件ID列表
+   * @param {Object} params - 重切参数
+   * @returns {Promise} - 重切任务结果
+   */
+  resliceDocuments: async (kbId, fileIds, params = {}) => {
+    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/reslice`, {
+      file_ids: fileIds,
+      params
+    })
+  },
+
+  /**
    * 手动触发全部待入库文档入库
    * @param {string} kbId - 知识库ID
    * @param {Object} params - 处理参数

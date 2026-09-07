@@ -51,9 +51,11 @@ async def test_parse_file_refreshes_stats_and_keeps_original_error_after_executo
         return KnowledgeBaseConfig(kb_id="kb_1", kb_type="fake")
 
     if refresh_stats_fails:
+
         async def refresh_database_stats(_kb_id: str):
             raise RuntimeError("stats failed")
     else:
+
         async def refresh_database_stats(kb_id: str):
             refreshed.append(kb_id)
             return {}
@@ -73,19 +75,31 @@ async def test_update_query_params_delegates_persistence_to_manager(tmp_path, mo
     manager = KnowledgeBaseManager(str(tmp_path))
     calls = []
 
+    async def get_kb_config(kb_id: str):
+        """返回只读连接器配置。"""
+        assert kb_id == "kb_1"
+        return SimpleNamespace(kb_type="dify")
+
     class FakeRepository:
-        async def merge_query_params_options(self, kb_id: str, params: dict):
-            calls.append((kb_id, params))
-            return object()
+        async def merge_query_params_options(self, kb_id: str, params: dict, normalizer=None):
+            """记录 Manager 交给 repository 的最终持久化请求。"""
+            calls.append((kb_id, params, normalizer))
+            return SimpleNamespace(query_params={"options": dict(params)})
 
     monkeypatch.setattr(
         "yuxi.repositories.knowledge_base_repository.KnowledgeBaseRepository",
         FakeRepository,
     )
+    monkeypatch.setattr(manager, "get_kb_config", get_kb_config)
+    monkeypatch.setattr(
+        manager,
+        "_get_or_create_kb_instance",
+        lambda _kb_type: SimpleNamespace(apply_chunk_defaults=False),
+    )
 
     await manager.update_kb_query_params("kb_1", {"top_k": 5})
 
-    assert calls == [("kb_1", {"top_k": 5})]
+    assert calls == [("kb_1", {"top_k": 5}, None)]
 
 
 async def test_consistency_check_delegates_type_resources_to_executor(tmp_path, monkeypatch):
@@ -115,3 +129,29 @@ async def test_consistency_check_delegates_type_resources_to_executor(tmp_path, 
     assert calls == [({"kb_1", "kb_2"}, {"kb_1"})]
     assert result["total_missing_collections"] == 0
     assert result["total_missing_files"] == 0
+
+
+async def test_retrieve_rejects_invalid_parent_child_query_options_before_executor(tmp_path, monkeypatch):
+    """外部检索入口必须在执行查询前校验临时 Parent-Child 参数。"""
+    manager = KnowledgeBaseManager(str(tmp_path))
+    config = KnowledgeBaseConfig(
+        kb_id="kb_1",
+        kb_type="milvus",
+        query_params={"options": {}},
+        additional_params={"parent_child": {"enabled": True}},
+    )
+
+    class FakeExecutor:
+        apply_chunk_defaults = True
+
+        async def aquery(self, *_args, **_kwargs):
+            raise AssertionError("非法参数不能进入 executor")
+
+    async def get_kb_config(_kb_id: str):
+        return config
+
+    monkeypatch.setattr(manager, "get_kb_config", get_kb_config)
+    monkeypatch.setattr(manager, "_get_or_create_kb_instance", lambda _kb_type: FakeExecutor())
+
+    with pytest.raises(ValueError, match="top_k_child 必须大于或等于 top_k_parent"):
+        await manager.retrieve("kb_1", "query", top_k_child=1, top_k_parent=2)

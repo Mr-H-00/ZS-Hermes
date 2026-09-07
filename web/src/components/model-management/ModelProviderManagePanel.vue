@@ -43,7 +43,8 @@ const modelTestResultBySpec = ref({})
 
 const PROVIDER_TYPE_OPTIONS = [
   { value: 'openai', label: 'OpenAI Completions API' },
-  { value: 'anthropic', label: 'Anthropic Messages API' }
+  { value: 'anthropic', label: 'Anthropic Messages API' },
+  { value: 'local', label: '本地 BGE-M3 模型目录' }
 ]
 
 const MODALITY_DISPLAY = {

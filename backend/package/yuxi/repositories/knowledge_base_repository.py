@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import func, select
@@ -48,8 +49,13 @@ class KnowledgeBaseRepository:
                     setattr(kb, key, value)
             return kb
 
-    async def merge_query_params_options(self, kb_id: str, params: dict[str, Any]) -> KnowledgeBase | None:
-        """在行锁内合并知识库查询参数，避免并发部分更新互相覆盖。"""
+    async def merge_query_params_options(
+        self,
+        kb_id: str,
+        params: dict[str, Any],
+        normalizer: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> KnowledgeBase | None:
+        """在行锁内合并并校验查询参数，避免并发更新产生非法终态。"""
         async with kb_config_cache_lock(kb_id):
             await delete_cached_kb_config(kb_id)
             async with pg_manager.get_async_session_context() as session:
@@ -63,6 +69,8 @@ class KnowledgeBaseRepository:
                 options = dict(query_params.get("options") or {})
                 options.update(params)
                 query_params["options"] = options
+                if normalizer is not None:
+                    query_params = normalizer(query_params, dict(kb.additional_params or {}))
                 kb.query_params = query_params
             return kb
 

@@ -91,6 +91,7 @@
                 :database-preset-id="
                   store.database?.additional_params?.chunk_preset_id || 'general'
                 "
+                :embedding-model-spec="store.database?.embedding_model_spec || ''"
               />
             </div>
           </div>
@@ -303,7 +304,7 @@ import {
   ChevronDown,
   ChevronUp
 } from '@lucide/vue'
-import { buildChunkParamsPayload } from '@/utils/chunkUtils'
+import { buildChunkParamsPayload, createIndexingParams } from '@/utils/chunkUtils'
 import ChunkParamsConfig from '@/components/ChunkParamsConfig.vue'
 import OCRSelector from '@/components/OCRSelector.vue'
 import WorkspacePathPicker from '@/components/WorkspacePathPicker.vue'
@@ -367,6 +368,7 @@ watch(
       selectedFolderId.value = props.currentFolderId
       isFolderUpload.value = props.isFolderMode
       uploadMode.value = props.mode || (props.isFolderMode ? 'folder' : 'file')
+      resetIndexParams()
     }
   }
 )
@@ -732,10 +734,11 @@ const processingParams = ref({
 
 // 自动入库相关
 const autoIndex = ref(false)
-const indexParams = ref({
-  chunk_preset_id: '',
-  chunk_parser_config: {}
-})
+const indexParams = ref(createIndexingParams(store.database?.additional_params))
+
+const resetIndexParams = () => {
+  indexParams.value = createIndexingParams(store.database?.additional_params)
+}
 
 const buildAutoIndexParams = () => {
   return buildChunkParamsPayload(indexParams.value, {

@@ -64,7 +64,11 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useDatabaseStore } from '@/stores/database'
 import { message } from 'ant-design-vue'
 import { queryApi } from '@/apis/knowledge_api'
-import { createSearchConfigSnapshot, searchConfigChanged } from '@/utils/searchConfig'
+import {
+  createSearchConfigSnapshot,
+  isSearchParamVisible,
+  searchConfigChanged
+} from '@/utils/searchConfig'
 
 const props = defineProps({
   kbId: {
@@ -86,14 +90,9 @@ const initialConfig = ref({})
 const getConfigSnapshot = () => createSearchConfigSnapshot(queryParams.value, meta)
 const hasChanges = () => searchConfigChanged(getConfigSnapshot(), initialConfig.value)
 
-const isDependencySatisfied = (param) => {
-  const dependency = param.depend_on
-  if (!dependency || dependency.length < 2) return true
-  const [key, expectedValue] = dependency
-  return meta[key] === expectedValue
-}
-
-const visibleQueryParams = computed(() => queryParams.value.filter(isDependencySatisfied))
+const visibleQueryParams = computed(() =>
+  queryParams.value.filter((param) => isSearchParamVisible(param, meta))
+)
 
 const computedMeta = computed(() => {
   const result = {}

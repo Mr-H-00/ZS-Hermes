@@ -63,6 +63,7 @@ services:
       - type: bind
         source: ${YUXI_STATE_DIR:-./docker/volumes}/yuxi/skill-projections
         target: /app/skill-projections
+      - ./rag_qa/models:/app/rag_qa/models:ro
       - ./backend/test:/app/test
       - ./backend/scripts:/app/scripts
       - ./docker/sandbox_provisioner:/app/docker/sandbox_provisioner:ro
@@ -120,6 +121,7 @@ services:
       - type: bind
         source: ${YUXI_STATE_DIR:-./docker/volumes}/yuxi/skill-projections
         target: /app/skill-projections
+      - ./rag_qa/models:/app/rag_qa/models:ro
       - ./backend/test:/app/test
       - ./backend/scripts:/app/scripts
       - ./docker/sandbox_provisioner:/app/docker/sandbox_provisioner:ro

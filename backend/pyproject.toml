@@ -23,6 +23,20 @@ lint.select = [         # 选择的规则
     "UP",
 ]
 
+[tool.mypy]
+python_version = "3.13"
+files = [
+    "package/yuxi/knowledge/chunking/ragflow_like/parent_child.py",
+    "package/yuxi/knowledge/config_normalization.py",
+    "package/yuxi/knowledge/parent_child_cache.py",
+    "package/yuxi/repositories/knowledge_parent_child_chunk_repository.py",
+    "package/yuxi/services/knowledge_reslice_service.py",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
+check_untyped_defs = true
+warn_unused_configs = true
+
 [tool.uv]
 constraint-dependencies = [
     "aiohttp>=3.14.1",
@@ -71,6 +85,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [dependency-groups]
 dev = [
+    "mypy>=1.18.2,<2.0",
     "ruff>=0.12.1",
 ]
 test = [

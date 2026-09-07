@@ -620,6 +620,39 @@ export const useDatabaseStore = defineStore('database', () => {
     }
   }
 
+  /** 使用指定参数重新切分并索引文档。 */
+  async function resliceFiles(fileIds, params = {}) {
+    if (fileIds.length === 0) return
+    state.chunkLoading = true
+    try {
+      const data = await documentApi.resliceDocuments(kbId.value, fileIds, params)
+      if (data.status === 'success' || data.status === 'queued') {
+        enableAutoRefresh('auto')
+        message.success(data.message || '重切任务已提交')
+        if (data.task_id) {
+          taskerStore.registerQueuedTask({
+            task_id: data.task_id,
+            name: `文档重切 (${kbId.value})`,
+            task_type: 'knowledge_reslice',
+            message: data.message,
+            payload: { kb_id: kbId.value, count: fileIds.length }
+          })
+        }
+        await delayedRefresh()
+        return true
+      } else {
+        message.error(data.message || '提交失败')
+        return false
+      }
+    } catch (error) {
+      console.error(error)
+      message.error(error.message || '请求失败')
+      return false
+    } finally {
+      state.chunkLoading = false
+    }
+  }
+
   async function indexPendingFiles(params = {}, count = 0) {
     state.chunkLoading = true
     try {
@@ -835,6 +868,7 @@ export const useDatabaseStore = defineStore('database', () => {
     parseFiles,
     parsePendingFiles,
     indexFiles,
+    resliceFiles,
     indexPendingFiles,
     openFileDetail,
     closeFileDetail,

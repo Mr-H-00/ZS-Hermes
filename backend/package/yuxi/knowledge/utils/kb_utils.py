@@ -3,6 +3,7 @@ import time
 from urllib.parse import quote
 
 from yuxi.knowledge.chunking.ragflow_like.presets import resolve_chunk_processing_params
+from yuxi.knowledge.config_normalization import resolve_feature_processing_params
 from yuxi.utils import hashstr, logger
 from yuxi.utils.datetime_utils import utc_isoformat
 
@@ -28,8 +29,10 @@ def resolve_processing_params(
     kb_additional_params: dict | None,
     file_processing_params: dict | None,
     request_params: dict | None = None,
+    *,
+    embedding_model_spec: str | None = None,
 ) -> dict:
-    """合并文件、请求中的 OCR 和分块参数。"""
+    """按知识库、文件、任务优先级合并 OCR、分块与 Parent-Child 参数。"""
 
     merged_params = sanitize_processing_params(merge_processing_params(file_processing_params, request_params)) or {}
     chunk_params = resolve_chunk_processing_params(
@@ -38,6 +41,14 @@ def resolve_processing_params(
         request_params=request_params,
     )
     merged_params.update(chunk_params)
+    merged_params.update(
+        resolve_feature_processing_params(
+            kb_additional_params,
+            file_processing_params,
+            request_params,
+            embedding_model_spec,
+        )
+    )
     return merged_params
 
 

@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
@@ -114,6 +115,107 @@ class KnowledgeChunk(Base):
     updated_at = Column(DateTime(timezone=True), default=utc_now_naive, onupdate=utc_now_naive)
 
 
+class KnowledgeDocumentVersion(Base):
+    """Parent-Child 文档切片版本。"""
+
+    __tablename__ = "knowledge_document_versions"
+    __table_args__ = (
+        Index("ix_knowledge_document_versions_kb_file_status", "kb_id", "file_id", "status"),
+        Index(
+            "uq_knowledge_document_versions_active_file",
+            "kb_id",
+            "file_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    version_id = Column(String(64), primary_key=True)
+    kb_id = Column(String(80), ForeignKey("knowledge_bases.kb_id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(String(64), ForeignKey("knowledge_files.file_id", ondelete="CASCADE"), nullable=False)
+    doc_id = Column(String(64), nullable=False)
+    indexing_path = Column(String(32), nullable=False)
+    embedding_model_spec = Column(String(512), nullable=False)
+    embedding_dimension = Column(Integer, nullable=False)
+    chunk_preset_id = Column(String(32), nullable=False)
+    processing_params = Column(JSON_VALUE, nullable=False)
+    status = Column(String(32), nullable=False)
+    activated_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=utc_now_naive, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now_naive, onupdate=utc_now_naive, nullable=False)
+
+
+class KnowledgeParentChunk(Base):
+    """Parent-Child 父块持久化真值。"""
+
+    __tablename__ = "knowledge_parent_chunks"
+    __table_args__ = (UniqueConstraint("version_id", "parent_index", name="uq_knowledge_parent_chunks_version_index"),)
+
+    parent_id = Column(String(64), primary_key=True)
+    version_id = Column(
+        String(64),
+        ForeignKey("knowledge_document_versions.version_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    kb_id = Column(String(80), ForeignKey("knowledge_bases.kb_id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(String(64), ForeignKey("knowledge_files.file_id", ondelete="CASCADE"), nullable=False)
+    doc_id = Column(String(64), nullable=False)
+    parent_index = Column(Integer, nullable=False)
+    parent_text = Column(Text, nullable=False)
+    start_offset = Column(Integer, nullable=False)
+    end_offset = Column(Integer, nullable=False)
+    token_count = Column(Integer, nullable=False)
+    chunk_metadata = Column("metadata", JSON_VALUE, nullable=False)
+    graph_structure_indexed = Column(Boolean, default=False, nullable=False)
+    graph_indexed = Column(Boolean, default=False, nullable=False)
+    graph_extraction_details = Column(
+        JSON_VALUE,
+        default=lambda: {"status": "pending", "attempt_count": 0},
+        nullable=False,
+    )
+    ent_ids = Column(JSON_VALUE)
+    tags = Column(JSON_VALUE)
+    extraction_result = Column(JSON_VALUE)
+    created_at = Column(DateTime(timezone=True), default=utc_now_naive, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now_naive, onupdate=utc_now_naive, nullable=False)
+
+
+class KnowledgeChildChunk(Base):
+    """Parent-Child 子块及其原文定位信息。"""
+
+    __tablename__ = "knowledge_child_chunks"
+    __table_args__ = (
+        UniqueConstraint("version_id", "child_index", name="uq_knowledge_child_chunks_version_index"),
+        Index("ix_knowledge_child_chunks_parent_id", "parent_id"),
+        Index("ix_knowledge_child_chunks_file_id", "file_id"),
+        Index("ix_knowledge_child_chunks_kb_id", "kb_id"),
+    )
+
+    child_id = Column(String(64), primary_key=True)
+    parent_id = Column(
+        String(64),
+        ForeignKey("knowledge_parent_chunks.parent_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_id = Column(
+        String(64),
+        ForeignKey("knowledge_document_versions.version_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    kb_id = Column(String(80), ForeignKey("knowledge_bases.kb_id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(String(64), ForeignKey("knowledge_files.file_id", ondelete="CASCADE"), nullable=False)
+    doc_id = Column(String(64), nullable=False)
+    child_index = Column(Integer, nullable=False)
+    child_text = Column(Text, nullable=False)
+    start_offset = Column(Integer, nullable=False)
+    end_offset = Column(Integer, nullable=False)
+    token_count = Column(Integer, nullable=False)
+    spans = Column(JSON_VALUE, nullable=False)
+    chunk_metadata = Column("metadata", JSON_VALUE, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now_naive, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now_naive, onupdate=utc_now_naive, nullable=False)
+
+
 class KnowledgeGraphEntity(Base):
     """知识图谱实体"""
 
@@ -158,6 +260,25 @@ class KnowledgeGraphEntityMention(Base):
     kb_id = Column(String(80), ForeignKey("knowledge_bases.kb_id", ondelete="CASCADE"), nullable=False)
     file_id = Column(String(64), ForeignKey("knowledge_files.file_id", ondelete="CASCADE"), nullable=False)
     chunk_id = Column(String(128), ForeignKey("knowledge_chunks.chunk_id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now_naive)
+
+
+class KnowledgeParentGraphEntityMention(Base):
+    """ParentChunk 中实体引用的持久化边界。"""
+
+    __tablename__ = "knowledge_parent_graph_entity_mentions"
+    __table_args__ = (
+        UniqueConstraint("entity_id", "parent_id", name="uq_knowledge_parent_graph_entity_mentions_entity_parent"),
+        Index("ix_knowledge_parent_graph_entity_mentions_kb_id", "kb_id"),
+        Index("ix_knowledge_parent_graph_entity_mentions_file_id", "file_id"),
+        Index("ix_knowledge_parent_graph_entity_mentions_parent_id", "parent_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    entity_id = Column(String(64), ForeignKey("knowledge_graph_entities.entity_id", ondelete="CASCADE"), nullable=False)
+    kb_id = Column(String(80), ForeignKey("knowledge_bases.kb_id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(String(64), ForeignKey("knowledge_files.file_id", ondelete="CASCADE"), nullable=False)
+    parent_id = Column(String(64), ForeignKey("knowledge_parent_chunks.parent_id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now_naive)
 
 
@@ -208,6 +329,27 @@ class KnowledgeGraphTripleMention(Base):
     kb_id = Column(String(80), ForeignKey("knowledge_bases.kb_id", ondelete="CASCADE"), nullable=False)
     file_id = Column(String(64), ForeignKey("knowledge_files.file_id", ondelete="CASCADE"), nullable=False)
     chunk_id = Column(String(128), ForeignKey("knowledge_chunks.chunk_id", ondelete="CASCADE"), nullable=False)
+    text = Column(Text)
+    extractor_type = Column(String(128))
+    created_at = Column(DateTime(timezone=True), default=utc_now_naive)
+
+
+class KnowledgeParentGraphTripleMention(Base):
+    """ParentChunk 中三元组引用的持久化边界。"""
+
+    __tablename__ = "knowledge_parent_graph_triple_mentions"
+    __table_args__ = (
+        UniqueConstraint("triple_id", "parent_id", name="uq_knowledge_parent_graph_triple_mentions_triple_parent"),
+        Index("ix_knowledge_parent_graph_triple_mentions_kb_id", "kb_id"),
+        Index("ix_knowledge_parent_graph_triple_mentions_file_id", "file_id"),
+        Index("ix_knowledge_parent_graph_triple_mentions_parent_id", "parent_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    triple_id = Column(String(64), ForeignKey("knowledge_graph_triples.triple_id", ondelete="CASCADE"), nullable=False)
+    kb_id = Column(String(80), ForeignKey("knowledge_bases.kb_id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(String(64), ForeignKey("knowledge_files.file_id", ondelete="CASCADE"), nullable=False)
+    parent_id = Column(String(64), ForeignKey("knowledge_parent_chunks.parent_id", ondelete="CASCADE"), nullable=False)
     text = Column(Text)
     extractor_type = Column(String(128))
     created_at = Column(DateTime(timezone=True), default=utc_now_naive)

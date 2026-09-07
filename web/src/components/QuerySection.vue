@@ -84,6 +84,18 @@
                     {{ chunk.content }}
                   </div>
 
+                  <div v-if="chunk.metadata?.result_type === 'parent_child_parent' && chunk.child_hits?.length" class="parent-child-hits">
+                    <div class="parent-child-hits-title">子块命中</div>
+                    <div v-for="child in chunk.child_hits" :key="child.child_id" class="parent-child-hit">
+                      <span class="parent-child-hit-id">{{ child.child_id }}</span>
+                      <span v-if="child.chunk_index !== undefined" class="parent-child-hit-index">#{{ child.chunk_index }}</span>
+                      <span v-if="child.score !== undefined" class="parent-child-hit-score">{{ Number(child.score).toFixed(4) }}</span>
+                      <span v-if="child.start_offset !== undefined && child.end_offset !== undefined" class="parent-child-hit-offset">
+                        {{ child.start_offset }}-{{ child.end_offset }}
+                      </span>
+                    </div>
+                  </div>
+
                   <div class="result-metadata">
                     <span v-if="chunk.metadata?.source" class="metadata-item">
                       <strong>来源:</strong> {{ chunk.metadata.source }}
@@ -609,6 +621,42 @@ defineExpose({
             margin-right: 4px;
           }
         }
+      }
+
+      .parent-child-hits {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--gray-150);
+      }
+
+      .parent-child-hits-title {
+        margin-bottom: 6px;
+        color: var(--gray-600);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .parent-child-hit {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        min-height: 24px;
+        color: var(--gray-700);
+        font-size: 12px;
+      }
+
+      .parent-child-hit-id {
+        color: var(--main-700);
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      }
+
+      .parent-child-hit-index,
+      .parent-child-hit-score,
+      .parent-child-hit-offset {
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--gray-100);
       }
     }
   }

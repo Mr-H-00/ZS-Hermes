@@ -10,6 +10,24 @@ BUILTIN_PROVIDERS: list[dict[str, Any]] = [
         "api_key_env": "OPENAI_API_KEY",
         "models_endpoint": "https://api.openai.com/v1/models",
     },
+    {
+        "provider_id": "local-bge-m3",
+        "display_name": "Local BGE-M3",
+        "provider_type": "local",
+        "base_url": "rag_qa/models/bge-m3",
+        "capabilities": ["embedding"],
+        "enabled_models": [
+            {
+                "id": "BAAI/bge-m3",
+                "type": "embedding",
+                "display_name": "BAAI/bge-m3 (Local)",
+                "dimension": 1024,
+                "batch_size": 4,
+                "source": "manual",
+            }
+        ],
+        "is_enabled": False,
+    },
     # {
     #     "provider_id": "anthropic",
     #     "display_name": "Anthropic",

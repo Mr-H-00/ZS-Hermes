@@ -351,6 +351,19 @@
                   :loading="chunkPresetLoading"
                 />
               </a-form-item>
+              <div v-if="isMilvus" class="indexing-defaults-section">
+                <div class="indexing-defaults-heading">索引能力默认值</div>
+                <IndexingFeaturesConfig
+                  :params="editForm"
+                  :embedding-model-spec="database?.embedding_model_spec || ''"
+                />
+                <a-alert
+                  class="indexing-defaults-alert"
+                  type="info"
+                  show-icon
+                  message="保存后仅影响未来入库任务；已有文件需要在文件菜单中显式选择“重新切片”。"
+                />
+              </div>
               <template v-if="isDifyKb">
                 <a-form-item label="Dify API URL" name="dify_api_url">
                   <a-input
@@ -459,13 +472,19 @@ import QuerySection from '@/components/QuerySection.vue'
 import MindMapSection from '@/components/MindMapSection.vue'
 import KnowledgeEvaluationWorkspace from '@/components/evaluation/KnowledgeEvaluationWorkspace.vue'
 import SearchConfigPanel from '@/components/SearchConfigPanel.vue'
+import IndexingFeaturesConfig from '@/components/IndexingFeaturesConfig.vue'
 import AiTextarea from '@/components/AiTextarea.vue'
 import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import { databaseApi } from '@/apis/knowledge_api'
 import { departmentApi } from '@/apis/department_api'
 import { authApi } from '@/apis/auth_api'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
-import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
+import {
+  DEFAULT_CHUNK_PRESET_ID,
+  buildKnowledgeIndexingDefaultsPayload,
+  createIndexingFeatureParams,
+  validateParentChildConfig
+} from '@/utils/chunkUtils'
 import { kbUtils } from '@/utils/kb_utils'
 
 const route = useRoute()
@@ -907,6 +926,7 @@ const editForm = reactive({
   name: '',
   description: '',
   chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
+  ...createIndexingFeatureParams(),
   dify_api_url: '',
   dify_token: '',
   dify_dataset_id: '',
@@ -992,6 +1012,7 @@ const showEditModal = () => {
   editForm.description = database.value.description || ''
   editForm.chunk_preset_id =
     database.value.additional_params?.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
+  Object.assign(editForm, createIndexingFeatureParams(database.value.additional_params))
   editForm.dify_api_url = database.value.additional_params?.dify_api_url || ''
   editForm.dify_token = database.value.additional_params?.dify_token || ''
   editForm.dify_dataset_id = database.value.additional_params?.dify_dataset_id || ''
@@ -1020,6 +1041,15 @@ const handleEditSubmit = async () => {
   editSaving.value = true
   try {
     await editFormRef.value.validate()
+
+    if (isMilvus.value) {
+      const parentChildError = validateParentChildConfig(editForm)
+      if (parentChildError) {
+        editModalTab.value = 'basic'
+        message.warning(parentChildError)
+        return
+      }
+    }
 
     if (shareConfigFormRef.value) {
       const validation = shareConfigFormRef.value.validate()
@@ -1071,9 +1101,7 @@ const handleEditSubmit = async () => {
         updateData.additional_params.notion_token = editForm.notion_token.trim()
       }
     } else {
-      updateData.additional_params = {
-        chunk_preset_id: editForm.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
-      }
+      updateData.additional_params = buildKnowledgeIndexingDefaultsPayload(editForm)
     }
 
     if (searchConfigPanelRef.value?.hasChanges?.()) {
@@ -1125,6 +1153,23 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
   padding: 16px var(--page-padding);
+}
+
+.indexing-defaults-section {
+  margin: 4px 0 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--gray-200);
+}
+
+.indexing-defaults-heading {
+  margin-bottom: 16px;
+  color: var(--gray-800);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.indexing-defaults-alert {
+  margin-top: 16px;
 }
 
 .file-panel {

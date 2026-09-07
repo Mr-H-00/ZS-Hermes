@@ -128,8 +128,14 @@ async def main() -> None:
                 BUSINESS_SCHEMA_VERSION,
                 upgrade_from=(1,),
             )
+            knowledge_version = versions.get("knowledge")
             if not lite_mode_enabled():
-                _require_supported_version("knowledge", versions.get("knowledge"), KNOWLEDGE_SCHEMA_VERSION)
+                _require_supported_version(
+                    "knowledge",
+                    knowledge_version,
+                    KNOWLEDGE_SCHEMA_VERSION,
+                    upgrade_from=(1, 2),
+                )
 
             if business_version is None:
                 await pg_manager.create_business_tables()
@@ -147,8 +153,9 @@ async def main() -> None:
                     await pg_manager.setup_langgraph_checkpointer()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
-            if not lite_mode_enabled() and versions.get("knowledge") is None:
-                await pg_manager.create_knowledge_tables()
+            if not lite_mode_enabled() and (knowledge_version is None or knowledge_version < KNOWLEDGE_SCHEMA_VERSION):
+                if knowledge_version is None:
+                    await pg_manager.create_knowledge_tables()
                 await pg_manager.ensure_knowledge_schema()
                 await pg_manager.record_schema_version("knowledge", KNOWLEDGE_SCHEMA_VERSION)
 

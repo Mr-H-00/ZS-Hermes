@@ -4,11 +4,12 @@ import os
 import textwrap
 import time
 import traceback
+from typing import Any
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 from starlette.responses import StreamingResponse
 from yuxi.config.options import system_options
 from yuxi.knowledge.base import KBNameConflictError, KBNotFoundError
@@ -37,6 +38,11 @@ from yuxi.permissions import (
     resolve_knowledge_base_permission,
 )
 from yuxi.services.knowledge_folder_service import knowledge_folder_service
+from yuxi.services.knowledge_reslice_service import (
+    ResliceConflictError,
+    ResliceTargetError,
+    knowledge_reslice_service,
+)
 from yuxi.services.ocr_service import parse_document
 from yuxi.services.task_service import TaskContext, tasker
 from yuxi.services.workspace_service import read_workspace_file_bytes
@@ -66,11 +72,97 @@ PENDING_INDEX_STATUSES = ["parsed", "error_indexing"]
 VIRTUAL_FOLDER_MIGRATION_TASK_TYPE = "knowledge_virtual_folder_migration"
 
 
+class EmbeddingFeaturesRequest(BaseModel):
+    """描述单次请求中的嵌入模型能力开关。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    bge_m3_sparse_enabled: bool | None = None
+
+
+class ParentChildRequest(BaseModel):
+    """描述知识库级 Parent-Child 切块参数。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    enabled: bool | None = None
+    parent_token_num: int | None = None
+    child_token_num: int | None = None
+    child_overlap_percent: int | float | None = None
+    separator: str | None = None
+    tokenizer_policy: str | None = None
+    text_preservation: str | None = None
+
+
+class DocumentParentChildRequest(BaseModel):
+    """描述文件任务级 Parent-Child 切块参数。"""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    enabled: bool | None = None
+    parent_token_num: int | None = None
+    child_token_num: int | None = None
+    child_overlap_percent: int | float | None = None
+    separator: str | None = None
+    tokenizer_id: str | None = None
+    text_preservation: str | None = None
+
+
+class KnowledgeAdditionalParamsRequest(BaseModel):
+    """保留连接器扩展字段，并固定知识库通用新增字段的结构。"""
+
+    model_config = ConfigDict(strict=True, extra="allow")
+
+    chunk_preset_id: str | None = None
+    chunk_parser_config: dict[str, Any] | None = None
+    embedding_features: EmbeddingFeaturesRequest | None = None
+    parent_child: ParentChildRequest | None = None
+
+
+class DocumentProcessingParamsRequest(KnowledgeAdditionalParamsRequest):
+    """描述添加、入库或重切文档时可覆盖的处理参数。"""
+
+    parent_child: DocumentParentChildRequest | None = None
+
+
+class QueryRequest(BaseModel):
+    """描述知识库查询正文及单次临时参数。"""
+
+    model_config = ConfigDict(strict=True)
+
+    query: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class QueryParamsUpdateRequest(RootModel[dict[str, Any]]):
+    """描述保持扁平兼容的知识库查询参数更新。"""
+
+
+class ResliceDocumentsRequest(BaseModel):
+    """描述用户显式触发的文档重切范围和任务级参数。"""
+
+    model_config = ConfigDict(strict=True)
+
+    file_ids: list[str] = Field(min_length=1, max_length=MAX_DIRECT_DOCUMENT_ACTION_FILE_IDS)
+    params: DocumentProcessingParamsRequest = Field(default_factory=DocumentProcessingParamsRequest)
+
+
+def _dump_request_params(params: BaseModel | dict | None) -> dict | None:
+    """把结构化请求参数转回现有 service 使用的 JSON 字典。"""
+    if params is None:
+        return None
+    if isinstance(params, dict):
+        return dict(params)
+    return params.model_dump(exclude_none=True, exclude_unset=True)
+
+
 class UpdateDatabaseRequest(BaseModel):
+    """描述知识库基本信息和默认处理配置更新。"""
+
     name: str
     description: str
     llm_model_spec: str | None = None
-    additional_params: dict | None = None
+    additional_params: KnowledgeAdditionalParamsRequest | None = None
     share_config: dict | None = None
 
 
@@ -80,8 +172,10 @@ class WorkspaceImportRequest(BaseModel):
 
 
 class AddUploadedDocumentsRequest(BaseModel):
+    """描述已上传对象转换为知识库文件记录的请求。"""
+
     items: list[str]
-    params: dict | None = None
+    params: DocumentProcessingParamsRequest | None = None
 
 
 class MoveDocumentRequest(BaseModel):
@@ -89,16 +183,22 @@ class MoveDocumentRequest(BaseModel):
 
 
 class ParseDocumentsRequest(BaseModel):
+    """描述指定文档集合的解析或入库请求。"""
+
     file_ids: list[str] = Field(default_factory=list)
-    params: dict | None = None
+    params: DocumentProcessingParamsRequest | None = None
 
 
 class PendingParseDocumentsRequest(BaseModel):
-    params: dict | None = None
+    """描述全部待解析文件的处理参数。"""
+
+    params: DocumentProcessingParamsRequest | None = None
 
 
 class PendingIndexDocumentsRequest(BaseModel):
-    params: dict | None = None
+    """描述全部待入库文件的处理参数。"""
+
+    params: DocumentProcessingParamsRequest | None = None
 
 
 media_types = {
@@ -252,15 +352,16 @@ async def create_database(
     description: str = Body(...),
     embedding_model_spec: str | None = Body(None),
     kb_type: str = Body("milvus"),
-    additional_params: dict | None = Body(None),
+    additional_params: KnowledgeAdditionalParamsRequest | None = Body(None),
     llm_model_spec: str | None = Body(None),
     share_config: dict | None = Body(None),
     current_user: User = Depends(get_admin_user),
 ):
     """创建知识库"""
+    additional_params_data = _dump_request_params(additional_params)
     logger.debug(
         f"Create database {database_name} with kb_type {kb_type}, "
-        f"additional_params {additional_params}, llm_model_spec {llm_model_spec}, "
+        f"additional_params {additional_params_data}, llm_model_spec {llm_model_spec}, "
         f"embedding_model_spec {embedding_model_spec}, share_config {share_config}"
     )
     try:
@@ -273,7 +374,7 @@ async def create_database(
             share_config=share_config,
             created_by=current_user.uid,
             created_by_department_id=current_user.department_id,
-            **(additional_params or {}),
+            **(additional_params_data or {}),
         )
 
         # 需要重新加载所有智能体，因为工具刷新了
@@ -434,7 +535,7 @@ async def update_database_info(
             data.description,
             data.llm_model_spec,
             update_llm_model_spec=update_llm_model_spec,
-            additional_params=data.additional_params,
+            additional_params=_dump_request_params(data.additional_params),
             share_config=data.share_config,
             operator_uid=current_user.uid,
             operator_department_id=current_user.department_id,
@@ -750,10 +851,11 @@ async def document_file_exists(
 async def add_documents(
     kb_id: str,
     items: list[str] = Body(...),
-    params: dict = Body(...),
+    params: DocumentProcessingParamsRequest = Body(...),
     current_user: User = Depends(require_knowledge_base_manage),
 ):
     """添加文档到知识库（上传 -> 解析 -> 可选入库）"""
+    params = _dump_request_params(params) or {}
     logger.debug(f"Add documents for kb_id {kb_id}: {items} {params=}")
     await _ensure_database_supports_documents(kb_id, "文档添加/解析/入库")
 
@@ -769,6 +871,11 @@ async def add_documents(
     chunk_parser_config = params.get("chunk_parser_config")
     if isinstance(chunk_parser_config, dict):
         indexing_params["chunk_parser_config"] = chunk_parser_config
+
+    for key in ("parent_child", "embedding_features"):
+        value = params.get(key)
+        if isinstance(value, dict):
+            indexing_params[key] = value
 
     if content_type == "url":
         raise HTTPException(status_code=400, detail="URL 处理方式已变更，请使用 fetch-url 接口先获取内容")
@@ -945,7 +1052,7 @@ async def add_uploaded_documents(
     logger.debug(f"Add uploaded documents for kb_id {kb_id}: {payload.items} params={payload.params}")
     await _ensure_database_supports_documents(kb_id, "文档添加")
 
-    params = _ensure_document_params(payload.params)
+    params = _ensure_document_params(_dump_request_params(payload.params))
     content_type = params.get("content_type", "file")
     if content_type == "url":
         raise HTTPException(status_code=400, detail="URL 处理方式已变更，请使用 fetch-url 接口先获取内容")
@@ -1094,23 +1201,9 @@ async def _run_index_file_ids(
 
     total = len(file_ids)
     processed_items = []
-    param_update_failed = set()
-
-    if params:
-        for file_id in file_ids:
-            try:
-                await knowledge_base.update_file_params(kb_id, file_id, params, operator_id=operator_id)
-            except Exception as e:
-                logger.error(f"Failed to update params for {file_id}: {e}")
-                param_update_failed.add(file_id)
-                processed_items.append({"file_id": file_id, "status": "failed", "error": f"参数更新失败: {str(e)}"})
 
     for idx, file_id in enumerate(file_ids, 1):
         await context.raise_if_cancelled()
-
-        if file_id in param_update_failed:
-            logger.debug(f"Skipping {file_id} due to param update failure")
-            continue
 
         progress = 5.0 + (idx / total) * 90.0
         await context.set_progress(progress, f"正在入库第 {idx}/{total} 个文档")
@@ -1425,6 +1518,57 @@ async def _enqueue_index_pending_task(
         return {"message": f"提交失败: {e}", "status": "failed"}
 
 
+def _reslice_fingerprint(kb_id: str, file_ids: list[str], params: dict) -> str:
+    """为重切请求生成稳定指纹，供 Tasker 并发去重。"""
+    return knowledge_reslice_service.fingerprint(kb_id, file_ids, params)
+
+
+async def _validate_reslice_files(kb_id: str, file_ids: list[str]) -> None:
+    """确认重切目标属于当前知识库且不是文件夹。"""
+    try:
+        await knowledge_reslice_service.validate_files(kb_id, file_ids)
+    except ResliceTargetError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+async def _run_reslice_file_ids(
+    *,
+    context: TaskContext,
+    kb_id: str,
+    file_ids: list[str],
+    operator_id: str,
+    params: dict,
+) -> dict:
+    """执行显式重切任务，单文件失败不污染同批次其它结果。"""
+    return await knowledge_reslice_service.run(
+        context=context,
+        kb_id=kb_id,
+        file_ids=file_ids,
+        operator_id=operator_id,
+        params=params,
+    )
+
+
+async def _enqueue_reslice_task(
+    kb_id: str,
+    file_ids: list[str],
+    params: dict,
+    operator_id: str,
+    db_info: KnowledgeBaseDetail,
+) -> dict:
+    """提交显式重切任务，复用等价请求并拒绝活动文件冲突。"""
+    try:
+        return await knowledge_reslice_service.enqueue(
+            kb_id=kb_id,
+            file_ids=file_ids,
+            params=params,
+            operator_id=operator_id,
+            database_name=db_info.name,
+        )
+    except ResliceConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @knowledge.post("/databases/{kb_id}/documents/parse")
 async def parse_documents(
     kb_id: str,
@@ -1437,7 +1581,7 @@ async def parse_documents(
         params = None
     else:
         file_ids = payload.file_ids
-        params = payload.params
+        params = _dump_request_params(payload.params)
     file_ids = _validate_direct_document_action_file_ids(file_ids)
     logger.debug(f"Parse documents for kb_id {kb_id}: {file_ids} {params=}")
     db_info = await _ensure_database_supports_documents(kb_id, "文档解析")
@@ -1451,7 +1595,8 @@ async def parse_pending_documents(
     current_user: User = Depends(require_knowledge_base_manage),
 ):
     """按状态手动触发全部待解析文档解析。"""
-    params = (payload.params if payload else None) or {}
+    params = _dump_request_params(payload.params) if payload else None
+    params = params or {}
     logger.debug(f"Parse pending documents for kb_id {kb_id}: {params=}")
     db_info = await _ensure_database_supports_documents(kb_id, "文档解析")
     return await _enqueue_parse_pending_task(kb_id, current_user.uid, db_info, params=params)
@@ -1461,12 +1606,12 @@ async def parse_pending_documents(
 async def index_documents(
     kb_id: str,
     file_ids: list[str] = Body(...),
-    params: dict | None = Body(None),
+    params: DocumentProcessingParamsRequest | None = Body(None),
     current_user: User = Depends(require_knowledge_base_manage),
 ):
     """手动触发文档入库（Indexing），支持更新参数"""
     file_ids = _validate_direct_document_action_file_ids(file_ids)
-    params = params or {}
+    params = _dump_request_params(params) or {}
     logger.debug(f"Index documents for kb_id {kb_id}: {file_ids} {params=}")
     db_info = await _ensure_database_supports_documents(kb_id, "文档入库")
     return await _enqueue_index_task(kb_id, file_ids, params, current_user.uid, db_info)
@@ -1479,10 +1624,25 @@ async def index_pending_documents(
     current_user: User = Depends(require_knowledge_base_manage),
 ):
     """按状态手动触发全部待入库文档入库。"""
-    params = (payload.params if payload else None) or {}
+    params = _dump_request_params(payload.params) if payload else None
+    params = params or {}
     logger.debug(f"Index pending documents for kb_id {kb_id}: {params=}")
     db_info = await _ensure_database_supports_documents(kb_id, "文档入库")
     return await _enqueue_index_pending_task(kb_id, params, current_user.uid, db_info)
+
+
+@knowledge.post("/databases/{kb_id}/documents/reslice")
+async def reslice_documents(
+    kb_id: str,
+    payload: ResliceDocumentsRequest,
+    current_user: User = Depends(require_knowledge_base_manage),
+):
+    """显式提交文档重切任务，复用知识库管理权限和文件可见性校验。"""
+    file_ids = _validate_direct_document_action_file_ids(payload.file_ids)
+    params = _dump_request_params(payload.params) or {}
+    db_info = await _ensure_database_supports_documents(kb_id, "文档重切")
+    await _validate_reslice_files(kb_id, file_ids)
+    return await _enqueue_reslice_task(kb_id, file_ids, params, current_user.uid, db_info)
 
 
 @knowledge.get("/databases/{kb_id}/documents/{doc_id}")
@@ -1748,15 +1908,16 @@ async def get_kb_image(kb_id: str, object_path: str, current_user: User = Depend
 @knowledge.post("/databases/{kb_id}/query")
 async def query_knowledge_base(
     kb_id: str,
-    query: str = Body(...),
-    meta: dict = Body(...),
+    payload: QueryRequest,
     current_user: User = Depends(require_knowledge_base_read),
 ):
     """查询知识库"""
-    logger.debug(f"Query knowledge base {kb_id}: {query}")
+    logger.debug(f"Query knowledge base {kb_id}: {payload.query}")
     try:
-        result = await knowledge_base.aquery(query, kb_id=kb_id, **meta)
+        result = await knowledge_base.aquery(payload.query, kb_id=kb_id, **payload.meta)
         return {"result": result, "status": "success"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"知识库查询失败 {e}, {traceback.format_exc()}")
         return {"message": f"知识库查询失败: {e}", "status": "failed"}
@@ -1765,15 +1926,16 @@ async def query_knowledge_base(
 @knowledge.post("/databases/{kb_id}/query-test")
 async def query_test(
     kb_id: str,
-    query: str = Body(...),
-    meta: dict = Body(...),
+    payload: QueryRequest,
     current_user: User = Depends(require_knowledge_base_read),
 ):
     """测试查询知识库"""
-    logger.debug(f"Query test in {kb_id}: {query}")
+    logger.debug(f"Query test in {kb_id}: {payload.query}")
     try:
-        result = await knowledge_base.aquery(query, kb_id=kb_id, **meta)
+        result = await knowledge_base.aquery(payload.query, kb_id=kb_id, **payload.meta)
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"测试查询失败 {e}, {traceback.format_exc()}")
         return {"message": f"测试查询失败: {e}", "status": "failed"}
@@ -1781,20 +1943,25 @@ async def query_test(
 
 @knowledge.put("/databases/{kb_id}/query-params")
 async def update_knowledge_base_query_params(
-    kb_id: str, params: dict = Body(...), current_user: User = Depends(require_knowledge_base_manage)
+    kb_id: str,
+    payload: QueryParamsUpdateRequest,
+    current_user: User = Depends(require_knowledge_base_manage),
 ):
     """更新知识库查询参数配置"""
+    params = payload.root
     try:
-        await knowledge_base.update_kb_query_params(kb_id, params)
+        saved_params = await knowledge_base.update_kb_query_params(kb_id, params)
 
         logger.info(f"更新知识库 {kb_id} 查询参数: {params}")
 
-        return {"message": "success", "data": params}
+        return {"message": "success", "data": saved_params}
 
     except KBNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"更新知识库查询参数失败: {e}")
         raise HTTPException(status_code=500, detail=f"更新查询参数失败: {str(e)}")

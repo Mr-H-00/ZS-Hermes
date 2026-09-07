@@ -21,8 +21,10 @@ from yuxi.storage.postgres.models_business import ModelProvider
 
 VALID_MODEL_TYPES = {"chat", "embedding", "rerank"}
 VALID_MODEL_SOURCES = {"manual", "remote"}
-VALID_PROVIDER_TYPES = {"openai", "anthropic", "gemini", "openrouter"}
+VALID_PROVIDER_TYPES = {"openai", "anthropic", "gemini", "openrouter", "local"}
 OPENAI_COMPATIBLE_REQUEST_BODY_PROVIDER_TYPES = {"openai", "openrouter"}
+LOCAL_PROVIDER_TYPE = "local"
+LOCAL_BGE_M3_MODEL_ID = "BAAI/bge-m3"
 ALLOWED_EXTRA_BODY_FIELDS = {
     "enable_thinking",
     "reasoning",
@@ -123,6 +125,24 @@ def _validate_models_capabilities(enabled_models: list[dict], capabilities: set[
             raise ValueError(f"模型 {model['id']} 的 type={model['type']} 不在 provider 能力 {sorted(capabilities)} 内")
 
 
+def _validate_local_provider_scope(
+    provider_type: str | None,
+    capabilities: list[str] | None,
+    enabled_models: list[dict[str, Any]] | None,
+) -> None:
+    """校验 local provider 只暴露本地 BGE-M3 embedding 能力。"""
+    if provider_type != LOCAL_PROVIDER_TYPE:
+        return
+
+    capability_set = set(capabilities or [])
+    if capability_set - {"embedding"}:
+        raise ValueError("local provider 仅支持 embedding 能力")
+
+    for model in enabled_models or []:
+        if model.get("type") != "embedding" or model.get("id") != LOCAL_BGE_M3_MODEL_ID:
+            raise ValueError(f"local provider 仅支持 {LOCAL_BGE_M3_MODEL_ID} embedding 模型")
+
+
 def _validate_request_body_overrides_scope(
     enabled_models: list[dict[str, Any]],
     provider_type: str | None,
@@ -210,6 +230,11 @@ def _normalize_payload(data: dict[str, Any], *, partial: bool = False) -> dict[s
 
     if not partial:
         _validate_request_body_overrides_scope(payload.get("enabled_models"), payload.get("provider_type"))
+        _validate_local_provider_scope(
+            payload.get("provider_type"),
+            payload.get("capabilities"),
+            payload.get("enabled_models"),
+        )
 
     return payload
 
@@ -226,6 +251,8 @@ def resolve_api_key(provider: ModelProvider) -> str | None:
 def check_credential_status(provider: ModelProvider) -> str:
     """检查 provider 的凭证配置状态。仅对启用的 provider 做校验。"""
     if not provider.is_enabled:
+        return "ok"
+    if getattr(provider, "provider_type", None) == LOCAL_PROVIDER_TYPE:
         return "ok"
     if provider.api_key:
         return "ok"
@@ -307,7 +334,7 @@ async def ensure_builtin_model_providers_in_db(db: AsyncSession) -> None:
         payload["enabled_models"] = provider_def.get("enabled_models", [])
         payload["headers_json"] = payload.get("headers_json") or {}
         payload["extra_json"] = payload.get("extra_json") or {}
-        payload["is_enabled"] = provider_id == "siliconflow-cn"
+        payload["is_enabled"] = provider_def.get("is_enabled", provider_id == "siliconflow-cn")
         payload["is_builtin"] = True
         payload["created_by"] = "system"
         payload["updated_by"] = "system"
@@ -344,6 +371,12 @@ async def update_provider_config(
         _validate_request_body_overrides_scope(
             payload.get("enabled_models", provider.enabled_models or []),
             payload.get("provider_type", provider.provider_type),
+        )
+    if {"provider_type", "capabilities", "enabled_models"} & set(payload):
+        _validate_local_provider_scope(
+            payload.get("provider_type", provider.provider_type),
+            payload.get("capabilities", provider.capabilities or []),
+            payload.get("enabled_models", provider.enabled_models or []),
         )
     payload["updated_by"] = username
     return await update_model_provider(db, provider, payload)
@@ -392,6 +425,9 @@ async def fetch_remote_models(provider: ModelProvider) -> list[dict[str, Any]]:
     Chat 模型默认走 /models；embedding 只有 provider 声明能力时才走
     /embeddings/models；rerank 供应商没有稳定通用端点，配置了 endpoint 才拉取。
     """
+    if getattr(provider, "provider_type", None) == LOCAL_PROVIDER_TYPE:
+        return []
+
     headers = dict(provider.headers_json or {})
     api_key = resolve_api_key(provider)
     if api_key:

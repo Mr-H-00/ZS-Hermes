@@ -51,6 +51,7 @@ services:
       - ./docker/volumes/yuxi/threads:/app/user-data
       - ./docker/volumes/yuxi/skill-sources:/app/skill-sources
       - ./docker/volumes/yuxi/skill-projections:/app/skill-projections
+      - ./rag_qa/models:/app/rag_qa/models:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
@@ -95,6 +96,7 @@ services:
       - ./docker/volumes/yuxi/threads:/app/user-data
       - ./docker/volumes/yuxi/skill-sources:/app/skill-sources
       - ./docker/volumes/yuxi/skill-projections:/app/skill-projections
+      - ./rag_qa/models:/app/rag_qa/models:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:

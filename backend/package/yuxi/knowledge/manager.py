@@ -17,6 +17,7 @@ from yuxi.knowledge.cache import (
     serialize_kb_config,
 )
 from yuxi.knowledge.chunking.ragflow_like.presets import deep_merge
+from yuxi.knowledge.config_normalization import normalize_knowledge_additional_params, normalize_query_params
 from yuxi.knowledge.factory import KnowledgeBaseFactory
 from yuxi.knowledge.read_models import (
     KnowledgeBaseConfig,
@@ -167,13 +168,19 @@ class KnowledgeBaseManager:
             raise KBNotFoundError(f"Unsupported knowledge base type: {kb_type}")
 
         executor = self._get_or_create_kb_instance(kb_type)
+        embedding_model_spec = snapshot.get("embedding_model_spec")
         additional_params = executor.normalize_additional_params(snapshot.get("additional_params"))
+        if getattr(executor, "apply_chunk_defaults", False):
+            additional_params = normalize_knowledge_additional_params(additional_params, embedding_model_spec)
         additional_params.pop("stats", None)
+        query_params = snapshot.get("query_params") or executor.get_default_query_params(kb_id)
+        if getattr(executor, "apply_chunk_defaults", False):
+            query_params = normalize_query_params(query_params, additional_params)
         return KnowledgeBaseConfig(
             kb_id=kb_id,
             kb_type=kb_type,
-            embedding_model_spec=snapshot.get("embedding_model_spec"),
-            query_params=snapshot.get("query_params") or executor.get_default_query_params(kb_id),
+            embedding_model_spec=embedding_model_spec,
+            query_params=query_params,
             additional_params=additional_params,
         )
 
@@ -286,8 +293,13 @@ class KnowledgeBaseManager:
             if kb_class
             else dict(row.additional_params or {})
         )
+        if kb_class and getattr(kb_class, "apply_chunk_defaults", False):
+            additional_params = normalize_knowledge_additional_params(additional_params, row.embedding_model_spec)
         persisted_stats = additional_params.pop("stats", None)
         normalized_stats = self._normalize_database_stats(stats if stats is not None else persisted_stats)
+        query_params = dict(row.query_params or {})
+        if kb_class and getattr(kb_class, "apply_chunk_defaults", False):
+            query_params = normalize_query_params(query_params, additional_params)
 
         return {
             "kb_id": row.kb_id,
@@ -296,7 +308,7 @@ class KnowledgeBaseManager:
             "kb_type": kb_type,
             "embedding_model_spec": row.embedding_model_spec,
             "llm_model_spec": row.llm_model_spec,
-            "query_params": dict(row.query_params or {}),
+            "query_params": query_params,
             "additional_params": additional_params,
             "share_config": self._normalize_share_config(row.share_config),
             "created_by": row.created_by,
@@ -520,6 +532,9 @@ class KnowledgeBaseManager:
         else:
             embedding_model_spec = None
 
+        if getattr(kb_instance, "apply_chunk_defaults", False):
+            additional_params = normalize_knowledge_additional_params(additional_params, embedding_model_spec)
+
         from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 
         kb_repo = KnowledgeBaseRepository()
@@ -530,6 +545,8 @@ class KnowledgeBaseManager:
                 break
 
         query_params = kb_instance.get_default_query_params(kb_id)
+        if getattr(kb_instance, "apply_chunk_defaults", False):
+            query_params = normalize_query_params(query_params, additional_params)
         persisted_additional_params = {**additional_params, "stats": self._normalize_database_stats(None)}
         await kb_repo.create(
             {
@@ -569,7 +586,7 @@ class KnowledgeBaseManager:
     async def add_file_record(
         self, kb_id: str, item: str, params: dict | None = None, operator_id: str | None = None
     ) -> dict:
-        """Add file record to metadata"""
+        """使用知识库最终配置创建文件记录并刷新统计。"""
         config = await self.get_kb_config(kb_id)
         executor = self._get_or_create_kb_instance(config.kb_type)
         return await self._run_with_stats_refresh(
@@ -580,11 +597,12 @@ class KnowledgeBaseManager:
                 params,
                 operator_id,
                 additional_params=config.additional_params,
+                embedding_model_spec=config.embedding_model_spec,
             ),
         )
 
     async def parse_file(self, kb_id: str, file_id: str, operator_id: str | None = None) -> dict:
-        """Parse file to Markdown"""
+        """使用知识库最终配置解析文件并刷新统计。"""
         config = await self.get_kb_config(kb_id)
         executor = self._get_or_create_kb_instance(config.kb_type)
         return await self._run_with_stats_refresh(
@@ -594,6 +612,7 @@ class KnowledgeBaseManager:
                 file_id,
                 operator_id,
                 additional_params=config.additional_params,
+                embedding_model_spec=config.embedding_model_spec,
             ),
         )
 
@@ -615,8 +634,14 @@ class KnowledgeBaseManager:
             ),
         )
 
+    async def reslice_file(
+        self, kb_id: str, file_id: str, operator_id: str | None = None, params: dict | None = None
+    ) -> dict:
+        """显式重切单个文档，并沿用索引路径的版本化提交语义。"""
+        return await self.index_file(kb_id, file_id, operator_id=operator_id, params=params)
+
     async def update_file_params(self, kb_id: str, file_id: str, params: dict, operator_id: str | None = None) -> None:
-        """Update file processing params"""
+        """将任务级处理参数合并到指定文件。"""
         config = await self.get_kb_config(kb_id)
         executor = self._get_or_create_kb_instance(config.kb_type)
         await executor.update_file_params(
@@ -625,12 +650,19 @@ class KnowledgeBaseManager:
             params,
             operator_id,
             additional_params=config.additional_params,
+            embedding_model_spec=config.embedding_model_spec,
         )
 
     async def aquery(self, query_text: str, kb_id: str, **kwargs) -> str:
         """异步查询知识库"""
         config = await self.get_kb_config(kb_id)
         executor = self._get_or_create_kb_instance(config.kb_type)
+        if getattr(executor, "apply_chunk_defaults", False):
+            query_params = normalize_query_params(
+                {"options": {**config.query_options, **kwargs}},
+                config.additional_params,
+            )
+            kwargs = query_params["options"]
         return await executor.aquery(
             query_text,
             kb_id,
@@ -642,20 +674,27 @@ class KnowledgeBaseManager:
         """获取知识库查询参数定义，并合并当前保存值。"""
         config = await self.get_kb_config(kb_id)
         executor = self._get_or_create_kb_instance(config.kb_type)
-        params = executor.get_query_params_config(kb_id=kb_id)
+        params = executor.get_query_params_config(kb_id=kb_id, additional_params=config.additional_params)
         for option in params.get("options", []):
             key = option.get("key")
             if key in config.query_options:
                 option["default"] = config.query_options[key]
         return params
 
-    async def update_kb_query_params(self, kb_id: str, params: dict[str, Any]) -> None:
+    async def update_kb_query_params(self, kb_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """合并并持久化知识库查询参数。"""
         from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 
-        kb = await KnowledgeBaseRepository().merge_query_params_options(kb_id, params)
+        config = await self.get_kb_config(kb_id)
+        executor = self._get_or_create_kb_instance(config.kb_type)
+        normalizer = normalize_query_params if getattr(executor, "apply_chunk_defaults", False) else None
+        kb = await KnowledgeBaseRepository().merge_query_params_options(kb_id, params, normalizer=normalizer)
         if kb is None:
             raise KBNotFoundError(f"Database {kb_id} not found")
+
+        saved_query_params = dict(kb.query_params or {})
+        saved_options = dict(saved_query_params.get("options") or {})
+        return {key: saved_options[key] for key in params if key in saved_options}
 
     async def export_data(self, kb_id: str, format: str = "zip", **kwargs) -> str:
         """导出知识库数据"""
@@ -1150,6 +1189,11 @@ class KnowledgeBaseManager:
             merged_additional_params = kb_class.normalize_additional_params(
                 deep_merge(current_additional_params, additional_params)
             )
+            if getattr(kb_class, "apply_chunk_defaults", False):
+                merged_additional_params = normalize_knowledge_additional_params(
+                    merged_additional_params,
+                    kb.embedding_model_spec,
+                )
             update_data["additional_params"] = merged_additional_params
 
         if share_config is not None:
@@ -1171,6 +1215,12 @@ class KnowledgeBaseManager:
         """按 kb_id 加载最新运行时元数据并执行检索。"""
         config = await self.get_kb_config(kb_id)
         executor = self._get_or_create_kb_instance(config.kb_type)
+        if getattr(executor, "apply_chunk_defaults", False):
+            query_params = normalize_query_params(
+                {"options": {**config.query_options, **options}},
+                config.additional_params,
+            )
+            options = query_params["options"]
         results = await executor.aquery(
             query,
             kb_id,

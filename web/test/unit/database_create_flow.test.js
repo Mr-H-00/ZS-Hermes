@@ -26,6 +26,24 @@ test('切换知识库类型保留通用字段并重置类型参数', () => {
   assert.deepEqual(selected.additional_params, { url: '', token: '' })
 })
 
+test('从连接器切回嵌入知识库时恢复可选索引默认配置', () => {
+  const connectorForm = selectDatabaseType(createEmptyDatabaseForm('embed/model'), 'dify', difyType)
+  const selected = selectDatabaseType(connectorForm, 'milvus', {
+    requires_embedding_model: true,
+    create_params: { options: [] }
+  })
+
+  assert.deepEqual(selected.additional_params.embedding_features, {
+    bge_m3_sparse_enabled: false
+  })
+  assert.equal(selected.additional_params.parent_child.enabled, false)
+  assert.deepEqual(selected.additional_params.chunk_parser_config, {
+    chunk_token_num: 512,
+    overlapped_percent: 0,
+    delimiter: '\\n'
+  })
+})
+
 test('配置校验拒绝空名称和必填动态字段', () => {
   const empty = selectDatabaseType(createEmptyDatabaseForm(), 'dify', difyType)
   assert.equal(validateDatabaseConfig(empty, difyType), '请输入知识库名称')
@@ -57,6 +75,64 @@ test('只为需要嵌入模型的类型构建模型和分块参数', () => {
   )
   assert.equal('embedding_model_spec' in connectorRequest, false)
   assert.equal('chunk_preset_id' in connectorRequest.additional_params, false)
+})
+
+test('Parent-Child 关闭时提交原单层分块参数且不提交隐藏父子参数', () => {
+  const form = {
+    ...createEmptyDatabaseForm('provider:BAAI/bge-m3'),
+    name: '原单层知识库',
+    kb_type: 'milvus'
+  }
+  form.additional_params.chunk_parser_config = {
+    chunk_token_num: 768,
+    overlapped_percent: 12,
+    delimiter: '\\n\\n'
+  }
+  form.additional_params.parent_child = {
+    enabled: false,
+    parent_token_num: 100,
+    child_token_num: 200,
+    child_overlap_percent: 120,
+    separator: ''
+  }
+
+  assert.equal(
+    validateDatabaseConfig(form, { requires_embedding_model: true, create_params: { options: [] } }),
+    ''
+  )
+
+  const request = buildDatabaseRequest(
+    form,
+    { requires_embedding_model: true, create_params: { options: [] } },
+    { version: 2 },
+    'fallback/model'
+  )
+
+  assert.deepEqual(request.additional_params.chunk_parser_config, {
+    chunk_token_num: 768,
+    overlapped_percent: 12,
+    delimiter: '\\n\\n'
+  })
+  assert.deepEqual(request.additional_params.parent_child, { enabled: false })
+})
+
+test('Parent-Child 开启时只提交父子块参数并停用原单层参数', () => {
+  const form = {
+    ...createEmptyDatabaseForm('provider:BAAI/bge-m3'),
+    name: '父子块知识库',
+    kb_type: 'milvus'
+  }
+  form.additional_params.parent_child.enabled = true
+
+  const request = buildDatabaseRequest(
+    form,
+    { requires_embedding_model: true, create_params: { options: [] } },
+    { version: 2 },
+    'fallback/model'
+  )
+
+  assert.equal('chunk_parser_config' in request.additional_params, false)
+  assert.deepEqual(request.additional_params.parent_child, form.additional_params.parent_child)
 })
 
 test('知识库类型标签映射将 milvus 解析为 Yuxi', () => {
