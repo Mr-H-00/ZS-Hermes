@@ -14,3 +14,4 @@ def test_chatbot_prompt_declares_workspace_visibility_and_default_write_boundary
     assert "可以读取其他 Project 目录作为参考" in prompt
     assert "未经用户明确要求，不得在当前 Project Workdir 之外" in prompt
     assert "/home/gem/user-data/agents/skills/" in prompt
+    assert "html:preview" not in prompt

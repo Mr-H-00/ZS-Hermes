@@ -179,6 +179,4 @@ class TestGeneralChunkMarkdown:
         doc = "测试\n" * 400  # 约 800 token；默认值错误放宽到 1024 时不会切分
         chunks = general.chunk_markdown(doc)
         token_counts = [nlp.count_tokens(chunk) for chunk in chunks]
-        assert len(chunks) == 2
-        assert sum(token_counts) == 800
-        assert max(token_counts) <= 768
+        assert token_counts == [514, 286]

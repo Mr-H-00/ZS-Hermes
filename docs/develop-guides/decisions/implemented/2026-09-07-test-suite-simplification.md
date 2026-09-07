@@ -41,7 +41,7 @@ Owner：backend/test/run_tests.sh
 - `backend/test/unit/config/test_docker_compose_worktree_slots.py::test_host_test_runner_probes_current_compose_slot` 直接拒绝 health-only 探测。
 - `backend/test/unit/agents/test_provider_reasoning.py` 的历史恢复矩阵保留标准块、旧扩展字段、畸形值和 literal `<think>` 等输入；删除的 3 个实例没有独立断言事实。
 - `backend/test/integration/services/test_provider_reasoning_live.py` 仍仅在显式配置模型时调用计费服务。
-- `test_semantic_chunking_empty_heading.py` 保留标题层级推断和空标题行为两组独立断言。
+- 合并后的 `test_semantic_chunking.py` 保留标题层级推断和空标题行为两组独立断言。
 - 两份 AgentRun 集成测试仍各自保留不同的清理逻辑与 schema fixture，只共享完全相同的最小创建链路。
 - 已用仓库搜索确认删除的数据夹具没有消费者；保留的数据夹具仍有直接引用。
 - QA 限长、Tasker 和 chatbot prompt 的删除项没有独立业务 oracle；其余行为由真实函数结果或运行时测试覆盖。
