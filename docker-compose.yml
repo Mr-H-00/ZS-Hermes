@@ -142,7 +142,7 @@ services:
       POSTGRES_POOL_TIMEOUT_SECONDS: ${WORKER_POSTGRES_POOL_TIMEOUT_SECONDS:-30}
       LANGGRAPH_POSTGRES_POOL_SIZE: ${WORKER_LANGGRAPH_POSTGRES_POOL_SIZE:-120}
       LANGGRAPH_POSTGRES_POOL_TIMEOUT_SECONDS: ${WORKER_LANGGRAPH_POSTGRES_POOL_TIMEOUT_SECONDS:-30}
-    command: watchfiles --filter python "arq server.worker_main.WorkerSettings" /app/server /app/package
+    command: watchfiles --filter python "python -m server.worker_main" /app/server /app/package
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "uv run --no-sync --no-dev arq --check server.worker_main.WorkerSettings"]

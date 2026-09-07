@@ -589,6 +589,7 @@ def _serialize_run_trace(run: AgentRun) -> dict[str, Any]:
             prepared_at=run.prepared_at,
             first_output_at=run.first_output_at,
             finished_at=run.finished_at,
+            first_model_request_at=getattr(run, "first_model_request_at", None),
         ),
     }
 

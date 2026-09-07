@@ -155,26 +155,17 @@ async def test_ensure_business_schema_backfills_subagent_thread_columns_before_d
 
 
 @pytest.mark.asyncio
-async def test_migrate_business_schema_v4_to_v5_drops_agent_run_cursor():
-    """v4→v5 迁移执行删除 AgentRun Redis 游标列的 DDL。"""
+async def test_release_upgrade_converges_run_timing_and_removes_cursor():
+    """发布版升级使用同一套完整 DDL，包含全部模型前时间且删除旧游标。"""
     async with _recording_manager() as (manager, connection):
-        await manager.migrate_business_schema_v4_to_v5()
+        await manager.ensure_business_schema()
 
-    assert connection.statements == [
-        "ALTER TABLE IF EXISTS agent_runs DROP COLUMN IF EXISTS last_event_id",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_migrate_business_schema_v5_to_v6_adds_agent_run_timing():
-    """v5→v6 迁移执行 AgentRun 阶段时间字段 DDL。"""
-    async with _recording_manager() as (manager, connection):
-        await manager.migrate_business_schema_v5_to_v6()
-
-    assert connection.statements == [
-        "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMP WITHOUT TIME ZONE",
-        "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS first_output_at TIMESTAMP WITHOUT TIME ZONE",
-    ]
+    for column in ("prepared_at", "first_output_at", "first_model_request_at"):
+        assert (
+            f"ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS {column} TIMESTAMP WITHOUT TIME ZONE"
+            in connection.statements
+        )
+    assert "ALTER TABLE IF EXISTS agent_runs DROP COLUMN IF EXISTS last_event_id" in connection.statements
 
 
 @pytest.mark.asyncio

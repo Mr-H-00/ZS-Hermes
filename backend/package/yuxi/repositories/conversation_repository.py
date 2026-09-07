@@ -446,6 +446,7 @@ class ConversationRepository:
                     AgentRun.created_at,
                     AgentRun.started_at,
                     AgentRun.prepared_at,
+                    AgentRun.first_model_request_at,
                     AgentRun.first_output_at,
                     AgentRun.finished_at,
                     raiseload=True,

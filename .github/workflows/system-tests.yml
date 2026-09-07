@@ -5,6 +5,8 @@ on:
     paths:
       - '.env.template'
       - 'backend/package/yuxi/**'
+      - 'backend/pyproject.toml'
+      - 'backend/uv.lock'
       - 'backend/server/**'
       - 'backend/test/integration/**'
       - 'backend/test/e2e/**'
@@ -19,6 +21,8 @@ on:
     paths:
       - '.env.template'
       - 'backend/package/yuxi/**'
+      - 'backend/pyproject.toml'
+      - 'backend/uv.lock'
       - 'backend/server/**'
       - 'backend/test/integration/**'
       - 'backend/test/e2e/**'
@@ -92,6 +96,8 @@ jobs:
           exit 1
       - name: Verify worker shipping health
         run: docker compose exec -T worker uv run --no-sync --no-dev arq --check server.worker_main.WorkerSettings
+      - name: Verify local job filtering preserves ARQ dispatch and retry
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_arq_worker_dispatch.py -q
       - name: Verify worker can write personal Skill UserWorkspace
         run: |
           docker compose exec -T -e E2E_USERNAME worker uv run --no-sync --no-dev python - <<'PY'

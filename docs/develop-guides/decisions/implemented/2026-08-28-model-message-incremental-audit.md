@@ -68,7 +68,7 @@ Run 执行期间会在每次 Model start/finish 边界增加一次 PostgreSQL �
 | 验收主张 | 失败面 | 语义 Owner | 直接证据 / 命令 | 负向案例 | 当前结果 |
 |---|---|---|---|---|---|
 | v3 lifecycle 形成同 Run 单行 Model 审计 | start/finish 重复插入或丢失来源顺序 | Message schema、Model audit repository | lifecycle unit、真实 PostgreSQL integration | 重放 start/finish、不同结果覆盖、跨 owner 写入 | Passed |
-| v3→v4 只通过幂等 migration 发布 | 先记录版本或早期 0.7.3 数据库缺少审计列 | storage migrator、schema version 表 | 隔离 PostgreSQL schema migration integration | DDL 重复执行、未来版本 fail-closed | Passed |
+| 发布版升级只通过幂等迁移发布 | 提前记录版本或缺少审计列 | storage migrator、schema version 表 | 隔离 PostgreSQL schema migration integration | DDL 重复执行、未知版本 fail-closed | Passed |
 | 正常、失败、取消和 lease 过期没有残留 running | Run 已终态但审计仍伪装执行中 | AgentRun terminal transaction | AgentRun lease integration、deterministic worker E2E | 模型请求首块后取消、lease 过期 | Passed |
 | running/普通计数不暴露审计，刷新后 ToolCall 仍可见 | 新增 AIMessage 污染统计，或工具型中间消息整行消失 | Conversation/Dashboard repositories、output_message_id | repository unit、history HTTP 与 worker E2E 回读 | running 行、工具型中间行、同线程后续 Run | Passed |
 | Run 执行中和终态后均可按 sequence 查询 Model 时间线 | 只能在最终 State 看到合并结果 | PostgreSQL Message、Model audit repository | API→worker→SSE→PostgreSQL E2E | 取消前回读 running、终态回读两次 Model | Passed |
@@ -77,7 +77,7 @@ Run 执行期间会在每次 Model start/finish 边界增加一次 PostgreSQL �
 
 - 全量 backend unit 通过；真实 PostgreSQL/HTTP integration 覆盖 lease、schema migration 和 Run 结果因果约束。
 - `test_deterministic_agent_path_e2e.py` 通过真实 API→worker→SSE→PostgreSQL 证明：正常 Run 保存两次有序 Model 调用及可靠 usage，同线程后续 Run 不复制旧 operation；取消前回读 running，取消后收敛为 interrupted；history HTTP 结构化回读 ToolCall ID、名称、状态和真实输出。
-- shipping storage migrator 将 business schema 收敛到 v4；七个审计列均由 information schema 回读存在。
+- shipping storage migrator 从 0.7.2 发布版一次补齐当前 business schema；七个审计列均由 information schema 回读存在。
 - Ruff check/format、工程信任检查及其 61 个 unit、`git diff --check` 通过；排除本地 ignored `docs/vibe` 后的隔离 VitePress build 通过（现有 VitePress/Rolldown 兼容警告不阻断）。
 
 ## 风险

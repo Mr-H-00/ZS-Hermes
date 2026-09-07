@@ -42,7 +42,7 @@ Owner：backend/package/yuxi/knowledge/parser/capabilities.py
 ## 验证
 
 - `docker compose exec api uv run --no-sync --group test pytest test/unit -m "not slow"`：Passed，1698 passed、44 skipped。
-- `docker compose exec api python -m pytest test/integration/services/test_schema_migration_version.py::test_business_v4_to_v5_drops_agent_run_cursor_idempotently`：Passed。
+- 真实 PostgreSQL 的旧游标删除与幂等检查：Passed；当前用例合入 `test_v072_business_converges_current_schema_idempotently`，发布升级边界由[Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)维护。
 - `docker compose exec api python -m pytest test/integration/api/test_agent_run_events_router.py test/integration/api/test_agent_request_queue_router.py`：Passed，12 passed。
 - `docker compose exec api python -m pytest test/e2e/test_attachment_and_agent_state.py::test_attachment_confirm_is_reflected_in_thread_metadata`：Passed。
 - `uv run --group test pytest test/unit/services/test_agent_request_queue_service.py test/unit/services/test_run_submission_service.py`：Passed，54 passed。

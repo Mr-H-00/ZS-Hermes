@@ -7,6 +7,7 @@ import json
 import os
 import time
 import uuid
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -15,6 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from yuxi.agents.backends.paths import runtime_workdir_path
 from yuxi.agents.backends.sandbox.provider import get_sandbox_provider
+from yuxi.agents.callbacks.model_request_timing import FirstModelRequestRecorder
 from yuxi.agents.mcp.service import ensure_builtin_mcp_servers_in_db
 from yuxi.agents.skills.service import init_builtin_skills
 from yuxi.config import get_int_env
@@ -215,6 +217,9 @@ class RunContext:
                 return
             try:
                 renewed = await renew_run_lease(self.run_id, self.worker_id)
+                if not renewed and await _run_attempt_finished(self.run_id, self.worker_id):
+                    # 终态事务已清除 lease；本 attempt 仍需完成流收尾、清理和事件发布。
+                    return
             except Exception:
                 logger.error(f"Failed to renew AgentRun lease: run={self.run_id}", exc_info=True)
                 renewed = False
@@ -406,6 +411,25 @@ async def renew_run_lease(run_id: str, worker_id: str) -> bool:
             run_id,
             worker_id=worker_id,
             lease_seconds=RUN_LEASE_SECONDS,
+        )
+
+
+async def _run_attempt_finished(run_id: str, worker_id: str) -> bool:
+    """确认终态由当前最后一次 attempt 提交，不能把其他 Owner 的终态当作成功收尾。"""
+    async with pg_manager.get_async_session_context() as db:
+        repo = AgentRunRepository(db)
+        run = await repo.get_run(run_id)
+        if run is None or run.status not in TERMINAL_RUN_STATUSES:
+            return False
+        attempts = await repo.list_run_attempts(run_id)
+        if not attempts:
+            return False
+        attempt = attempts[-1]
+        return (
+            attempt.worker_id == worker_id
+            and attempt.outcome == run.status
+            and attempt.finished_at is not None
+            and attempt.finished_at == run.finished_at
         )
 
 
@@ -768,22 +792,40 @@ async def _finish_user_cancel(
 
 
 async def _consume_stream_with_cancel(agen, run_ctx: RunContext):
-    while True:
-        next_task = asyncio.create_task(agen.__anext__())
-        cancel_task = asyncio.create_task(run_ctx.wait_cancelled())
-        done, _ = await asyncio.wait({next_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED)
+    """每 Run 只建一个取消等待器，退出前回收执行任务和生成器。"""
+    cancel_task = asyncio.create_task(run_ctx.wait_cancelled())
+    next_task = None
+    try:
+        while True:
+            next_task = asyncio.create_task(agen.__anext__())
+            done, _ = await asyncio.wait({next_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED)
+            if cancel_task in done:
+                raise asyncio.CancelledError(f"run {run_ctx.run_id} cancelled")
+            try:
+                yield next_task.result()
+            except StopAsyncIteration:
+                return
+    finally:
 
-        if cancel_task in done:
-            next_task.cancel()
-            await asyncio.gather(next_task, return_exceptions=True)
-            raise asyncio.CancelledError(f"run {run_ctx.run_id} cancelled")
+        async def close_execution():
+            """关闭整条执行链后，外层才能释放 lease 或重试。"""
+            tasks = [cancel_task] if next_task is None else [cancel_task, next_task]
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await agen.aclose()
 
-        cancel_task.cancel()
-        await asyncio.gather(cancel_task, return_exceptions=True)
-        try:
-            yield next_task.result()
-        except StopAsyncIteration:
-            return
+        cleanup = asyncio.create_task(close_execution())
+        cancelled_during_cleanup = False
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                # ARQ abort 和进程退出可以重复取消；执行未关闭就不能交出 owner。
+                cancelled_during_cleanup = True
+        cleanup.result()
+        if cancelled_during_cleanup:
+            raise asyncio.CancelledError
 
 
 async def process_agent_run(ctx, run_id: str):
@@ -832,6 +874,7 @@ async def process_agent_run(ctx, run_id: str):
         interval_ms=LOADING_FLUSH_INTERVAL_MS,
         max_chars=LOADING_FLUSH_MAX_CHARS,
     )
+    model_request_recorder = FirstModelRequestRecorder()
     try:
         if await _is_cancel_requested(run_id):
             run_ctx.cancel_event.set()
@@ -1026,6 +1069,7 @@ async def process_agent_run(ctx, run_id: str):
                     db=db,
                     execution_snapshot=execution_snapshot,
                     on_prepared=record_prepared,
+                    model_request_recorder=model_request_recorder,
                 )
             elif run_type in {"chat", "subagent"}:
                 stream = stream_agent_chat(
@@ -1038,134 +1082,136 @@ async def process_agent_run(ctx, run_id: str):
                     save_user_message=False,
                     execution_snapshot=execution_snapshot,
                     on_prepared=record_prepared,
+                    model_request_recorder=model_request_recorder,
                 )
             else:
                 raise RuntimeError(f"unsupported run_type after validation: {run_type}")
 
-            async for chunk_bytes in _consume_stream_with_cancel(stream, run_ctx):
-                for chunk in _iter_json_chunks(chunk_bytes):
-                    target_thread_id = _chunk_thread_id(chunk, thread_id)
-                    if chunk.get("status") == "loading":
-                        if (
-                            not first_output_observed
-                            and target_thread_id == thread_id
-                            and _contains_model_output(chunk)
-                        ):
-                            first_output_observed = True
-                            first_output_at = utc_now_naive()
+            async with aclosing(_consume_stream_with_cancel(stream, run_ctx)) as chunks:
+                async for chunk_bytes in chunks:
+                    for chunk in _iter_json_chunks(chunk_bytes):
+                        target_thread_id = _chunk_thread_id(chunk, thread_id)
+                        if chunk.get("status") == "loading":
+                            if (
+                                not first_output_observed
+                                and target_thread_id == thread_id
+                                and _contains_model_output(chunk)
+                            ):
+                                first_output_observed = True
+                                first_output_at = utc_now_naive()
+                                await writer.append(chunk, thread_id=target_thread_id)
+                                await writer.flush(target_thread_id)
+                                await _record_run_timing_best_effort(
+                                    run_id,
+                                    worker_id,
+                                    "first_output",
+                                    observed_at=first_output_at,
+                                )
+                                continue
                             await writer.append(chunk, thread_id=target_thread_id)
-                            await writer.flush(target_thread_id)
-                            await _record_run_timing_best_effort(
-                                run_id,
-                                worker_id,
-                                "first_output",
-                                observed_at=first_output_at,
-                            )
                             continue
-                        await writer.append(chunk, thread_id=target_thread_id)
-                        continue
 
-                    await writer.flush(target_thread_id)
-                    status = chunk.get("status") or "event"
-                    event_type, event_payload = _map_chunk_to_run_event(chunk)
-                    is_parent_approval = target_thread_id == thread_id and status in {
-                        "ask_user_question_required",
-                        "human_approval_required",
-                    }
-                    if is_parent_approval:
-                        pending_interrupt = (chunk, target_thread_id)
-                    elif event_type != "end" and not (
-                        target_thread_id == thread_id and status in {"error", "interrupted"}
-                    ):
-                        await _append_run_event_best_effort(
-                            run_id,
-                            event_type,
-                            event_payload,
-                            thread_id=target_thread_id,
-                        )
-
-                    if await run_ctx.is_cancelled():
-                        raise asyncio.CancelledError(f"run {run_id} cancelled")
-
-                    if target_thread_id != thread_id:
-                        continue
-
-                    if status == "finished":
-                        if chunk.get("terminal_committed") is True:
-                            committed_run = await _get_run(run_id)
-                            if committed_run is not None:
-                                await _finish_execution_tree_children(committed_run)
-                            await _release_runtime_before_terminal_event(committed_run)
-                            await _append_end_event(
+                        await writer.flush(target_thread_id)
+                        status = chunk.get("status") or "event"
+                        event_type, event_payload = _map_chunk_to_run_event(chunk)
+                        is_parent_approval = target_thread_id == thread_id and status in {
+                            "ask_user_question_required",
+                            "human_approval_required",
+                        }
+                        if is_parent_approval:
+                            pending_interrupt = (chunk, target_thread_id)
+                        elif event_type != "end" and not (
+                            target_thread_id == thread_id and status in {"error", "interrupted"}
+                        ):
+                            await _append_run_event_best_effort(
                                 run_id,
-                                "completed",
-                                thread_id=thread_id,
-                                payload={"chunk": chunk},
+                                event_type,
+                                event_payload,
+                                thread_id=target_thread_id,
                             )
-                            terminal_set = True
-                        else:
+
+                        if await run_ctx.is_cancelled():
+                            raise asyncio.CancelledError(f"run {run_id} cancelled")
+
+                        if target_thread_id != thread_id:
+                            continue
+
+                        if status == "finished":
+                            if chunk.get("terminal_committed") is True:
+                                committed_run = await _get_run(run_id)
+                                if committed_run is not None:
+                                    await _finish_execution_tree_children(committed_run)
+                                await _release_runtime_before_terminal_event(committed_run)
+                                await _append_end_event(
+                                    run_id,
+                                    "completed",
+                                    thread_id=thread_id,
+                                    payload={"chunk": chunk},
+                                )
+                                terminal_set = True
+                            else:
+                                transition = await _finish_run(
+                                    run_id,
+                                    "completed",
+                                    thread_id=thread_id,
+                                    chunk=chunk,
+                                    current_user=user,
+                                    worker_id=worker_id,
+                                )
+                                terminal_set = transition.status in TERMINAL_RUN_STATUSES
+                        elif status == "error":
                             transition = await _finish_run(
                                 run_id,
-                                "completed",
+                                "failed",
                                 thread_id=thread_id,
                                 chunk=chunk,
+                                error_type=chunk.get("error_type") or "stream_error",
+                                error_message=chunk.get("error_message") or chunk.get("message"),
                                 current_user=user,
                                 worker_id=worker_id,
+                                publish_end=False,
                             )
+                            if transition.changed:
+                                await _append_run_event_best_effort(
+                                    run_id,
+                                    event_type,
+                                    event_payload,
+                                    thread_id=target_thread_id,
+                                )
+                                await _append_end_event(
+                                    run_id,
+                                    transition.status or "failed",
+                                    thread_id=thread_id,
+                                    payload={"chunk": chunk},
+                                )
                             terminal_set = transition.status in TERMINAL_RUN_STATUSES
-                    elif status == "error":
-                        transition = await _finish_run(
-                            run_id,
-                            "failed",
-                            thread_id=thread_id,
-                            chunk=chunk,
-                            error_type=chunk.get("error_type") or "stream_error",
-                            error_message=chunk.get("error_message") or chunk.get("message"),
-                            current_user=user,
-                            worker_id=worker_id,
-                            publish_end=False,
-                        )
-                        if transition.changed:
-                            await _append_run_event_best_effort(
+                        elif status == "interrupted":
+                            status_value = "cancelled" if await _is_cancel_requested(run_id) else "interrupted"
+                            transition = await _finish_run(
                                 run_id,
-                                event_type,
-                                event_payload,
-                                thread_id=target_thread_id,
-                            )
-                            await _append_end_event(
-                                run_id,
-                                transition.status or "failed",
+                                status_value,
                                 thread_id=thread_id,
-                                payload={"chunk": chunk},
+                                chunk=chunk,
+                                error_type=status_value,
+                                error_message=chunk.get("message"),
+                                current_user=user,
+                                worker_id=worker_id,
+                                publish_end=False,
                             )
-                        terminal_set = transition.status in TERMINAL_RUN_STATUSES
-                    elif status == "interrupted":
-                        status_value = "cancelled" if await _is_cancel_requested(run_id) else "interrupted"
-                        transition = await _finish_run(
-                            run_id,
-                            status_value,
-                            thread_id=thread_id,
-                            chunk=chunk,
-                            error_type=status_value,
-                            error_message=chunk.get("message"),
-                            current_user=user,
-                            worker_id=worker_id,
-                            publish_end=False,
-                        )
-                        if transition.changed or transition.status == "interrupted":
-                            await _append_run_event_best_effort(
-                                run_id,
-                                event_type,
-                                event_payload,
-                                thread_id=target_thread_id,
-                            )
-                            await _append_end_event(
-                                run_id,
-                                transition.status or status_value,
-                                thread_id=thread_id,
-                                payload={"chunk": chunk},
-                            )
-                        terminal_set = transition.status in TERMINAL_RUN_STATUSES
+                            if transition.changed or transition.status == "interrupted":
+                                await _append_run_event_best_effort(
+                                    run_id,
+                                    event_type,
+                                    event_payload,
+                                    thread_id=target_thread_id,
+                                )
+                                await _append_end_event(
+                                    run_id,
+                                    transition.status or status_value,
+                                    thread_id=thread_id,
+                                    payload={"chunk": chunk},
+                                )
+                            terminal_set = transition.status in TERMINAL_RUN_STATUSES
 
         await writer.flush()
         if pending_interrupt and not terminal_set:
@@ -1224,6 +1270,7 @@ async def process_agent_run(ctx, run_id: str):
             )
 
     except asyncio.CancelledError as cancellation:
+        await model_request_recorder.persist(run_id=run_id, worker_id=worker_id)
         await _flush_writer_best_effort(writer)
         if run_ctx.lease_lost:
             logger.warning(f"Run stopped after losing its lease: {run_id}")
@@ -1554,6 +1601,8 @@ class WorkerSettings:
         func(process_task, timeout=TASKER_DEFAULT_TIMEOUT_SECONDS + 30),
     ]
     max_jobs = worker_max_jobs()
+    # 交互请求避免继承 ARQ 默认的 500ms 空闲轮询等待。
+    poll_delay = 0.05
     max_tries = 2
     retry_jobs = True
     # 单任务最长执行时间（秒），可配置：超长图谱构建/深度检索场景需调大，

@@ -119,13 +119,17 @@ async def test_schema_migration_lock_serializes_real_postgres_sessions() -> None
         await engine.dispose()
 
 
-async def test_business_v2_to_v6_converges_current_schema_idempotently() -> None:
-    """business v2 升级后补齐当前版本的完整业务结构。"""
+async def test_v072_business_converges_current_schema_idempotently() -> None:
+    """v0.7.2 发布结构一次补齐当前字段与约束，重复执行保持幂等。"""
     schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_task_schema")
 
     try:
         await manager.create_business_tables()
         async with scoped_engine.begin() as connection:
+            # v0.7.2 tag 没有这些字段，不能用当前 ORM 预建它们来证明迁移。
+            for column in ("prepared_at", "first_output_at", "first_model_request_at"):
+                await connection.execute(text(f"ALTER TABLE agent_runs DROP COLUMN {column}"))
+            await connection.execute(text("ALTER TABLE agent_runs ADD COLUMN last_event_id VARCHAR(64)"))
             await connection.execute(text("DROP TABLE scheduled_agent_runs"))
             await connection.execute(text("DROP TABLE scheduled_agent_jobs"))
             await connection.execute(text("DROP TABLE tasks"))
@@ -239,7 +243,8 @@ async def test_business_v2_to_v6_converges_current_schema_idempotently() -> None
             "lease_expires_at",
             "timeout_seconds",
         } <= task_columns
-        assert {"prepared_at", "first_output_at"} <= run_columns
+        assert {"prepared_at", "first_output_at", "first_model_request_at"} <= run_columns
+        assert "last_event_id" not in run_columns
         assert tuple(row) == ("running", None, 0, 0)
         assert scheduled_tables == {"scheduled_agent_jobs", "scheduled_agent_runs"}
         assert {
@@ -263,13 +268,13 @@ async def test_business_v2_to_v6_converges_current_schema_idempotently() -> None
             "ix_scheduled_agent_runs_job_created",
             "ix_scheduled_agent_runs_dispatching",
         }.issubset(scheduled_indexes)
-        assert BUSINESS_SCHEMA_VERSION == 6
+        assert BUSINESS_SCHEMA_VERSION == 7
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 
 
-async def test_business_v3_to_v4_adds_audit_columns_idempotently() -> None:
-    """v3→v4 必须先补齐 Trace 与 Message 审计列，且可安全重放。"""
+async def test_release_upgrade_adds_audit_columns_idempotently() -> None:
+    """发布版缺失的 Trace 与 Message 审计列由完整升级补齐，且可安全重放。"""
     schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_audit_schema")
     try:
         await manager.create_business_tables()
@@ -287,7 +292,7 @@ async def test_business_v3_to_v4_adds_audit_columns_idempotently() -> None:
             for column in audit_columns:
                 await connection.execute(text(f"ALTER TABLE messages DROP COLUMN {column}"))
 
-        await manager.migrate_business_schema_v3_to_v4()
+        await manager.ensure_business_schema()
         async with scoped_engine.begin() as connection:
             await connection.execute(text("DROP INDEX uq_messages_run_role_operation_id"))
             await connection.execute(
@@ -296,7 +301,7 @@ async def test_business_v3_to_v4_adds_audit_columns_idempotently() -> None:
                     "ON messages(run_id, operation_id) WHERE operation_id IS NOT NULL"
                 )
             )
-        await manager.migrate_business_schema_v3_to_v4()
+        await manager.ensure_business_schema()
 
         async with scoped_engine.connect() as connection:
             columns = set(
@@ -327,63 +332,6 @@ async def test_business_v3_to_v4_adds_audit_columns_idempotently() -> None:
         assert {("messages", column) for column in audit_columns} <= columns
         assert "uq_messages_run_operation_id" not in audit_indexes
         assert "(run_id, role, operation_id)" in audit_indexes["uq_messages_run_role_operation_id"]
-    finally:
-        await _drop_isolated_schema(schema, admin_engine, scoped_engine)
-
-
-async def test_business_v4_to_v5_drops_agent_run_cursor_idempotently() -> None:
-    """v4→v5 删除 AgentRun 的历史 Redis 游标列，且可安全重放。"""
-    schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_run_cursor_schema")
-    try:
-        await manager.create_business_tables()
-        async with scoped_engine.begin() as connection:
-            await connection.execute(text("ALTER TABLE agent_runs ADD COLUMN last_event_id VARCHAR(64)"))
-
-        await manager.migrate_business_schema_v4_to_v5()
-        await manager.migrate_business_schema_v4_to_v5()
-
-        async with scoped_engine.connect() as connection:
-            columns = set(
-                (
-                    await connection.execute(
-                        text(
-                            "SELECT column_name FROM information_schema.columns "
-                            "WHERE table_schema = :schema AND table_name = 'agent_runs'"
-                        ),
-                        {"schema": schema},
-                    )
-                ).scalars()
-            )
-        assert "last_event_id" not in columns
-    finally:
-        await _drop_isolated_schema(schema, admin_engine, scoped_engine)
-
-
-async def test_business_v5_to_v6_adds_agent_run_timing_idempotently() -> None:
-    """v5→v6 增加 AgentRun 阶段时间列，且可安全重放。"""
-    schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_run_timing_schema")
-    try:
-        await manager.create_business_tables()
-        async with scoped_engine.begin() as connection:
-            await connection.execute(text("ALTER TABLE agent_runs DROP COLUMN prepared_at"))
-            await connection.execute(text("ALTER TABLE agent_runs DROP COLUMN first_output_at"))
-
-        await manager.migrate_business_schema_v5_to_v6()
-        await manager.migrate_business_schema_v5_to_v6()
-
-        async with scoped_engine.connect() as connection:
-            columns = set(
-                (
-                    await connection.execute(
-                        text(
-                            "SELECT column_name FROM information_schema.columns "
-                            "WHERE table_schema = :schema AND table_name = 'agent_runs'"
-                        ),
-                        {"schema": schema},
-                    )
-                ).scalars()
-            )
-        assert {"prepared_at", "first_output_at"} <= columns
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 

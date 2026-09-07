@@ -23,7 +23,7 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
-BUSINESS_SCHEMA_VERSION = 6
+BUSINESS_SCHEMA_VERSION = 7
 KNOWLEDGE_SCHEMA_VERSION = 2
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
@@ -98,6 +98,7 @@ AGENT_RUN_FACT_SCHEMA_STATEMENTS = (
 AGENT_RUN_TIMING_SCHEMA_STATEMENTS = (
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMP WITHOUT TIME ZONE",
     "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS first_output_at TIMESTAMP WITHOUT TIME ZONE",
+    "ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS first_model_request_at TIMESTAMP WITHOUT TIME ZONE",
 )
 WORKDIR_PATH_SCHEMA_STATEMENTS = (
     f"""
@@ -401,17 +402,17 @@ class PostgresManager(metaclass=SingletonMeta):
             raise RuntimeError("PostgreSQL manager not initialized. Please check configuration.")
 
     def get_langgraph_checkpointer(self) -> AsyncPostgresSaver:
-        """获取当前进程共享的 PostgreSQL LangGraph checkpointer。"""
+        """为本次构图创建独立 saver，共享有界连接池而不共享其实例锁。"""
         self._check_initialized()
         if self.langgraph_pool is None:
             raise RuntimeError("PostgreSQL LangGraph connection pool is not initialized.")
-        if self.langgraph_checkpointer is None:
-            self.langgraph_checkpointer = AsyncPostgresSaver(self.langgraph_pool)
-        return self.langgraph_checkpointer
+        return AsyncPostgresSaver(self.langgraph_pool)
 
     async def setup_langgraph_checkpointer(self) -> AsyncPostgresSaver:
-        """跨进程串行创建 LangGraph checkpoint 表并返回共享 checkpointer。"""
-        checkpointer = self.get_langgraph_checkpointer()
+        """跨进程串行创建 checkpoint 表，迁移实例不参与运行时构图。"""
+        if self.langgraph_checkpointer is None:
+            self.langgraph_checkpointer = self.get_langgraph_checkpointer()
+        checkpointer = self.langgraph_checkpointer
         if not self._langgraph_checkpointer_setup:
             async with self.langgraph_pool.connection() as connection:
                 await connection.execute("SELECT pg_advisory_lock(94721802)")
@@ -914,27 +915,6 @@ class PostgresManager(metaclass=SingletonMeta):
         async with self.async_engine.begin() as conn:
             for stmt in stmts:
                 await conn.execute(text(stmt))
-
-    async def migrate_business_schema_v3_to_v4(self) -> None:
-        """为既有 business v3 数据库增加 AgentRun Message 审计字段。"""
-        self._check_initialized()
-        async with self.async_engine.begin() as conn:
-            for statement in (*AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS, *MESSAGE_AUDIT_SCHEMA_STATEMENTS):
-                await conn.execute(text(statement))
-
-    async def migrate_business_schema_v4_to_v5(self) -> None:
-        """删除不再由运行时拥有的 AgentRun Redis 游标字段。"""
-        self._check_initialized()
-        async with self.async_engine.begin() as conn:
-            for statement in AGENT_RUN_CURSOR_SCHEMA_STATEMENTS:
-                await conn.execute(text(statement))
-
-    async def migrate_business_schema_v5_to_v6(self) -> None:
-        """为既有 business v5 数据库增加 AgentRun 阶段时间字段。"""
-        self._check_initialized()
-        async with self.async_engine.begin() as conn:
-            for statement in AGENT_RUN_TIMING_SCHEMA_STATEMENTS:
-                await conn.execute(text(statement))
 
     async def ensure_business_schema(self):
         """确保业务 schema 包含后续新增字段（运行时 schema 演进）。"""

@@ -272,6 +272,7 @@ async def test_stream_agent_resume_commits_before_stream_and_routes_subagent_chu
                     {"namespace": ["task:1"], "thread_id": "child-thread"},
                 ),
             )
+            yield "checkpoint", SimpleNamespace(values={})
 
         async def get_graph(self, context=None):
             class FakeGraph:

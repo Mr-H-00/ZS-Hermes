@@ -48,7 +48,10 @@ def test_build_agent_context_applies_runtime_input_to_declared_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_agent_runtime_includes_subagents_only_when_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("snapshot", [None, {"normalized_context": {"system_prompt": "manifest"}}])
+async def test_resolve_agent_runtime_includes_subagents_only_when_requested(
+    monkeypatch: pytest.MonkeyPatch, snapshot
+) -> None:
     calls: list[str] = []
 
     class FakeAgentRepository:
@@ -80,7 +83,13 @@ async def test_resolve_agent_runtime_includes_subagents_only_when_requested(monk
     monkeypatch.setattr(svc, "ConversationRepository", FakeConversationRepository)
     monkeypatch.setattr(svc, "resolve_conversation_workdir_path", _resolve_test_workdir)
     monkeypatch.setattr(svc, "ensure_bound_user_workdir", lambda _uid, _path: None)
-    monkeypatch.setattr(svc, "normalize_agent_context_config", _fake_normalize_agent_context_config)
+
+    async def normalize(context, **kwargs):
+        """有 manifest 快照时重复解析应使回归失败。"""
+        assert snapshot is None, "manifest 后不应重复解析随后被丢弃的配置"
+        return await _fake_normalize_agent_context_config(context, **kwargs)
+
+    monkeypatch.setattr(svc, "normalize_agent_context_config", normalize)
     monkeypatch.setattr(
         svc.agent_manager,
         "get_agent",
@@ -95,6 +104,7 @@ async def test_resolve_agent_runtime_includes_subagents_only_when_requested(monk
             user=user,
             requested_agent_slug="worker",
             thread_id="child-thread",
+            execution_snapshot=snapshot,
         )
 
     agent_item, backend, agent_config, conversation = await svc._resolve_agent_runtime(
@@ -103,12 +113,13 @@ async def test_resolve_agent_runtime_includes_subagents_only_when_requested(monk
         requested_agent_slug="worker",
         thread_id="child-thread",
         agent_kind="subagent",
+        execution_snapshot=snapshot,
     )
 
     assert calls == ["main", "subagent"]
     assert agent_item.slug == "worker"
     assert backend.context_schema is None
-    assert agent_config == {}
+    assert agent_config == (snapshot["normalized_context"] if snapshot is not None else {})
     assert conversation.thread_id == "child-thread"
 
 
@@ -260,20 +271,12 @@ async def test_save_messages_from_langgraph_state_handles_dict_tool_call_blocks(
                 }
             )
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            assert context is fake_context
-            return FakeGraph()
-
     conv_repo = _FakeConvRepo(None)
-    fake_context = object()
 
     await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=conv_repo,
-        config_dict={"configurable": {"thread_id": "thread-1", "uid": "user-1"}},
-        context=fake_context,
         trace_info=None,
     )
 
@@ -308,14 +311,8 @@ async def test_save_messages_from_langgraph_state_backfills_run_output_message(m
         async def aget_state(self, _config):
             return SimpleNamespace(values={"messages": [HumanMessage(content="question"), AIMessage(content="answer")]})
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            assert context is fake_context
-            return FakeGraph()
-
     fake_db = FakeDB()
     conv_repo = _FakeConvRepo(fake_db)
-    fake_context = object()
     captured: dict[str, object] = {}
 
     class FakeRunRepo:
@@ -344,11 +341,9 @@ async def test_save_messages_from_langgraph_state_backfills_run_output_message(m
     monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=conv_repo,
-        config_dict={"configurable": {"thread_id": "thread-1", "uid": "user-1"}},
-        context=fake_context,
         trace_info={"langfuse_trace_id": "trace-1"},
         run_id="run-1",
         request_id="req-1",
@@ -389,10 +384,6 @@ async def test_state_fallback_does_not_rebind_hidden_message_from_previous_run(m
                 }
             )
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            return FakeGraph()
-
     captured: dict[str, int] = {}
 
     class FakeRunRepo:
@@ -413,11 +404,9 @@ async def test_state_fallback_does_not_rebind_hidden_message_from_previous_run(m
     monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=conv_repo,
-        config_dict={},
-        context=object(),
         run_id="run-current",
         request_id="request-current",
         worker_id="worker-current",
@@ -492,10 +481,6 @@ async def test_state_reconcile_uses_latest_error_unless_run_is_interrupted(
                 }
             )
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            return FakeGraph()
-
     class FakeRunRepo:
         def __init__(self, _db):
             pass
@@ -534,11 +519,9 @@ async def test_state_reconcile_uses_latest_error_unless_run_is_interrupted(
     monkeypatch.setattr(svc, "_reconcile_tool_error_from_state", reconcile_tool)
 
     await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=_FakeConvRepo(fake_db),
-        config_dict={},
-        context=object(),
         run_id="run-current",
         request_id="request-current",
         worker_id="worker-current",
@@ -588,10 +571,6 @@ async def test_model_state_reconcile_uses_latest_message_when_operation_id_is_re
                 }
             )
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            return FakeGraph()
-
     class FakeModelAuditRepo:
         def __init__(self, _db):
             pass
@@ -619,11 +598,9 @@ async def test_model_state_reconcile_uses_latest_message_when_operation_id_is_re
     monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=conv_repo,
-        config_dict={},
-        context=object(),
         run_id="run-current",
         request_id="request-current",
         worker_id="worker-current",
@@ -667,10 +644,6 @@ async def test_completed_run_rejects_unmatched_final_state_message(monkeypatch: 
                 }
             )
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            return FakeGraph()
-
     class FakeAuditRepo:
         def __init__(self, _db):
             pass
@@ -696,11 +669,9 @@ async def test_completed_run_rejects_unmatched_final_state_message(monkeypatch: 
 
     with pytest.raises(ValueError, match="最终 State AIMessage"):
         await svc.save_messages_from_langgraph_state(
-            agent_instance=FakeAgent(),
+            state=await FakeGraph().aget_state({}),
             thread_id="thread-1",
             conv_repo=_FakeConvRepo(fake_db),
-            config_dict={},
-            context=object(),
             run_id="run-1",
             request_id="request-1",
             worker_id="worker-1",
@@ -744,10 +715,6 @@ async def test_interrupted_run_does_not_bind_older_reconciled_model_audit(
                 }
             )
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            return FakeGraph()
-
     class FakeAuditRepo:
         def __init__(self, _db):
             pass
@@ -784,11 +751,9 @@ async def test_interrupted_run_does_not_bind_older_reconciled_model_audit(
     monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     committed = await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=conv_repo,
-        config_dict={},
-        context=object(),
         run_id="run-1",
         request_id="request-1",
         worker_id="worker-1",
@@ -837,10 +802,6 @@ async def test_tool_call_interrupt_ignores_historical_same_id_tool_message(monke
                 }
             )
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            return FakeGraph()
-
     class FakeAuditRepo:
         def __init__(self, _db):
             pass
@@ -876,11 +837,9 @@ async def test_tool_call_interrupt_ignores_historical_same_id_tool_message(monke
     monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     committed = await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=conv_repo,
-        config_dict={},
-        context=object(),
         run_id="run-1",
         request_id="request-1",
         worker_id="worker-1",
@@ -911,10 +870,6 @@ async def test_interrupt_persists_message_and_terminal_status_in_one_commit(
         async def aget_state(self, _config):
             return SimpleNamespace(values={"messages": [AIMessage(content="waiting")]})
 
-    class FakeAgent:
-        async def get_graph(self, *, context):
-            return FakeGraph()
-
     class FakeRunRepo:
         def __init__(self, _db):
             pass
@@ -940,11 +895,9 @@ async def test_interrupt_persists_message_and_terminal_status_in_one_commit(
     monkeypatch.setattr(svc, "ToolMessageAuditRepository", _EmptyToolAuditRepo)
 
     terminal_committed = await svc.save_messages_from_langgraph_state(
-        agent_instance=FakeAgent(),
+        state=await FakeGraph().aget_state({}),
         thread_id="thread-1",
         conv_repo=_FakeConvRepo(fake_db),
-        config_dict={},
-        context=object(),
         run_id="run-1",
         request_id="request-1",
         worker_id="worker-1",
@@ -1017,10 +970,7 @@ async def test_manifest_snapshot_prompt_keeps_workspace_agent_context(monkeypatc
         return "用户工作区 agents/AGENTS.md 内容：\nWORKSPACE-MARKER"
 
     monkeypatch.setattr(agent_context.asyncio, "to_thread", fake_to_thread)
-    config = svc._runtime_agent_config(
-        {"system_prompt": "CURRENT-CONFIG"},
-        {"normalized_context": {"system_prompt": "MANIFEST-CONFIG"}},
-    )
+    config = {"system_prompt": "MANIFEST-CONFIG"}
 
     context = await agent_context.build_agent_input_context(config, thread_id="thread-1", uid="user-1")
 

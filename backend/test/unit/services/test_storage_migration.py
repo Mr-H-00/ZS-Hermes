@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from yuxi import storage_migration
-from yuxi.storage.postgres.manager import BUSINESS_SCHEMA_VERSION, KNOWLEDGE_SCHEMA_VERSION
 from yuxi.storage_migrations.v071_workdirs import (
     V071ConversationBinding,
     V071WorkdirBinding,
@@ -198,7 +197,7 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("unsupported_version", [1, storage_migration.BUSINESS_SCHEMA_VERSION + 1])
+@pytest.mark.parametrize("unsupported_version", [1, 3, 4, 5, 6, storage_migration.BUSINESS_SCHEMA_VERSION + 1])
 async def test_main_rejects_unsupported_business_schema_before_ddl(monkeypatch, unsupported_version: int):
     calls: list[str] = []
 
@@ -253,9 +252,6 @@ async def test_main_v2_business_schema_is_converged_and_versioned_as_current(mon
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "business_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
-        migrate_business_schema_v3_to_v4=lambda: _record(calls, "business_v3_to_v4"),
-        migrate_business_schema_v4_to_v5=lambda: _record(calls, "business_v4_to_v5"),
-        migrate_business_schema_v5_to_v6=lambda: _record(calls, "business_v5_to_v6"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
         close=lambda: _record(calls, "close"),
@@ -283,70 +279,6 @@ async def test_main_v2_business_schema_is_converged_and_versioned_as_current(mon
     assert "business_schema" in calls
     assert f"version:business:{storage_migration.BUSINESS_SCHEMA_VERSION}" in calls
     assert {"create_business", "checkpoint", "knowledge_schema"}.isdisjoint(calls)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("previous_version", "expected_migrations"),
-    [
-        (3, ["business_v3_to_v4", "business_v4_to_v5", "business_v5_to_v6"]),
-        (4, ["business_v4_to_v5", "business_v5_to_v6"]),
-        (5, ["business_v5_to_v6"]),
-    ],
-)
-async def test_main_upgrades_supported_business_schema_before_versioning(
-    monkeypatch,
-    previous_version: int,
-    expected_migrations: list[str],
-):
-    calls: list[str] = []
-    sessions = [_Session(), _Session(), _Session()]
-
-    @asynccontextmanager
-    async def session_context():
-        yield sessions.pop(0)
-
-    manager = SimpleNamespace(
-        initialize=lambda: calls.append("initialize"),
-        schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
-        create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
-        get_schema_versions=lambda: _async_value({"business": previous_version, "knowledge": KNOWLEDGE_SCHEMA_VERSION}),
-        record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
-        create_business_tables=lambda: _record(calls, "create_business"),
-        create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
-        ensure_business_schema=lambda: _record(calls, "business_schema"),
-        ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
-        migrate_business_schema_v3_to_v4=lambda: _record(calls, "business_v3_to_v4"),
-        migrate_business_schema_v4_to_v5=lambda: _record(calls, "business_v4_to_v5"),
-        migrate_business_schema_v5_to_v6=lambda: _record(calls, "business_v5_to_v6"),
-        setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
-        get_async_session_context=session_context,
-        close=lambda: _record(calls, "close"),
-    )
-    monkeypatch.setattr(storage_migration, "pg_manager", manager)
-    monkeypatch.setattr(
-        storage_migration,
-        "read_v071_workdir_plan",
-        lambda _db: _async_value(V071WorkdirMigrationPlan(False, (), ())),
-    )
-    monkeypatch.setattr(storage_migration, "_legacy_skill_roots_exist", lambda: False)
-    monkeypatch.setattr(storage_migration, "_legacy_system_config_exists", lambda: False)
-    monkeypatch.setattr(storage_migration, "runtime_storage_requires_quiescence", lambda: False)
-    monkeypatch.setattr(
-        storage_migration,
-        "_converge_database_state",
-        lambda *, fail_nonterminal_runs: _record(calls, f"converge:{fail_nonterminal_runs}"),
-    )
-    monkeypatch.setattr(storage_migration, "migrate_shared_skills", lambda _db: _record(calls, "skills"))
-    monkeypatch.setattr(storage_migration, "mark_v071_skills_migrated", lambda: calls.append("mark_skills"))
-    monkeypatch.setattr(storage_migration, "migrate_runtime_storage_identity", lambda: calls.append("runtime_identity"))
-
-    await storage_migration.main()
-
-    migration_calls = [call for call in calls if call.startswith("business_v")]
-    assert migration_calls == expected_migrations
-    assert calls.index(expected_migrations[-1]) < calls.index(f"version:business:{BUSINESS_SCHEMA_VERSION}")
-    assert {"create_business", "business_schema", "checkpoint"}.isdisjoint(calls)
 
 
 @pytest.mark.asyncio

@@ -171,8 +171,11 @@ async def append_run_stream_event(run_id: str, event_type: str, payload: dict, *
         kwargs["maxlen"] = RUN_EVENTS_STREAM_MAXLEN
         kwargs["approximate"] = True
 
-    event_id = await redis.xadd(key, fields, **kwargs)
-    await redis.expire(key, RUN_EVENTS_STREAM_TTL_SECONDS)
+    # 同一连接顺序发出写入和续期，省去两次往返之间的事件循环等待。
+    async with redis.pipeline(transaction=False) as pipeline:
+        pipeline.xadd(key, fields, **kwargs)
+        pipeline.expire(key, RUN_EVENTS_STREAM_TTL_SECONDS)
+        event_id, _ = await pipeline.execute()
     return str(event_id)
 
 

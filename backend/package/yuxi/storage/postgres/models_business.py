@@ -72,16 +72,19 @@ def build_agent_run_timing(
     prepared_at: datetime | None,
     first_output_at: datetime | None,
     finished_at: datetime | None,
+    first_model_request_at: datetime | None = None,
 ) -> dict[str, Any]:
     """从 AgentRun 权威时间点生成统一的阶段时延投影。"""
     return {
         "created_at": format_utc_datetime(created_at),
         "started_at": format_utc_datetime(started_at),
         "prepared_at": format_utc_datetime(prepared_at),
+        "first_model_request_at": format_utc_datetime(first_model_request_at),
         "first_output_at": format_utc_datetime(first_output_at),
         "finished_at": format_utc_datetime(finished_at),
         "dispatch_latency_ms": duration_ms(created_at, started_at),
         "preparation_latency_ms": duration_ms(started_at, prepared_at),
+        "first_model_request_latency_ms": duration_ms(created_at, first_model_request_at),
         "model_first_output_latency_ms": duration_ms(prepared_at, first_output_at),
         "first_output_latency_ms": duration_ms(created_at, first_output_at),
         "total_latency_ms": duration_ms(created_at, finished_at),
@@ -1194,6 +1197,7 @@ class AgentRun(Base):
     manifest_recorded_at = Column(DateTime, nullable=True, comment="运行清单固化时间")
     started_at = Column(DateTime, nullable=True, comment="Start time")
     prepared_at = Column(DateTime, nullable=True, comment="当前 Run 首次完成模型调用前准备的时间")
+    first_model_request_at = Column(DateTime, nullable=True, comment="当前 Run 首次进入模型供应商请求前的时间")
     first_output_at = Column(DateTime, nullable=True, comment="当前 Run 首次产生非空模型语义输出的时间")
     finished_at = Column(DateTime, nullable=True, comment="Finish time")
     created_at = Column(DateTime, default=utc_now_naive, comment="Creation time")
@@ -1235,6 +1239,7 @@ class AgentRun(Base):
             "manifest_fingerprint": self.manifest_fingerprint,
             "started_at": format_utc_datetime(self.started_at),
             "prepared_at": format_utc_datetime(self.prepared_at),
+            "first_model_request_at": format_utc_datetime(self.first_model_request_at),
             "first_output_at": format_utc_datetime(self.first_output_at),
             "finished_at": format_utc_datetime(self.finished_at),
             "created_at": format_utc_datetime(self.created_at),
@@ -1245,6 +1250,7 @@ class AgentRun(Base):
                 prepared_at=self.prepared_at,
                 first_output_at=self.first_output_at,
                 finished_at=self.finished_at,
+                first_model_request_at=self.first_model_request_at,
             ),
         }
 

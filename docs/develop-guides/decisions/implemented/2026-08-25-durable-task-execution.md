@@ -20,7 +20,7 @@ Task 失联时统一失败，failure hook 在 Task 终态事务内将仍属该 T
 
 知识库 ingest/parse/index、图谱和评估 Handler 位于各自 service，HTTP 路由只提交序列化 payload。评估领域对象与 Task intent 同事务创建或关联；数据库唯一约束拥有活跃任务去重，终态释放 dedupe key。worker 对 shipping registry 中的全部任务执行相同的 claim、取消、删除、裁剪与失联收敛规则，并只在执行对应任务时惰性加载知识 Handler。
 
-Durable Task 结构由 business v3 引入，当前 business schema 版本由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义；knowledge schema 为 v2。既有 Task 保留非终态和取消意图并标记 `handler_version=0`，只有该明确 legacy 版本使用当前 failure hook；其他未知 Handler 版本 fail-closed。worker 使用当前类型的 failure hook 原子收敛。knowledge 1→2 为文件增加 Task/attempt owner 字段，并把升级前无法归属 attempt 的 `parsing/indexing` 行一次性改为对应错误态；未版本化 baseline 创建当前结构后记录当前版本。
+Durable Task 结构通过 0.7.2 发布版到当前版本的完整业务升级引入，当前 business schema 版本由[版本化 Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)统一定义；knowledge schema 为 v2。既有 Task 保留非终态和取消意图并标记 `handler_version=0`，只有该明确 legacy 版本使用当前 failure hook；其他未知 Handler 版本 fail-closed。worker 使用当前类型的 failure hook 原子收敛。knowledge 1→2 为文件增加 Task/attempt owner 字段，并把升级前无法归属 attempt 的 `parsing/indexing` 行一次性改为对应错误态；未版本化 baseline 创建当前结构后记录当前版本。
 
 ## 替代方案
 

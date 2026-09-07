@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """通过真实 Yuxi HTTP、SSE、worker 与模型链路执行轻量 Agent 压测。"""
 
 from __future__ import annotations
@@ -65,6 +64,9 @@ class TaskResult:
     submit_ms: float | None = None
     request_queue_ms: float | None = None
     preparation_ms: float | None = None
+    first_model_request_ms: float | None = None
+    created_to_first_model_request_ms: float | None = None
+    run_timing: dict[str, Any] | None = None
     first_run_event_ms: float | None = None
     first_token_ms: float | None = None
     run_sse_ms: float | None = None
@@ -158,9 +160,7 @@ async def iter_sse(lines: AsyncIterator[str]) -> AsyncIterator[SseEvent]:
         yield _build_sse_event(event_name, event_id, data_lines)
 
 
-def _build_sse_event(
-    name: str, event_id: str | None, data_lines: Sequence[str]
-) -> SseEvent:
+def _build_sse_event(name: str, event_id: str | None, data_lines: Sequence[str]) -> SseEvent:
     """解析单个 SSE JSON 数据块。"""
 
     raw_data = "\n".join(data_lines)
@@ -181,13 +181,9 @@ def observe_tool_evidence(value: object, evidence: ToolEvidence) -> None:
             event_name = value.get("event")
             evidence.execute_started |= event_name == "tool-started"
             evidence.execute_finished |= event_name == "tool-finished"
-            if event_name == "tool-finished" and TOOL_MARKER in str(
-                value.get("output") or ""
-            ):
+            if event_name == "tool-finished" and TOOL_MARKER in str(value.get("output") or ""):
                 evidence.output_marker_seen = True
-        if value.get("type") == "tool" and TOOL_MARKER in str(
-            value.get("content") or ""
-        ):
+        if value.get("type") == "tool" and TOOL_MARKER in str(value.get("content") or ""):
             # verbose=false 会把完成事件投影为 ToolMessage；唯一标记证明受控命令已经返回。
             evidence.execute_finished = True
             evidence.output_marker_seen = True
@@ -281,17 +277,10 @@ class LocalResourceSampler:
         try:
             compose_containers = self._compose_containers()
             sandbox_containers = [
-                container_id
-                for container_id in self._sandbox_containers()
-                if container_id not in compose_containers
+                container_id for container_id in self._sandbox_containers() if container_id not in compose_containers
             ]
-            service_by_id = {
-                container_id: service
-                for container_id, service in compose_containers.items()
-            }
-            service_by_id.update(
-                {container_id: "sandbox" for container_id in sandbox_containers}
-            )
+            service_by_id = {container_id: service for container_id, service in compose_containers.items()}
+            service_by_id.update({container_id: "sandbox" for container_id in sandbox_containers})
             memory, cpu = self._container_stats(service_by_id)
 
             sample.api_memory_mb = memory.get("api", 0.0)
@@ -306,9 +295,7 @@ class LocalResourceSampler:
             sample.total_cpu_percent = round(sum(cpu.values()), 2)
             sample.sandbox_containers = len(sandbox_containers)
             sample.sandbox_networks = self._sandbox_network_count()
-            sample.redis_clients, sample.redis_pubsub_clients = (
-                self._redis_client_metrics(compose_containers)
-            )
+            sample.redis_clients, sample.redis_pubsub_clients = self._redis_client_metrics(compose_containers)
             (
                 sample.postgres_connections,
                 sample.postgres_active_connections,
@@ -356,9 +343,7 @@ class LocalResourceSampler:
             if name.startswith(self.sandbox_container_prefix)
         ]
 
-    def _container_stats(
-        self, service_by_id: dict[str, str]
-    ) -> tuple[dict[str, float], dict[str, float]]:
+    def _container_stats(self, service_by_id: dict[str, str]) -> tuple[dict[str, float], dict[str, float]]:
         memory: dict[str, float] = {}
         cpu: dict[str, float] = {}
         if not service_by_id:
@@ -378,9 +363,7 @@ class LocalResourceSampler:
                 ),
                 None,
             )
-            if service is None and str(row.get("Name") or "").startswith(
-                self.sandbox_container_prefix
-            ):
+            if service is None and str(row.get("Name") or "").startswith(self.sandbox_container_prefix):
                 service = "sandbox"
             if service is None:
                 continue
@@ -389,9 +372,7 @@ class LocalResourceSampler:
             if parsed_memory is None:
                 continue
             memory[service] = memory.get(service, 0.0) + parsed_memory
-            cpu_value = float(
-                str(row.get("CPUPerc") or "0").strip().removesuffix("%") or 0
-            )
+            cpu_value = float(str(row.get("CPUPerc") or "0").strip().removesuffix("%") or 0)
             cpu[service] = cpu.get(service, 0.0) + cpu_value
         return (
             {key: round(value, 2) for key, value in memory.items()},
@@ -399,12 +380,8 @@ class LocalResourceSampler:
         )
 
     def _redis_client_metrics(self, containers: dict[str, str]) -> tuple[int, int]:
-        container_id = next(
-            key for key, value in containers.items() if value == "redis"
-        )
-        output = _run_local_command(
-            ["docker", "exec", container_id, "redis-cli", "--raw", "INFO", "clients"]
-        )
+        container_id = next(key for key, value in containers.items() if value == "redis")
+        output = _run_local_command(["docker", "exec", container_id, "redis-cli", "--raw", "INFO", "clients"])
         metrics = {
             key: int(value)
             for line in output.splitlines()
@@ -414,12 +391,8 @@ class LocalResourceSampler:
         }
         return metrics["connected_clients"], metrics.get("pubsub_clients", 0)
 
-    def _postgres_connection_metrics(
-        self, containers: dict[str, str]
-    ) -> tuple[int, int]:
-        container_id = next(
-            key for key, value in containers.items() if value == "postgres"
-        )
+    def _postgres_connection_metrics(self, containers: dict[str, str]) -> tuple[int, int]:
+        container_id = next(key for key, value in containers.items() if value == "postgres")
         output = _run_local_command(
             [
                 "docker",
@@ -427,9 +400,11 @@ class LocalResourceSampler:
                 container_id,
                 "sh",
                 "-c",
-                'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc '
-                '"SELECT count(*), count(*) FILTER '
-                "(WHERE state = 'active') FROM pg_stat_activity\"",
+                (
+                    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc '
+                    '"SELECT count(*), count(*) FILTER '
+                    "(WHERE state = 'active') FROM pg_stat_activity\""
+                ),
             ]
         )
         total, active = output.strip().split("|", 1)
@@ -447,18 +422,11 @@ class LocalResourceSampler:
                 "{{.Name}}",
             ]
         )
-        return sum(
-            name.startswith(self.sandbox_network_prefix)
-            for name in output.splitlines()
-        )
+        return sum(name.startswith(self.sandbox_network_prefix) for name in output.splitlines())
 
     @staticmethod
     def _host_available_memory_mb() -> float:
-        line = next(
-            line
-            for line in Path("/proc/meminfo").read_text().splitlines()
-            if line.startswith("MemAvailable:")
-        )
+        line = next(line for line in Path("/proc/meminfo").read_text().splitlines() if line.startswith("MemAvailable:"))
         return round(float(line.split()[1]) / 1024, 2)
 
 
@@ -477,9 +445,7 @@ async def sample_resources(
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
         except TimeoutError:
-            samples.append(
-                await asyncio.to_thread(sampler.collect, level, level_started)
-            )
+            samples.append(await asyncio.to_thread(sampler.collect, level, level_started))
     samples.append(await asyncio.to_thread(sampler.collect, level, level_started))
 
 
@@ -539,12 +505,41 @@ def build_prompt(scenario: str, task_seconds: int, task_id: str) -> str:
     )
 
 
+def first_model_request_latency_ms(
+    submit_started_at: datetime,
+    result_payload: dict[str, Any],
+) -> float | None:
+    """计算客户端提交起点到首次进入 ChatModel 请求边界的时延。"""
+
+    timing = result_payload.get("timing")
+    if not isinstance(timing, dict):
+        return None
+    raw_started_at = timing.get("first_model_request_at")
+    if not isinstance(raw_started_at, str) or not raw_started_at.strip():
+        return None
+    try:
+        model_request_started_at = datetime.fromisoformat(raw_started_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if model_request_started_at.tzinfo is None:
+        model_request_started_at = model_request_started_at.replace(tzinfo=UTC)
+    return round((model_request_started_at - submit_started_at).total_seconds() * 1000, 2)
+
+
+def record_run_timing(result: TaskResult, submit_started_at: datetime, payload: dict[str, Any]) -> None:
+    """保留服务端原始计时，并分开记录 Run 创建与客户端提交口径。"""
+    timing = payload.get("timing")
+    if not isinstance(timing, dict):
+        return
+    result.run_timing = dict(timing)
+    result.created_to_first_model_request_ms = timing.get("first_model_request_latency_ms")
+    result.first_model_request_ms = first_model_request_latency_ms(submit_started_at, payload)
+
+
 class AgentLoadClient:
     """封装压测所需的最小 Yuxi HTTP 与 SSE 协议。"""
 
-    def __init__(
-        self, client: httpx.AsyncClient, headers: dict[str, str], timeout_seconds: float
-    ):
+    def __init__(self, client: httpx.AsyncClient, headers: dict[str, str], timeout_seconds: float):
         self.client = client
         self.headers = headers
         self.timeout_seconds = timeout_seconds
@@ -601,9 +596,7 @@ class AgentLoadClient:
     async def wait_for_run_id(self, request_id: str, events_url: str) -> str:
         """消费 Request SSE，直到排队请求创建其自身 Run。"""
 
-        async with self.client.stream(
-            "GET", events_url, headers=self.headers
-        ) as response:
+        async with self.client.stream("GET", events_url, headers=self.headers) as response:
             await _raise_for_stream_status(response, "读取 Request SSE")
             async for event in iter_sse(response.aiter_lines()):
                 if event.data.get("request_id") not in {None, request_id}:
@@ -659,9 +652,7 @@ class AgentLoadClient:
     async def get_run_result(self, run_id: str) -> dict[str, Any]:
         """从同一 Run 的结果接口回读最终业务事实。"""
 
-        response = await self.client.get(
-            f"/api/agent/runs/{run_id}/result", headers=self.headers
-        )
+        response = await self.client.get(f"/api/agent/runs/{run_id}/result", headers=self.headers)
         _raise_for_status(response, "读取 Run 结果")
         payload = response.json()
         if not isinstance(payload, dict):
@@ -671,9 +662,7 @@ class AgentLoadClient:
     async def cancel_request(self, request_id: str) -> None:
         """尽力取消尚未派发的精确 Request。"""
 
-        await self.client.post(
-            f"/api/agent/requests/{request_id}/cancel", headers=self.headers
-        )
+        await self.client.post(f"/api/agent/requests/{request_id}/cancel", headers=self.headers)
 
     async def cancel_run(self, run_id: str) -> None:
         """尽力取消尚未终结的精确 Run。"""
@@ -683,9 +672,7 @@ class AgentLoadClient:
     async def delete_thread(self, thread_id: str) -> None:
         """删除本任务创建的精确 Thread。"""
 
-        response = await self.client.delete(
-            f"/api/chat/thread/{thread_id}", headers=self.headers
-        )
+        response = await self.client.delete(f"/api/chat/thread/{thread_id}", headers=self.headers)
         if response.status_code not in {200, 404}:
             _raise_for_status(response, "删除 Thread")
 
@@ -707,12 +694,14 @@ async def run_one(
     result = TaskResult(level=level, task_index=task_index, request_id=request_id)
     task_started = time.perf_counter()
     submit_started: float | None = None
+    submit_started_at: datetime | None = None
     terminal = False
     try:
         async with asyncio.timeout(load_client.timeout_seconds):
             result.thread_id = await load_client.create_thread(agent_slug, request_id)
             result.thread_create_ms = (time.perf_counter() - task_started) * 1000
             submit_started = time.perf_counter()
+            submit_started_at = datetime.now(UTC)
             payload, result.submit_ms = await load_client.submit_run(
                 agent_slug=agent_slug,
                 thread_id=result.thread_id,
@@ -727,9 +716,7 @@ async def run_one(
                 if not events_url:
                     raise LoadTestError("排队响应同时缺少 run_id 与 request_events_url")
                 queue_started = time.perf_counter()
-                result.run_id = await load_client.wait_for_run_id(
-                    request_id, events_url
-                )
+                result.run_id = await load_client.wait_for_run_id(request_id, events_url)
                 result.request_queue_ms = (time.perf_counter() - queue_started) * 1000
 
             (
@@ -742,6 +729,8 @@ async def run_one(
             result.preparation_ms = result.first_run_event_ms
             final_payload = await load_client.get_run_result(result.run_id)
             result.status = str(final_payload.get("status") or "missing")
+            if submit_started_at is not None:
+                record_run_timing(result, submit_started_at, final_payload)
             terminal = result.status in TERMINAL_STATUSES
             result.success, result.error, result.output_chars = evaluate_result(
                 scenario=scenario,
@@ -770,11 +759,7 @@ async def run_one(
                 await load_client.delete_thread(result.thread_id)
             except (httpx.HTTPError, LoadTestError) as exc:
                 cleanup_error = f"清理 Thread 失败：{_safe_error(exc)}"
-                result.error = (
-                    f"{result.error}; {cleanup_error}"
-                    if result.error
-                    else cleanup_error
-                )
+                result.error = f"{result.error}; {cleanup_error}" if result.error else cleanup_error
                 result.success = False
     return result
 
@@ -796,24 +781,21 @@ def summarize(
             "failed": len(items) - len(successful),
             "success_rate": round(len(successful) / len(items), 4) if items else 0.0,
             "submit_p95_ms": _percentile([item.submit_ms for item in items], 0.95),
-            "request_queue_p95_ms": _percentile(
-                [item.request_queue_ms for item in items], 0.95
+            "request_queue_p95_ms": _percentile([item.request_queue_ms for item in items], 0.95),
+            "first_run_event_p95_ms": _percentile([item.first_run_event_ms for item in items], 0.95),
+            "preparation_p50_ms": _percentile([item.preparation_ms for item in items], 0.50),
+            "preparation_p95_ms": _percentile([item.preparation_ms for item in items], 0.95),
+            "first_model_request_p50_ms": _percentile([item.first_model_request_ms for item in items], 0.50),
+            "first_model_request_p95_ms": _percentile([item.first_model_request_ms for item in items], 0.95),
+            "created_to_first_model_request_p50_ms": _percentile(
+                [item.created_to_first_model_request_ms for item in items], 0.50
             ),
-            "first_run_event_p95_ms": _percentile(
-                [item.first_run_event_ms for item in items], 0.95
+            "created_to_first_model_request_p95_ms": _percentile(
+                [item.created_to_first_model_request_ms for item in items], 0.95
             ),
-            "preparation_p50_ms": _percentile(
-                [item.preparation_ms for item in items], 0.50
-            ),
-            "preparation_p95_ms": _percentile(
-                [item.preparation_ms for item in items], 0.95
-            ),
-            "first_token_p50_ms": _percentile(
-                [item.first_token_ms for item in items], 0.50
-            ),
-            "first_token_p95_ms": _percentile(
-                [item.first_token_ms for item in items], 0.95
-            ),
+            "missing_model_request_timing": sum(item.created_to_first_model_request_ms is None for item in items),
+            "first_token_p50_ms": _percentile([item.first_token_ms for item in items], 0.50),
+            "first_token_p95_ms": _percentile([item.first_token_ms for item in items], 0.95),
             "total_p50_ms": _percentile([item.total_ms for item in items], 0.50),
             "total_p95_ms": _percentile([item.total_ms for item in items], 0.95),
             "total_max_ms": _percentile([item.total_ms for item in items], 1.0),
@@ -856,30 +838,20 @@ def _summarize_resources(samples: Sequence[ResourceSample]) -> dict[str, Any]:
         "host_load1",
     )
     for field_name in peak_fields:
-        values = [
-            value
-            for sample in valid_samples
-            if (value := getattr(sample, field_name)) is not None
-        ]
+        values = [value for sample in valid_samples if (value := getattr(sample, field_name)) is not None]
         summary[f"{field_name}_peak"] = round(max(values), 2) if values else None
 
     available_memory = [
-        sample.host_available_memory_mb
-        for sample in valid_samples
-        if sample.host_available_memory_mb is not None
+        sample.host_available_memory_mb for sample in valid_samples if sample.host_available_memory_mb is not None
     ]
-    summary["host_available_memory_mb_min"] = (
-        round(min(available_memory), 2) if available_memory else None
-    )
+    summary["host_available_memory_mb_min"] = round(min(available_memory), 2) if available_memory else None
     baseline = valid_samples[0]
     for field_name in ("worker_memory_mb", "sandbox_memory_mb", "total_memory_mb"):
         peak = summary.get(f"{field_name}_peak")
         baseline_value = getattr(baseline, field_name)
         summary[f"{field_name}_baseline"] = baseline_value
         summary[f"{field_name}_increase"] = (
-            round(peak - baseline_value, 2)
-            if peak is not None and baseline_value is not None
-            else None
+            round(peak - baseline_value, 2) if peak is not None and baseline_value is not None else None
         )
     return summary
 
@@ -917,15 +889,11 @@ def write_results(
         "requests": [asdict(item) for item in results],
         "resources": [asdict(sample) for sample in resource_samples],
     }
-    json_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     rows = [asdict(item) for item in results]
     for row in rows:
-        row["event_counts"] = json.dumps(
-            row["event_counts"], ensure_ascii=False, sort_keys=True
-        )
+        row["event_counts"] = json.dumps(row["event_counts"], ensure_ascii=False, sort_keys=True)
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
@@ -955,6 +923,9 @@ def print_summary(summaries: Sequence[dict[str, Any]]) -> None:
         "提交P95",
         "线程队列P95",
         "首Run事件P95",
+        "提交→模型P95",
+        "创建→模型P95",
+        "计时缺失",
         "首Token P95",
         "总耗时P95",
     )
@@ -965,6 +936,9 @@ def print_summary(summaries: Sequence[dict[str, Any]]) -> None:
             f"{item['failed']:>4}  {item['success_rate'] * 100:>6.1f}%  "
             f"{_format_ms(item['submit_p95_ms']):>9}  {_format_ms(item['request_queue_p95_ms']):>11}  "
             f"{_format_ms(item['first_run_event_p95_ms']):>12}  "
+            f"{_format_ms(item['first_model_request_p95_ms']):>15}  "
+            f"{_format_ms(item['created_to_first_model_request_p95_ms']):>15}  "
+            f"{item['missing_model_request_timing']:>8}  "
             f"{_format_ms(item['first_token_p95_ms']):>11}  {_format_ms(item['total_p95_ms']):>11}"
         )
 
@@ -1006,17 +980,11 @@ async def authenticate(client: httpx.AsyncClient) -> dict[str, str]:
     if api_key:
         return {"Authorization": f"Bearer {api_key}", "Accept": "text/event-stream"}
 
-    username = (
-        os.getenv("YUXI_LOAD_USERNAME") or os.getenv("TEST_USERNAME") or ""
-    ).strip()
+    username = (os.getenv("YUXI_LOAD_USERNAME") or os.getenv("TEST_USERNAME") or "").strip()
     password = os.getenv("YUXI_LOAD_PASSWORD") or os.getenv("TEST_PASSWORD") or ""
     if not username or not password:
-        raise LoadTestError(
-            "请设置 YUXI_LOAD_API_KEY，或同时设置 YUXI_LOAD_USERNAME/YUXI_LOAD_PASSWORD"
-        )
-    response = await client.post(
-        "/api/auth/token", data={"username": username, "password": password}
-    )
+        raise LoadTestError("请设置 YUXI_LOAD_API_KEY，或同时设置 YUXI_LOAD_USERNAME/YUXI_LOAD_PASSWORD")
+    response = await client.post("/api/auth/token", data={"username": username, "password": password})
     _raise_for_status(response, "登录")
     token = str(response.json().get("access_token") or "")
     if not token:
@@ -1082,11 +1050,7 @@ async def async_main(args: argparse.Namespace) -> int:
             level_started = time.perf_counter()
             stop_sampling = asyncio.Event()
             if resource_sampler:
-                resource_samples.append(
-                    await asyncio.to_thread(
-                        resource_sampler.collect, level, level_started
-                    )
-                )
+                resource_samples.append(await asyncio.to_thread(resource_sampler.collect, level, level_started))
             sampler_task = (
                 asyncio.create_task(
                     sample_resources(
@@ -1134,18 +1098,16 @@ async def async_main(args: argparse.Namespace) -> int:
         "timeout_seconds": args.timeout_seconds,
         "keep_threads": args.keep_threads,
         "collect_local_resources": args.collect_local_resources,
-        "compose_project": args.compose_project
-        if args.collect_local_resources
-        else None,
-        "sandbox_container_prefix": args.sandbox_container_prefix
-        if args.collect_local_resources
-        else None,
-        "sandbox_network_prefix": args.sandbox_network_prefix
-        if args.collect_local_resources
-        else None,
-        "resource_interval_seconds": args.resource_interval_seconds
-        if args.collect_local_resources
-        else None,
+        "compose_project": args.compose_project if args.collect_local_resources else None,
+        "sandbox_container_prefix": args.sandbox_container_prefix if args.collect_local_resources else None,
+        "sandbox_network_prefix": args.sandbox_network_prefix if args.collect_local_resources else None,
+        "resource_interval_seconds": args.resource_interval_seconds if args.collect_local_resources else None,
+        "timing_metric": "created_to_first_model_request_ms",
+        "timing_metric_definition": (
+            "PostgreSQL AgentRun.created_at 到 LangChain on_chat_model_start 的差值；"
+            "回调在供应商 HTTP 发送前触发，是发送前近似边界，不包含首 token 等待。"
+        ),
+        "client_timing_metric": "first_model_request_ms",
     }
     json_path, csv_path, resources_path = write_results(
         output_dir=args.output_dir,
@@ -1162,10 +1124,8 @@ async def async_main(args: argparse.Namespace) -> int:
     return 0 if all(item.success for item in results) else 1
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """创建压测命令行参数解析器。"""
-
-    parser = argparse.ArgumentParser(description=__doc__)
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    """注册容量压测参数。"""
     parser.add_argument(
         "--base-url",
         default=os.getenv("YUXI_LOAD_BASE_URL", "http://localhost:5050"),
@@ -1173,9 +1133,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--agent-slug", help="测试 Agent slug；省略时使用默认 Agent")
     parser.add_argument("--scenario", choices=("chat", "sandbox"), default="sandbox")
-    parser.add_argument(
-        "--concurrency", type=parse_concurrency, default=parse_concurrency("1,5,10,20")
-    )
+    parser.add_argument("--concurrency", type=parse_concurrency, default=parse_concurrency("1,5,10,20"))
     parser.add_argument("--task-seconds", type=parse_task_seconds, default=45)
     parser.add_argument("--timeout-seconds", type=float, default=600.0)
     parser.add_argument("--output-dir", type=Path, default=Path("tmp/load-tests"))
@@ -1192,24 +1150,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sandbox-container-prefix",
-        default=os.getenv("SANDBOX_DOCKER_SANDBOX_PREFIX")
-        or f"{os.getenv('COMPOSE_PROJECT_NAME', 'yuxi')}-sandbox",
+        default=os.getenv("SANDBOX_DOCKER_SANDBOX_PREFIX") or f"{os.getenv('COMPOSE_PROJECT_NAME', 'yuxi')}-sandbox",
         help="动态 Sandbox 容器名称前缀",
     )
     parser.add_argument(
         "--sandbox-network-prefix",
-        default=os.getenv("SANDBOX_DOCKER_NETWORK_PREFIX")
-        or f"{os.getenv('COMPOSE_PROJECT_NAME', 'yuxi')}-sandbox",
+        default=os.getenv("SANDBOX_DOCKER_NETWORK_PREFIX") or f"{os.getenv('COMPOSE_PROJECT_NAME', 'yuxi')}-sandbox",
         help="动态 Sandbox 网络名称前缀",
     )
     parser.add_argument("--resource-interval-seconds", type=float, default=2.0)
-    return parser
 
 
-def main() -> int:
+def main(args: argparse.Namespace) -> int:
     """运行命令行入口，并为启动阶段错误提供简短输出。"""
 
-    args = build_parser().parse_args()
     if args.timeout_seconds <= 0:
         raise SystemExit("--timeout-seconds 必须大于 0")
     if args.resource_interval_seconds <= 0:
@@ -1222,7 +1176,3 @@ def main() -> int:
     except (httpx.HTTPError, LoadTestError) as exc:
         print(f"压测未启动：{_safe_error(exc)}", file=sys.stderr)
         return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

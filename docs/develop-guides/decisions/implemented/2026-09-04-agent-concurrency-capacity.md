@@ -20,7 +20,7 @@ Compose 拥有默认部署容量；AgentRun Schema 与 repository 拥有持久�
 
 开发和生产 Compose 默认使用单 worker，`ARQ_MAX_JOBS=140`，其中 100 个槽位服务目标业务并发，40 个槽位留给健康检查、恢复、清理和短时峰值；共享 worker 中的 Durable Task 另受 PostgreSQL 最多 4 个并发 claim 的约束。API 与 worker 的每个 Redis 客户端池上限分别为 256；API/worker SQLAlchemy 池分别为 120+40；API/worker LangGraph 池分别为 10/120；PostgreSQL `max_connections=600`，合计客户端预算 450 并预留 150；Sandbox 并行删除数为 32。配置入口、完整核算方式和当前实测由 [Agent 并发容量](../../../advanced/agent-concurrency-capacity.md)维护。
 
-仓库使用 `scripts/agent_load_test.py` 执行真实 HTTP、Request SSE、Run SSE、worker、模型、PostgreSQL 和可选 Sandbox 链路。每个虚拟用户使用独立 Thread，结果必须回读同一 request/run 的权威终态和场景语义。脚本不读取 `.env`、不保存完整模型回复，测试产物放在 Git 忽略目录并精确清理自己创建的资源。
+仓库使用 `backend/test/performance/load.py` 执行真实 HTTP、Request SSE、Run SSE、worker、模型、PostgreSQL 和可选 Sandbox 链路。每个虚拟用户使用独立 Thread，结果必须回读同一 request/run 的权威终态和场景语义。脚本不读取 `.env`、不保存完整模型回复，测试产物放在 Git 忽略目录并精确清理自己创建的资源。
 
 ### Redis、SSE 与取消
 
@@ -84,7 +84,7 @@ API 使用同一 serializer 派生 `dispatch_latency_ms`（创建到开工）、
 - 移除取消 Pub/Sub 前的同配置基线为 Redis 136 个客户端，其中 100 个 Pub/Sub；移除后时延仍在原三轮范围内。实时取消探针在进入 `running` 后 235ms 收敛到同一 Run 的 PostgreSQL `cancelled`。
 - Docker 专用 IPAM、有界并行清理和 core profile 均由 unit 与真实 provisioner 代理验证；50/70/100 并发分别达到同等数量的隔离容器和网络，结束后均归零。
 - Run timing 的 serializer、有效 owner/write-once repository、模型输出识别、API/对话投影和历史 NULL 由 unit 覆盖；真实 PostgreSQL 与 HTTP integration 9/9 通过。Web 全量 unit、lint 和 production build 通过。
-- AgentRun 阶段时间字段由 business v5→v6 相邻迁移引入；v2 完整收敛与 v3、v4、v5 升级路径均必须得到同一字段，版本发布只能发生在对应 DDL 成功后。
+- AgentRun 阶段时间字段随 0.7.2 发布版到当前版本的完整业务升级引入；全部 DDL 成功后才能记录当前版本，迁移来源由[Schema 迁移 Owner](./2026-08-24-versioned-schema-migration-owner.md)定义。
 - 旧能力不存在：运行代码与配置中没有取消 Pub/Sub channel、每 Run `subscribe`/`unsubscribe`，上述分散的并发 decision 已删除，当前取舍只由本记录和容量参考页维护。
 - 重新引入条件：目标显著超过 100、长时间 soak 或故障注入证明当前单 worker、轮询或 Sandbox 生命周期成为真实瓶颈时，基于相同权威终态和因果门禁另行提案；不以供应商抖动或单次客户端时延直接改写协议。
 - 尚未执行 1000 并发、Redis 故障注入、多主机和长期 soak；外部模型供应商的时延与配额不由本决定承诺。

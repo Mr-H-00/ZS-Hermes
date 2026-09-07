@@ -113,7 +113,7 @@ curl --fail http://localhost:5050/api/system/ready
 随后从小档位渐进到目标并发：
 
 ```bash
-python scripts/agent_load_test.py \
+python -m backend.test.performance load \
   --base-url http://localhost:5050 \
   --scenario sandbox \
   --concurrency 1,10,20,50,100 \
@@ -121,4 +121,4 @@ python scripts/agent_load_test.py \
   --collect-local-resources
 ```
 
-通过条件包括所有 Request/Run 因果标识一致、SSE 工具生命周期完整、PostgreSQL 权威终态正确、readiness 最终恢复，并且 ARQ、Sandbox 容器和动态网络均已清理。脚本退出码或 HTTP 200 只能作为辅助信号。压测工具的协议和输出字段见 `scripts/agent_load_test.py`。
+通过条件包括所有 Request/Run 因果标识一致、SSE 工具生命周期完整、PostgreSQL 权威终态正确、readiness 最终恢复，并且 ARQ、Sandbox 容器和动态网络均已清理。脚本退出码或 HTTP 200 只能作为辅助信号。压测工具的协议和输出字段见 `backend/test/performance/load.py`。

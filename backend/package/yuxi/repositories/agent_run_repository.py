@@ -921,6 +921,39 @@ class AgentRunRepository:
         await self.db.flush()
         return run, True
 
+    async def record_first_model_request(
+        self,
+        run_id: str,
+        *,
+        worker_id: str,
+        observed_at: datetime | None = None,
+        checked_at: datetime | None = None,
+    ) -> tuple[AgentRun | None, bool]:
+        """由当前 lease owner write-once 记录首次进入模型请求边界的时间。"""
+        run = await self._lock_run(run_id)
+        if run is None:
+            return None, False
+        if run.first_model_request_at is not None:
+            return run, False
+
+        lease_check_time = checked_at or utc_now_naive()
+        # 取消请求不抹去已经发生的调用；仅此观测允许仍持有效 lease 的取消中 Run 补写。
+        if (
+            run.status not in LEASED_RUN_STATUSES
+            or run.worker_id != worker_id
+            or run.lease_expires_at is None
+            or run.lease_expires_at <= lease_check_time
+        ):
+            raise ValueError("只有当前有效 AgentRun lease owner 可以记录首次模型请求时间")
+        event_time = observed_at or lease_check_time
+        if run.created_at is not None and event_time < run.created_at:
+            raise ValueError("AgentRun 首次模型请求时间不能早于创建时间")
+
+        run.first_model_request_at = event_time
+        run.updated_at = lease_check_time
+        await self.db.flush()
+        return run, True
+
     async def record_first_output(
         self,
         run_id: str,

@@ -10,6 +10,37 @@ class _FakeStreamRedis:
     def __init__(self):
         self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
         self.expire_calls: list[tuple[str, int]] = []
+        self.pipeline_executions = 0
+
+    def pipeline(self, *, transaction):
+        """模拟单次发出的有序 Redis 命令批次。"""
+        assert transaction is False
+        owner = self
+
+        class Pipeline:
+            """只执行队列事件需要的两条命令。"""
+
+            def __init__(self):
+                self.commands = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                pass
+
+            def xadd(self, *args, **kwargs):
+                self.commands.append((owner.xadd, args, kwargs))
+
+            def expire(self, *args, **kwargs):
+                self.commands.append((owner.expire, args, kwargs))
+
+            async def execute(self):
+                """顺序应用命令并返回实际事件标识。"""
+                owner.pipeline_executions += 1
+                return [await func(*args, **kwargs) for func, args, kwargs in self.commands]
+
+        return Pipeline()
 
     async def xadd(self, key: str, fields: dict[str, str], **kwargs):
         del kwargs
@@ -55,6 +86,8 @@ async def test_run_stream_event_roundtrip(monkeypatch: pytest.MonkeyPatch):
     )
 
     assert seq1 < seq2
+    assert fake_redis.pipeline_executions == 2
+    assert fake_redis.expire_calls == [("run:events:run-1", run_queue_service.RUN_EVENTS_STREAM_TTL_SECONDS)] * 2
 
     events = await run_queue_service.list_run_stream_events(run_id, after_seq="0-0", limit=100)
     assert [item["event_type"] for item in events] == ["loading", "finished"]

@@ -16,7 +16,7 @@ AgentRun 直接保存可空 `langfuse_trace_id`。Langfuse 启用时，当前 le
 
 `BaseAgent._stream_input_with_state()` 在 message metadata 和 Model/Tool 生命周期 stream payload 中保留 ProtocolEvent 的 `seq` 与 `params.timestamp`。这两个字段仍只属于运行流：`seq` 是根 StreamMux 顺序，`timestamp` 是 Yuxi 进程观察时间；本决定不把它们持久化为 Message，也不宣称 timestamp 是 Provider 服务端时间。
 
-唯一 storage migrator 在 business v3→v4 迁移中与 Message 审计字段一起幂等增加 AgentRun trace 列，再发布 v4；API 与 worker 继续只读校验精确版本。0.7.2 的 v2 数据库通过当前完整收敛路径直接得到相同结构。
+唯一 storage migrator 从 0.7.2 发布版一次幂等补齐 AgentRun trace 与 Message 审计字段，完成后才记录当前版本；API 与 worker 继续只读校验精确版本。
 
 本决定只建立增量审计基础，不增量持久化 AIMessage/ToolMessage，不改变 ToolCall、普通历史、终态 reconcile 或模型流执行期间不访问业务 PostgreSQL 的约束。
 
@@ -41,6 +41,6 @@ stream consumer 可以取得原始 `seq/timestamp`，但 PostgreSQL 仍没有 Mo
 - `backend/test/unit/services/test_langfuse_service.py` 证明预创建 trace ID 不被 callback 的不同 ID 覆盖。
 - `backend/test/unit/agents/test_base_tool_event_normalize.py` 证明 message 与 Tool 生命周期 payload 保留 `seq/timestamp`。
 - `backend/test/integration/services/test_agent_run_lease.py` 在真实 PostgreSQL 上证明 trace 写入幂等、受 lease fencing 保护且不同 ID 不可覆盖。
-- `backend/test/integration/services/test_schema_migration_version.py` 在隔离 PostgreSQL schema 中证明 v3→v4 DDL 幂等；`backend/test/unit/services/test_storage_migration.py` 证明 DDL 成功后才发布版本。
+- `backend/test/integration/services/test_schema_migration_version.py` 在隔离 PostgreSQL 中证明发布版审计字段升级幂等；`backend/test/unit/services/test_storage_migration.py` 证明 DDL 成功后才记录版本。
 - `backend/test/integration/api/test_agent_run_result_causality.py` 通过真实 HTTP 与 PostgreSQL 证明 Run trace 优先于输出 Message trace，并保持用户隔离和历史结果因果约束。
 - `backend/test/e2e/test_deterministic_agent_path_e2e.py` 通过真实 API、worker、SSE 与 PostgreSQL 回读证明配置 Langfuse 时 AgentRun 与最终 Message 使用同一非空 trace；模型请求开始后取消且没有任何 assistant Message 的 Run 仍保留非空 trace，并由结果 API 返回同一关联。

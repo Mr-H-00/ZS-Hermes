@@ -33,6 +33,121 @@ class _RaisingAsyncIter:
     async def __anext__(self):
         raise self._exc
 
+    async def aclose(self):
+        """模拟可关闭的执行流。"""
+
+
+@pytest.mark.parametrize("cancellation", ["signal", "outer", "consumer_body"])
+async def test_stream_cancellation_closes_execution_before_owner_cleanup(cancellation):
+    """用户信号、基础设施取消及消费侧取消均不得留下旧执行副作用。"""
+    entered, release, closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    effects = []
+    ctx = run_worker.RunContext(run_id="run-cancel", worker_id="owner")
+
+    async def stream():
+        """用独立屏障检测取消后仍继续执行的旧任务。"""
+        try:
+            if cancellation == "consumer_body":
+                yield b"first"
+            entered.set()
+            await release.wait()
+            effects.append("old execution continued")
+            yield b"late"
+        finally:
+            closed.set()
+
+    producer = stream()
+
+    async def consume():
+        """以 Worker 的相同 close 边界消费，退出代表允许外层释放 owner。"""
+        async with run_worker.aclosing(run_worker._consume_stream_with_cancel(producer, ctx)) as chunks:
+            async for _ in chunks:
+                entered.set()
+                await release.wait()
+
+    consumer = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        if cancellation == "signal":
+            ctx.cancel_event.set()
+        else:
+            consumer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(consumer, 1)
+        assert closed.is_set(), "释放 owner 时旧执行尚未关闭"
+        release.set()
+        await asyncio.sleep(0)
+        assert effects == []
+    finally:
+        release.set()
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+        await asyncio.sleep(0)
+        await producer.aclose()
+
+
+async def test_cancel_waiter_is_reused_for_all_stream_chunks():
+    """完整输出保持顺序，一个 Run 的取消等待器只启动一次。"""
+    waiter_starts = 0
+
+    class Context:
+        """只提供消费器需要的取消协议。"""
+
+        async def wait_cancelled(self):
+            """持续等待，记录逻辑等待器的创建次数。"""
+            nonlocal waiter_starts
+            waiter_starts += 1
+            await asyncio.Event().wait()
+
+    async def stream():
+        """生成连续事件。"""
+        for index in range(50):
+            yield index
+
+    results = [row async for row in run_worker._consume_stream_with_cancel(stream(), Context())]
+    assert results == list(range(50))
+    assert waiter_starts == 1
+
+
+async def test_repeated_cancel_waits_for_async_execution_cleanup():
+    """二次取消不能越过异步收尾屏障而释放执行 owner。"""
+    entered, cleanup_started, release_cleanup, closed = (asyncio.Event() for _ in range(4))
+    ctx = run_worker.RunContext(run_id="repeat-cancel", worker_id="owner")
+
+    async def stream():
+        """用异步屏障模拟节点和执行流的清理。"""
+        try:
+            entered.set()
+            await asyncio.Event().wait()
+            yield b"unreachable"
+        finally:
+            cleanup_started.set()
+            await release_cleanup.wait()
+            closed.set()
+
+    async def consume():
+        """外层退出是 owner 允许释放的时点。"""
+        async with run_worker.aclosing(run_worker._consume_stream_with_cancel(stream(), ctx)) as chunks:
+            async for _ in chunks:
+                pass
+
+    consumer = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        consumer.cancel()
+        await asyncio.wait_for(cleanup_started.wait(), 1)
+        consumer.cancel()
+        await asyncio.sleep(0)
+        assert not consumer.done(), "二次取消提前释放了仍在清理的 owner"
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(consumer, 1)
+        assert closed.is_set(), "执行流的异步清理被二次取消打断"
+    finally:
+        release_cleanup.set()
+        consumer.cancel()
+        await asyncio.gather(consumer, return_exceptions=True)
+
 
 def test_durable_task_outer_timeout_tracks_configured_worker_default():
     durable_function = next(
@@ -67,6 +182,9 @@ assert durable.timeout_s == 172830
 
 
 class _BytesAsyncIter:
+    async def aclose(self):
+        """模拟真实 async generator 的显式收尾协议。"""
+
     def __init__(self, values: list[bytes]):
         self._values = list(values)
         self._idx = 0
@@ -1256,6 +1374,7 @@ async def test_run_context_stops_when_heartbeat_cannot_renew(monkeypatch: pytest
     renew = AsyncMock(return_value=False)
     monkeypatch.setattr(run_worker, "RUN_HEARTBEAT_SECONDS", 0)
     monkeypatch.setattr(run_worker, "renew_run_lease", renew)
+    monkeypatch.setattr(run_worker, "_run_attempt_finished", AsyncMock(return_value=False))
     run_ctx = run_worker.RunContext(run_id="run-1", worker_id="worker-1:attempt-1")
 
     await run_ctx._heartbeat_lease()
@@ -1263,6 +1382,21 @@ async def test_run_context_stops_when_heartbeat_cannot_renew(monkeypatch: pytest
     renew.assert_awaited_once_with("run-1", "worker-1:attempt-1")
     assert run_ctx.lease_lost is True
     assert run_ctx.cancel_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_run_context_fails_closed_when_terminal_attempt_check_fails(monkeypatch: pytest.MonkeyPatch):
+    """无法确认本 attempt 的终态时，继续按丢失 ownership 停止执行。"""
+    monkeypatch.setattr(run_worker, "RUN_HEARTBEAT_SECONDS", 0)
+    monkeypatch.setattr(run_worker, "renew_run_lease", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        run_worker, "_run_attempt_finished", AsyncMock(side_effect=RuntimeError("database unavailable"))
+    )
+    context = run_worker.RunContext(run_id="run-1", worker_id="worker-1:attempt-1")
+
+    await context._heartbeat_lease()
+
+    assert context.lease_lost and context.cancel_event.is_set()
 
 
 @pytest.mark.asyncio
@@ -1408,6 +1542,14 @@ def test_worker_settings_publish_short_ttl_versioned_health_contract():
     assert run_worker.WorkerSettings.max_jobs == run_worker.worker_max_jobs()
     assert run_worker.WorkerSettings.health_check_key == "yuxi:worker:health:agent-run-v1"
     assert 0 < run_worker.WorkerSettings.health_check_interval <= 10
+
+
+async def test_worker_polls_new_requests_within_interactive_latency_budget():
+    """真实 ARQ 配置必须把空闲队列轮询等待限制在 50ms 内。"""
+    from arq.worker import create_worker
+
+    worker = create_worker(run_worker.WorkerSettings, handle_signals=False)
+    assert 0 < worker.poll_delay_s <= 0.05
 
 
 def test_worker_settings_max_jobs_uses_environment():

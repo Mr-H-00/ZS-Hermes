@@ -7,24 +7,27 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
 import httpx
 
-from scripts.agent_load_test import (
+from test.performance.__main__ import build_parser
+from test.performance.load import (
     AgentLoadClient,
     LoadTestError,
     LocalResourceSampler,
     TaskResult,
     ToolEvidence,
     _parse_memory_mb,
-    build_parser,
     contains_model_output,
     evaluate_result,
+    first_model_request_latency_ms,
     iter_sse,
     observe_tool_evidence,
     parse_concurrency,
+    record_run_timing,
     summarize,
     write_results,
 )
@@ -75,9 +78,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-        async with httpx.AsyncClient(
-            base_url="http://test", transport=httpx.MockTransport(handler)
-        ) as client:
+        async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handler)) as client:
             load_client = AgentLoadClient(client, {}, 10)
             run_id = await load_client.wait_for_run_id(
                 "request-1",
@@ -93,9 +94,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                 text='event: run_created\ndata: {"request_id":"request-2","run_id":"run-2"}\n\n',
             )
 
-        async with httpx.AsyncClient(
-            base_url="http://test", transport=httpx.MockTransport(handler)
-        ) as client:
+        async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handler)) as client:
             load_client = AgentLoadClient(client, {}, 10)
             with self.assertRaises(LoadTestError):
                 await load_client.wait_for_run_id(
@@ -116,9 +115,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             payload=payload,
             request_id="request-1",
             run_id="run-1",
-            evidence=ToolEvidence(
-                execute_started=True, execute_finished=True, output_marker_seen=False
-            ),
+            evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=False),
         )
 
         self.assertFalse(success)
@@ -128,11 +125,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
         evidence = ToolEvidence(execute_started=True)
 
         observe_tool_evidence(
-            {
-                "payload": {
-                    "chunk": {"msg": {"type": "tool", "content": "LOAD_TEST_TOOL_OK\n"}}
-                }
-            },
+            {"payload": {"chunk": {"msg": {"type": "tool", "content": "LOAD_TEST_TOOL_OK\n"}}}},
             evidence,
         )
 
@@ -142,13 +135,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
     def test_first_model_output_accepts_text_and_tool_call_delta(self) -> None:
         self.assertTrue(
             contains_model_output(
-                {
-                    "payload": {
-                        "items": [
-                            {"stream_event": {"type": "message_delta", "content": "你"}}
-                        ]
-                    }
-                }
+                {"payload": {"items": [{"stream_event": {"type": "message_delta", "content": "你"}}]}}
             )
         )
         self.assertTrue(
@@ -178,6 +165,40 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_first_model_request_latency_uses_result_timing(self) -> None:
+        started_at = datetime.fromisoformat("2026-09-05T10:00:00+00:00")
+        self.assertEqual(
+            first_model_request_latency_ms(
+                started_at,
+                {"timing": {"first_model_request_at": "2026-09-05T10:00:01.250000Z"}},
+            ),
+            1250.0,
+        )
+
+    def test_first_model_request_latency_is_unknown_without_callback_timestamp(
+        self,
+    ) -> None:
+        started_at = datetime.fromisoformat("2026-09-05T10:00:00+00:00")
+        self.assertIsNone(first_model_request_latency_ms(started_at, {"timing": {}}))
+
+    def test_run_creation_timing_is_distinct_from_client_submit(self) -> None:
+        started_at = datetime.fromisoformat("2026-09-05T10:00:00+00:00")
+        timing = {
+            "created_at": "2026-09-05T10:00:00.250000Z",
+            "first_model_request_at": "2026-09-05T10:00:01.250000Z",
+            "first_model_request_latency_ms": 1000.0,
+        }
+        result = TaskResult(level=10, task_index=1, request_id="timing-test")
+        record_run_timing(result, started_at, {"timing": timing})
+        self.assertEqual(result.first_model_request_ms, 1250.0)
+        self.assertEqual(result.created_to_first_model_request_ms, 1000.0)
+        self.assertEqual(result.run_timing, timing)
+        missing = TaskResult(level=10, task_index=2, request_id="missing-timing")
+        record_run_timing(missing, started_at, {"timing": {}})
+        summary = summarize([result, missing])[0]
+        self.assertEqual(summary["created_to_first_model_request_p95_ms"], 1000.0)
+        self.assertEqual(summary["missing_model_request_timing"], 1)
+
     def test_sandbox_result_accepts_same_run_with_tool_evidence(self) -> None:
         success, error, output_chars = evaluate_result(
             scenario="sandbox",
@@ -189,9 +210,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             },
             request_id="request-1",
             run_id="run-1",
-            evidence=ToolEvidence(
-                execute_started=True, execute_finished=True, output_marker_seen=True
-            ),
+            evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=True),
         )
 
         self.assertTrue(success)
@@ -209,9 +228,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             },
             request_id="request-1",
             run_id="run-1",
-            evidence=ToolEvidence(
-                execute_started=True, execute_finished=True, output_marker_seen=True
-            ),
+            evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=True),
         )
 
         self.assertFalse(success)
@@ -240,7 +257,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             "container-prefix",
             "network-prefix",
         )
-        with patch("scripts.agent_load_test._run_local_command", side_effect=fake_run):
+        with patch("test.performance.load._run_local_command", side_effect=fake_run):
             self.assertEqual(sampler._sandbox_containers(), ["container-id"])
             self.assertEqual(sampler._sandbox_network_count(), 1)
 
@@ -255,7 +272,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                 "SANDBOX_DOCKER_NETWORK_PREFIX": "network-prefix",
             },
         ):
-            args = build_parser().parse_args([])
+            args = build_parser().parse_args(["load"])
 
         self.assertEqual(args.sandbox_container_prefix, "container-prefix")
         self.assertEqual(args.sandbox_network_prefix, "network-prefix")
@@ -263,12 +280,8 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
     def test_summarize_uses_nearest_rank_and_counts_failures(self) -> None:
         summary = summarize(
             [
-                TaskResult(
-                    level=2, task_index=1, request_id="a", success=True, total_ms=100
-                ),
-                TaskResult(
-                    level=2, task_index=2, request_id="b", success=False, total_ms=300
-                ),
+                TaskResult(level=2, task_index=1, request_id="a", success=True, total_ms=100),
+                TaskResult(level=2, task_index=2, request_id="b", success=False, total_ms=300),
             ]
         )[0]
 
@@ -305,7 +318,3 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("authorization", json.dumps(payload).lower())
         self.assertNotIn("authorization", csv_text.lower())
         self.assertIn("host_available_memory_mb", resources_text)
-
-
-if __name__ == "__main__":
-    unittest.main()

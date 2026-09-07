@@ -13,6 +13,7 @@ share the same runtime behavior once they reach the worker.
 """
 
 import asyncio
+from contextlib import aclosing
 import json
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -23,6 +24,7 @@ from langgraph.types import Command
 from yuxi.agents.backends.paths import runtime_workdir_path
 from yuxi.agents.base import _json_safe
 from yuxi.agents.buildin import agent_manager
+from yuxi.agents.callbacks.model_request_timing import FirstModelRequestRecorder
 from yuxi.agents.context import build_agent_input_context, normalize_agent_context_config
 from yuxi.agents.state import AgentStatePayload
 from yuxi.repositories.agent_repository import AgentRepository
@@ -85,17 +87,6 @@ def _build_agent_context(agent, input_context: dict):
     context = agent.context_schema()
     context.update(input_context)
     return context
-
-
-async def _get_langgraph_messages(agent_instance, config_dict, *, context):
-    graph = await agent_instance.get_graph(context=context)
-    state = await graph.aget_state(config_dict)
-
-    if not state or not state.values:
-        logger.warning("No state found in LangGraph")
-        return None
-
-    return state.values.get("messages", [])
 
 
 def _build_langfuse_run_context(
@@ -307,12 +298,6 @@ def _validate_subagent_attachment_root(*, root_conversation, conversation, uid: 
         raise ValueError("子智能体根 Conversation 的 Project Workdir 不可用")
 
 
-def _runtime_agent_config(agent_config: dict | None, execution_snapshot: dict | None) -> dict:
-    """优先使用 manifest 同次解析的配置，再由调用方追加工作区上下文。"""
-    snapshot_context = execution_snapshot.get("normalized_context") if isinstance(execution_snapshot, dict) else None
-    return snapshot_context if isinstance(snapshot_context, dict) else dict(agent_config or {})
-
-
 def _stream_message_key(metadata: dict | None, namespace: list[str], thread_id: str | None) -> tuple[str, str]:
     if not isinstance(metadata, dict):
         return thread_id or "", "/".join(namespace)
@@ -464,17 +449,16 @@ def _message_payload_yuxi_events(
     )
 
 
-async def _stream_agent_events(agent, messages, *, input_context=None, **kwargs):
-    async for mode, payload in agent.stream_messages_with_state(
-        messages,
-        input_context=input_context,
-        **kwargs,
-    ):
-        yield mode, payload
-
-
-async def _get_existing_message_ids(conv_repo: ConversationRepository, thread_id: str) -> set[str]:
-    return await conv_repo.get_message_source_ids_by_thread_id(thread_id)
+async def _persist_model_request_timing(
+    recorder: FirstModelRequestRecorder | None,
+    meta: dict,
+) -> None:
+    """在 Run 终态事件发布前持久化首次模型请求时间。"""
+    if recorder is not None:
+        await recorder.persist(
+            run_id=str(meta.get("run_id") or ""),
+            worker_id=str(meta.get("worker_id") or ""),
+        )
 
 
 def _ai_message_content_and_tool_calls(msg_dict: dict) -> tuple[str, list[dict]]:
@@ -738,11 +722,9 @@ def _should_reconcile_tool_state(audit: Any, tool_message: dict[str, Any]) -> bo
 
 
 async def save_messages_from_langgraph_state(
-    agent_instance,
+    state,
     thread_id: str,
     conv_repo: ConversationRepository,
-    config_dict: dict,
-    context,
     trace_info: dict[str, Any] | None = None,
     run_id: str | None = None,
     request_id: str | None = None,
@@ -773,8 +755,8 @@ async def save_messages_from_langgraph_state(
             if locked_run is None:
                 raise ValueError(f"AgentRun 不存在: {run_id}")
 
-        messages = await _get_langgraph_messages(agent_instance, config_dict, context=context)
-        existing_ids = await _get_existing_message_ids(conv_repo, thread_id)
+        messages = state.values.get("messages", [])
+        existing_ids = await conv_repo.get_message_source_ids_by_thread_id(thread_id)
         current_model_audits = await ModelMessageAuditRepository(conv_repo.db).list_for_run(run_id) if run_id else []
         current_audit_operation_ids = {message.operation_id for message in current_model_audits if message.operation_id}
         current_tool_audits = await ToolMessageAuditRepository(conv_repo.db).list_for_run(run_id) if run_id else []
@@ -1009,13 +991,6 @@ def _interrupt_terminal_details(chunk: bytes) -> tuple[str, str]:
     return status, str(payload.get("message") or "需要用户回答问题")
 
 
-def _ensure_full_msg(full_msg: AIMessage | None, accumulated_content: list[str]) -> AIMessage | None:
-    """如果 full_msg 为空且有累积内容，构建 AIMessage"""
-    if not full_msg and accumulated_content:
-        return AIMessage(content="".join(accumulated_content))
-    return full_msg
-
-
 async def _resolve_agent_runtime(
     *,
     db,
@@ -1023,6 +998,7 @@ async def _resolve_agent_runtime(
     requested_agent_slug: str | None,
     thread_id: str | None,
     agent_kind: Literal["main", "subagent"] = "main",
+    execution_snapshot: dict | None = None,
 ) -> tuple[Agent, Any, dict, Any | None]:
     """解析智能体运行时，并返回已校验的线程快照。"""
     agent_repo = AgentRepository(db)
@@ -1052,27 +1028,28 @@ async def _resolve_agent_runtime(
     if not backend:
         raise ValueError(f"智能体后端 {agent_item.backend_id} 不存在")
 
-    agent_config = await normalize_agent_context_config(
-        (agent_item.config_json or {}).get("context", {}),
-        db=db,
-        user=user,
-        context_schema=backend.context_schema,
-    )
+    snapshot_context = execution_snapshot.get("normalized_context") if isinstance(execution_snapshot, dict) else None
+    if isinstance(snapshot_context, dict):
+        # manifest 已固化本次执行配置；Graph 准备和 executor 仍执行各自的实时授权检查。
+        agent_config = snapshot_context
+    else:
+        agent_config = await normalize_agent_context_config(
+            (agent_item.config_json or {}).get("context", {}),
+            db=db,
+            user=user,
+            context_schema=backend.context_schema,
+        )
     return agent_item, backend, agent_config, conversation
 
 
 async def check_and_handle_interrupts(
-    agent,
-    langgraph_config: dict,
+    state,
     make_chunk,
     meta: dict,
     thread_id: str,
-    context,
 ) -> AsyncIterator[bytes]:
+    """从本轮已读取的最终 checkpoint 生成中断事件。"""
     try:
-        graph = await agent.get_graph(context=context)
-        state = await graph.aget_state(langgraph_config)
-
         if not state or not state.values:
             return
 
@@ -1125,6 +1102,7 @@ async def stream_agent_chat(
     save_user_message: bool = True,
     execution_snapshot: dict | None = None,
     on_prepared: Callable[[], Awaitable[None]] | None = None,
+    model_request_recorder: FirstModelRequestRecorder | None = None,
 ) -> AsyncIterator[bytes]:
     start_time = asyncio.get_event_loop().time()
 
@@ -1160,6 +1138,7 @@ async def stream_agent_chat(
             requested_agent_slug=agent_slug,
             thread_id=thread_id,
             agent_kind="subagent" if meta.get("run_type") == "subagent" else "main",
+            execution_snapshot=execution_snapshot,
         )
     except ValueError as e:
         yield make_chunk(status="error", error_type="invalid_agent", error_message=str(e), meta=meta)
@@ -1176,7 +1155,6 @@ async def stream_agent_chat(
         }
     )
 
-    full_msg = None
     accumulated_content: list[str] = []
     trace_info: dict[str, Any] = {}
     last_agent_state_signature = ""
@@ -1192,7 +1170,7 @@ async def stream_agent_chat(
             db=db,
         )
         input_context = await build_agent_input_context(
-            _runtime_agent_config(agent_config, execution_snapshot),
+            agent_config,
             thread_id=thread_id,
             uid=uid,
             run_id=meta.get("run_id"),
@@ -1210,9 +1188,6 @@ async def stream_agent_chat(
         meta["workdir_relative_path"] = workdir_path
         meta["workdir_path"] = input_context["workdir_path"]
         _apply_subagent_runtime_context(input_context, meta)
-        context = _build_agent_context(agent, input_context)
-        if isinstance(execution_snapshot, dict):
-            setattr(context, "_skill_runtime_snapshot", execution_snapshot.get("skill_runtime_snapshot"))
         langfuse_run = _build_langfuse_run_context(
             current_user=current_user,
             thread_id=thread_id,
@@ -1279,124 +1254,121 @@ async def stream_agent_chat(
         # 智能体流式执行期间不访问业务数据库，先结束预处理事务并归还连接池。
         await db.commit()
 
-        # 先构建 langgraph_config
-        langgraph_config = {"configurable": {"thread_id": thread_id, "uid": uid}}
-
+        final_state = None
         protocol_message_ids: dict[tuple[str, str], str] = {}
         model_audit = _build_model_message_audit_collector(meta, thread_id)
         tool_audit = _build_tool_message_audit_collector(model_audit)
-        async for mode, payload in _stream_agent_events(
-            agent,
+        callbacks = list(langfuse_run.callbacks)
+        if model_request_recorder is not None:
+            callbacks.append(model_request_recorder)
+        stream_source = agent.stream_messages_with_state(
             messages,
             input_context=input_context,
-            callbacks=langfuse_run.callbacks,
+            callbacks=callbacks,
             metadata=langfuse_run.metadata,
             tags=langfuse_run.tags,
             on_prepared=on_prepared,
-        ):
-            if mode == "values":
-                agent_state = extract_agent_state(
-                    payload if isinstance(payload, dict) else {},
-                    workdir_path=meta.get("workdir_path"),
-                )
-                signature = _agent_state_signature(agent_state)
-                if signature and signature != last_agent_state_signature:
-                    last_agent_state_signature = signature
-                    yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
-                continue
+        )
+        async with aclosing(stream_source):
+            async for mode, payload in stream_source:
+                if mode == "checkpoint":
+                    final_state = payload
+                    continue
+                if mode == "values":
+                    agent_state = extract_agent_state(
+                        payload if isinstance(payload, dict) else {},
+                        workdir_path=meta.get("workdir_path"),
+                    )
+                    signature = _agent_state_signature(agent_state)
+                    if signature and signature != last_agent_state_signature:
+                        last_agent_state_signature = signature
+                        yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
+                    continue
 
-            if mode == "custom":
-                compression = _context_compression_payload(payload)
-                if compression is not None:
-                    yield make_chunk(status="context_compression", compression=compression, meta=meta)
-                continue
+                if mode == "custom":
+                    compression = _context_compression_payload(payload)
+                    if compression is not None:
+                        yield make_chunk(status="context_compression", compression=compression, meta=meta)
+                    continue
 
-            if mode == "stream_event":
-                event_payload = payload if isinstance(payload, dict) else {}
-                event_namespace = event_payload.get("namespace") or []
-                event_thread_id = event_payload.get("thread_id")
-                if (
-                    tool_audit is not None
-                    and event_payload.get("method") == "tools"
-                    and _is_root_tool_audit_event(event_payload, thread_id)
-                ):
-                    await tool_audit.consume(event_payload)
-                yield make_chunk(
-                    status="stream_event",
-                    event=event_payload,
-                    namespace=event_namespace,
-                    meta=meta,
-                    thread_id=event_thread_id,
-                )
-                continue
+                if mode == "stream_event":
+                    event_payload = payload if isinstance(payload, dict) else {}
+                    event_namespace = event_payload.get("namespace") or []
+                    event_thread_id = event_payload.get("thread_id")
+                    if (
+                        tool_audit is not None
+                        and event_payload.get("method") == "tools"
+                        and _is_root_tool_audit_event(event_payload, thread_id)
+                    ):
+                        await tool_audit.consume(event_payload)
+                    yield make_chunk(
+                        status="stream_event",
+                        event=event_payload,
+                        namespace=event_namespace,
+                        meta=meta,
+                        thread_id=event_thread_id,
+                    )
+                    continue
 
-            msg, metadata = payload
-            namespace = _metadata_namespace(metadata)
-            chunk_thread_id = _metadata_thread_id(metadata, thread_id if not namespace else None)
-            if namespace and not chunk_thread_id:
-                continue
+                msg, metadata = payload
+                namespace = _metadata_namespace(metadata)
+                chunk_thread_id = _metadata_thread_id(metadata, thread_id if not namespace else None)
+                if namespace and not chunk_thread_id:
+                    continue
 
-            is_subagent_chunk = bool(chunk_thread_id and chunk_thread_id != thread_id)
-            if model_audit is not None and not is_subagent_chunk:
-                await model_audit.consume(msg, metadata)
-            stream_events = _message_payload_yuxi_events(
-                msg,
-                metadata=metadata,
-                namespace=namespace,
-                thread_id=chunk_thread_id,
-                protocol_message_ids=protocol_message_ids,
-            )
-
-            for stream_event in stream_events:
-                content = _stream_event_response(stream_event)
-                if not is_subagent_chunk and content:
-                    trace_info = get_trace_info(langfuse_run)
-                    accumulated_content.append(content)
-
-                yield make_chunk(
-                    content=content,
-                    stream_event=stream_event,
+                is_subagent_chunk = bool(chunk_thread_id and chunk_thread_id != thread_id)
+                if model_audit is not None and not is_subagent_chunk:
+                    await model_audit.consume(msg, metadata)
+                stream_events = _message_payload_yuxi_events(
+                    msg,
                     metadata=metadata,
-                    status="loading",
+                    namespace=namespace,
                     thread_id=chunk_thread_id,
+                    protocol_message_ids=protocol_message_ids,
                 )
 
-        full_msg = _ensure_full_msg(full_msg, accumulated_content)
+                for stream_event in stream_events:
+                    content = _stream_event_response(stream_event)
+                    if not is_subagent_chunk and content:
+                        trace_info = get_trace_info(langfuse_run)
+                        accumulated_content.append(content)
+
+                    yield make_chunk(
+                        content=content,
+                        stream_event=stream_event,
+                        metadata=metadata,
+                        status="loading",
+                        thread_id=chunk_thread_id,
+                    )
+
+        if final_state is None:
+            raise ValueError("Agent 执行流缺少最终 checkpoint")
         trace_info = get_trace_info(langfuse_run)
 
         interrupted = False
         interrupt_error_type = None
         interrupt_error_message = None
-        async for chunk in check_and_handle_interrupts(agent, langgraph_config, make_chunk, meta, thread_id, context):
+        async for chunk in check_and_handle_interrupts(final_state, make_chunk, meta, thread_id):
             interrupted = True
             interrupt_error_type, interrupt_error_message = _interrupt_terminal_details(chunk)
             yield chunk
 
         meta["time_cost"] = asyncio.get_event_loop().time() - start_time
-        try:
-            graph = await agent.get_graph(context=context)
-            state = await graph.aget_state(langgraph_config)
-            agent_state = (
-                extract_agent_state(getattr(state, "values", {}), workdir_path=meta.get("workdir_path"))
-                if state
-                else {}
-            )
-        except Exception:
-            agent_state = {}
+        agent_state = extract_agent_state(final_state.values, workdir_path=meta.get("workdir_path"))
 
         final_signature = _agent_state_signature(agent_state)
         if final_signature and final_signature != last_agent_state_signature:
             last_agent_state_signature = final_signature
             yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
 
+        # 先记录模型请求时间，再由同一 lease owner 原子落库终态。
+        await _persist_model_request_timing(model_request_recorder, meta)
         # 先存储数据库，再返回 finished，避免前端查询时数据未落库
         try:
             terminal_committed = await save_messages_from_langgraph_state(
-                agent_instance=agent,
+                state=final_state,
                 thread_id=thread_id,
                 conv_repo=conv_repo,
-                config_dict=langgraph_config,
-                context=context,
                 trace_info=trace_info,
                 run_id=meta.get("run_id"),
                 request_id=meta.get("request_id"),
@@ -1424,6 +1396,7 @@ async def stream_agent_chat(
 
     except (asyncio.CancelledError, ConnectionError) as e:
         logger.warning(f"Client disconnected, cancelling stream: {e}")
+        await _persist_model_request_timing(model_request_recorder, meta)
         yield make_chunk(status="interrupted", message="对话已中断", meta=meta)
 
     except Exception as e:
@@ -1432,7 +1405,7 @@ async def stream_agent_chat(
         error_msg = f"Error streaming messages: {e}"
         error_type = "unexpected_error"
 
-        full_msg = _ensure_full_msg(full_msg, accumulated_content)
+        full_msg = AIMessage(content="".join(accumulated_content)) if accumulated_content else None
 
         async with pg_manager.get_async_session_context() as new_db:
             new_conv_repo = ConversationRepository(new_db)
@@ -1448,9 +1421,11 @@ async def stream_agent_chat(
                 worker_id=meta.get("worker_id"),
             )
 
+        await _persist_model_request_timing(model_request_recorder, meta)
         yield make_chunk(status="error", error_type=error_type, error_message=error_msg, meta=meta)
     finally:
-        flush_langfuse()
+        # 同步 exporter 会等待网络与队列，不能阻塞其他 Run 的事件循环。
+        await asyncio.to_thread(flush_langfuse)
 
 
 async def stream_agent_resume(
@@ -1462,6 +1437,7 @@ async def stream_agent_resume(
     db,
     execution_snapshot: dict | None = None,
     on_prepared: Callable[[], Awaitable[None]] | None = None,
+    model_request_recorder: FirstModelRequestRecorder | None = None,
 ) -> AsyncIterator[bytes]:
     start_time = asyncio.get_event_loop().time()
 
@@ -1484,6 +1460,7 @@ async def stream_agent_resume(
             user=current_user,
             requested_agent_slug=None,
             thread_id=thread_id,
+            execution_snapshot=execution_snapshot,
         )
     except ValueError as e:
         yield make_resume_chunk(status="error", error_type="invalid_agent", error_message=str(e), meta=meta)
@@ -1505,7 +1482,7 @@ async def stream_agent_resume(
     meta["workdir_relative_path"] = workdir_path
     meta["workdir_path"] = runtime_workdir_path(workdir_path)
     input_context = await build_agent_input_context(
-        _runtime_agent_config(agent_config, execution_snapshot),
+        agent_config,
         thread_id=thread_id,
         uid=uid,
         run_id=meta.get("run_id"),
@@ -1517,9 +1494,6 @@ async def stream_agent_resume(
     input_context["runtime_scope_id"] = runtime_scope_id
     input_context["workdir_relative_path"] = workdir_path
     input_context["workdir_path"] = meta["workdir_path"]
-    context = _build_agent_context(agent, input_context)
-    if isinstance(execution_snapshot, dict):
-        setattr(context, "_skill_runtime_snapshot", execution_snapshot.get("skill_runtime_snapshot"))
     langfuse_run = _build_langfuse_run_context(
         current_user=current_user,
         thread_id=thread_id,
@@ -1534,10 +1508,14 @@ async def stream_agent_resume(
     trace_info: dict[str, Any] = {}
     last_agent_state_signature = ""
 
+    callbacks = list(langfuse_run.callbacks)
+    if model_request_recorder is not None:
+        callbacks.append(model_request_recorder)
+    final_state = None
     stream_source = agent.stream_resume_with_state(
         resume_command,
         input_context=input_context,
-        callbacks=langfuse_run.callbacks,
+        callbacks=callbacks,
         metadata=langfuse_run.metadata,
         tags=langfuse_run.tags,
         on_prepared=on_prepared,
@@ -1548,112 +1526,106 @@ async def stream_agent_resume(
     tool_audit = _build_tool_message_audit_collector(model_audit)
 
     try:
-        async for mode, payload in stream_source:
-            if mode == "values":
-                agent_state = extract_agent_state(
-                    payload if isinstance(payload, dict) else {},
-                    workdir_path=meta.get("workdir_path"),
-                )
-                signature = _agent_state_signature(agent_state)
-                if signature and signature != last_agent_state_signature:
-                    last_agent_state_signature = signature
-                    yield make_resume_chunk(status="agent_state", agent_state=agent_state, meta=meta)
-                continue
+        async with aclosing(stream_source):
+            async for mode, payload in stream_source:
+                if mode == "checkpoint":
+                    final_state = payload
+                    continue
+                if mode == "values":
+                    agent_state = extract_agent_state(
+                        payload if isinstance(payload, dict) else {},
+                        workdir_path=meta.get("workdir_path"),
+                    )
+                    signature = _agent_state_signature(agent_state)
+                    if signature and signature != last_agent_state_signature:
+                        last_agent_state_signature = signature
+                        yield make_resume_chunk(status="agent_state", agent_state=agent_state, meta=meta)
+                    continue
 
-            if mode == "stream_event":
-                event_payload = payload if isinstance(payload, dict) else {}
-                event_namespace = event_payload.get("namespace") or []
-                event_thread_id = event_payload.get("thread_id")
-                if (
-                    tool_audit is not None
-                    and event_payload.get("method") == "tools"
-                    and _is_root_tool_audit_event(event_payload, thread_id)
-                ):
-                    await tool_audit.consume(event_payload)
-                yield make_resume_chunk(
-                    status="stream_event",
-                    event=event_payload,
-                    namespace=event_namespace,
-                    meta=meta,
-                    thread_id=event_thread_id,
-                )
-                continue
+                if mode == "stream_event":
+                    event_payload = payload if isinstance(payload, dict) else {}
+                    event_namespace = event_payload.get("namespace") or []
+                    event_thread_id = event_payload.get("thread_id")
+                    if (
+                        tool_audit is not None
+                        and event_payload.get("method") == "tools"
+                        and _is_root_tool_audit_event(event_payload, thread_id)
+                    ):
+                        await tool_audit.consume(event_payload)
+                    yield make_resume_chunk(
+                        status="stream_event",
+                        event=event_payload,
+                        namespace=event_namespace,
+                        meta=meta,
+                        thread_id=event_thread_id,
+                    )
+                    continue
 
-            if mode == "custom":
-                compression = _context_compression_payload(payload)
-                if compression is not None:
-                    yield make_resume_chunk(status="context_compression", compression=compression, meta=meta)
-                continue
+                if mode == "custom":
+                    compression = _context_compression_payload(payload)
+                    if compression is not None:
+                        yield make_resume_chunk(status="context_compression", compression=compression, meta=meta)
+                    continue
 
-            if mode != "messages":
-                continue
+                if mode != "messages":
+                    continue
 
-            msg, metadata = payload
-            metadata = dict(metadata or {})
-            namespace = _metadata_namespace(metadata)
-            chunk_thread_id = _metadata_thread_id(metadata, thread_id if not namespace else None)
-            if namespace and not chunk_thread_id:
-                continue
+                msg, metadata = payload
+                metadata = dict(metadata or {})
+                namespace = _metadata_namespace(metadata)
+                chunk_thread_id = _metadata_thread_id(metadata, thread_id if not namespace else None)
+                if namespace and not chunk_thread_id:
+                    continue
 
-            if chunk_thread_id == thread_id:
-                trace_info = get_trace_info(langfuse_run)
-                if model_audit is not None:
-                    await model_audit.consume(msg, metadata)
+                if chunk_thread_id == thread_id:
+                    trace_info = get_trace_info(langfuse_run)
+                    if model_audit is not None:
+                        await model_audit.consume(msg, metadata)
 
-            stream_events = _message_payload_yuxi_events(
-                msg,
-                metadata=metadata,
-                namespace=namespace,
-                thread_id=chunk_thread_id,
-                protocol_message_ids=protocol_message_ids,
-            )
-
-            for stream_event in stream_events:
-                content = _stream_event_response(stream_event)
-                yield make_resume_chunk(
-                    content=content,
-                    stream_event=stream_event,
+                stream_events = _message_payload_yuxi_events(
+                    msg,
                     metadata=metadata,
-                    status="loading",
+                    namespace=namespace,
                     thread_id=chunk_thread_id,
+                    protocol_message_ids=protocol_message_ids,
                 )
 
-        langgraph_config = {"configurable": {"thread_id": thread_id, "uid": uid}}
+                for stream_event in stream_events:
+                    content = _stream_event_response(stream_event)
+                    yield make_resume_chunk(
+                        content=content,
+                        stream_event=stream_event,
+                        metadata=metadata,
+                        status="loading",
+                        thread_id=chunk_thread_id,
+                    )
+
+        if final_state is None:
+            raise ValueError("Agent 执行流缺少最终 checkpoint")
         interrupted = False
         interrupt_error_type = None
         interrupt_error_message = None
-        async for chunk in check_and_handle_interrupts(
-            agent, langgraph_config, make_resume_chunk, meta, thread_id, context
-        ):
+        async for chunk in check_and_handle_interrupts(final_state, make_resume_chunk, meta, thread_id):
             interrupted = True
             interrupt_error_type, interrupt_error_message = _interrupt_terminal_details(chunk)
             yield chunk
 
         meta["time_cost"] = asyncio.get_event_loop().time() - start_time
 
-        try:
-            graph = await agent.get_graph(context=context)
-            state = await graph.aget_state(langgraph_config)
-            agent_state = (
-                extract_agent_state(getattr(state, "values", {}), workdir_path=meta.get("workdir_path"))
-                if state
-                else {}
-            )
-        except Exception:
-            agent_state = {}
+        agent_state = extract_agent_state(final_state.values, workdir_path=meta.get("workdir_path"))
 
         final_signature = _agent_state_signature(agent_state)
         if final_signature and final_signature != last_agent_state_signature:
             yield make_resume_chunk(status="agent_state", agent_state=agent_state, meta=meta)
 
+        # 先记录模型请求时间，再由同一 lease owner 原子落库终态。
+        await _persist_model_request_timing(model_request_recorder, meta)
         # 先存储数据库，再返回 finished，避免前端查询时数据未落库
         try:
             terminal_committed = await save_messages_from_langgraph_state(
-                agent_instance=agent,
+                state=final_state,
                 thread_id=thread_id,
                 conv_repo=conv_repo,
-                config_dict=langgraph_config,
-                context=context,
                 trace_info=trace_info,
                 run_id=meta.get("run_id"),
                 request_id=meta.get("request_id"),
@@ -1681,6 +1653,7 @@ async def stream_agent_resume(
 
     except (asyncio.CancelledError, ConnectionError) as e:
         logger.warning(f"Client disconnected during resume: {e}")
+        await _persist_model_request_timing(model_request_recorder, meta)
         yield make_resume_chunk(status="interrupted", message="对话恢复已中断", meta=meta)
 
     except Exception as e:
@@ -1699,9 +1672,10 @@ async def stream_agent_resume(
                 worker_id=meta.get("worker_id"),
             )
 
+        await _persist_model_request_timing(model_request_recorder, meta)
         yield make_resume_chunk(message=f"Error during resume: {e}", status="error")
     finally:
-        flush_langfuse()
+        await asyncio.to_thread(flush_langfuse)
 
 
 def _serialize_state_messages(values: dict[str, Any]) -> list[dict[str, Any]]:

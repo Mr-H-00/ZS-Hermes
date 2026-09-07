@@ -943,6 +943,14 @@ async def test_run_timing_is_write_once_and_requires_live_owner(session):
             checked_at=now + timedelta(seconds=61),
         )
 
+    with pytest.raises(ValueError, match="不能早于创建时间"):
+        await repository.record_first_model_request(
+            run.id,
+            worker_id=owner,
+            observed_at=run.created_at - timedelta(seconds=1),
+            checked_at=now + timedelta(seconds=1),
+        )
+
     _, prepared = await repository.record_prepared(
         run.id,
         worker_id=owner,
@@ -967,12 +975,27 @@ async def test_run_timing_is_write_once_and_requires_live_owner(session):
         observed_at=now + timedelta(seconds=8),
         checked_at=now + timedelta(seconds=8),
     )
+    _, first_model_request = await repository.record_first_model_request(
+        run.id,
+        worker_id=owner,
+        observed_at=now + timedelta(seconds=3),
+        checked_at=now + timedelta(seconds=3),
+    )
+    _, first_model_request_again = await repository.record_first_model_request(
+        run.id,
+        worker_id=owner,
+        observed_at=now + timedelta(seconds=4),
+        checked_at=now + timedelta(seconds=4),
+    )
 
     assert prepared is True
     assert prepared_again is False
     assert first_output is True
     assert first_output_again is False
+    assert first_model_request is True
+    assert first_model_request_again is False
     assert run.prepared_at == now + timedelta(seconds=2)
+    assert run.first_model_request_at == now + timedelta(seconds=3)
     assert run.first_output_at == now + timedelta(seconds=7)
 
 

@@ -958,7 +958,7 @@ async def test_cancelled_run_keeps_trace_and_closes_running_model_audit(
         try:
             row = await conn.fetchrow(
                 """
-                SELECT ar.langfuse_trace_id, ar.output_message_id,
+                SELECT ar.langfuse_trace_id, ar.output_message_id, ar.first_model_request_at,
                        count(message.id) FILTER (
                            WHERE message.role = 'assistant' AND message.message_type != 'model_audit'
                        ) AS visible_assistant_count,
@@ -978,7 +978,7 @@ async def test_cancelled_run_keeps_trace_and_closes_running_model_audit(
                 FROM agent_runs ar
                 LEFT JOIN messages message ON message.conversation_id = ar.conversation_id
                 WHERE ar.id = $1
-                GROUP BY ar.langfuse_trace_id, ar.output_message_id
+                GROUP BY ar.langfuse_trace_id, ar.output_message_id, ar.first_model_request_at
                 """,
                 run_id,
             )
@@ -988,6 +988,7 @@ async def test_cancelled_run_keeps_trace_and_closes_running_model_audit(
         assert row
         assert row["langfuse_trace_id"]
         assert row["output_message_id"] is None
+        assert row["first_model_request_at"] is not None
         assert row["visible_assistant_count"] == 0
         assert row["audit_count"] == 1
         assert row["audit_status"] == "interrupted"
@@ -996,6 +997,7 @@ async def test_cancelled_run_keeps_trace_and_closes_running_model_audit(
         result = await e2e_client.get(f"/api/agent/runs/{run_id}/result", headers=e2e_headers)
         assert result.status_code == 200, result.text
         assert result.json()["output"] == ""
+        assert result.json()["timing"]["first_model_request_latency_ms"] is not None
         assert result.json()["langfuse_trace_id"] == row["langfuse_trace_id"]
     finally:
         if run_id and not terminal:

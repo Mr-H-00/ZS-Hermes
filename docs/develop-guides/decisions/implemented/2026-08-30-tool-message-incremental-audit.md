@@ -16,7 +16,7 @@ ToolCall 在工具尚未开始时保留 Model 声明的 pending 调用意图，�
 
 Run 失败、取消、中断、completed 时遗留的未关闭 Tool 或 lease 过期由 AgentRun owning transaction 与 Model audit 一起收敛，并同步关闭 ToolCall 兼容状态。普通 History、Memory、Dashboard 消息口径和 Conversation count 排除 `tool_audit`；ToolCall 统计继续读取单向兼容投影。
 
-超级管理员通过唯一的线程级 `/api/chat/thread/{thread_id}/audits` 接口读取自身线程最新 500 条 Model/Tool DTO，响应以 `truncated` 明示截断。调试面板按 Run 与 sequence 展示 Tool 状态、effective input、输出或错误、起止时间和后端 duration，并沿用 Message ID 或 `(run_id, role, operation_id)` 合并规则。不保留无独立 consumer 的 Model-only `/model-audits`，接口收敛理由见[线程 Message 审计读接口收敛](./2026-09-03-unify-message-audit-read-api.md)。business schema v4 提供 Model/Tool 共用字段。Langfuse observation ID 与更深恢复加固属于后续阶段。
+超级管理员通过唯一的线程级 `/api/chat/thread/{thread_id}/audits` 接口读取自身线程最新 500 条 Model/Tool DTO，响应以 `truncated` 明示截断。调试面板按 Run 与 sequence 展示 Tool 状态、effective input、输出或错误、起止时间和后端 duration，并沿用 Message ID 或 `(run_id, role, operation_id)` 合并规则。不保留无独立 consumer 的 Model-only `/model-audits`，接口收敛理由见[线程 Message 审计读接口收敛](./2026-09-03-unify-message-audit-read-api.md)。从 0.7.2 发布版升级时一次补齐 Model/Tool 共用字段。Langfuse observation ID 与更深恢复加固属于后续阶段。
 
 ## 替代方案
 
