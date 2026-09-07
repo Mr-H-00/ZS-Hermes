@@ -216,7 +216,7 @@ class KnowledgeParentChildChunkRepository:
             return int(value or 0)
 
     async def count_by_file_ids(self, file_ids: list[str]) -> dict[str, int]:
-        """统计指定文件当前 active 版本的父块数量。"""
+        """统计指定文件当前 active 版本的子块数量，用于对齐文件 chunk_count。"""
         normalized_ids = [file_id for file_id in file_ids if file_id]
         if not normalized_ids:
             return {}
@@ -225,16 +225,16 @@ class KnowledgeParentChildChunkRepository:
         async with pg_manager.get_async_session_context() as session:
             for batch in self._iter_batches(normalized_ids):
                 result = await session.execute(
-                    select(KnowledgeParentChunk.file_id, func.count())
+                    select(KnowledgeChildChunk.file_id, func.count())
                     .join(
                         KnowledgeDocumentVersion,
-                        KnowledgeDocumentVersion.version_id == KnowledgeParentChunk.version_id,
+                        KnowledgeDocumentVersion.version_id == KnowledgeChildChunk.version_id,
                     )
                     .where(
-                        KnowledgeParentChunk.file_id.in_(batch),
+                        KnowledgeChildChunk.file_id.in_(batch),
                         KnowledgeDocumentVersion.status == "active",
                     )
-                    .group_by(KnowledgeParentChunk.file_id)
+                    .group_by(KnowledgeChildChunk.file_id)
                 )
                 counts.update({str(file_id): int(count or 0) for file_id, count in result.all()})
         return counts

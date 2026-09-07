@@ -261,12 +261,20 @@ async def test_parent_child_records_round_trip_and_legacy_chunks_remain_readable
 
 
 async def test_parent_child_file_counts_and_token_totals_follow_active_versions(parent_child_database) -> None:
-    """按文件统计必须只看 active ParentChunk，并保留父块顺序。"""
+    """按文件统计必须只看 active 版本，并保留父块顺序。"""
     database = parent_child_database
     version = await _create_version(database, doc_id="doc-file-stats")
     await database.repository.batch_insert_parent_chunks(
         version.version_id,
         [_parent("parent-a", 0), _parent("parent-b", 1)],
+    )
+    await database.repository.batch_insert_child_chunks(
+        version.version_id,
+        [
+            _child("child-a-1", "parent-a", 0),
+            _child("child-a-2", "parent-a", 1),
+            _child("child-b-1", "parent-b", 2),
+        ],
     )
     await database.repository.activate_version(version.version_id)
 
@@ -275,7 +283,7 @@ async def test_parent_child_file_counts_and_token_totals_follow_active_versions(
 
     assert [record.parent_id for record in parents] == ["parent-a", "parent-b"]
     assert [record.parent_id for record in parents_by_ids] == ["parent-a", "parent-b"]
-    assert await database.repository.count_by_file_ids([database.file_id]) == {database.file_id: 2}
+    assert await database.repository.count_by_file_ids([database.file_id]) == {database.file_id: 3}
     assert await database.repository.sum_token_count_by_file_ids([database.file_id]) == {database.file_id: 6}
 
 
