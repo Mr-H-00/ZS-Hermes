@@ -4,6 +4,7 @@ from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware, TodoListMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
+from langchain_core.messages import ToolMessage
 
 from yuxi.agents import BaseAgent, BaseState
 from yuxi.agents.backends import (
@@ -61,6 +62,30 @@ class _SubAgentToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
     async def awrap_model_call(self, request, handler):
         return await handler(request.override(tools=_filter_disabled_tools(request.tools or [], self.disabled_tools)))
 
+    # 对模型隐藏只影响本轮 bind_tools。子智能体没有审批中间件，因此一旦出现被禁用
+    # 工具的调用（例如同一子线程先以 always_trust 跑过、历史里留有成功调用，之后
+    # 又以 default 续跑），就会直接执行。隐藏要等于关闭，必须在执行前拒绝。
+    def wrap_tool_call(self, request, handler):
+        denial = self._denied_tool_message(request)
+        return denial if denial is not None else handler(request)
+
+    async def awrap_tool_call(self, request, handler):
+        denial = self._denied_tool_message(request)
+        return denial if denial is not None else await handler(request)
+
+    def _denied_tool_message(self, request) -> ToolMessage | None:
+        name = _tool_name(request.tool_call)
+        if name not in self.disabled_tools:
+            return None
+        return ToolMessage(
+            content=(
+                f"工具 {name} 在当前审批模式下对子智能体不可用；请把结果交回主智能体，由主线程按审批流程执行该操作。"
+            ),
+            tool_call_id=request.tool_call.get("id") or "",
+            name=name,
+            status="error",
+        )
+
 
 async def _build_middlewares(context, backend, tool_approval_mode: str):
     # tool_approval_mode is normalized once by the caller (get_graph / SubAgentBackend.get_graph).
@@ -69,6 +94,7 @@ async def _build_middlewares(context, backend, tool_approval_mode: str):
         create_agent_filesystem_middleware(
             getattr(context, "tool_token_limit", DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS) * 1024,
             backend=backend,
+            disabled_tools=_disabled_tools_for(tool_approval_mode),
         ),
         SkillsMiddleware(),
         create_summary_middleware_from_context(context, backend=backend),
