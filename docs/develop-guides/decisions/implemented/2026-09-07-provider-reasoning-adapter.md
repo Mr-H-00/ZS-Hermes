@@ -47,7 +47,7 @@ Owner：backend/package/yuxi/models/chat.py
 
 `test/e2e/test_provider_reasoning_e2e.py` 以 OpenCode 实际经过 API、worker、SSE、PostgreSQL 和历史 HTTP 接口，234 字推理逐字一致，数据库 messages.content 保存正文字符串，messages.extra_metadata["content"] 保留标准块、additional_kwargs 不再重复保存推理，1 项通过。其余两家的证据为真实模型边界探针，不宣称覆盖三家全部 Worker E2E。测试创建的临时 Agent 与 Conversation 已清理。真实浏览器使用当前 semantic 事件驱动实际 Vue 组件，验证思考中键盘展开、增量更新、完成后继续展开、历史一致，以及无推理时正文正常显示；浏览器数据为测试替身，不宣称正式账号页面端到端通过。
 
-复测模型边界：向 API 容器传入 `YUXI_REASONING_PROBE_MODELS='provider:model,...'`，按需设置 `YUXI_REASONING_PROBE_THINKING=1`，运行 `uv run --no-sync --group test pytest test/integration/test_provider_reasoning_live.py -s`。完整链路：设置 `YUXI_REASONING_E2E_MODEL='provider:model'`，配置既有 E2E 账号后运行 `test/e2e/test_provider_reasoning_e2e.py`。未显式选模型时探针跳过，避免日常测试产生计费调用。
+复测模型边界：向 API 容器传入 `YUXI_REASONING_PROBE_MODELS='provider:model,...'`，按需设置 `YUXI_REASONING_PROBE_THINKING=1`，运行 `uv run --no-sync --group test pytest test/integration/services/test_provider_reasoning_live.py -s`。完整链路：设置 `YUXI_REASONING_E2E_MODEL='provider:model'`，配置既有 E2E 账号后运行 `test/e2e/test_provider_reasoning_e2e.py`。未显式选模型时探针跳过，避免日常测试产生计费调用。
 
 最终回归：`COMPOSE_PROJECT_NAME=yuxi docker compose exec -T api uv run --no-sync --group test pytest test/unit -m 'not slow' -k 'not test_finish_run_terminal_loser_does_not_append_end_event'` 为 1922 通过、52 跳过、1 排除、7 子测试通过。排除项在既有验证中停滞；容器标准 uv 依赖同步存在权限错误，使用已安装依赖测试，不宣称未排除的标准全量命令通过。Web `pnpm run test:unit` 275 项通过，`lint:check`、Web build、`git diff --check` 通过。浏览器覆盖浅色桌面、深色 375px 与减少动态效果。
 

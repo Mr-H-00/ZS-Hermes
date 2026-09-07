@@ -7,6 +7,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _PKG = Path(__file__).resolve().parents[2] / "package"
 
 
@@ -27,19 +29,15 @@ _TILDE_MD = "Q: 如何配置？\nA: 参考示例：\n~~~\nQ: 注释里的文本\
 
 
 class TestPrefixFenceBoundary:
-    def test_tilde_fence_content_stays_in_answer(self):
-        # 核心回归：tilde 围栏内的 Q:/A: 行不得拆出虚构问答对
-        pairs = qa._extract_pairs_by_prefix(_TILDE_MD)
+    @pytest.mark.parametrize("fence", ["~~~", "```"])
+    def test_fence_content_stays_in_answer(self, fence):
+        # 围栏内的 Q:/A: 行不得拆出虚构问答对。
+        pairs = qa._extract_pairs_by_prefix(_TILDE_MD.replace("~~~", fence))
         assert len(pairs) == 1
         q, a = pairs[0]
         assert q == "如何配置？"
         assert "注释里的文本" in a
         assert "完成后重启。" in a
-
-    def test_backtick_fence_content_stays_in_answer(self):
-        pairs = qa._extract_pairs_by_prefix(_TILDE_MD.replace("~~~", "```"))
-        assert len(pairs) == 1
-        assert "注释里的文本" in pairs[0][1]
 
     def test_fence_with_info_string(self):
         md = "Q: 配置？\nA: 示例：\n~~~python\nQ: 注释\n~~~\n完。"

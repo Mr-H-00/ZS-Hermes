@@ -193,7 +193,6 @@ class TestBuildAskUserQuestionPayload:
         info = {"questions": [{"question": "测试？"}]}
         result = _build_ask_user_question_payload(info, "thread-id")
 
-        assert result["questions"][0]["question_id"] != ""
         assert len(result["questions"][0]["question_id"]) > 0
 
 

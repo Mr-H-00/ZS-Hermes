@@ -39,24 +39,24 @@ def test_public_image_uses_same_origin_url_without_bucket_listing(monkeypatch):
     assert actions == ["s3:GetObject"]
 
 
-def test_legacy_public_minio_url_is_normalized_to_same_origin(monkeypatch):
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "http://example.test:9000/public/avatar/user.png",
+            "/minio/public/avatar/user.png",
+        ),
+        ("https://cdn.example.test/public/user.png", "https://cdn.example.test/public/user.png"),
+        (
+            "http://example.test:9000/public/avatar/user.png?v=123#preview",
+            "/minio/public/avatar/user.png?v=123#preview",
+        ),
+    ],
+)
+def test_legacy_public_minio_url_is_normalized(monkeypatch, url, expected):
     monkeypatch.setenv("MINIO_PUBLIC_URL", "/minio")
 
-    assert (
-        normalize_public_minio_url("http://example.test:9000/public/avatar/user.png") == "/minio/public/avatar/user.png"
-    )
-    assert normalize_public_minio_url("https://cdn.example.test/public/user.png") == (
-        "https://cdn.example.test/public/user.png"
-    )
-
-
-def test_legacy_public_minio_url_preserves_query_and_fragment(monkeypatch):
-    monkeypatch.setenv("MINIO_PUBLIC_URL", "/minio")
-
-    assert (
-        normalize_public_minio_url("http://example.test:9000/public/avatar/user.png?v=123#preview")
-        == "/minio/public/avatar/user.png?v=123#preview"
-    )
+    assert normalize_public_minio_url(url) == expected
 
 
 @pytest.mark.parametrize("read_error", [False, True])

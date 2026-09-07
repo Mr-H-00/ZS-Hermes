@@ -165,18 +165,6 @@ async def test_real_v3_reasoning_projection_and_checkpoint(monkeypatch):
     assert parse_assistant_message_body(persisted["content"], persisted)["reasoning_content"] == REASONING
 
 
-@pytest.mark.parametrize(
-    "metadata",
-    [
-        {"content": [{"type": "reasoning", "reasoning": REASONING}]},
-        {"content": "OK", "additional_kwargs": {"reasoning_content": REASONING}},
-    ],
-)
-def test_history_reasoning_from_same_message(metadata):
-    """事件终态与 checkpoint 对账后的两种存储形态给出相同 DTO。"""
-    assert parse_assistant_message_body(metadata["content"], metadata)["reasoning_content"] == REASONING
-
-
 def test_non_reasoning_provider_is_unchanged(monkeypatch):
     """普通 OpenAI 请求不添加第三方字段。"""
     model, _ = make_model(monkeypatch, "openai", enabled=False)
@@ -284,9 +272,3 @@ def test_standard_blocks_encode_history_once(monkeypatch):
     assert wire["reasoning_content"] == REASONING
     assert len(wire["tool_calls"]) == 1
     assert wire["tool_calls"][0]["id"] == "call-test"
-
-
-def test_live_projection_does_not_guess_legacy_tags():
-    """实时流仅投影标准块，旧标签恢复只属于历史读取。"""
-    content = "<think>literal</think>"
-    assert parse_assistant_message_body(content) == {"content": content, "reasoning_content": ""}

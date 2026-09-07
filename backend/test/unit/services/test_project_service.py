@@ -173,7 +173,7 @@ async def test_linked_project_rejects_root_or_outside_paths(monkeypatch, tmp_pat
             db=_Db(),
         )
 
-    assert exc.value.status_code in {400, 404}
+    assert exc.value.status_code == 400
 
 
 async def test_linked_project_rejects_file_and_symlink(monkeypatch, tmp_path: Path):

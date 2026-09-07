@@ -9,9 +9,9 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.mark.asyncio
-async def test_initialize_creates_executors_without_loading_all_configs(monkeypatch):
-    """initialize() 只创建已使用类型的执行器，不加载全部 KB 配置。"""
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+async def test_initialize_creates_executors_for_types_in_use(monkeypatch, tmp_path):
+    """initialize() 只为数据库中实际使用的知识库类型创建执行器。"""
+    manager = KnowledgeBaseManager(str(tmp_path))
 
     async def fake_get_all(_self):
         return [
@@ -38,7 +38,7 @@ async def test_initialize_creates_executors_without_loading_all_configs(monkeypa
 
     await manager.initialize()
 
-    assert "milvus" in manager.kb_instances
+    assert manager.kb_instances == {"milvus": fake_instance}
 
 
 @pytest.mark.asyncio

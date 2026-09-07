@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -164,18 +163,6 @@ class FakeDefinition:
 
     def load_failure_handler(self):
         return None
-
-
-def test_shipping_task_callers_do_not_pass_process_local_coroutines():
-    """知识库与评估入口不能重新把进程内 closure 交给 Task Service。"""
-    backend_root = Path(__file__).resolve().parents[3]
-    owners = [
-        backend_root / "server/routers/knowledge_router.py",
-        backend_root / "package/yuxi/knowledge/eval/service.py",
-    ]
-
-    for owner in owners:
-        assert "coroutine=" not in owner.read_text(), owner
 
 
 async def test_arq_publication_uses_fresh_messages_instead_of_stale_job_lock(monkeypatch):

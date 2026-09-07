@@ -541,21 +541,22 @@ def test_parse_skill_markdown_requires_frontmatter():
         svc._parse_skill_markdown("# missing")
 
 
-def test_image_gen_builtin_skill_spec():
-    specs = {spec["slug"]: spec for spec in svc.list_builtin_skill_specs()}
+@pytest.fixture
+def builtin_skill_specs():
+    return {spec["slug"]: spec for spec in svc.list_builtin_skill_specs()}
 
-    assert "image-gen" in specs
-    image_gen = specs["image-gen"]
+
+def test_image_gen_builtin_skill_spec(builtin_skill_specs):
+    assert "image-gen" in builtin_skill_specs
+    image_gen = builtin_skill_specs["image-gen"]
     assert image_gen["name"] == "image-gen"
     assert image_gen["tool_dependencies"] == ["present_artifacts"]
     assert (image_gen["source_dir"] / "SKILL.md").exists()
 
 
-def test_html_preview_builtin_skill_spec():
-    specs = {spec["slug"]: spec for spec in svc.list_builtin_skill_specs()}
-
-    assert "html-preview" in specs
-    html_preview = specs["html-preview"]
+def test_html_preview_builtin_skill_spec(builtin_skill_specs):
+    assert "html-preview" in builtin_skill_specs
+    html_preview = builtin_skill_specs["html-preview"]
     assert html_preview["name"] == "html-preview"
     assert html_preview["tool_dependencies"] == []
     assert html_preview["mcp_dependencies"] == []
@@ -567,17 +568,13 @@ def test_html_preview_builtin_skill_spec():
     assert "普通 `html` 代码块" in content
 
 
-def test_deep_research_builtin_skill_includes_html_preview_dependency():
-    specs = {spec["slug"]: spec for spec in svc.list_builtin_skill_specs()}
-
-    assert specs["deep-research"]["skill_dependencies"] == ["html-preview"]
+def test_deep_research_builtin_skill_includes_html_preview_dependency(builtin_skill_specs):
+    assert builtin_skill_specs["deep-research"]["skill_dependencies"] == ["html-preview"]
 
 
-def test_knowledge_base_builtin_skill_spec():
-    specs = {spec["slug"]: spec for spec in svc.list_builtin_skill_specs()}
-
-    assert "knowledge-base" in specs
-    knowledge_base = specs["knowledge-base"]
+def test_knowledge_base_builtin_skill_spec(builtin_skill_specs):
+    assert "knowledge-base" in builtin_skill_specs
+    knowledge_base = builtin_skill_specs["knowledge-base"]
     assert knowledge_base["name"] == "knowledge-base"
     assert knowledge_base["tool_dependencies"] == [
         "list_kbs",
@@ -591,13 +588,11 @@ def test_knowledge_base_builtin_skill_spec():
     assert (knowledge_base["source_dir"] / "SKILL.md").exists()
 
 
-def test_mysql_reporter_builtin_skill_spec_replaces_reporter_and_deep_reporter():
-    specs = {spec["slug"]: spec for spec in svc.list_builtin_skill_specs()}
-
-    assert "reporter" not in specs
-    assert "deep-reporter" not in specs
-    assert "mysql-reporter" in specs
-    mysql_reporter = specs["mysql-reporter"]
+def test_mysql_reporter_builtin_skill_spec_replaces_reporter_and_deep_reporter(builtin_skill_specs):
+    assert "reporter" not in builtin_skill_specs
+    assert "deep-reporter" not in builtin_skill_specs
+    assert "mysql-reporter" in builtin_skill_specs
+    mysql_reporter = builtin_skill_specs["mysql-reporter"]
     assert mysql_reporter["name"] == "mysql reporter"
     assert mysql_reporter["tool_dependencies"] == []
     assert mysql_reporter["mcp_dependencies"] == ["mcp-server-chart"]

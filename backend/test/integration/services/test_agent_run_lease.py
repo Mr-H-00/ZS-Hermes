@@ -41,6 +41,8 @@ from yuxi.storage.postgres.models_business import (
 )
 from yuxi.utils.datetime_utils import utc_now_naive
 
+from agent_run_test_helpers import create_agent_run
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
@@ -81,62 +83,15 @@ async def _create_run(
     worker_id: str | None = None,
     lease_expires_at=None,
 ) -> tuple[str, str, int]:
-    run_id = str(uuid.uuid4())
-    request_id = f"lease-{uuid.uuid4()}"
-    thread_id = f"pytest-lease-{uuid.uuid4()}"
-    uid = f"pytest-user-{uuid.uuid4()}"
-    project_id = str(uuid.uuid4())
-    async with session_factory() as db:
-        db.add(User(username=uid, uid=uid, password_hash="test"))
-        await db.flush()
-        db.add(
-            Project(
-                id=project_id,
-                uid=uid,
-                selection_status="implicit",
-                workdir_path=f"projects/{project_id}",
-                directory_mode="managed",
-            )
-        )
-        await db.flush()
-        conversation = Conversation(
-            thread_id=thread_id,
-            uid=uid,
-            project_id=project_id,
-            agent_id="main",
-            status="active",
-        )
-        db.add(conversation)
-        await db.flush()
-        message = Message(
-            conversation_id=conversation.id,
-            role="user",
-            content="lease input",
-            request_id=request_id,
-            delivery_status="dispatched",
-        )
-        db.add(message)
-        await db.flush()
-        db.add(
-            AgentRun(
-                id=run_id,
-                conversation_thread_id=thread_id,
-                runtime_scope_id=thread_id,
-                agent_slug="main",
-                uid=uid,
-                request_id=request_id,
-                conversation_id=conversation.id,
-                input_message_id=message.id,
-                input_payload={},
-                status=status,
-                run_type="chat",
-                worker_id=worker_id,
-                heartbeat_at=utc_now_naive() if worker_id else None,
-                lease_expires_at=lease_expires_at,
-            )
-        )
-        await db.commit()
-        return run_id, thread_id, message.id
+    return await create_agent_run(
+        session_factory,
+        prefix="lease",
+        message_content="lease input",
+        input_payload={},
+        status=status,
+        worker_id=worker_id,
+        lease_expires_at=lease_expires_at,
+    )
 
 
 async def test_root_terminal_atomically_cancels_live_child_and_clears_lease(

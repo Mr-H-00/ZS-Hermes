@@ -319,6 +319,7 @@ async def test_validate_run_workdir_binding_requires_subagent_creator_tree(
 async def test_cancelling_subagent_preserves_shared_runtime(monkeypatch: pytest.MonkeyPatch):
     run = _build_run()
     run.run_type = "subagent"
+    release_runtime = AsyncMock()
 
     async def fake_noop(*args, **kwargs):
         del args, kwargs
@@ -334,11 +335,12 @@ async def test_cancelling_subagent_preserves_shared_runtime(monkeypatch: pytest.
 
     monkeypatch.setattr(run_worker, "_flush_writer_best_effort", fake_noop)
     monkeypatch.setattr(run_worker, "_finish_execution_tree_children", fake_tree_finished)
+    monkeypatch.setattr(run_worker, "_release_runtime_before_terminal_event", release_runtime)
     monkeypatch.setattr(run_worker, "mark_run_terminal", fake_mark_terminal)
     monkeypatch.setattr(run_worker, "_append_run_event_best_effort", fake_noop)
     monkeypatch.setattr(run_worker, "_append_end_event", fake_noop)
 
-    await run_worker._finish_user_cancel(
+    transition = await run_worker._finish_user_cancel(
         run_id=run.id,
         request_id=run.request_id,
         thread_id=run.conversation_thread_id,
@@ -347,6 +349,9 @@ async def test_cancelling_subagent_preserves_shared_runtime(monkeypatch: pytest.
         writer=SimpleNamespace(),
         run=run,
     )
+
+    assert transition == run_worker.TerminalTransition(status="cancelled", changed=True)
+    release_runtime.assert_not_awaited()
 
 
 def _patch_common(monkeypatch: pytest.MonkeyPatch, run_obj: SimpleNamespace):

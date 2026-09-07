@@ -136,8 +136,3 @@ class TestChunkMarkdownLengthCap:
         assert len(chunks) > 1
         assert all(len(c) <= _EMBEDDING_CHAR_LIMIT for c in chunks)
         assert all(c.startswith("问题：高频问题\t回答：") for c in chunks)
-
-    def test_input_actually_triggers_split(self):
-        # 负向校验：同一输入若缺少限长步骤必然超限，证明上面的端到端断言能捕获 guard 回归
-        raw = qa._to_qa_chunk("高频问题", "长答案内容。" * 1500)
-        assert len(raw) > _EMBEDDING_CHAR_LIMIT

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import uuid
 from datetime import timedelta
 
 import pytest
@@ -17,6 +16,8 @@ from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.storage.postgres.manager import AGENT_RUN_FACT_SCHEMA_STATEMENTS, AGENT_RUN_TIMING_SCHEMA_STATEMENTS
 from yuxi.storage.postgres.models_business import AgentRun, AgentRunAttempt, Conversation, Message, Project, User
 from yuxi.utils.datetime_utils import utc_now_naive
+
+from agent_run_test_helpers import create_agent_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -36,59 +37,14 @@ async def fact_database():
 
 
 async def _create_run(session_factory, *, status: str = "pending") -> tuple[str, str]:
-    run_id = str(uuid.uuid4())
-    request_id = f"fact-{uuid.uuid4()}"
-    thread_id = f"pytest-fact-{uuid.uuid4()}"
-    uid = f"pytest-user-{uuid.uuid4()}"
-    project_id = str(uuid.uuid4())
-    async with session_factory() as db:
-        db.add(User(username=uid, uid=uid, password_hash="test"))
-        await db.flush()
-        db.add(
-            Project(
-                id=project_id,
-                uid=uid,
-                selection_status="implicit",
-                workdir_path=f"projects/{project_id}",
-                directory_mode="managed",
-            )
-        )
-        await db.flush()
-        conversation = Conversation(
-            thread_id=thread_id,
-            uid=uid,
-            project_id=project_id,
-            agent_id="main",
-            status="active",
-        )
-        db.add(conversation)
-        await db.flush()
-        message = Message(
-            conversation_id=conversation.id,
-            role="user",
-            content="fact input",
-            request_id=request_id,
-            delivery_status="dispatched",
-        )
-        db.add(message)
-        await db.flush()
-        db.add(
-            AgentRun(
-                id=run_id,
-                conversation_thread_id=thread_id,
-                runtime_scope_id=thread_id,
-                agent_slug="main",
-                uid=uid,
-                request_id=request_id,
-                conversation_id=conversation.id,
-                input_message_id=message.id,
-                input_payload={"model_spec": "provider/model-a"},
-                status=status,
-                run_type="chat",
-            )
-        )
-        await db.commit()
-        return run_id, thread_id
+    run_id, thread_id, _ = await create_agent_run(
+        session_factory,
+        prefix="fact",
+        message_content="fact input",
+        input_payload={"model_spec": "provider/model-a"},
+        status=status,
+    )
+    return run_id, thread_id
 
 
 async def _cleanup_runs(session_factory, thread_ids: list[str]) -> None:

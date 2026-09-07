@@ -442,7 +442,11 @@ async def test_iter_generated_benchmark_items_drains_reorder_buffer_on_exception
 
     # 无论哪个 worker 领到 attempt 0（延迟后抛异常），其他 worker 产出的 item
     # 都会因 next_attempt 游标未前进而卡在 reorder 缓冲中，经 drain 路径 yield
-    assert len(items) >= 1
+    assert items == [
+        {"query": "q2", "gold_answer": "a", "gold_chunk_ids": ["anchor_chunk"]},
+        {"query": "q3", "gold_answer": "a", "gold_chunk_ids": ["anchor_chunk"]},
+        {"query": "q4", "gold_answer": "a", "gold_chunk_ids": ["anchor_chunk"]},
+    ]
 
 
 @pytest.mark.asyncio

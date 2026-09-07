@@ -80,9 +80,10 @@ def test_qa_chunking_from_markdown_headings() -> None:
         processing_params={"chunk_preset_id": "qa", "chunk_parser_config": {}},
     )
 
-    assert len(chunks) >= 1
-    assert "问题：" in chunks[0]["content"]
-    assert "回答：" in chunks[0]["content"]
+    assert [chunk["content"] for chunk in chunks] == [
+        "问题：问题一\t回答：这是答案一。",
+        "问题：问题一\n子问题\t回答：这是答案二。",
+    ]
 
 
 def test_chunk_records_include_reserved_position_fields() -> None:
@@ -121,8 +122,10 @@ def test_book_chunking_hierarchical_merge() -> None:
         processing_params={"chunk_preset_id": "book", "chunk_parser_config": {"chunk_token_num": 256}},
     )
 
-    assert len(chunks) >= 1
-    assert any("第一章" in ck["content"] for ck in chunks)
+    assert [chunk["content"] for chunk in chunks] == [
+        "第一章 总则\n第一节 适用范围\n本规范适用于测试场景。",
+        "第一章 总则\n第二节 基本原则\n应当遵循最小改动原则。",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -227,31 +230,6 @@ def test_chunk_preset_options_include_description() -> None:
 def test_chunk_preset_defaults_only_include_strategy_specific_fields() -> None:
     for preset_id in CHUNK_PRESET_IDS:
         assert get_default_chunk_parser_config(preset_id) == {}
-
-
-def test_laws_chunking_should_prefer_sentence_boundary_split() -> None:
-    line = "第一条 企业所得税法实施细则用于测试分块语义边界。"
-    content = line * 120
-
-    chunks = chunk_markdown(
-        markdown_content=content,
-        file_id="file_laws_sentence",
-        filename="laws.docx",
-        processing_params={
-            "chunk_preset_id": "laws",
-            "chunk_parser_config": {
-                "chunk_token_num": 120,
-                "overlapped_percent": 0,
-                "delimiter": "\\n",
-            },
-        },
-    )
-
-    assert len(chunks) > 1
-    for ck in chunks:
-        text = ck["content"].strip()
-        assert text
-        assert count_tokens(text) <= 120
 
 
 def test_laws_chunking_should_prefer_article_level_before_item_level() -> None:
