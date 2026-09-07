@@ -42,8 +42,7 @@
           type="button"
           class="reasoning-summary"
           :class="{ 'is-expanded': reasoningExpanded }"
-          :aria-expanded="!isReasoningActive && reasoningExpanded"
-          :disabled="isReasoningActive"
+          :aria-expanded="reasoningExpanded"
           @click="toggleReasoningExpanded"
         >
           <span class="summary-leading">
@@ -51,13 +50,13 @@
             <Brain v-else size="14" />
           </span>
           <span class="summary-title">{{ isReasoningActive ? 'Thinking...' : '推理过程' }}</span>
-          <span v-if="!isReasoningActive" class="summary-trailing">
+          <span class="summary-trailing">
             <ChevronDown v-if="reasoningExpanded" size="14" />
             <ChevronRight v-else size="14" />
           </span>
         </button>
         <CollapseTransition>
-          <div v-if="!isReasoningActive && reasoningExpanded" class="reasoning-panel">
+          <div v-if="reasoningExpanded" class="reasoning-panel">
             <p class="reasoning-content">{{ parsedData.reasoning_content }}</p>
           </div>
         </CollapseTransition>
@@ -262,10 +261,11 @@ const copyToClipboard = async (text) => {
 
 // 推理面板展开状态
 const reasoningExpanded = ref(false)
-const isReasoningActive = computed(() => props.message.status === 'reasoning')
+const isReasoningActive = computed(() =>
+  props.isProcessing && !parsedData.value.content && !props.message.tool_calls?.length
+)
 
 const toggleReasoningExpanded = () => {
-  if (isReasoningActive.value) return
   reasoningExpanded.value = !reasoningExpanded.value
 }
 

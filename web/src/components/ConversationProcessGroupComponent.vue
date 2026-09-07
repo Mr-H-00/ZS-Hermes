@@ -110,6 +110,7 @@ const summary = computed(() => formatProcessDuration(props.durationMs))
 .process-content {
   display: flex;
   flex-direction: column;
+  padding-top: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

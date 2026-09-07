@@ -27,10 +27,9 @@ export class MessageProcessor {
     // 构建工具响应映射
     for (const item of msgs) {
       if (item.type === 'tool') {
-        // 使用多种可能的ID字段来匹配工具调用
-        const toolCallId = item.tool_call_id || item.id
+        const toolCallId = item.tool_call_id
         if (toolCallId) {
-          toolResponseMap.set(toolCallId, item)
+          toolResponseMap.set(JSON.stringify([item.run_id || '', toolCallId]), item)
         }
       }
     }
@@ -41,7 +40,7 @@ export class MessageProcessor {
         return {
           ...item,
           tool_calls: item.tool_calls.map((toolCall) => {
-            const toolResponse = toolResponseMap.get(toolCall.id)
+            const toolResponse = toolResponseMap.get(JSON.stringify([item.run_id || '', toolCall.id]))
             return {
               ...toolCall,
               tool_call_result: toolResponse || null
@@ -312,20 +311,10 @@ export class MessageProcessor {
    * @returns {{content: string, reasoningContent: string}}
    */
   static parseAssistantMessageBody(message) {
-    let content = typeof message?.content === 'string' ? message.content.trim() : ''
-    let reasoningContent = message?.additional_kwargs?.reasoning_content || ''
-
-    if (!reasoningContent && content) {
-      const thinkRegex = /<think>(.*?)<\/think>|<think>(.*?)$/s
-      const thinkMatch = content.match(thinkRegex)
-
-      if (thinkMatch) {
-        reasoningContent = (thinkMatch[1] || thinkMatch[2] || '').trim()
-        content = content.replace(thinkMatch[0], '').trim()
-      }
+    return {
+      content: typeof message?.content === 'string' ? message.content.trim() : '',
+      reasoningContent: message?.reasoning_content || ''
     }
-
-    return { content, reasoningContent }
   }
 
   /**
@@ -338,6 +327,7 @@ export class MessageProcessor {
 
     // 深拷贝第一个chunk作为结果
     const result = JSON.parse(JSON.stringify(chunks[0]))
+    MessageProcessor._mergeToolCalls(result, chunks[0])
 
     // 处理用户消息的内容格式 - 确保显示纯文本
     if (result.type === 'human' || result.role === 'user') {
@@ -367,15 +357,6 @@ export class MessageProcessor {
           result.reasoning_content = ''
         }
         result.reasoning_content += chunk.reasoning_content
-      }
-
-      // 合并additional_kwargs中的reasoning_content
-      if (chunk.additional_kwargs?.reasoning_content) {
-        if (!result.additional_kwargs) result.additional_kwargs = {}
-        if (!result.additional_kwargs.reasoning_content) {
-          result.additional_kwargs.reasoning_content = ''
-        }
-        result.additional_kwargs.reasoning_content += chunk.additional_kwargs.reasoning_content
       }
 
       // 合并tool_calls (处理新的数据结构)
@@ -412,9 +393,8 @@ export class MessageProcessor {
           const existingToolCall = result.tool_calls[existingToolCallIndex]
 
           // 更新名称和ID（如果存在）
-          if (toolCallChunk.name && !existingToolCall.function?.name) {
-            if (!existingToolCall.function) existingToolCall.function = {}
-            existingToolCall.function.name = toolCallChunk.name
+          if (toolCallChunk.name) {
+            existingToolCall.name = toolCallChunk.name
           }
 
           if (toolCallChunk.id && !existingToolCall.id) {
@@ -422,20 +402,16 @@ export class MessageProcessor {
           }
 
           // 合并参数
-          if (toolCallChunk.args) {
-            if (!existingToolCall.function) existingToolCall.function = {}
-            if (!existingToolCall.function.arguments) existingToolCall.function.arguments = ''
-            existingToolCall.function.arguments += toolCallChunk.args
-          }
+          existingToolCall.args = toolCallChunk.complete
+            ? toolCallChunk.args || ''
+            : (existingToolCall.args || '') + (toolCallChunk.args || '')
         } else {
           // 添加新的tool call
           const newToolCall = {
             index: toolCallChunk.index,
             id: toolCallChunk.id,
-            function: {
-              name: toolCallChunk.name || null,
-              arguments: toolCallChunk.args || ''
-            }
+            name: toolCallChunk.name || null,
+            args: toolCallChunk.args || ''
           }
           result.tool_calls.push(newToolCall)
         }

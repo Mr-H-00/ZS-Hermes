@@ -32,7 +32,7 @@ from yuxi.agents.context import (
     DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT,
     DEFAULT_YUXI_SUMMARY_PROMPT,
 )
-from yuxi.agents.models import load_chat_model, resolve_chat_model_spec
+from yuxi.models.chat import load_chat_model, resolve_chat_model_spec
 from yuxi.utils.logging_config import logger
 
 _APPROX_CHARS_PER_TOKEN = 4

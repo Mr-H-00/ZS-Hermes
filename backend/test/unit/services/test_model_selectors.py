@@ -4,12 +4,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import requests
-
-from yuxi.agents.models import load_chat_model, resolve_chat_model_spec
-from yuxi.models.chat import LangChainChatAdapter, select_model
+from yuxi.models.chat import LangChainChatAdapter, load_chat_model, resolve_chat_model_spec, select_model
 from yuxi.models.embed import OtherEmbedding, select_embedding_model
-from yuxi.models.rerank import OpenAIReranker, get_reranker
 from yuxi.models.providers.cache import ModelInfo
+from yuxi.models.rerank import OpenAIReranker, get_reranker
 
 
 def _model_info(model_type: str) -> ModelInfo:
@@ -163,10 +161,10 @@ def test_select_model_maps_anthropic_max_completion_tokens(monkeypatch):
 
 
 def test_load_chat_model_uses_toolcall_chunk_fix_for_openai_compatible(monkeypatch):
-    from yuxi.agents.models import _ToolCallChunkFixChatOpenAI
+    from yuxi.models.chat import ChatCompletionsAdapter
 
     monkeypatch.setattr(
-        "yuxi.agents.models.model_cache.get_model_info",
+        "yuxi.models.chat.model_cache.get_model_info",
         lambda spec: (
             _chat_model_info("siliconflow-cn", "deepseek-ai/DeepSeek-V4-Flash")
             if spec == "siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash"
@@ -177,7 +175,7 @@ def test_load_chat_model_uses_toolcall_chunk_fix_for_openai_compatible(monkeypat
     model = load_chat_model("siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash")
 
     # 不再按 provider 禁用流式，改用归一化子类规避 v3 流式累积丢 tool_call 字段的缺陷
-    assert isinstance(model, _ToolCallChunkFixChatOpenAI)
+    assert isinstance(model, ChatCompletionsAdapter)
     assert model.disable_streaming is False
     assert model.metadata["yuxi_provider_id"] == "siliconflow-cn"
     assert model.metadata["yuxi_provider_type"] == "openai"
@@ -187,7 +185,7 @@ def test_load_chat_model_uses_toolcall_chunk_fix_for_openai_compatible(monkeypat
 
 def test_load_chat_model_keeps_non_siliconflow_openai_streaming(monkeypatch):
     monkeypatch.setattr(
-        "yuxi.agents.models.model_cache.get_model_info",
+        "yuxi.models.chat.model_cache.get_model_info",
         lambda spec: (
             _chat_model_info("openai-compatible", "namespace/chat-model")
             if spec == "openai-compatible:namespace/chat-model"
@@ -207,7 +205,7 @@ def test_load_chat_model_keeps_non_siliconflow_openai_streaming(monkeypatch):
 async def test_opencode_session_headers_reach_stream_and_regular_requests(monkeypatch, provider_id):
     """真实 SDK 请求携带稳定会话头，其他供应商不受影响。"""
     monkeypatch.setattr(
-        "yuxi.agents.models.model_cache.get_model_info",
+        "yuxi.models.chat.model_cache.get_model_info",
         lambda _spec: _chat_model_info(provider_id, "test-model"),
     )
     requests_seen = []
@@ -265,7 +263,7 @@ async def test_opencode_session_headers_reach_stream_and_regular_requests(monkey
 def test_opencode_standalone_models_have_distinct_stable_sessions(monkeypatch):
     """无 Thread 的独立操作使用各模型实例自己的会话 ID。"""
     monkeypatch.setattr(
-        "yuxi.agents.models.model_cache.get_model_info", lambda _spec: _chat_model_info("opencode-go", "test-model")
+        "yuxi.models.chat.model_cache.get_model_info", lambda _spec: _chat_model_info("opencode-go", "test-model")
     )
     first = load_chat_model("opencode-go:test-model")
     second = load_chat_model("opencode-go:test-model")
@@ -277,7 +275,7 @@ def test_load_chat_model_merges_request_body_overrides_into_extra_body(monkeypat
     captured_body = {}
 
     monkeypatch.setattr(
-        "yuxi.agents.models.model_cache.get_model_info",
+        "yuxi.models.chat.model_cache.get_model_info",
         lambda spec: (
             _chat_model_info(
                 "siliconflow-cn",
@@ -323,7 +321,7 @@ def test_load_chat_model_merges_request_body_overrides_into_extra_body(monkeypat
         )
         response = model.invoke("hello")
 
-    assert response.content == "ok"
+    assert response.text == "ok"
     assert captured_body["temperature"] == 0.1
     assert captured_body["caller_only"] is True
     assert captured_body["enable_thinking"] is False

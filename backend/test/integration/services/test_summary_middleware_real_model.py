@@ -8,7 +8,7 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, get_buffer_string
 
-from yuxi.agents.models import load_chat_model
+from yuxi.models.chat import load_chat_model
 from yuxi.agents.middlewares.summary import YuxiSummarizationMiddleware
 from yuxi.models.providers.cache import ModelInfo
 from yuxi.models.providers.builtin import BUILTIN_PROVIDERS
@@ -111,7 +111,7 @@ async def test_compacted_messages_call_real_chat_model(monkeypatch: pytest.Monke
     def get_model_info(current: str):
         return info if current == model_spec else None
 
-    monkeypatch.setattr("yuxi.agents.models.model_cache.get_model_info", get_model_info)
+    monkeypatch.setattr("yuxi.models.chat.model_cache.get_model_info", get_model_info)
 
     model_params = (model_config.get("extra") or {}).get("parameters") or {}
     real_model = load_chat_model(model_spec, **model_params)

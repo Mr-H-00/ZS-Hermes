@@ -84,6 +84,7 @@ async def test_queue_history_keeps_each_request_with_its_reply(session):
                 conversation_id=1,
                 role="assistant",
                 content="A reply",
+                extra_metadata={"additional_kwargs": {"reasoning_content": "A reasoning"}},
                 run_id="run-a",
                 delivery_status="complete",
                 created_at=started_at + timedelta(seconds=2),
@@ -98,6 +99,7 @@ async def test_queue_history_keeps_each_request_with_its_reply(session):
         db=session,
     )
     assert [message["content"] for message in queued_history["history"]] == ["A", "A reply"]
+    assert [message.get("reasoning_content", "") for message in queued_history["history"]] == ["", "A reasoning"]
 
     request_b = await session.get(Message, 2)
     request_b.run_id = "run-b"

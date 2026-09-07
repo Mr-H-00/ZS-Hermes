@@ -23,9 +23,6 @@ const streamEventToMessageChunk = (streamEvent) => {
     if (streamEvent.reasoning_content) {
       chunk.reasoning_content = streamEvent.reasoning_content
     }
-    if (streamEvent.additional_reasoning_content) {
-      chunk.additional_kwargs = { reasoning_content: streamEvent.additional_reasoning_content }
-    }
     return chunk
   }
 
@@ -39,6 +36,7 @@ const streamEventToMessageChunk = (streamEvent) => {
           index: streamEvent.index || 0,
           id: streamEvent.tool_call_id,
           name: streamEvent.name,
+          complete: streamEvent.type === 'tool_call',
           args:
             streamEvent.type === 'tool_call_delta'
               ? streamEvent.args_delta || ''
@@ -49,15 +47,6 @@ const streamEventToMessageChunk = (streamEvent) => {
   }
 
   return null
-}
-
-const loadingMessageChunk = (chunk) => {
-  const semanticChunk = streamEventToMessageChunk(chunk?.stream_event)
-  if (semanticChunk) return semanticChunk
-
-  const msg = chunk?.msg
-  if (msg?.event) return null
-  return msg || null
 }
 
 // 工具结果不走 messages 流，而是以 method=tools 的 stream_event 事件返回（tool-started/tool-finished）。
@@ -74,7 +63,13 @@ const toolFinishedMessage = (chunk) => {
 
   const id = output.id || output.tool_call_id || data.tool_call_id
   if (!id) return null
-  return { ...output, type: 'tool', id }
+  return {
+    ...output,
+    type: 'tool',
+    id,
+    tool_call_id: data.tool_call_id,
+    run_id: chunk.run_id
+  }
 }
 
 export function useAgentStreamHandler({
@@ -139,7 +134,7 @@ export function useAgentStreamHandler({
 
       case 'loading':
         {
-          const messageChunk = loadingMessageChunk(chunk)
+          const messageChunk = streamEventToMessageChunk(chunk.stream_event)
           if (messageChunk?.id) {
             messageChunk.run_id = chunk.run_id || messageChunk.run_id
             messageChunk.thread_id = threadId || messageChunk.thread_id

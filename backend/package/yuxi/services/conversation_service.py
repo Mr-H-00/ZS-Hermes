@@ -2,6 +2,7 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException
+from yuxi.models.utils import parse_assistant_message_body
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -466,6 +467,9 @@ async def get_thread_history_view(
             "feedback": user_feedback,
         }
 
+        if msg.role == "assistant":
+            msg_dict.update(parse_assistant_message_body(msg.content, msg.extra_metadata or {}))
+
         if msg.tool_calls:
             msg_dict["tool_calls"] = [_serialize_tool_call(tool_call) for tool_call in msg.tool_calls]
 
@@ -601,6 +605,7 @@ def _serialize_model_audit(message: Any) -> dict[str, Any]:
     model_run_id = metadata.get("model_run_id")
     return {
         **_serialize_audit_base(message, metadata),
+        **parse_assistant_message_body(message.content, metadata),
         "type": "ai",
         "usage": dict(message.usage) if isinstance(message.usage, dict) else None,
         "model_run_id": model_run_id if isinstance(model_run_id, str) else None,

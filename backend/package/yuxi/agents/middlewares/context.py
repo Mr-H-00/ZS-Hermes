@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from langchain.agents.middleware import ModelRequest, ModelResponse, dynamic_prompt, wrap_model_call
 
-from yuxi.agents import load_chat_model, resolve_chat_model_spec
+from yuxi.models.chat import load_chat_model, resolve_chat_model_spec
 from yuxi.utils import logger
 
 

@@ -12,6 +12,8 @@ let useAgentRequestQueue
 let useAgentRunStream
 let dispatchRunEventChunks
 let useAgentStreamHandler
+let MessageProcessor
+let getConversationDisplayItems
 
 before(async () => {
   const storage = new Map()
@@ -31,11 +33,108 @@ before(async () => {
   ;({ useAgentStreamHandler } = await server.ssrLoadModule(
     '/src/composables/useAgentStreamHandler.js'
   ))
+  ;({ default: MessageProcessor } = await server.ssrLoadModule('/src/utils/messageProcessor.js'))
+  ;({ getConversationDisplayItems } = await server.ssrLoadModule('/src/utils/messageGrouping.js'))
 })
 
 after(async () => {
   await server?.close()
   delete globalThis.localStorage
+})
+
+test('当前工具语义流首块即显示，完整快照覆盖分片并关联同 Run 结果', () => {
+  const threadState = { onGoingConv: { msgChunks: {} } }
+  const { handleStreamChunk } = useAgentStreamHandler({ getThreadState: () => threadState })
+  const send = (stream_event) =>
+    handleStreamChunk({ status: 'loading', run_id: 'run-tools', stream_event }, 'thread-tools')
+  const messages = () =>
+    MessageProcessor.convertToolResultToMessages(
+      Object.values(threadState.onGoingConv.msgChunks).map(MessageProcessor.mergeMessageChunk)
+    ).filter((msg) => msg.type !== 'tool')
+  send({
+    type: 'tool_call_delta',
+    message_id: 'model-tools',
+    tool_call_id: 'call-1',
+    name: 'read_file',
+    index: 0,
+    args_delta: '{"path":'
+  })
+  let items = getConversationDisplayItems({ messages: messages() })
+  assert.equal(items.length, 1)
+  assert.equal(items[0].type, 'tool-group')
+  assert.equal(items[0].toolCalls[0].name, 'read_file')
+  send({ type: 'tool_call_delta', message_id: 'model-tools', index: 0, args_delta: '"/notes.md"}' })
+  send({
+    type: 'tool_call',
+    message_id: 'model-tools',
+    tool_call_id: 'call-1',
+    name: 'read_file',
+    index: 0,
+    args: { path: '/notes.md' }
+  })
+  send({
+    type: 'tool_call',
+    message_id: 'model-tools',
+    tool_call_id: 'call-2',
+    name: 'ls',
+    index: 1,
+    args: { path: '/' }
+  })
+  handleStreamChunk(
+    {
+      status: 'stream_event',
+      run_id: 'run-tools',
+      event: {
+        method: 'tools',
+        data: {
+          event: 'tool-finished',
+          tool_call_id: 'call-1',
+          output: { type: 'tool', tool_call_id: 'call-1', content: 'notes', status: 'success' }
+        }
+      }
+    },
+    'thread-tools'
+  )
+  const toolCalls = messages()[0].tool_calls
+  assert.equal(toolCalls.length, 2)
+  assert.deepEqual(JSON.parse(toolCalls[0].args), { path: '/notes.md' })
+  assert.equal(toolCalls[0].tool_call_result.content, 'notes')
+  assert.equal(toolCalls[0].tool_call_result.run_id, 'run-tools')
+  assert.equal(toolCalls[1].tool_call_result, null)
+})
+
+test('只有单个完整工具事件且无正文时仍显示工具，旧 loading msg 不再消费', () => {
+  const threadState = { onGoingConv: { msgChunks: {} } }
+  const { handleStreamChunk } = useAgentStreamHandler({ getThreadState: () => threadState })
+  handleStreamChunk(
+    { status: 'loading', msg: { id: 'legacy', type: 'ai', content: 'old' } },
+    'thread-tools'
+  )
+  assert.deepEqual(threadState.onGoingConv.msgChunks, {})
+  handleStreamChunk(
+    {
+      status: 'loading',
+      run_id: 'run-tools',
+      stream_event: {
+        type: 'tool_call',
+        message_id: 'only-tool',
+        tool_call_id: 'call-1',
+        name: 'ls',
+        args: {}
+      }
+    },
+    'thread-tools'
+  )
+  const message = MessageProcessor.mergeMessageChunk(threadState.onGoingConv.msgChunks['only-tool'])
+  assert.equal(getConversationDisplayItems({ messages: [message] })[0].toolCalls[0].name, 'ls')
+})
+
+test('重复工具 ID 的结果不能跨 Run 绑定', () => {
+  const [message] = MessageProcessor.convertToolResultToMessages([
+    { type: 'ai', run_id: 'new-run', tool_calls: [{ id: 'same-call', name: 'ls', args: {} }] },
+    { type: 'tool', run_id: 'old-run', tool_call_id: 'same-call', content: 'old result' }
+  ])
+  assert.equal(message.tool_calls[0].tool_call_result, null)
 })
 
 /** 集中 Run SSE 测试的固定依赖，只暴露各用例关心的行为。 */

@@ -25,6 +25,8 @@ beta2 延续 beta1 的存储与数据库迁移边界。从 v0.7.1 或更早版�
 
 ## 0.7.3 （当前）
 
+- 修复硅基流动、OpenCode 与 GLM Coding Plan 推理内容在模型解析、流式事件和历史回读中的丢失；项目自有适配器统一标准内容块并保留工具续答所需的原始推理，思考过程中可展开查看。旧历史仅尽力恢复已有内容，缺失不影响正文与工具，不修改上游 ChatOpenAI 或供应商思考开关。验证与配置差异见[推理适配决策](./decisions/implemented/2026-09-07-provider-reasoning-adapter.md)。
+- 修复首块直接返回工具调用时流式工具不显示：前端只消费当前语义事件，工具完整参数覆盖分片快照，结果按同一 Run 的工具调用关联；处理过程展开内容补齐 8px 间距，收起不留空白。
 - OpenCode/Go 模型请求附加 Yuxi User-Agent 与稳定的 `x-opencode-session`，主模型和摘要模型沿用当前 Thread ID，修复缺少会话头导致的 `MissingSessionID`；其他供应商与已保存模型配置不变。
 - 修复普通 HTTP 部署中点击创建 API Key 无响应的问题（[#998](https://github.com/xerrors/Yuxi/issues/998)）：使用浏览器安全随机源生成幂等请求 ID，失败重试保留 ID，成功或取消后清除，不改变服务端密钥生成规则。
 - 默认对话模型和快速响应模型改为硅基流动 `deepseek-ai/DeepSeek-V4-Flash`，管理员已保存的模型选择保持优先；同步中英文 README、部署示例和软件包版本到 0.7.3，定时任务入口标注 Beta。

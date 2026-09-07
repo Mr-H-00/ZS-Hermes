@@ -16,9 +16,6 @@ const stripBufferedFields = (chunk) => {
   const stripped = cloneChunk(chunk)
   stripped.content = ''
   stripped.reasoning_content = ''
-  if (stripped.additional_kwargs?.reasoning_content !== undefined) {
-    stripped.additional_kwargs.reasoning_content = ''
-  }
   return stripped
 }
 
@@ -40,9 +37,7 @@ const caf =
     : (id) => clearTimeout(id)
 
 const getBufferedLength = (controller) =>
-  controller.contentBuffer.length +
-  controller.reasoningBuffer.length +
-  controller.additionalReasoningBuffer.length
+  controller.contentBuffer.length + controller.reasoningBuffer.length
 
 /** 预算以 UTF-16 长度计量，实际切片停在完整字素边界。 */
 const takeFromBuffer = (value, count) => {
@@ -71,12 +66,6 @@ export function useStreamSmoother({ getThreadState }) {
       const delta = stripBufferedFields(controller.skeleton)
       delta.content = controller.contentBuffer
       delta.reasoning_content = controller.reasoningBuffer
-      if (controller.additionalReasoningBuffer) {
-        delta.additional_kwargs = {
-          ...delta.additional_kwargs,
-          reasoning_content: controller.additionalReasoningBuffer
-        }
-      }
       appendLoadingChunk(getThreadState(threadId), delta)
     }
     controllers.delete(messageId)
@@ -114,22 +103,12 @@ export function useStreamSmoother({ getThreadState }) {
         const delta = stripBufferedFields(controller.skeleton)
         for (const [bufferKey, field] of [
           ['contentBuffer', 'content'],
-          ['reasoningBuffer', 'reasoning_content'],
-          ['additionalReasoningBuffer', 'additional_reasoning_content']
+          ['reasoningBuffer', 'reasoning_content']
         ]) {
           const part = takeFromBuffer(controller[bufferKey], remaining)
           controller[bufferKey] = part.rest
           remaining -= part.emitted.length
-          if (field === 'additional_reasoning_content') {
-            if (part.emitted) {
-              delta.additional_kwargs = {
-                ...delta.additional_kwargs,
-                reasoning_content: part.emitted
-              }
-            }
-          } else {
-            delta[field] = part.emitted
-          }
+          delta[field] = part.emitted
         }
         controller.credit -= budget - remaining
         appendLoadingChunk(threadState, delta)
@@ -149,8 +128,7 @@ export function useStreamSmoother({ getThreadState }) {
     if (!threadState || !chunk?.id) return
     const content = chunk.content || ''
     const reasoning = chunk.reasoning_content || ''
-    const additionalReasoning = chunk.additional_kwargs?.reasoning_content || ''
-    const hasPayload = hasText(content) || hasText(reasoning) || hasText(additionalReasoning)
+    const hasPayload = hasText(content) || hasText(reasoning)
     const reduceMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -173,7 +151,6 @@ export function useStreamSmoother({ getThreadState }) {
         skeleton: stripBufferedFields(chunk),
         contentBuffer: '',
         reasoningBuffer: '',
-        additionalReasoningBuffer: '',
         frameId: null,
         lastFrameAt: now + START_BUFFER_MS,
         sampleAt: now,
@@ -188,18 +165,13 @@ export function useStreamSmoother({ getThreadState }) {
       const stripped = stripBufferedFields(chunk)
       controller.skeleton = {
         ...controller.skeleton,
-        ...stripped,
-        additional_kwargs: {
-          ...controller.skeleton.additional_kwargs,
-          ...stripped.additional_kwargs
-        }
+        ...stripped
       }
     }
 
     controller.contentBuffer += content
     controller.reasoningBuffer += reasoning
-    controller.additionalReasoningBuffer += additionalReasoning
-    controller.sampleChars += content.length + reasoning.length + additionalReasoning.length
+    controller.sampleChars += content.length + reasoning.length
     const sampleMs = now - controller.sampleAt
     if (sampleMs >= RATE_SAMPLE_MS) {
       const observedRate = (controller.sampleChars * 1000) / sampleMs

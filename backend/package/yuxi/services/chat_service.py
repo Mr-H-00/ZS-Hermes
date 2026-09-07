@@ -27,6 +27,7 @@ from yuxi.agents.buildin import agent_manager
 from yuxi.agents.callbacks.model_request_timing import FirstModelRequestRecorder
 from yuxi.agents.context import build_agent_input_context, normalize_agent_context_config
 from yuxi.agents.state import AgentStatePayload
+from yuxi.models.utils import parse_assistant_message_body
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
@@ -324,18 +325,10 @@ def _message_chunk_yuxi_events(
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     route = {"thread_id": thread_id, "namespace": namespace}
-    content = msg_dict.get("content")
-    additional_kwargs = msg_dict.get("additional_kwargs") if isinstance(msg_dict.get("additional_kwargs"), dict) else {}
-    reasoning_content = msg_dict.get("reasoning_content")
-    additional_reasoning_content = additional_kwargs.get("reasoning_content")
+    body = parse_assistant_message_body(msg_dict.get("content", ""))
 
     message_event: dict[str, Any] = {"type": "message_delta", "message_id": message_id, **route}
-    if isinstance(content, str) and content:
-        message_event["content"] = content
-    if isinstance(reasoning_content, str) and reasoning_content:
-        message_event["reasoning_content"] = reasoning_content
-    if isinstance(additional_reasoning_content, str) and additional_reasoning_content:
-        message_event["additional_reasoning_content"] = additional_reasoning_content
+    message_event.update({key: value for key, value in body.items() if value})
     if len(message_event) > 4:
         events.append(message_event)
 
@@ -382,6 +375,9 @@ def _protocol_event_yuxi_event(
         text = delta.get("text")
         if delta.get("type") == "text-delta" and isinstance(text, str) and text:
             return {"type": "message_delta", "message_id": message_id, "content": text, **route}
+        reasoning = delta.get("reasoning")
+        if delta.get("type") == "reasoning-delta" and isinstance(reasoning, str) and reasoning:
+            return {"type": "message_delta", "message_id": message_id, "reasoning_content": reasoning, **route}
         return None
 
     if event_name == "content-block-finish":

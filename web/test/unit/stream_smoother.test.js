@@ -84,8 +84,7 @@ test('flush 完整交付正文、推理和工具参数，并取消全部残留�
     {
       id: 'm',
       content: '',
-      reasoning_content: '思考',
-      additional_kwargs: { reasoning_content: '补充' }
+      reasoning_content: '思考'
     },
     'a'
   )
@@ -114,13 +113,6 @@ test('flush 完整交付正文、推理和工具参数，并取消全部残留�
       .map((c) => c.reasoning_content || '')
       .join(''),
     '思考'
-  )
-  assert.equal(
-    p
-      .chunks()
-      .map((c) => c.additional_kwargs?.reasoning_content || '')
-      .join(''),
-    '补充'
   )
   assert.equal(
     p
