@@ -129,11 +129,7 @@ def create_agent_filesystem_middleware(
     backend: CompositeBackend,
     disabled_tools: frozenset[str] = frozenset(),
 ) -> FilesystemMiddleware:
-    """构造本 Run 的文件系统中间件。
-
-    disabled_tools 中的工具不会注册进 ToolNode：仅在 wrap_model_call 里过滤只是
-    对模型隐藏，工具仍可被执行；不注册才是真正的关闭。
-    """
+    """构造文件系统中间件，在 ToolNode 注册前排除禁用工具。"""
     return YuxiFilesystemMiddleware(
         backend=backend,
         tool_token_limit_before_evict=tool_token_limit_before_evict,

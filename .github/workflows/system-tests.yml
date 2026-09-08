@@ -156,7 +156,8 @@ jobs:
       - name: Verify Run result causality
         run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_agent_run_result_causality.py -q
       - name: Verify Message audit HTTP contract
-        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest test/integration/api/test_chat_router.py::test_thread_message_audits_return_persisted_facts_without_leaking_into_history -q
+        timeout-minutes: 3
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest test/integration/api/test_chat_router.py::test_thread_message_audits_return_persisted_facts_without_leaking_into_history -q --setup-show -o faulthandler_timeout=60
       - name: Verify deterministic Agent assembled path
         run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest test/e2e/test_deterministic_agent_path_e2e.py -q
       - name: Verify identity transaction and replayable secret publication
@@ -212,7 +213,7 @@ jobs:
             uv run --no-sync --no-dev pytest \
               test/integration/api/test_task_router.py::test_enqueue_document_creates_task -q
       - name: Runtime logs on failure
-        if: failure()
+        if: failure() || cancelled()
         run: docker compose logs api worker sandbox-provisioner --tail 300
       - name: Stop runtime topology
         if: always()

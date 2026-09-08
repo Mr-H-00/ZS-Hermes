@@ -62,9 +62,7 @@ class _SubAgentToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
     async def awrap_model_call(self, request, handler):
         return await handler(request.override(tools=_filter_disabled_tools(request.tools or [], self.disabled_tools)))
 
-    # 对模型隐藏只影响本轮 bind_tools。子智能体没有审批中间件，因此一旦出现被禁用
-    # 工具的调用（例如同一子线程先以 always_trust 跑过、历史里留有成功调用，之后
-    # 又以 default 续跑），就会直接执行。隐藏要等于关闭，必须在执行前拒绝。
+    # 工具列表隐藏不构成执行边界；显式传入的禁用工具调用也必须拒绝。
     def wrap_tool_call(self, request, handler):
         denial = self._denied_tool_message(request)
         return denial if denial is not None else handler(request)
@@ -74,6 +72,7 @@ class _SubAgentToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
         return denial if denial is not None else await handler(request)
 
     def _denied_tool_message(self, request) -> ToolMessage | None:
+        """为禁用调用生成与原 tool call 绑定的拒绝结果。"""
         name = _tool_name(request.tool_call)
         if name not in self.disabled_tools:
             return None
