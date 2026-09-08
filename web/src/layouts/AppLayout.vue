@@ -106,12 +106,13 @@ const handleGlobalKeydown = (e) => {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
-  // 加载信息配置与知识库数据无依赖，可并行
-  await Promise.all([infoStore.loadInfoConfig(), getRemoteDatabase()])
-  await initAgentNavigation()
-  await getRemoteConfig()
+  // 各 Store 自行处理错误，导航不等待无依赖的品牌、知识库或配置请求。
+  void infoStore.loadInfoConfig()
+  void getRemoteDatabase()
+  void initAgentNavigation()
+  void getRemoteConfig()
   // 仅管理员加载任务中心数据
   if (userStore.isAdmin) {
     taskerStore.loadTasks()

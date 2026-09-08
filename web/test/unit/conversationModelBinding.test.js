@@ -13,6 +13,12 @@ test('模型选择按当前选择、Conversation、智能体默认的顺序解�
     source.indexOf('const handleModelSelect')
   )
 
+  for (const expression of [
+    'selectedModelByThread',
+    'currentThread.value?.metadata?.model_spec',
+    'agentDefaultModel.value'
+  ]) assert.ok(modelBlock.includes(expression), expression)
+
   assert.ok(
     modelBlock.indexOf('selectedModelByThread') <
       modelBlock.indexOf('currentThread.value?.metadata?.model_spec')

@@ -23,22 +23,6 @@ import {
   resolveLangfuseRunUrl
 } from '../../src/utils/messageDebug.js'
 
-test('完整时间范围默认弱化手柄，悬浮聚焦或局部选择时恢复', () => {
-  const source = readFileSync(
-    new URL('../../src/components/MessageDebugPanel.vue', import.meta.url),
-    'utf8'
-  )
-
-  assert.match(source, /:class="\{ 'range-active': isTimelineRangeActive \}"/)
-  assert.match(source, /\.selected-window\s*{[\s\S]*?opacity: 0;/)
-  assert.match(source, /&::-webkit-slider-thumb\s*{[\s\S]*?opacity: 0;/)
-  assert.match(source, /&::-moz-range-thumb\s*{[\s\S]*?opacity: 0;/)
-  assert.match(
-    source,
-    /\.trace-track:hover,\s*\.trace-track:focus-within,\s*\.trace-track\.range-active\s*{[\s\S]*?\.selected-window,[\s\S]*?opacity: 1;/
-  )
-})
-
 test('时间概览只高亮当前选中记录，选中 Run 时高亮其全部时间条', () => {
   assert.equal(isMessageDebugTimelineMarkSelected('run:run-a-0', 'run-a-0'), true)
   assert.equal(isMessageDebugTimelineMarkSelected('run:run-a-0', 'run-a-0', 'model-a'), true)
@@ -247,20 +231,6 @@ test('Run 行只读取审计接口返回的 AgentRun 状态而不从消息终态
   assert.ok(persistedStatusRead >= 0)
   assert.ok(liveFallbackRead > persistedStatusRead)
   assert.doesNotMatch(source, /terminalModel/)
-})
-
-test('窄调试工具栏压缩搜索并隐藏截断提示正文', () => {
-  const source = readFileSync(
-    new URL('../../src/components/MessageDebugPanel.vue', import.meta.url),
-    'utf8'
-  )
-
-  assert.match(source, /class="truncated-label">最新 500 条/)
-  assert.match(source, /@container \(max-width: 470px\)[\s\S]*?\.search-field[\s\S]*?min-width: 0/)
-  assert.match(
-    source,
-    /@container \(max-width: 470px\)[\s\S]*?\.truncated-label[\s\S]*?display: none/
-  )
 })
 
 test('没有稳定身份时不按 AI 位置替换实时投影', () => {

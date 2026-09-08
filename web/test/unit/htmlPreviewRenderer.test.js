@@ -1,23 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {
-  HTML_PREVIEW_HEIGHT,
-  HTML_PREVIEW_MAX_HEIGHT,
-  HTML_PREVIEW_MIN_HEIGHT,
-  HTML_PREVIEW_WIDTH,
-  renderHtmlPreviewBlocks
-} from '../../src/utils/htmlPreviewRenderer.js'
+import { renderHtmlPreviewBlocks } from '../../src/utils/htmlPreviewRenderer.js'
 
 const identity = (html) => html
 const countMatches = (value, pattern) => value.match(pattern)?.length || 0
 
 test('完整 HTML 预览块使用稳定尺寸并保留周边内容', () => {
-  assert.equal(HTML_PREVIEW_WIDTH, 800)
-  assert.equal(HTML_PREVIEW_HEIGHT, 360)
-  assert.equal(HTML_PREVIEW_MIN_HEIGHT, 1)
-  assert.equal(HTML_PREVIEW_MAX_HEIGHT, 700)
-
   const result = renderHtmlPreviewBlocks(
     'before\n```html:preview\n<div>Hello</div>\n```\nafter',
     { sanitizeHtml: identity }

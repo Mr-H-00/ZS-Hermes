@@ -22,8 +22,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 from yuxi.storage.minio.client import normalize_public_minio_url
 from yuxi.utils.datetime_utils import duration_ms, format_utc_datetime, utc_now_naive
 

@@ -154,18 +154,27 @@ def test_rapid_ocr_health_check_does_not_load_model(monkeypatch: pytest.MonkeyPa
     assert health["status"] == "healthy"
 
 
-def _build_pdf(file_path: Path, text: str) -> None:
+def _build_pdf(file_path: Path, text: str | list[str]) -> None:
     """用标准库构造带文本的最小 PDF，避免测试引入额外 PDF 依赖。"""
-    escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-    stream = f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode("latin-1")
+    pages = [text] if isinstance(text, str) else text
+    kids = " ".join(f"{4 + index * 2} 0 R" for index in range(len(pages)))
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>",
-        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
-        b"<< /Font << /F1 6 0 R >> >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode(),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
     ]
+    for index, page_text in enumerate(pages):
+        escaped = page_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        stream = f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode("latin-1")
+        objects.extend(
+            [
+                (
+                    f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+                    f"/Resources << /Font << /F1 3 0 R >> >> /Contents {5 + index * 2} 0 R >>"
+                ).encode(),
+                b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+            ]
+        )
     pdf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     offsets = [0]
     for object_number, object_body in enumerate(objects, start=1):
@@ -188,6 +197,26 @@ def _build_docx(file_path: Path, text: str) -> None:
     document = Document()
     document.add_paragraph(text)
     document.save(str(file_path))
+
+
+def test_pdfreader_preserves_page_order_blank_pages_and_trimming(tmp_path: Path):
+    """文本提取保留空页分隔并去除逐页首尾空白。"""
+    from yuxi.knowledge.parser.unified import pdfreader
+
+    file_path = tmp_path / "pages.pdf"
+    _build_pdf(file_path, ["  First page  ", "", "Last page"])
+    assert pdfreader(file_path) == "First page\n\n\n\nLast page"
+
+
+def test_pdfreader_rejects_corrupt_pdf(tmp_path: Path):
+    """损坏 PDF 显式失败，不返回伪成功空文本。"""
+    from pypdf.errors import PdfReadError
+    from yuxi.knowledge.parser.unified import pdfreader
+
+    file_path = tmp_path / "broken.pdf"
+    file_path.write_bytes(b"%PDF-1.4\ninvalid")
+    with pytest.raises(PdfReadError):
+        pdfreader(file_path)
 
 
 def _build_png(file_path: Path) -> None:

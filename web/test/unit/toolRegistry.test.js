@@ -52,8 +52,12 @@ test('工具组件统一消费 parseToolCallArgs，不保留本地参数解析�
       'utf8'
     )
 
-    assert.match(source, /import \{ parseToolCallArgs \} from '\.\.\/toolRegistry'/, component)
-    assert.doesNotMatch(source, /props\.toolCall\.args\s*(?:\|\||\?\?)\s*props\.toolCall\.function\?\.arguments/, component)
+    assert.match(source, /import \{[\s\S]*parseToolCallArgs[\s\S]*\} from '\.\.\/toolRegistry'/, component)
+    assert.doesNotMatch(
+      source,
+      /props\.toolCall\.args\s*(?:\|\||\?\?)\s*props\.toolCall\.function\?\.arguments/,
+      component
+    )
   }
 
   for (const component of COMPONENTS_WITHOUT_OTHER_JSON_PARSING) {

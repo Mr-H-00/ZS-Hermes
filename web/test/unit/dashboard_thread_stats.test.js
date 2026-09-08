@@ -151,7 +151,7 @@ test('智能体分析不再渲染 TOP 5 排行且保留分布图', () => {
   assert.doesNotMatch(source, /<a-table/)
 })
 
-test('会话统计只允许最新筛选请求提交结果和结束 loading', () => {
+test('会话统计源码包含筛选请求代次和 loading 回写守卫', () => {
   const source = readFileSync(
     new URL('../../src/components/dashboard/ThreadStatsComponent.vue', import.meta.url),
     'utf8'

@@ -19,8 +19,8 @@ from docling.backend.msword_backend import MsWordDocumentBackend
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.document import InputDocument
 from docling_core.types.doc import DoclingDocument
-from langchain_community.document_loaders import PyPDFLoader
 from markdownify import markdownify as md_convert
+from pypdf import PdfReader
 
 from yuxi.knowledge.parser.capabilities import (
     IMAGE_FILE_EXTENSIONS,
@@ -48,10 +48,9 @@ def pdfreader(file_path, params=None):
     assert file_path.exists(), "File not found"
     assert file_path.suffix.lower() == ".pdf", "File format not supported"
 
-    loader = PyPDFLoader(str(file_path))
-    docs = loader.load()
-    text = "\n\n".join([d.page_content for d in docs])
-    return text
+    with file_path.open("rb") as pdf_file:
+        reader = PdfReader(pdf_file)
+        return "\n\n".join(page.extract_text(extraction_mode="plain").strip() for page in reader.pages)
 
 
 def parse_pdf(file, params=None):
