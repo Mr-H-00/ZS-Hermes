@@ -16,7 +16,7 @@ Yuxi is a self-hosted, multi-tenant knowledge agent platform. It brings knowledg
 
 Yuxi is built for teams that need control over their data, models, and permissions:
 
-- **Build knowledge-based Q&A**: Upload documents, parse and chunk them, build vector indexes, and let agents return answers with sources.
+- **Build knowledge-based Q&A**: Upload documents, parse and chunk them, build vector indexes, and let agents answer questions using retrieved content.
 - **Execute multi-step tasks**: Combine tools, MCP, Skills, sub-agents, and sandboxes to produce previewable, downloadable files.
 - **Connect knowledge graphs**: Extract entities and relationships from document chunks in Milvus knowledge bases, store them in Neo4j, and use them in retrieval.
 - **Manage team access**: Control access to knowledge bases, agents, Skills, and models by user, department, and sharing scope.
@@ -86,8 +86,8 @@ Yuxi connects knowledge ingestion, agent execution, and team governance into one
 
 | Module | What It Solves | Key Capabilities |
 | --- | --- | --- |
-| Unified agent workspace | Ask questions, execute tasks, and receive deliverables in one interface | Multi-turn conversations, knowledge citations, task status, human approval |
-| Knowledge bases and traceable RAG | Ground answers in verifiable knowledge | Multi-format ingestion, Embedding/Rerank, retrieval testing, RAG evaluation |
+| Unified agent workspace | Ask questions, execute tasks, and receive deliverables in one interface | Multi-turn conversations, knowledge retrieval, task status, human approval |
+| Knowledge bases and RAG | Provide retrieved context for answers | Multi-format ingestion, Embedding/Rerank, retrieval testing, RAG evaluation |
 | Knowledge graphs and mind maps | Discover entity relationships and browse knowledge base file structures | Graph construction, subgraph exploration, node details, file metadata maps |
 | Multi-agent execution and extensions | Delegate complex tasks to specialized roles and tools | SubAgents, Skills, MCP, Tools, agent configuration |
 | Sandbox workspace and artifacts | Turn conversations into reusable files | Isolated file systems, file generation, online preview, downloads |
@@ -95,11 +95,11 @@ Yuxi connects knowledge ingestion, agent execution, and team governance into one
 
 ### 01 · Unified Agent Workspace
 
-Reference knowledge base documents, personal files, or extension Skills in the same chat interface. Follow each step of task execution in real time and receive answers with precise source citations or complete deliverable files directly in the conversation.
+Reference knowledge base documents, personal files, or extension Skills in the same chat interface. View task execution status and receive answers or generated files directly in the conversation.
 
 - Use `@` to quickly reference knowledge bases, files, and specific Skills.
-- View task breakdowns, tool execution status, and context token usage throughout execution.
-- Click citations to verify sources, or preview and download generated artifacts.
+- View task breakdowns, tool execution status, and context token usage.
+- Preview and download generated artifacts.
 
 ![Yuxi unified agent workspace](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825145022410.png)
 
@@ -120,9 +120,9 @@ For critical operations such as modifying files or calling high-risk external AP
 
 </details>
 
-### 02 · Knowledge Bases and Traceable RAG
+### 02 · Knowledge Bases and RAG
 
-Manage team materials centrally and parse them into structured knowledge bases. Agents can retrieve relevant content and locate the original files and specific passages, grounding answers in traceable sources.
+Manage team materials centrally and parse them into structured knowledge bases. Agents can retrieve relevant document chunks as context for answering questions.
 
 - Manage files and directories centrally, with live parsing progress, chunk details, and token statistics.
 - Configure Embedding and Rerank algorithms, and test and tune multiple retrieval paths directly in the management interface.
@@ -141,7 +141,7 @@ Support common formats including PDF, Word, PowerPoint, Excel, and Markdown. Bui
 
 **Knowledge base types and external sources**
 
-Alongside the built-in local vector knowledge base, Yuxi connects to external knowledge services such as Dify and Notion. A unified retriever makes them available to agents without requiring another data migration.
+Alongside the built-in local vector knowledge base, Yuxi connects to external knowledge services such as Dify and Notion. A unified retriever makes them available to agents.
 
 ![Knowledge base types](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825155356171.png)
 
@@ -241,11 +241,11 @@ Built-in tool list.
 
 ### 05 · Sandbox Workspace and File Artifacts
 
-Tasks read and write files in a securely isolated sandbox file system. Beyond answering questions in chat, agents can turn research and analysis into Markdown documents, spreadsheets, HTML pages, or executable code that users can view and download from the workspace.
+Agents can read and write files through sandbox tools. Beyond answering questions in chat, agents can turn research and analysis into Markdown documents, spreadsheets, HTML pages, or executable code that users can view and download from the workspace.
 
-- Run tasks in isolated sandbox directories to keep files and data separated.
+- Limit the files tools can access through the sandbox.
 - Generate illustrated reports, data analysis charts, web pages, and other artifacts.
-- Preview and interact with files directly in the browser, with one-click download as an archive.
+- Preview supported file formats in the browser and download files as an archive.
 
 ![Yuxi sandbox workspace and artifacts](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825152123583.png)
 
@@ -254,7 +254,7 @@ Tasks read and write files in a securely isolated sandbox file system. Beyond an
 
 **Workspace file management**
 
-Visually manage files read and produced during task execution. Directory hierarchies, file types, and sizes are displayed clearly, making intermediate artifacts easier to reuse across conversations.
+Visually manage files read and produced in the workspace during task execution. Directory hierarchies, file types, and sizes are displayed clearly, making intermediate artifacts easier to reuse across conversations.
 
 ![Workspace file management](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260826201931458.png)
 
