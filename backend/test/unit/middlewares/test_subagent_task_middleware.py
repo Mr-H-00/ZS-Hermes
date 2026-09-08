@@ -19,16 +19,6 @@ def make_child_thread_id(parent_thread_id: str, agent_slug: str, tool_call_id: s
     return subagent_child_thread_id(parent_thread_id, agent_slug, tool_call_id)
 
 
-class _ChildContext:
-    def __init__(self):
-        self.model = None
-
-    def update_from_dict(self, values: dict):
-        for key, value in values.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-
-
 class _SessionContext:
     async def __aenter__(self):
         return object()

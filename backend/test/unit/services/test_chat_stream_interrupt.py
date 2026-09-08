@@ -1,13 +1,9 @@
 """测试 chat_service 中的 interrupt 相关函数"""
 
 import json
-import sys
-import os
 from types import SimpleNamespace
 
 import pytest
-
-sys.path.insert(0, os.getcwd())
 
 from yuxi.services.chat_service import (
     _build_ask_user_question_payload,

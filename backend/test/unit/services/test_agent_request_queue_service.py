@@ -210,9 +210,7 @@ async def test_recover_pending_dispatches_isolates_failed_scope(monkeypatch: pyt
         async def execute(self, _statement):
             self.calls += 1
             return Result(
-                [("user-1", "main", "bad-thread"), ("user-1", "main", "good-thread")]
-                if self.calls == 1
-                else []
+                [("user-1", "main", "bad-thread"), ("user-1", "main", "good-thread")] if self.calls == 1 else []
             )
 
     @asynccontextmanager
@@ -302,7 +300,7 @@ async def test_pending_linked_run_is_enqueued_without_opening_missing_directory(
 
 @pytest.mark.parametrize("policy", ["enqueue", "reject", "steer"])
 def test_validate_queue_policy_accepts_policy(policy):
-    validate_queue_policy(policy)
+    assert validate_queue_policy(policy) == policy
 
 
 @pytest.mark.parametrize("policy", list(NOT_IMPLEMENTED_QUEUE_POLICIES))
@@ -441,9 +439,7 @@ async def test_intake_request_binds_resolved_model_to_conversation(session, monk
 
 
 @pytest.mark.asyncio
-async def test_reject_dispatch_conflict_does_not_change_conversation_model(
-    session, monkeypatch: pytest.MonkeyPatch
-):
+async def test_reject_dispatch_conflict_does_not_change_conversation_model(session, monkeypatch: pytest.MonkeyPatch):
     from yuxi.services import agent_request_queue_service
     from yuxi.services.input_message_service import build_chat_input_message
     from yuxi.storage.postgres.models_business import Conversation

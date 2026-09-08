@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.append(os.getcwd())
-
 import pytest
 
 from yuxi.knowledge.chunking.ragflow_like.dispatcher import chunk_markdown

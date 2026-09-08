@@ -1,12 +1,13 @@
-"""QA parser 超长 chunk 限长切分（_split_long_qa_chunks）的回归测试。
+"""QA parser 的结构化提取与超长 chunk 限长回归测试。
 
-验收主张：chunk_markdown 产出的任意单条 chunk 不超过 _QA_CHUNK_MAX_CHARS，
-避免超过 bge_m3 等 embedding 模型的 4096 token 上下文上限；切分时保留问题、
-只切答案，保证每条 chunk 仍是完整问答语义。
+验收主张：围栏内的 Q:/A: 或标题行属于答案正文；`chunk_markdown` 产出的任意
+单条 chunk 不超过 embedding 上限，且切分时保留完整问答语义。
 """
 
 import importlib.util
 from pathlib import Path
+
+import pytest
 
 _PKG = Path(__file__).resolve().parents[2] / "package"
 
@@ -136,3 +137,93 @@ class TestChunkMarkdownLengthCap:
         assert len(chunks) > 1
         assert all(len(c) <= _EMBEDDING_CHAR_LIMIT for c in chunks)
         assert all(c.startswith("问题：高频问题\t回答：") for c in chunks)
+
+
+_TILDE_MD = "Q: 如何配置？\nA: 参考示例：\n~~~\nQ: 注释里的文本\nA: 不是真实问答\n~~~\n完成后重启。"
+
+
+class TestPrefixFenceBoundary:
+    @pytest.mark.parametrize("fence", ["~~~", "```"])
+    def test_fence_content_stays_in_answer(self, fence):
+        # 围栏内的 Q:/A: 行不得拆出虚构问答对。
+        pairs = qa._extract_pairs_by_prefix(_TILDE_MD.replace("~~~", fence))
+        assert len(pairs) == 1
+        q, a = pairs[0]
+        assert q == "如何配置？"
+        assert "注释里的文本" in a
+        assert "完成后重启。" in a
+
+    def test_fence_with_info_string(self):
+        md = "Q: 配置？\nA: 示例：\n~~~python\nQ: 注释\n~~~\n完。"
+        pairs = qa._extract_pairs_by_prefix(md)
+        assert len(pairs) == 1
+        assert "Q: 注释" in pairs[0][1]
+
+    def test_mismatched_fence_does_not_close_block(self):
+        # ``` 行不关闭 ~~~ 块；块内 Q: 行仍属答案
+        md = "Q: 配置？\nA: 开始\n~~~\n```\nQ: 仍在块内\n~~~\nQ: 真实问题2\nA: 答案2"
+        pairs = qa._extract_pairs_by_prefix(md)
+        assert len(pairs) == 2
+        assert "仍在块内" in pairs[0][1]
+        assert pairs[1] == ("真实问题2", "答案2")
+
+    def test_unclosed_fence_absorbs_rest_into_answer(self):
+        md = "Q: 配置？\nA: 开始\n~~~\nQ: 后面全在块内\nA: 也是"
+        pairs = qa._extract_pairs_by_prefix(md)
+        assert len(pairs) == 1
+        assert "后面全在块内" in pairs[0][1]
+
+    def test_heading_inside_tilde_fence_not_treated_as_question(self):
+        # 标题提取路径：tilde 块内的 # 行不识别为标题
+        md = "# 安装\n步骤一\n~~~\n# 注释不是标题\n~~~\n步骤二"
+        pairs = qa._extract_pairs_from_markdown_headings(md)
+        assert len(pairs) == 1
+        q, a = pairs[0]
+        assert q == "安装"
+        assert "注释不是标题" in a
+        assert "步骤二" in a
+
+    def test_chunk_markdown_end_to_end_tilde_fence(self):
+        chunks = qa.chunk_markdown("faq.md", _TILDE_MD)
+        assert len(chunks) == 1
+        assert chunks[0].startswith("问题：如何配置？\t回答：")
+        assert "注释里的文本" in chunks[0]
+
+
+class TestAtxHeadingBoundary:
+    """只有合法 ATX 标题才能结束问答，井号代码行必须保留。"""
+
+    def test_prefix_answer_keeps_hash_prefixed_code(self):
+        md = 'Q: 如何输出？\nA: 使用标准库：\n#include <stdio.h>\nprintf("hi");'
+
+        pairs = qa._extract_pairs_by_prefix(md)
+
+        assert pairs == [("如何输出？", '使用标准库：\n#include <stdio.h>\nprintf("hi");')]
+
+    def test_heading_answer_keeps_hash_prefixed_code(self):
+        md = '# 如何输出？\n使用标准库：\n#include <stdio.h>\nprintf("hi");'
+
+        pairs = qa._extract_pairs_from_markdown_headings(md)
+
+        assert pairs == [("如何输出？", '使用标准库：\n#include <stdio.h>\nprintf("hi");')]
+
+
+class TestOrphanAnswer:
+    """答案前缀行必须归属活跃问题，孤儿答案不得污染后续问答对。"""
+
+    def test_orphan_answer_before_first_question_discarded(self):
+        md = "Answer: 孤儿前言\n# Q: 真实问题\nA: 真实答案"
+        pairs = qa._extract_pairs_by_prefix(md)
+        assert pairs == [("真实问题", "真实答案")]
+
+    def test_orphan_answer_between_pairs_discarded(self):
+        # 上一对已结束（分节标题 flush）、新问题未出现时，孤儿答案同样忽略
+        md = "Q: 问题一\nA: 答案一\n# 分节\nA: 孤儿\nQ: 问题二\nA: 答案二"
+        pairs = qa._extract_pairs_by_prefix(md)
+        assert pairs == [("问题一", "答案一"), ("问题二", "答案二")]
+
+    def test_multiple_answer_lines_within_question_kept(self):
+        # 活跃问题下的多个 A: 行仍全部归入答案（修复不改变正常路径）
+        md = "Q: 问题\nA: 第一行\nA: 第二行"
+        pairs = qa._extract_pairs_by_prefix(md)
+        assert pairs == [("问题", "第一行\n第二行")]

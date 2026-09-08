@@ -20,10 +20,6 @@ from yuxi.knowledge.eval.benchmark_generation import (
 )
 
 
-class FakeKnowledgeBase:
-    pass
-
-
 class FakeLlm:
     def __init__(self, gold_chunk_id="anchor_chunk"):
         self.gold_chunk_id = gold_chunk_id
