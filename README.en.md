@@ -36,7 +36,7 @@ Yuxi is built for teams that need control over their data, models, and permissio
 
 ### Prerequisites
 
-Install [Docker Engine](https://docs.docker.com/get-docker/) and Docker Compose, and have a working LLM API available. The repository's default configuration targets `v0.7.3`, which is still in Beta.
+Install [Docker Engine](https://docs.docker.com/get-docker/) and Docker Compose, and have a working LLM API available. The repository's default configuration targets `v0.7.3`.
 
 ### 1. Get the Code and Initialize
 
@@ -68,7 +68,7 @@ curl --fail http://localhost:5050/api/system/ready
 
 Once the returned `status` is `ready`, open [http://localhost:5173](http://localhost:5173), follow the page instructions to initialize the superadmin account, and sign in. API documentation is available at [http://localhost:5050/docs](http://localhost:5050/docs).
 
-When upgrading from v0.7.1 to the current version, do not run `docker compose up` directly. Read the [production deployment and upgrade guide](docs/advanced/deployment.md) first, and complete the backup and migration during a maintenance window.
+When upgrading from v0.7.1 or v0.7.2 to the current version, do not run `docker compose up` directly. Read the [production deployment and upgrade guide](docs/advanced/deployment.md) first, and complete the backup and migration during a maintenance window.
 
 ## Documentation
 

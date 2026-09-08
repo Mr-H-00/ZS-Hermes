@@ -1,7 +1,7 @@
 # 测试套件边界与 readiness 探测
 
-状态：implemented  
-类型：testing  
+状态：implemented
+类型：testing
 Owner：backend/test/run_tests.sh
 
 ## 问题
@@ -27,13 +27,13 @@ Owner：backend/test/run_tests.sh
 
 本轮审计继续删除 5 个仓库内无引用的死数据夹具，合并只含一个标题层级单测的孤立文件，并将两份 AgentRun 集成测试共有的持久化创建链路抽到测试辅助模块；清理不改变测试断言或被测行为。仍被知识库路由集成测试使用的 `A_Dream_of_Red_Mansions_10hui.txt` 保留。
 
-本轮进一步删除 3 个低信息量单测：一个只验证测试输入会触发限长、一个只扫描源码字面量、一个只检查未参与运行时组装的 prompt 字符串；同时将同一边界的 fence 与 URL 变体改为参数化，保留实际行为覆盖。
+删除只验证测试输入会触发限长和只扫描源码字面量的两个低信息量单测；chatbot prompt 的独立常量断言合并到 `build_prompt_with_context` 的运行时组装结果测试。同一边界的 fence 与 URL 变体改为参数化，保留实际行为覆盖。
 
 对 5 个仍有独立业务断言的内置 Skill 测试，只抽取重复的 registry fixture；没有合并不同 Skill 的契约，也没有降低断言粒度。
 
 逐文件复核后又删除一个名不副实的 laws 分块测试：它声称验证句子边界，实际只验证限长，且与同文件的参数化限长测试重复。对保留的弱 oracle，则补齐实际结果：QA/Book 分块断言完整内容序列，benchmark reorder 断言 drain 后的具体条目，chunk token 默认值使用会跨越错误默认上限的输入，项目路径测试固定断言 400，subagent 取消测试断言共享 runtime 未被释放；同时移除重复的 question id 断言和 provider 数量门槛。
 
-旧能力不存在：测试运行器不再把 liveness 检查当作 integration、E2E 或全量测试的 readiness gate。  
+旧能力不存在：测试运行器不再把 liveness 检查当作 integration、E2E 或全量测试的 readiness gate。
 重新引入条件：只有当 `/api/system/ready` 不再表达接收真实测试流量所需的 PostgreSQL、Redis 与 worker 条件，并同步更新架构契约与测试证据时，才可重新设计 gate。
 
 ## 验证
@@ -44,7 +44,7 @@ Owner：backend/test/run_tests.sh
 - 合并后的 `test_semantic_chunking.py` 保留标题层级推断和空标题行为两组独立断言。
 - 两份 AgentRun 集成测试仍各自保留不同的清理逻辑与 schema fixture，只共享完全相同的最小创建链路。
 - 已用仓库搜索确认删除的数据夹具没有消费者；保留的数据夹具仍有直接引用。
-- QA 限长、Tasker 和 chatbot prompt 的删除项没有独立业务 oracle；其余行为由真实函数结果或运行时测试覆盖。
+- QA 限长和 Tasker 的删除项没有独立业务 oracle；`test_chatbot_prompt.py` 在完整组装结果上保留 `html:preview` 不出现的负向断言。
 - 内置 Skill registry 测试仍分别断言各 Skill 的名称、依赖、文件和替换关系，仅不再重复构造相同输入。
 - `test_ragflow_like_chunking.py` 的保留分块测试现在检查完整内容序列；被删除的 laws 测试没有独立边界 oracle。
 - `test_model_request_timing.py`、`test_run_worker.py` 和 `test_runtime_initialization.py` 分别验证“不落库”“不释放共享 runtime”“只创建实际使用类型”，不再仅以不抛异常或模糊包含作为通过条件。
