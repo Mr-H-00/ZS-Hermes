@@ -15,7 +15,7 @@ import pytest
 from e2e_helpers import cancel_run, consume_events, delete_agent, postgres_dsn, wait_for_run
 from yuxi.agents.backends.sandbox import ProvisionerSandboxBackend, get_sandbox_provider
 from yuxi.config import get_skill_projection_dir
-from yuxi.workspace.paths import workspace_uid_dirname
+from yuxi.workspace.paths import user_workspace_dir, workspace_uid_dirname
 
 from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
 
@@ -216,6 +216,8 @@ async def _create_agent(
     uid: str,
     *,
     system_prompt_suffix: str = "",
+    is_subagent: bool = False,
+    subagents: list[str] | None = None,
 ) -> str:
     slug = f"ci-deterministic-{uuid.uuid4().hex[:8]}"
     response = await client.post(
@@ -223,7 +225,8 @@ async def _create_agent(
         json={
             "name": f"Deterministic E2E {slug[-8:]}",
             "slug": slug,
-            "backend_id": "ChatbotAgent",
+            "backend_id": "SubAgentBackend" if is_subagent else "ChatbotAgent",
+            "is_subagent": is_subagent,
             "description": "无外部密钥的 assembled-path 测试智能体",
             "config_json": {
                 "context": {
@@ -234,7 +237,7 @@ async def _create_agent(
                     "mcps": [],
                     "skills": ["image-gen"],
                     "preload_skills": ["image-gen"],
-                    "subagents": [],
+                    "subagents": subagents or [],
                 }
             },
             "share_config": {
@@ -252,6 +255,124 @@ async def _create_agent(
     assert response.status_code == 200, response.text
     assert response.json()["agent"]["slug"] == slug
     return slug
+
+
+@pytest.mark.parametrize("mode", ["default", "always_trust"])
+async def test_subagent_worker_enforces_inherited_write_policy(e2e_client, e2e_headers, mode):
+    """真实父子 Run 继承审批模式，回读工具审计与共享 Workdir 文件。"""
+    me = await e2e_client.get("/api/auth/me", headers=e2e_headers)
+    assert me.status_code == 200, me.text
+    uid = str(me.json()["uid"])
+    await _create_provider(e2e_client, e2e_headers)
+    agents = []
+    thread_id = child_thread_id = run_id = workdir_path = probe_path = None
+    try:
+        child_slug = await _create_agent(
+            e2e_client,
+            e2e_headers,
+            uid,
+            is_subagent=True,
+            system_prompt_suffix="DETERMINISTIC_SUBAGENT_CHILD",
+        )
+        agents.append(child_slug)
+        parent_slug = await _create_agent(
+            e2e_client,
+            e2e_headers,
+            uid,
+            subagents=[child_slug],
+            system_prompt_suffix=f"DETERMINISTIC_SUBAGENT_PARENT:{child_slug}",
+        )
+        agents.append(parent_slug)
+        response = await e2e_client.post(
+            "/api/chat/thread",
+            json={
+                "agent_id": parent_slug,
+                "title": make_test_conversation_title("subagent-policy"),
+                "metadata": make_test_conversation_metadata("subagent-policy", e2e=True),
+            },
+            headers=e2e_headers,
+        )
+        assert response.status_code == 200, response.text
+        thread_id = str(response.json()["id"])
+        workdir_path = str(response.json()["workdir_path"])
+        file_name = f"subagent-policy-{uuid.uuid4().hex}.txt"
+        path = f"/home/gem/user-data/{workdir_path}/{file_name}"
+        probe_path = user_workspace_dir(uid) / workdir_path / file_name
+        response = await e2e_client.post(
+            "/api/agent/runs",
+            json={
+                "agent_slug": parent_slug,
+                "thread_id": thread_id,
+                "query": f"{EXPECTED_OUTPUT} SUBAGENT_MODE:{mode} SUBAGENT_PATH:{path}",
+                "tool_approval_mode": mode,
+                "meta": {"request_id": f"subagent-policy-{uuid.uuid4()}"},
+            },
+            headers=e2e_headers,
+        )
+        assert response.status_code == 200, response.text
+        run_id = str(response.json()["run_id"])
+        parent = await wait_for_run(e2e_client, e2e_headers, run_id)
+        assert parent["status"] == "completed", parent
+
+        conn = await asyncpg.connect(postgres_dsn())
+        try:
+            children = await conn.fetch(
+                """
+                SELECT run.id, run.status, run.runtime_scope_id, run.input_payload,
+                       conversation.thread_id
+                FROM agent_runs run JOIN conversations conversation ON conversation.id = run.conversation_id
+                WHERE run.created_by_run_id = $1 AND run.run_type = 'subagent'
+                """,
+                run_id,
+            )
+            assert len(children) == 1, children
+            child = children[0]
+            child_thread_id = str(child["thread_id"])
+            assert child["status"] == "completed", dict(child)
+            assert child["runtime_scope_id"] == thread_id
+            payload = json.loads(child["input_payload"])
+            assert payload["tool_approval_mode"] == mode
+            audit = await conn.fetchrow(
+                """
+                SELECT execution_status, content FROM messages
+                WHERE run_id = $1 AND message_type = 'tool_audit' AND operation_id = 'call-subagent-write'
+                """,
+                child["id"],
+            )
+        finally:
+            await conn.close()
+
+        state = await e2e_client.get(
+            f"/api/chat/thread/{child_thread_id}/state", params={"include_messages": "true"}, headers=e2e_headers
+        )
+        assert state.status_code == 200, state.text
+        assert state.json()["subagent_run"]["run_id"] == child["id"]
+        results = [
+            message for message in state.json()["messages"] if message.get("tool_call_id") == "call-subagent-write"
+        ]
+        assert len(results) == 1, state.json()["messages"]
+        assert results[0]["status"] == ("error" if mode == "default" else "success")
+        assert probe_path.parent.is_dir(), probe_path
+        if mode == "default":
+            assert "不可用" in results[0]["content"]
+            assert not probe_path.exists(), "被拒绝的子智能体调用不能写入共享 Workdir"
+        else:
+            assert audit and audit["execution_status"] == "completed", audit
+            assert probe_path.read_text(encoding="utf-8") == "subagent write verified"
+    finally:
+        if run_id:
+            await cancel_run(e2e_client, e2e_headers, run_id)
+        if probe_path:
+            probe_path.unlink(missing_ok=True)
+        if thread_id:
+            get_sandbox_provider().release(thread_id, uid=uid, workdir_path=workdir_path)
+        for cleanup_thread_id in (child_thread_id, thread_id):
+            if cleanup_thread_id:
+                response = await e2e_client.delete(f"/api/chat/thread/{cleanup_thread_id}", headers=e2e_headers)
+                assert response.status_code in {200, 404}, response.text
+        for slug in reversed(agents):
+            await delete_agent(e2e_client, e2e_headers, slug)
+        await _delete_provider(e2e_client, e2e_headers)
 
 
 async def _assert_persisted_causality(run_id: str, request_id: str) -> None:
