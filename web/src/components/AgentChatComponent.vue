@@ -100,6 +100,7 @@
                   <ToolCallsGroupComponent
                     v-else-if="displayItem.type === 'tool-group'"
                     :tool-calls="displayItem.toolCalls"
+                    :entries="displayItem.entries"
                     :is-active="isToolGroupActive(row.conv, itemIndex, row.displayItems)"
                   />
                   <ConversationProcessGroupComponent

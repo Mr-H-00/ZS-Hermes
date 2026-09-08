@@ -42,6 +42,44 @@ after(async () => {
   delete globalThis.localStorage
 })
 
+test('thinking 与相邻工具按顺序合并，正文和错误仍独立显示', () => {
+  const messages = [
+    { id: 'a1', type: 'ai', reasoning_content: '先检查', tool_calls: [{ id: 't1', name: 'ls', args: {} }] },
+    { id: 'a2', type: 'ai', reasoning_content: '再确认', tool_calls: [{ id: 't2', name: 'read_file', args: {} }] },
+    { id: 'a3', type: 'ai', reasoning_content: '得到结论', content: '最终回答' }
+  ]
+  const items = getConversationDisplayItems({ messages })
+  assert.deepEqual(items.map((item) => item.type), ['tool-group', 'message'])
+  assert.deepEqual(items[0].entries.map((entry) => entry.type), ['reasoning', 'tool', 'reasoning', 'tool', 'reasoning'])
+  assert.deepEqual(items[0].entries.filter((entry) => entry.type === 'reasoning').map((entry) => entry.content), ['先检查', '再确认', '得到结论'])
+  assert.equal(items[0].toolCalls.length, 2)
+  assert.equal(items[1].message.content, '最终回答')
+  assert.equal(items[1].message.reasoning_content, '')
+  assert.equal(messages[2].reasoning_content, '得到结论')
+
+  const thinkingOnly = getConversationDisplayItems({ messages: [{ id: 'a', type: 'ai', reasoning_content: '思考中' }] })
+  assert.equal(thinkingOnly.length, 1)
+  assert.equal(thinkingOnly[0].type, 'tool-group')
+  assert.equal(thinkingOnly[0].entries[0].content, '思考中')
+  assert.deepEqual(thinkingOnly[0].toolCalls, [])
+  assert.deepEqual(getConversationDisplayItems({ messages: [{ type: 'ai', content: '' }] }), [])
+
+  const failed = getConversationDisplayItems({ messages: [{ type: 'ai', reasoning_content: '检查中断', error_type: 'interrupted' }] })
+  assert.deepEqual(failed.map((item) => item.type), ['tool-group', 'message'])
+  assert.equal(failed[1].message.error_type, 'interrupted')
+})
+
+test('同一消息的 thinking、正文和工具分段使用不同的稳定 key', () => {
+  const message = { id: 'mixed', type: 'ai', reasoning_content: '计划', content: '先查文件', tool_calls: [{ id: 't1', name: 'ls', args: {} }] }
+  const items = getConversationDisplayItems({ messages: [message] })
+  assert.deepEqual(items.map((item) => item.type), ['tool-group', 'message', 'tool-group'])
+  assert.equal(new Set(items.map((item) => item.key)).size, 3)
+  assert.equal(items[0].entries[0].content, '计划')
+  assert.equal(items[2].entries[0].toolCall.id, 't1')
+  const updated = getConversationDisplayItems({ messages: [{ ...message, content: '先查文件，再整理' }] })
+  assert.deepEqual(updated.map((item) => item.key), items.map((item) => item.key))
+})
+
 test('当前工具语义流首块即显示，完整快照覆盖分片并关联同 Run 结果', () => {
   const threadState = { onGoingConv: { msgChunks: {} } }
   const { handleStreamChunk } = useAgentStreamHandler({ getThreadState: () => threadState })

@@ -18,7 +18,7 @@
               :hide-tool-calls="true"
               :mention="mention"
             />
-            <ToolCallsGroupComponent v-else :tool-calls="item.toolCalls" />
+            <ToolCallsGroupComponent v-else :tool-calls="item.toolCalls" :entries="item.entries" />
           </template>
         </div>
       </div>

@@ -16,6 +16,7 @@
         <ToolCallsGroupComponent
           v-else
           :tool-calls="displayItem.toolCalls"
+          :entries="displayItem.entries"
           :is-active="isToolGroupActive(conv, itemIndex, displayItemsList[convIndex])"
         />
       </template>

@@ -94,6 +94,7 @@
 <script setup>
 import { computed } from 'vue'
 import BaseToolCall from '../BaseToolCall.vue'
+import { getToolCallStatus } from '../toolRegistry'
 import KbResultGroupedList from '@/components/sources/KbResultGroupedList.vue'
 import { useDatabaseStore } from '@/stores/database'
 import { parseToolCallArgs } from '../toolRegistry'
@@ -117,6 +118,7 @@ const resourceLabel = computed(
 const queryText = computed(() => args.value.query_text || '')
 
 const resultSummary = computed(() => {
+  if (getToolCallStatus(props.toolCall) === 'error') return '执行失败'
   const content = props.toolCall.tool_call_result?.content
   if (!content && props.toolCall.status !== 'success') return ''
   const result = parseResult(content)

@@ -37,30 +37,12 @@
 
     <!-- 助手消息 -->
     <div v-else-if="message.type === 'ai'" class="assistant-message">
-      <div v-if="parsedData.reasoning_content" class="reasoning-box">
-        <button
-          type="button"
-          class="reasoning-summary"
-          :class="{ 'is-expanded': reasoningExpanded }"
-          :aria-expanded="reasoningExpanded"
-          @click="toggleReasoningExpanded"
-        >
-          <span class="summary-leading">
-            <LoaderCircle v-if="isReasoningActive" size="14" class="reasoning-loading" />
-            <Brain v-else size="14" />
-          </span>
-          <span class="summary-title">{{ isReasoningActive ? 'Thinking...' : '推理过程' }}</span>
-          <span class="summary-trailing">
-            <ChevronDown v-if="reasoningExpanded" size="14" />
-            <ChevronRight v-else size="14" />
-          </span>
-        </button>
-        <CollapseTransition>
-          <div v-if="reasoningExpanded" class="reasoning-panel">
-            <p class="reasoning-content">{{ parsedData.reasoning_content }}</p>
-          </div>
-        </CollapseTransition>
-      </div>
+      <ToolCallsGroupComponent
+        v-if="!hideToolCalls && processEntries.length > 0"
+        :tool-calls="validToolCalls"
+        :entries="processEntries"
+        :is-active="isProcessing && !parsedData.content"
+      />
 
       <!-- 消息内容 -->
       <MarkdownPreview
@@ -71,8 +53,6 @@
         class="message-md"
       />
 
-      <div v-else-if="parsedData.reasoning_content" class="empty-block"></div>
-
       <!-- 错误提示块 -->
       <div v-if="displayError" class="error-hint">
         <span v-if="getErrorMessage">{{ getErrorMessage }}</span>
@@ -80,11 +60,6 @@
         <span v-else-if="message.error_type === 'unexpect'">生成过程中出现异常</span>
         <span v-else>{{ message.error_type || '未知错误' }}</span>
       </div>
-
-      <ToolCallsGroupComponent
-        v-if="!hideToolCalls && validToolCalls.length > 0"
-        :tool-calls="validToolCalls"
-      />
 
       <div v-if="message.isStoppedByUser" class="retry-hint">
         你停止生成了本次回答
@@ -154,9 +129,8 @@
 <script setup>
 import { computed, ref, onUnmounted } from 'vue'
 import RefsComponent from '@/components/RefsComponent.vue'
-import { Brain, Check, ChevronDown, ChevronRight, Copy, LoaderCircle, X } from '@lucide/vue'
+import { Check, Copy, X } from '@lucide/vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
-import CollapseTransition from '@/components/common/CollapseTransition.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import MentionTextRenderer from '@/components/common/MentionTextRenderer.vue'
 import { useAgentStore } from '@/stores/agent'
@@ -259,15 +233,23 @@ const copyToClipboard = async (text) => {
   }
 }
 
-// 推理面板展开状态
-const reasoningExpanded = ref(false)
-const isReasoningActive = computed(() =>
-  props.isProcessing && !parsedData.value.content && !props.message.tool_calls?.length
-)
-
-const toggleReasoningExpanded = () => {
-  reasoningExpanded.value = !reasoningExpanded.value
-}
+const processEntries = computed(() => {
+  const entries = []
+  if (parsedData.value.reasoning_content) {
+    entries.push({
+      type: 'reasoning',
+      key: 'reasoning',
+      content: parsedData.value.reasoning_content
+    })
+  }
+  return entries.concat(
+    validToolCalls.value.map((toolCall, index) => ({
+      type: 'tool',
+      key: toolCall.id || `tool-${index}`,
+      toolCall
+    }))
+  )
+})
 
 // 错误消息处理
 const displayError = computed(() => {
@@ -439,68 +421,6 @@ const parsedData = computed(() => {
   .searching-msg {
     color: var(--gray-700);
     animation: colorPulse 1s infinite ease-in-out;
-  }
-
-  .reasoning-box {
-    width: 100%;
-    padding: 0;
-    margin: 8px 0;
-
-    .reasoning-summary {
-      appearance: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      max-width: 100%;
-      padding: 0;
-      border: none;
-      background: transparent;
-      color: var(--gray-700);
-      font-size: 13px;
-      line-height: 20px;
-      text-align: left;
-      cursor: pointer;
-      user-select: none;
-
-      &:hover:not(:disabled),
-      &.is-expanded {
-        color: var(--gray-800);
-      }
-
-      &:disabled {
-        cursor: default;
-      }
-
-      .summary-leading,
-      .summary-trailing {
-        display: inline-flex;
-        align-items: center;
-        flex-shrink: 0;
-        color: var(--gray-600);
-      }
-
-      .summary-title {
-        font-weight: 400;
-        white-space: nowrap;
-      }
-
-      .reasoning-loading {
-        animation: rotate 1s linear infinite;
-      }
-    }
-
-    .reasoning-panel {
-      margin-top: 4px;
-      padding: 4px 0;
-    }
-
-    .reasoning-content {
-      font-size: 13px;
-      color: var(--gray-800);
-      white-space: pre-wrap;
-      margin: 0;
-      line-height: 1.6;
-    }
   }
 
   .assistant-message {

@@ -2,7 +2,7 @@
   <BaseToolCall
     :tool-call="toolCall"
     :status="baseStatus"
-    :force-show-result="Boolean(displayResult)"
+    :force-show-result="hasDisplayResult"
   >
     <template #header>
       <div class="sep-header">
@@ -34,7 +34,7 @@ import { computed, inject } from 'vue'
 import BaseToolCall from '../BaseToolCall.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import { MessageProcessor } from '@/utils/messageProcessor'
-import { parseToolCallArgs } from '../toolRegistry'
+import { getToolCallDisplayStatus, parseToolCallArgs } from '../toolRegistry'
 
 const props = defineProps({
   toolCall: {
@@ -63,20 +63,9 @@ const childThreadId = computed(
     (getSubagentThreadIdByToolCall ? getSubagentThreadIdByToolCall(props.toolCall.id) : '') ||
     ''
 )
-const hasToolResult = computed(() =>
-  Boolean(props.toolCall.tool_call_result || props.toolCall.result)
-)
-// 是否为当前真正在执行的子智能体调用（同一子线程的多次 steer 中只有最后一个为活跃）。
-const isActiveRun = computed(() =>
-  Boolean(activeSubagentToolCallIds?.value?.has(String(props.toolCall.id)))
-)
 const runStatus = computed(() => {
-  if (props.toolCall.status === 'error') return 'failed'
-  // ongoing 期间工具结果不流式：有结果说明是历史/已落库，按结果展示；
-  // 没有结果时，只有「活跃」调用算运行中，其余 steer 历史调用视为已完成（结果待整轮结束后回填）。
-  if (hasToolResult.value) return subagentRun.value?.status === 'failed' ? 'failed' : 'completed'
-  if (isActiveRun.value) return 'running'
-  return 'completed'
+  const status = getToolCallDisplayStatus(props.toolCall, activeSubagentToolCallIds?.value)
+  return status === 'error' ? 'failed' : status
 })
 const runStatusLabel = computed(() => {
   if (runStatus.value === 'completed') return '已完成'
@@ -93,10 +82,9 @@ const runStatusClass = computed(() => ({
 const baseStatus = computed(() => (runStatus.value === 'failed' ? 'error' : runStatus.value))
 // ongoing 期间 task 结果不流式：只展示工具结果，状态摘要不承载后端预览文本。
 const displayResult = computed(() => {
-  const toolResult = props.toolCall.tool_call_result?.content || props.toolCall.result
-  if (toolResult) return toolResult
-  return ''
+  return props.toolCall.tool_call_result?.content ?? props.toolCall.result ?? ''
 })
+const hasDisplayResult = computed(() => displayResult.value !== '')
 const shortDescription = computed(() => {
   const desc = description.value
   if (!desc) return ''
