@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import pytest
+import random
 
+import pytest
+from yuxi.knowledge.chunking.ragflow_like import nlp
 from yuxi.knowledge.chunking.ragflow_like.dispatcher import chunk_markdown
 from yuxi.knowledge.chunking.ragflow_like.nlp import bullets_category, count_tokens
-from yuxi.knowledge.chunking.ragflow_like.utils.semantic_utils import split_mixed_sentences, split_sentences_chinese
 from yuxi.knowledge.chunking.ragflow_like.presets import (
     CHUNK_ENGINE_VERSION,
     CHUNK_PRESET_IDS,
@@ -14,6 +15,7 @@ from yuxi.knowledge.chunking.ragflow_like.presets import (
     map_to_internal_parser_id,
     resolve_chunk_processing_params,
 )
+from yuxi.knowledge.chunking.ragflow_like.utils.semantic_utils import split_mixed_sentences, split_sentences_chinese
 from yuxi.knowledge.utils.kb_utils import resolve_processing_params, sanitize_processing_params
 
 
@@ -101,7 +103,10 @@ def test_chunk_records_include_reserved_position_fields() -> None:
     assert "start_char_pos" in chunks[1]
 
 
-def test_book_chunking_hierarchical_merge() -> None:
+@pytest.mark.parametrize("seed", [0, 94])
+def test_book_chunking_hierarchical_merge(monkeypatch, seed) -> None:
+    """抽样不得遗漏短文档标题，导致同一文档随机丢失分节。"""
+    monkeypatch.setattr(nlp, "random", random.Random(seed))
     content = """
 第一章 总则
 第一节 适用范围

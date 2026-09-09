@@ -5,6 +5,8 @@ name: Deploy VitePress site to Pages
 on:
   # 在 docs 相关变更推送时运行构建（任意分支）
   push:
+    branches: ['**']
+    tags: ['v[0-9]*']
     paths:
       - 'docs/**'
       - '.github/workflows/deploy.yml'
