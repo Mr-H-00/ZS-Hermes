@@ -11,6 +11,13 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 class ReleaseWorkflowTests(unittest.TestCase):
     """阻止候选检查缺失和应用 Release 误触发 CLI 上传。"""
 
+    def assert_cold_build_budget(self, workflow: str) -> None:
+        """检查 Runtime job 具有覆盖冷缓存构建的最小预算。"""
+        self.assertRegex(
+            workflow,
+            r"(?m)^    timeout-minutes: (?:[6-9][0-9]|[1-9][0-9]{2,})$",
+        )
+
     def assert_release_events(self, workflows: dict[str, str]) -> None:
         """检查各发布门禁的真实事件声明。"""
         for name in (
@@ -41,6 +48,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assert_release_events(
             {path.stem: path.read_text() for path in WORKFLOWS.glob("*.yml")}
         )
+
+    def test_runtime_system_tests_have_cold_build_budget(self) -> None:
+        """冷缓存构建不能因过短 job 超时而跳过运行链路。"""
+        workflow = (WORKFLOWS / "system-tests.yml").read_text()
+        self.assert_cold_build_budget(workflow)
+
+    def test_runtime_system_tests_reject_short_build_budget(self) -> None:
+        """恢复 35 分钟冷构建预算时 gate 必须失败。"""
+        workflow = (WORKFLOWS / "system-tests.yml").read_text().replace(
+            "    timeout-minutes: 60\n", "    timeout-minutes: 35\n", 1
+        )
+        with self.assertRaises(AssertionError):
+            self.assert_cold_build_budget(workflow)
 
     def test_missing_tag_trigger_is_rejected(self) -> None:
         """恢复仅监听分支的缺陷时对应门禁必须失败。"""

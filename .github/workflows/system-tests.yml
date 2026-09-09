@@ -46,7 +46,8 @@ jobs:
   system-tests:
     name: PostgreSQL, readiness and deterministic Agent path
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # 新 runner 首次构建 sandbox-provisioner 会下载 Debian 与 Python 依赖，启动预算需覆盖冷缓存构建。
+    timeout-minutes: 60
     env:
       JWT_SECRET_KEY: ci-jwt-secret-at-least-thirty-two-characters
       API_KEY_DERIVATION_SECRET: ci-api-key-derivation-secret-at-least-32-chars

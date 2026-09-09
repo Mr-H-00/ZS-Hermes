@@ -26,6 +26,8 @@ Owner：.github/workflows/system-tests.yml
 
 候选和正式 tag 都运行完整 CI，增加运行成本。CLI 发布需要维护者显式操作。真实 provider 与生产备份恢复仍由相应探针和部署演练验证，workflow 成功不证明这些未执行范围。
 
+Runtime System Tests 的 job 预算为 60 分钟，覆盖 GitHub 新 runner 冷缓存构建 sandbox-provisioner、API 和 worker 后的完整检查；构建阶段超时会使后续测试保持未执行并阻断发布。
+
 ## 验证
 
 - `python3 -m unittest scripts.test_release_workflows` 验证真实 workflow 的发布事件；删除任一门禁的 tag 触发或恢复 CLI 的 release 触发均被负向案例拒绝。该检查由 trust workflow 执行。
