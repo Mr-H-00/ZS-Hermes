@@ -13,23 +13,19 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 
 from yuxi.knowledge.parser.base import BaseDocumentProcessor, DocumentParserException
+from yuxi.knowledge.parser.capabilities import get_parser_capability, is_mineru_official_url
 from yuxi.knowledge.parser.zip_utils import process_zip_file_sync
 from yuxi.utils import logger
 
-
-def is_mineru_official_url(server_url: str) -> bool:
-    """判断地址是否属于 MinerU 官方云服务。"""
-
-    hostname = (urlsplit(server_url).hostname or "").lower()
-    return hostname == "mineru.net"
+_CAPABILITY = get_parser_capability("mineru_ocr")
 
 
 class MinerUParser(BaseDocumentProcessor):
     """MinerU 文档解析器 - 使用 HTTP API 进行文档理解和解析"""
 
-    service_name = "mineru_ocr"
-    display_name = "MinerU OCR"
-    supported_extensions = [".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"]
+    service_name = _CAPABILITY.service_name
+    display_name = _CAPABILITY.display_name
+    supported_extensions = list(_CAPABILITY.supported_extensions)
 
     def __init__(self, server_url: str | None = None, api_key: str | None = None):
         self.server_url = (server_url or os.getenv("MINERU_API_URI") or "http://localhost:30001").rstrip("/")
@@ -182,9 +178,7 @@ class MinerUParser(BaseDocumentProcessor):
         # 解析参数
         params = params or {}
         if self.official_parser is not None:
-            logger.warning(
-                "mineru_ocr 配置使用 MinerU 官方地址，将兼容转发到 mineru_official；建议迁移到独立官方引擎"
-            )
+            logger.warning("mineru_ocr 配置使用 MinerU 官方地址，将兼容转发到 mineru_official；建议迁移到独立官方引擎")
             return self.official_parser.process_file(file_path, self._build_official_params(params))
 
         data = {
@@ -357,21 +351,23 @@ class MinerUParser(BaseDocumentProcessor):
             with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_zip:
                 tmp_zip.write(zip_data)
                 tmp_zip.flush()
+                tmp_zip_path = tmp_zip.name
 
-                try:
-                    from yuxi.storage.minio import get_minio_client
+            try:
+                from yuxi.storage.minio import get_minio_client
 
-                    image_bucket = params.get("image_bucket") or get_minio_client().KB_BUCKETS["images"]
-                    image_prefix = params.get("image_prefix") or "unknown/kb-images"
+                image_bucket = params.get("image_bucket") or get_minio_client().KB_BUCKETS["images"]
+                image_prefix = params.get("image_prefix") or "unknown/kb-images"
 
-                    processed = process_zip_file_sync(
-                        tmp_zip.name,
-                        image_bucket=image_bucket,
-                        image_prefix=image_prefix,
-                    )
-                    text = processed["markdown_content"]
-                finally:
-                    os.unlink(tmp_zip.name)
+                processed = process_zip_file_sync(
+                    tmp_zip_path,
+                    image_bucket=image_bucket,
+                    image_prefix=image_prefix,
+                )
+                # 旧版测试/第三方适配器可能返回带字段的结果，新版共享处理器直接返回字符串。
+                text = processed if isinstance(processed, str) else processed.get("markdown_content", "")
+            finally:
+                os.unlink(tmp_zip_path)
 
             if not text:
                 logger.error("MinerU 未返回任何文本内容")

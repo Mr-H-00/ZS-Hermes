@@ -10,12 +10,12 @@
 | 5050 | API | API 和 Swagger 文档 |
 | 8002 | `sandbox-provisioner` | 本机排查 provisioner；只绑定 `127.0.0.1` |
 | 7474 / 7687 | Neo4j | HTTP 管理界面 / Bolt |
-| 9000 / 9001 | MinIO | 对象 API / 管理控制台 |
+| 19000 / 19001 | MinIO | 对象 API / 管理控制台 |
 | 19530 / 9091 | Milvus | gRPC / 健康检查 |
 | 5432 | PostgreSQL | 本机数据库维护 |
-| 6379 | Redis | 本机缓存和队列维护 |
+| 16379 | Redis | 本机缓存和队列维护 |
 
-完整模式下的可选 OCR 服务：
+通过 `all` profile 启动的可选 OCR 服务：
 
 | 端口 | 服务 | 用途 |
 | --- | --- | --- |

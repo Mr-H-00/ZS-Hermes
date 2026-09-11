@@ -197,7 +197,42 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_business_v1_schema_is_converged_and_versioned_as_current(monkeypatch):
+@pytest.mark.parametrize("unsupported_version", [1, 3, 4, 5, 6, storage_migration.BUSINESS_SCHEMA_VERSION + 1])
+async def test_main_rejects_unsupported_business_schema_before_ddl(monkeypatch, unsupported_version: int):
+    calls: list[str] = []
+
+    @asynccontextmanager
+    async def session_context():
+        yield _Session()
+
+    manager = SimpleNamespace(
+        initialize=lambda: calls.append("initialize"),
+        schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
+        create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
+        get_schema_versions=lambda: _async_value(
+            {"business": unsupported_version, "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION}
+        ),
+        get_async_session_context=session_context,
+        close=lambda: _record(calls, "close"),
+    )
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(
+        storage_migration,
+        "read_v071_workdir_plan",
+        lambda _db: _async_value(V071WorkdirMigrationPlan(False, (), ())),
+    )
+    monkeypatch.setattr(storage_migration, "_legacy_skill_roots_exist", lambda: False)
+    monkeypatch.setattr(storage_migration, "_legacy_system_config_exists", lambda: False)
+    monkeypatch.setattr(storage_migration, "runtime_storage_requires_quiescence", lambda: False)
+
+    with pytest.raises(RuntimeError, match=f"Unsupported business schema version: {unsupported_version}"):
+        await storage_migration.main()
+
+    assert calls == ["initialize", "schema_lock", "create_schema_version_table", "close"]
+
+
+@pytest.mark.asyncio
+async def test_main_v2_business_schema_is_converged_and_versioned_as_current(monkeypatch):
     calls: list[str] = []
     sessions = [_Session(), _Session(), _Session()]
 
@@ -210,7 +245,7 @@ async def test_business_v1_schema_is_converged_and_versioned_as_current(monkeypa
         schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
         create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
         get_schema_versions=lambda: _async_value(
-            {"business": 1, "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION}
+            {"business": 2, "knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION}
         ),
         record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
         create_business_tables=lambda: _record(calls, "create_business"),
@@ -247,8 +282,9 @@ async def test_business_v1_schema_is_converged_and_versioned_as_current(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_knowledge_v1_schema_is_converged_and_versioned_as_current(monkeypatch):
-    """knowledge v1 必须执行幂等升级，成功后才发布 v2 版本。"""
+@pytest.mark.parametrize("knowledge_version", [1, 2, 3])
+async def test_historical_knowledge_schema_is_converged_and_versioned_as_current(monkeypatch, knowledge_version: int):
+    """两条历史 knowledge 版本线都必须先幂等收敛，再发布合并后的版本。"""
     calls: list[str] = []
     sessions = [_Session(), _Session(), _Session()]
 
@@ -262,7 +298,7 @@ async def test_knowledge_v1_schema_is_converged_and_versioned_as_current(monkeyp
         schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
         create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
         get_schema_versions=lambda: _async_value(
-            {"business": storage_migration.BUSINESS_SCHEMA_VERSION, "knowledge": 1}
+            {"business": storage_migration.BUSINESS_SCHEMA_VERSION, "knowledge": knowledge_version}
         ),
         record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
         create_business_tables=lambda: _record(calls, "create_business"),
@@ -299,19 +335,107 @@ async def test_knowledge_v1_schema_is_converged_and_versioned_as_current(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_lite_migration_does_not_create_knowledge_schema(monkeypatch):
+async def test_failed_knowledge_convergence_does_not_publish_current_version(monkeypatch):
+    """knowledge DDL 未完成时不得把分叉历史版本误标为当前版本。"""
     calls: list[str] = []
-    sessions = [_Session(), _Session(), _Session()]
 
     @asynccontextmanager
     async def session_context():
+        """提供读取旧工作目录计划所需的假会话。"""
+        yield _Session()
+
+    async def fail_knowledge_schema():
+        """模拟 Parent-Child 或 Durable Task Owner DDL 失败。"""
+        calls.append("knowledge_schema")
+        raise RuntimeError("broken knowledge convergence")
+
+    manager = SimpleNamespace(
+        initialize=lambda: calls.append("initialize"),
+        schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
+        create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
+        get_schema_versions=lambda: _async_value(
+            {"business": storage_migration.BUSINESS_SCHEMA_VERSION, "knowledge": 2}
+        ),
+        record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
+        create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
+        ensure_knowledge_schema=fail_knowledge_schema,
+        get_async_session_context=session_context,
+        close=lambda: _record(calls, "close"),
+    )
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(
+        storage_migration,
+        "read_v071_workdir_plan",
+        lambda _db: _async_value(V071WorkdirMigrationPlan(False, (), ())),
+    )
+    monkeypatch.setattr(storage_migration, "_legacy_skill_roots_exist", lambda: False)
+    monkeypatch.setattr(storage_migration, "_legacy_system_config_exists", lambda: False)
+    monkeypatch.setattr(storage_migration, "runtime_storage_requires_quiescence", lambda: False)
+
+    with pytest.raises(RuntimeError, match="broken knowledge convergence"):
+        await storage_migration.main()
+
+    assert "knowledge_schema" in calls
+    assert f"version:knowledge:{storage_migration.KNOWLEDGE_SCHEMA_VERSION}" not in calls
+    assert "create_knowledge" not in calls
+    assert calls[-1] == "close"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unsupported_version", [0, storage_migration.KNOWLEDGE_SCHEMA_VERSION + 1])
+async def test_main_rejects_unsupported_knowledge_schema_before_ddl(monkeypatch, unsupported_version: int):
+    """未知 knowledge 版本必须在任何域迁移 DDL 前失败关闭。"""
+    calls: list[str] = []
+
+    @asynccontextmanager
+    async def session_context():
+        """提供读取旧工作目录计划所需的假会话。"""
+        yield _Session()
+
+    manager = SimpleNamespace(
+        initialize=lambda: calls.append("initialize"),
+        schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
+        create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
+        get_schema_versions=lambda: _async_value(
+            {"business": storage_migration.BUSINESS_SCHEMA_VERSION, "knowledge": unsupported_version}
+        ),
+        get_async_session_context=session_context,
+        close=lambda: _record(calls, "close"),
+    )
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(
+        storage_migration,
+        "read_v071_workdir_plan",
+        lambda _db: _async_value(V071WorkdirMigrationPlan(False, (), ())),
+    )
+    monkeypatch.setattr(storage_migration, "_legacy_skill_roots_exist", lambda: False)
+    monkeypatch.setattr(storage_migration, "_legacy_system_config_exists", lambda: False)
+    monkeypatch.setattr(storage_migration, "runtime_storage_requires_quiescence", lambda: False)
+
+    with pytest.raises(RuntimeError, match=f"Unsupported knowledge schema version: {unsupported_version}"):
+        await storage_migration.main()
+
+    assert calls == ["initialize", "schema_lock", "create_schema_version_table", "close"]
+
+
+@pytest.mark.asyncio
+async def test_lite_migration_does_not_create_or_version_knowledge_schema(monkeypatch):
+    """LITE 迁移只收敛 business schema，不读取或写入 knowledge 域。"""
+
+    calls: list[str] = []
+    sessions = [_Session(), _Session()]
+
+    @asynccontextmanager
+    async def session_context():
+        """提供迁移测试所需的独立假会话。"""
+
         yield sessions.pop(0)
 
     manager = SimpleNamespace(
         initialize=lambda: calls.append("initialize"),
         schema_migration_lock=lambda: _async_context(calls, "schema_lock"),
         create_schema_version_table=lambda: _record(calls, "create_schema_version_table"),
-        get_schema_versions=lambda: _async_value({}),
+        get_schema_versions=lambda: _async_value({"knowledge": storage_migration.KNOWLEDGE_SCHEMA_VERSION + 1}),
         record_schema_version=lambda domain, version: _record(calls, f"version:{domain}:{version}"),
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),

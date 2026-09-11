@@ -27,6 +27,7 @@ from yuxi.knowledge.implementations.milvus import (
 from yuxi.models.embed import select_embedding_model
 from yuxi.models.providers.cache import model_cache
 from yuxi.utils import hashstr, logger
+from yuxi.utils.asyncio_utils import run_sync_with_deferred_cancellation
 
 
 class MilvusGraphVectorStore:
@@ -76,13 +77,18 @@ class MilvusGraphVectorStore:
             await asyncio.to_thread(self._upsert_triples, collection, records, embeddings)
 
     async def delete_graph_records(self, kb_id: str, *, entity_ids: list[str], triple_ids: list[str]) -> None:
-        tasks = []
         if entity_ids:
-            tasks.append(asyncio.to_thread(self._delete_ids, graph_entity_collection_name(kb_id), entity_ids))
+            await run_sync_with_deferred_cancellation(
+                self._delete_ids,
+                graph_entity_collection_name(kb_id),
+                entity_ids,
+            )
         if triple_ids:
-            tasks.append(asyncio.to_thread(self._delete_ids, graph_triple_collection_name(kb_id), triple_ids))
-        if tasks:
-            await asyncio.gather(*tasks)
+            await run_sync_with_deferred_cancellation(
+                self._delete_ids,
+                graph_triple_collection_name(kb_id),
+                triple_ids,
+            )
 
     async def search_entities(
         self,

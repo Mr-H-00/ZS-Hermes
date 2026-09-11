@@ -120,7 +120,7 @@ export const dashboardApi = {
 
   /**
    * 批量获取系统概览所有统计数据（并行请求）
-   * @param {Object} options - 当前运行时能力
+   * @param {Object} options - 当前 API 暴露的可选能力
    * @param {boolean} options.includeKnowledge - 是否请求知识库统计
    * @returns {Promise<Object>} - 所有统计数据
    */
@@ -132,9 +132,7 @@ export const dashboardApi = {
         tools: apiAdminGet('/api/dashboard/stats/tools'),
         agents: apiAdminGet('/api/dashboard/stats/agents')
       }
-      if (includeKnowledge) {
-        requests.knowledge = apiAdminGet('/api/dashboard/stats/knowledge')
-      }
+      if (includeKnowledge) requests.knowledge = apiAdminGet('/api/dashboard/stats/knowledge')
 
       const entries = Object.entries(requests)
       const values = await Promise.all(entries.map(([, request]) => request))

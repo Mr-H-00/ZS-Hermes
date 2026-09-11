@@ -1,5 +1,5 @@
 <template>
-  <section class="project-selection" aria-label="新对话项目">
+  <section class="project-selection" :aria-label="ariaLabel">
     <a-dropdown
       v-model:open="dropdownOpen"
       :trigger="['click']"
@@ -40,6 +40,7 @@
               </div>
               <template v-else>
                 <button
+                  v-if="allowAuto"
                   type="button"
                   class="project-option"
                   :class="{ selected: !modelValue || modelValue === AUTO_PROJECT_ID }"
@@ -182,8 +183,9 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { storeToRefs } from 'pinia'
 import {
   ArrowLeft,
   Check,
@@ -202,15 +204,16 @@ import { AUTO_PROJECT_ID, filterProjects, formatRelativeTime } from '@/utils/pro
 
 const props = defineProps({
   modelValue: { type: String, default: AUTO_PROJECT_ID },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  allowAuto: { type: Boolean, default: true },
+  eagerLoad: { type: Boolean, default: false },
+  ariaLabel: { type: String, default: '新对话项目' }
 })
 const emit = defineEmits(['update:modelValue'])
 const projectsStore = useProjectsStore()
+const { projects, isLoading: loadingProjects, error: projectsError } = storeToRefs(projectsStore)
 
-const projects = ref([])
 const dropdownOpen = ref(false)
-const loadingProjects = ref(false)
-const projectsError = ref('')
 const projectQuery = ref('')
 const projectSearchInput = ref(null)
 const historySearchInput = ref(null)
@@ -245,7 +248,9 @@ const currentProjectLabel = computed(() =>
   isAutoOrEmpty.value ? '选择项目' : currentProject.value?.name || '未命名项目'
 )
 const currentProjectHint = computed(() => {
-  if (isAutoOrEmpty.value) return '不使用项目（发送时创建独立目录）'
+  if (isAutoOrEmpty.value) {
+    return props.allowAuto ? '不使用项目（发送时创建独立目录）' : '请选择任务使用的项目'
+  }
   if (currentProject.value?.directory_mode === 'linked') return '个人空间已有目录'
   return '系统管理目录'
 })
@@ -259,20 +264,15 @@ const selectProject = (projectId) => {
 const addAndSelectProject = (project) => {
   const projectId = project.id
   if (!projectId) throw new Error('创建结果缺少 project id')
-  projects.value = [project, ...projects.value.filter((item) => item.id !== projectId)]
   projectsStore.upsertProject(project)
   selectProject(projectId)
 }
 
 const loadProjects = async () => {
-  loadingProjects.value = true
-  projectsError.value = ''
   try {
-    projects.value = await projectApi.getProjects()
-  } catch (error) {
-    projectsError.value = getErrorMessage(error, 'Project 加载失败')
-  } finally {
-    loadingProjects.value = false
+    await projectsStore.loadProjects()
+  } catch {
+    // 错误由 store 保持，列表中的提示和重试按钮共用同一事实。
   }
 }
 
@@ -366,6 +366,9 @@ watch(dropdownView, (view) => {
   if (projectSearchFocusTimer) clearTimeout(projectSearchFocusTimer)
   const target = view === 'history' ? historySearchInput : projectSearchInput
   projectSearchFocusTimer = setTimeout(() => target.value?.focus(), 120)
+})
+onMounted(() => {
+  if (props.eagerLoad) void loadProjects()
 })
 onUnmounted(() => {
   if (historySearchTimer) clearTimeout(historySearchTimer)

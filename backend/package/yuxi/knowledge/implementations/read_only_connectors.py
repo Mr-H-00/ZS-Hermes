@@ -44,12 +44,24 @@ class ReadOnlyConnectors(KnowledgeBase):
         kb_id: str,
         file_id: str,
         operator_id: str | None = None,
+        params: dict | None = None,
         *,
         additional_params: dict[str, Any],
         embedding_model_spec: str | None = None,
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
     ) -> dict:
         """拒绝在只读连接器中解析文件。"""
-        del kb_id, file_id, operator_id, additional_params, embedding_model_spec
+        del (
+            kb_id,
+            file_id,
+            operator_id,
+            params,
+            additional_params,
+            embedding_model_spec,
+            processing_task_id,
+            processing_owner,
+        )
         raise self._readonly_error()
 
     async def update_file_params(
@@ -93,20 +105,19 @@ class ReadOnlyConnectors(KnowledgeBase):
         *,
         embedding_model_spec: str | None,
         additional_params: dict[str, Any],
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
     ) -> dict:
-        del kb_id, file_id, operator_id, params, embedding_model_spec, additional_params
-        raise self._readonly_error()
-
-    async def update_content(
-        self,
-        kb_id: str,
-        file_ids: list[str],
-        params: dict | None = None,
-        *,
-        embedding_model_spec: str | None,
-        additional_params: dict[str, Any],
-    ) -> list[dict]:
-        del kb_id, file_ids, params, embedding_model_spec, additional_params
+        del (
+            kb_id,
+            file_id,
+            operator_id,
+            params,
+            embedding_model_spec,
+            additional_params,
+            processing_task_id,
+            processing_owner,
+        )
         raise self._readonly_error()
 
     async def delete_file(self, kb_id: str, file_id: str) -> None:

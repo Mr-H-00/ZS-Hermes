@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test.live_api_cleanup import (
     make_test_conversation_metadata,
@@ -22,7 +23,8 @@ from yuxi.repositories.project_repository import ProjectRepository
 from yuxi.services.agent_run_service import prepare_agent_run_creation_scope
 from yuxi.services.project_service import delete_project_view
 from yuxi.services.subagent_run_service import SubagentRunService
-from yuxi.storage.postgres.models_business import Conversation, Project, SubagentThread, User
+from yuxi.storage.postgres.models_business import Conversation, ConversationStats, Project, SubagentThread, User
+from yuxi.workspace.paths import user_workdir_host_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -79,6 +81,7 @@ async def project_lifecycle_database():
     try:
         async with session_factory() as session:
             session.add(User(username=uid, uid=uid, password_hash="test"))
+            await session.flush()
             session.add(
                 Project(
                     id=project_id,
@@ -96,6 +99,11 @@ async def project_lifecycle_database():
         finally:
             async with session_factory() as session:
                 await session.execute(delete(SubagentThread).where(SubagentThread.uid == uid))
+                await session.execute(
+                    delete(ConversationStats).where(
+                        ConversationStats.conversation_id.in_(select(Conversation.id).where(Conversation.uid == uid))
+                    )
+                )
                 await session.execute(delete(Conversation).where(Conversation.uid == uid))
                 await session.execute(delete(Project).where(Project.uid == uid))
                 await session.execute(delete(User).where(User.uid == uid))
@@ -142,11 +150,14 @@ async def test_default_thread_creates_implicit_project_with_exclusive_binding(te
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["project_id"]
-    assert payload["workdir_path"].startswith("projects/")
+    assert re.fullmatch(
+        rf"projects/\d{{4}}-\d{{2}}-\d{{2}}_\d{{2}}-\d{{2}}-\d{{2}}_{re.escape(payload['project_id'][:8])}(?:-[1-9]\d*)?",
+        payload["workdir_path"],
+    )
 
     async with _database_connection() as db:
         row = await db.fetchrow(
-            "SELECT c.project_id, p.selection_status, p.directory_mode, p.workdir_path "
+            "SELECT c.uid, c.project_id, p.selection_status, p.directory_mode, p.workdir_path "
             "FROM conversations c JOIN projects p ON p.id = c.project_id AND p.uid = c.uid "
             "WHERE c.thread_id = $1",
             payload["id"],
@@ -155,6 +166,7 @@ async def test_default_thread_creates_implicit_project_with_exclusive_binding(te
     assert row["selection_status"] == "implicit"
     assert row["directory_mode"] == "managed"
     assert row["workdir_path"] == payload["workdir_path"]
+    assert user_workdir_host_dir(str(row["uid"]), str(row["workdir_path"])).is_dir()
 
 
 async def test_linked_project_and_thread_selection_keep_directory_bytes(

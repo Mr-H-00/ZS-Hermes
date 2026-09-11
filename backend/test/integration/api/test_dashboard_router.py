@@ -10,7 +10,6 @@ import uuid
 import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yuxi.config.runtime import knowledge_capability_enabled
 from yuxi.storage.postgres.models_business import Conversation
 
 from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
@@ -103,10 +102,6 @@ async def test_admin_can_fetch_stats(test_client, admin_headers):
 
 async def test_knowledge_stats_matches_runtime_capability(test_client, admin_headers):
     response = await test_client.get("/api/dashboard/stats/knowledge", headers=admin_headers)
-
-    if not knowledge_capability_enabled():
-        assert response.status_code == 404, response.text
-        return
 
     assert response.status_code == 200, response.text
     assert set(response.json()) == {

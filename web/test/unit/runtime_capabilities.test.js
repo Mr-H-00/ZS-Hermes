@@ -13,13 +13,6 @@ globalThis.localStorage = {
   clear: () => storageValues.clear()
 }
 
-function jsonResponse(payload) {
-  return new Response(JSON.stringify(payload), {
-    status: 200,
-    headers: { 'content-type': 'application/json' }
-  })
-}
-
 async function withServer(run) {
   const server = await createServer({
     server: { middlewareMode: true },
@@ -39,7 +32,6 @@ async function withServer(run) {
       }
     ]
   })
-
   try {
     await run(server)
   } finally {
@@ -59,6 +51,13 @@ async function prepareStores(server) {
     '/src/stores/runtimeCapabilities.js'
   )
   return useRuntimeCapabilitiesStore()
+}
+
+function jsonResponse(payload) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'content-type': 'application/json' }
+  })
 }
 
 const dashboardResponses = {
@@ -131,10 +130,7 @@ test('knowledge capability 开启时 Dashboard 保留知识统计请求', async 
       includeKnowledge: runtimeCapabilitiesStore.knowledgeEnabled
     })
 
-    assert.equal(
-      requests.filter((url) => url === '/api/dashboard/stats/knowledge').length,
-      1
-    )
+    assert.equal(requests.filter((url) => url === '/api/dashboard/stats/knowledge').length, 1)
     assert.deepEqual(result.knowledge, dashboardResponses['/api/dashboard/stats/knowledge'])
   })
 })
@@ -152,7 +148,7 @@ test('knowledge capability 关闭时 Dashboard 移动端保持单列布局', () 
   )
 })
 
-test('能力发现瞬时失败后保持 fail-closed，并允许下一次调用恢复', async () => {
+test('能力发现失败后保持 fail-closed，并允许下一次调用恢复', async () => {
   await withServer(async (server) => {
     storageValues.clear()
     let attempts = 0
@@ -163,17 +159,17 @@ test('能力发现瞬时失败后保持 fail-closed，并允许下一次调用�
       return jsonResponse({ capabilities: { features: { knowledge: true } } })
     }
 
-    const runtimeCapabilitiesStore = await prepareStores(server)
+    const store = await prepareStores(server)
 
-    assert.deepEqual(await runtimeCapabilitiesStore.ensureLoaded(), { knowledge: false })
-    assert.equal(runtimeCapabilitiesStore.status, 'error')
-    assert.equal(runtimeCapabilitiesStore.knowledgeEnabled, false)
+    assert.deepEqual(await store.ensureLoaded(), { knowledge: false })
+    assert.equal(store.status, 'error')
+    assert.equal(store.knowledgeEnabled, false)
 
-    assert.deepEqual(await runtimeCapabilitiesStore.ensureLoaded(), { knowledge: true })
+    assert.deepEqual(await store.ensureLoaded(), { knowledge: true })
     assert.equal(attempts, 2)
-    assert.equal(runtimeCapabilitiesStore.status, 'ready')
-    assert.equal(runtimeCapabilitiesStore.error, null)
-    assert.equal(runtimeCapabilitiesStore.knowledgeEnabled, true)
+    assert.equal(store.status, 'ready')
+    assert.equal(store.error, null)
+    assert.equal(store.knowledgeEnabled, true)
   })
 })
 
@@ -197,7 +193,6 @@ test('knowledge capability 关闭时 Agent 提及资源不请求知识库', asyn
     await runtimeCapabilitiesStore.ensureLoaded()
     const { useAgentStore } = await server.ssrLoadModule('/src/stores/agent.js')
     const agentStore = useAgentStore()
-
     await agentStore.fetchMentionResources()
 
     assert.equal(requests.some((url) => url.startsWith('/api/knowledge')), false)

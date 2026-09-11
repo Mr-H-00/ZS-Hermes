@@ -18,7 +18,9 @@ def test_lite_shipping_surface_excludes_knowledge_runtime_routes_skills_and_tool
     backend_root = Path(__file__).resolve().parents[3]
     environment = os.environ.copy()
     environment["LITE_MODE"] = "true"
-    environment["PYTHONPATH"] = os.pathsep.join([str(backend_root), str(backend_root / "package")])
+    environment["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(backend_root), str(backend_root / "package"), environment.get("PYTHONPATH")])
+    )
     script = """
 import sys
 import server.main
@@ -27,6 +29,7 @@ from yuxi.agents.toolkits.service import get_tool_metadata
 
 forbidden = (
     "yuxi.knowledge.runtime",
+    "yuxi.knowledge.parser.mineru",
     "yuxi.knowledge.parser.unified",
     "yuxi.knowledge.chunking",
     "yuxi.knowledge.implementations.milvus",
@@ -34,6 +37,7 @@ forbidden = (
     "yuxi.repositories.knowledge_base_repository",
     "yuxi.repositories.knowledge_file_repository",
     "yuxi.services.knowledge_dashboard_service",
+    "yuxi.services.knowledge_task_service",
     "yuxi.storage.neo4j",
     "server.routers.knowledge_dashboard_router",
 )
@@ -90,7 +94,9 @@ def test_full_shipping_surface_registers_knowledge_dashboard() -> None:
     backend_root = Path(__file__).resolve().parents[3]
     environment = os.environ.copy()
     environment.pop("LITE_MODE", None)
-    environment["PYTHONPATH"] = os.pathsep.join([str(backend_root), str(backend_root / "package")])
+    environment["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(backend_root), str(backend_root / "package"), environment.get("PYTHONPATH")])
+    )
     script = """
 import server.main
 

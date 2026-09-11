@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import pytest
 import pytest_asyncio
-from sqlalchemy import event
+from sqlalchemy import event, func
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yuxi.services.dashboard_service import DashboardService
@@ -160,7 +160,67 @@ async def dashboard_db():
         msg1 = Message(conversation=conv1, role="user", content="Hello", created_at=yesterday)
         msg2 = Message(conversation=conv1, role="assistant", content="Hi there!", created_at=yesterday)
         msg3 = Message(conversation=conv2, role="user", content="Write code", created_at=now)
-        msg4 = Message(conversation=conv2, role="assistant", content="Here is code", created_at=now)
+        msg4 = Message(
+            conversation=conv2,
+            role="assistant",
+            content="Here is code",
+            message_type="text",
+            operation_id="model-final",
+            execution_status="completed",
+            created_at=now,
+            usage={"input_tokens": 5, "output_tokens": 3},
+            extra_metadata={
+                "response_metadata": {"model_name": "final-model"},
+                "usage_metadata": {"input_tokens": 5, "output_tokens": 3},
+            },
+        )
+        hidden_model_audit = Message(
+            conversation=conv2,
+            role="assistant",
+            content="Intermediate model output",
+            message_type="model_audit",
+            operation_id="model-audit-1",
+            execution_status="completed",
+            created_at=now,
+            extra_metadata={
+                "response_metadata": {"model_name": "tool-model"},
+                "usage_metadata": {"input_tokens": 100, "output_tokens": 100},
+            },
+        )
+        failed_model_audit = Message(
+            conversation=conv2,
+            role="assistant",
+            content="",
+            message_type="model_audit",
+            operation_id="model-audit-failed",
+            execution_status="failed",
+            created_at=now,
+            usage={"input_tokens": 7, "output_tokens": 2},
+            extra_metadata={"audit_kind": "model"},
+        )
+        interrupted_model_audit = Message(
+            conversation=conv2,
+            role="assistant",
+            content="partial",
+            message_type="model_audit",
+            operation_id="model-audit-interrupted",
+            execution_status="interrupted",
+            created_at=now,
+            usage={"input_tokens": 11, "output_tokens": 4},
+            extra_metadata={"audit_kind": "model"},
+        )
+        hidden_tool_audit = Message(
+            conversation=conv2,
+            role="tool",
+            content="Intermediate tool output",
+            message_type="tool_audit",
+            operation_id="tool-audit-1",
+            started_at=now,
+            sequence=2,
+            execution_status="completed",
+            created_at=now,
+            extra_metadata={"usage_metadata": {"input_tokens": 100, "output_tokens": 100}},
+        )
         removed_agent_message = Message(
             conversation=missing_agent_conversation,
             role="assistant",
@@ -177,6 +237,18 @@ async def dashboard_db():
         )
 
         feedback1 = MessageFeedback(message=msg2, uid="uid-alice", rating="like", created_at=yesterday)
+        hidden_model_feedback = MessageFeedback(
+            message=hidden_model_audit,
+            uid="uid-bob",
+            rating="dislike",
+            created_at=now,
+        )
+        hidden_tool_feedback = MessageFeedback(
+            message=hidden_tool_audit,
+            uid="uid-bob",
+            rating="like",
+            created_at=now,
+        )
         removed_agent_feedback = MessageFeedback(
             message=removed_agent_message,
             uid="uid-alice",
@@ -207,10 +279,16 @@ async def dashboard_db():
                 msg2,
                 msg3,
                 msg4,
+                hidden_model_audit,
+                failed_model_audit,
+                interrupted_model_audit,
+                hidden_tool_audit,
                 removed_agent_message,
                 tool1,
                 removed_agent_tool,
                 feedback1,
+                hidden_model_feedback,
+                hidden_tool_feedback,
                 removed_agent_feedback,
             ]
         )
@@ -241,6 +319,25 @@ async def test_dashboard_service_basic_stats(dashboard_db):
     assert len(feedbacks) == 1
 
 
+async def test_call_timeseries_counts_each_model_lifecycle_usage_once(dashboard_db, monkeypatch):
+    """模型调用包含审计终态，且每行 usage 只累计一次。"""
+    service = DashboardService(dashboard_db)
+    monkeypatch.setattr(
+        service.repo,
+        "_time_group_format",
+        lambda column, _time_range: func.strftime("%Y-%m-%d", column, "+8 hours"),
+    )
+
+    models = await service.get_call_timeseries(metric_type="models", time_range="14days")
+    tokens = await service.get_call_timeseries(metric_type="tokens", time_range="14days")
+
+    assert models["total_count"] == 4
+    assert sum(item["data"].get("unknown_model", 0) for item in models["data"]) == 2
+    assert sum(item["data"]["input_tokens"] for item in tokens["data"]) == 123
+    assert sum(item["data"]["output_tokens"] for item in tokens["data"]) == 109
+    assert tokens["total_count"] == 232
+
+
 async def test_agent_analytics_omits_removed_top_performers_contract(dashboard_db):
     """智能体统计保留概览字段且不再生成 TOP 5 排行。"""
     analytics = await DashboardService(dashboard_db).get_agent_analytics()
@@ -256,6 +353,14 @@ async def test_agent_analytics_omits_removed_top_performers_contract(dashboard_d
     assert analytics["agent_names"] == {
         "agent-helper": "Helper Agent",
         "agent-coder": "Coder Agent",
+    }
+    coder_satisfaction = next(
+        item for item in analytics["agent_satisfaction_rates"] if item["agent_id"] == "agent-coder"
+    )
+    assert coder_satisfaction == {
+        "agent_id": "agent-coder",
+        "satisfaction_rate": 100,
+        "total_feedbacks": 0,
     }
 
 

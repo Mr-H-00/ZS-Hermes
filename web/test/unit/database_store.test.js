@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 
 import { message } from 'ant-design-vue'
 import { createPinia, setActivePinia } from 'pinia'
+import { createApp } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { createServer } from 'vite'
 
 const storageValues = new Map()
@@ -13,14 +15,20 @@ globalThis.localStorage = {
   clear: () => storageValues.clear()
 }
 
-test('从二级目录点击全部文件会清空 parent_id 并返回根目录', async () => {
+test('从二级目录点击全部文件会清空 parent_id 并返回根目录', async (t) => {
   const server = await createServer({
-    server: { middlewareMode: true },
+    server: { middlewareMode: true, hmr: false },
     appType: 'custom'
   })
 
   try {
-    setActivePinia(createPinia())
+    const warnings = []
+    t.mock.method(console, 'warn', (...args) => warnings.push(args))
+    const pinia = createPinia()
+    const app = createApp({})
+    app.use(pinia)
+    app.use(createRouter({ history: createMemoryHistory(), routes: [] }))
+    setActivePinia(pinia)
     const { documentApi } = await server.ssrLoadModule('/src/apis/knowledge_api.js')
     const { useDatabaseStore } = await server.ssrLoadModule('/src/stores/database.js')
     const requests = []
@@ -37,7 +45,7 @@ test('从二级目录点击全部文件会清空 parent_id 并返回根目录', 
       }
     }
 
-    const store = useDatabaseStore()
+    const store = app.runWithContext(() => useDatabaseStore())
     store.kbId = 'kb_1'
     store.fileBrowser.parentId = 'folder_2'
     store.folderBreadcrumbs = [
@@ -62,6 +70,7 @@ test('从二级目录点击全部文件会清空 parent_id 并返回根目录', 
         }
       }
     ])
+    assert.deepEqual(warnings, [])
   } finally {
     await server.close()
   }
@@ -87,8 +96,9 @@ test('文档重切登记非敏感任务摘要并刷新文件状态', async () =>
   try {
     setActivePinia(createPinia())
     const { databaseApi, documentApi } = await server.ssrLoadModule('/src/apis/knowledge_api.js')
-    const { useDatabaseStore } = await server.ssrLoadModule('/src/stores/database.js')
+    const { useUserStore } = await server.ssrLoadModule('/src/stores/user.js')
     const { useTaskerStore } = await server.ssrLoadModule('/src/stores/tasker.js')
+    const { useDatabaseStore } = await server.ssrLoadModule('/src/stores/database.js')
     const requests = []
     let databaseRefreshCount = 0
     let documentRefreshCount = 0
@@ -106,8 +116,11 @@ test('文档重切登记非敏感任务摘要并刷新文件状态', async () =>
       return { items: [], page: 1, page_size: 100, total: 0, has_more: false }
     }
 
-    const store = useDatabaseStore()
+    const userStore = useUserStore()
+    userStore.token = 'test-token'
+    userStore.userRole = 'admin'
     const taskerStore = useTaskerStore()
+    const store = useDatabaseStore()
     store.kbId = 'kb-1'
     const params = {
       parent_child: { enabled: true },
@@ -144,6 +157,72 @@ test('文档重切登记非敏感任务摘要并刷新文件状态', async () =>
     globalThis.clearTimeout = originalClearTimeout
     message.success = originalMessageSuccess
     message.error = originalMessageError
+    await server.close()
+  }
+})
+
+test('知识库提交跨账号返回时，不把旧入队任务登记给新账号', async (t) => {
+  const server = await createServer({
+    server: { middlewareMode: true, hmr: false },
+    appType: 'custom'
+  })
+  const pinia = createPinia()
+  const app = createApp({})
+  app.use(pinia)
+  app.use(createRouter({ history: createMemoryHistory(), routes: [] }))
+  setActivePinia(pinia)
+  const { documentApi, databaseApi } = await server.ssrLoadModule('/src/apis/knowledge_api.js')
+  const { useDatabaseStore } = await server.ssrLoadModule('/src/stores/database.js')
+  const { useUserStore } = await server.ssrLoadModule('/src/stores/user.js')
+  const { useTaskerStore } = await server.ssrLoadModule('/src/stores/tasker.js')
+  const database = app.runWithContext(() => useDatabaseStore())
+  const user = useUserStore()
+  const tasker = useTaskerStore()
+  t.mock.method(message, 'success', () => {})
+  t.mock.method(databaseApi, 'getDatabaseInfo', async () => ({ stats: { processing_count: 0 } }))
+  t.mock.method(documentApi, 'listDocuments', async () => ({
+    items: [],
+    stats: { processing_count: 0 }
+  }))
+  try {
+    for (const [action, apiMethod, args] of [
+      ['addFiles', 'addDocuments', [{ items: ['fixture'], contentType: 'file', params: {} }]],
+      ['parseFiles', 'parseDocuments', [['file']]],
+      ['parsePendingFiles', 'parsePendingDocuments', []],
+      ['indexFiles', 'indexDocuments', [['file']]],
+      ['resliceFiles', 'resliceDocuments', [['file']]],
+      ['indexPendingFiles', 'indexPendingDocuments', []]
+    ]) {
+      await t.test(action, async () => {
+        database.kbId = 'test-kb'
+        user.token = `old-${action}`
+        user.userRole = 'admin'
+        let resolve
+        t.mock.method(
+          documentApi,
+          apiMethod,
+          () =>
+            new Promise((done) => {
+              resolve = done
+            })
+        )
+        const pending = database[action](...args)
+        user.logout()
+        user.token = `new-${action}`
+        user.userRole = 'admin'
+        resolve({ status: 'queued', task_id: 'old-task' })
+        assert.equal(await pending, true)
+        assert.deepEqual(tasker.tasks, [])
+        const current = database[action](...args)
+        resolve({ status: 'queued', task_id: `new-${action}` })
+        assert.equal(await current, true)
+        assert.equal(tasker.tasks[0].id, `new-${action}`)
+        tasker.reset()
+      })
+    }
+  } finally {
+    database.stopAutoRefresh()
+    tasker.$dispose()
     await server.close()
   }
 })

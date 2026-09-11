@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import yuxi.knowledge.graphs.milvus_graph_service as graph_service_module
 from yuxi.knowledge.graphs.extractors import (
     GraphExtractorFactory,
     LLMGraphExtractor,
@@ -13,6 +14,29 @@ from yuxi.knowledge.graphs.extractors import (
 )
 from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 from yuxi.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
+
+
+@pytest.mark.asyncio
+async def test_graph_vector_delete_does_not_start_second_write_after_first_failure(monkeypatch):
+    """首个外部删除失败后不得留下仍运行的第二路删除线程。"""
+    vector_store = MilvusGraphVectorStore.__new__(MilvusGraphVectorStore)
+    calls = []
+
+    def fail_first_delete(collection_name, record_ids):
+        """记录首路删除并模拟 Milvus 失败。"""
+        calls.append((collection_name, record_ids))
+        raise RuntimeError("entity delete failed")
+
+    monkeypatch.setattr(vector_store, "_delete_ids", fail_first_delete)
+
+    with pytest.raises(RuntimeError, match="entity delete failed"):
+        await vector_store.delete_graph_records(
+            "kb_test",
+            entity_ids=["entity-1"],
+            triple_ids=["triple-1"],
+        )
+
+    assert calls == [("kb_test_entity", ["entity-1"])]
 
 
 @pytest.mark.asyncio
@@ -45,12 +69,137 @@ async def test_parent_child_graph_build_uses_parent_owner(monkeypatch):
     service = MilvusGraphService(kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)))
     expected = {"kb_id": "kb_test", "success": 1}
     build = AsyncMock(return_value=expected)
+    invalidate_cache = AsyncMock()
     monkeypatch.setattr(service, "_build_pending_parent_chunks", build)
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
 
     result = await service.build_pending_chunks("kb_test")
 
     assert result == expected
     build.assert_awaited_once_with("kb_test", kb, context=None)
+    invalidate_cache.assert_awaited_once_with("kb_test")
+
+
+@pytest.mark.asyncio
+async def test_parent_child_graph_build_invalidates_query_cache_after_failure(monkeypatch):
+    """Parent-Child 图谱部分写入后失败也必须清理旧查询缓存。"""
+    kb = SimpleNamespace(kb_type="milvus", additional_params={"parent_child": {"enabled": True}})
+    service = MilvusGraphService(kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)))
+    build = AsyncMock(side_effect=RuntimeError("partial graph write"))
+    invalidate_cache = AsyncMock()
+    monkeypatch.setattr(service, "_build_pending_parent_chunks", build)
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
+
+    with pytest.raises(RuntimeError, match="partial graph write"):
+        await service.build_pending_chunks("kb_test")
+
+    invalidate_cache.assert_awaited_once_with("kb_test")
+
+
+@pytest.mark.asyncio
+async def test_parent_child_graph_build_finishes_cache_invalidation_before_repeated_cancellation(monkeypatch):
+    """构建取消后即使再次取消，也要先完成查询缓存失效。"""
+    kb = SimpleNamespace(kb_type="milvus", additional_params={"parent_child": {"enabled": True}})
+    service = MilvusGraphService(kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)))
+    invalidation_started = asyncio.Event()
+    allow_invalidation = asyncio.Event()
+    invalidation_finished = asyncio.Event()
+
+    async def cancel_after_partial_write(*_args, **_kwargs):
+        raise asyncio.CancelledError("partial graph write cancelled")
+
+    async def invalidate_cache(_kb_id):
+        invalidation_started.set()
+        await allow_invalidation.wait()
+        invalidation_finished.set()
+
+    monkeypatch.setattr(service, "_build_pending_parent_chunks", cancel_after_partial_write)
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
+
+    build_task = asyncio.create_task(service.build_pending_chunks("kb_test"))
+    await invalidation_started.wait()
+    build_task.cancel()
+    await asyncio.sleep(0)
+
+    assert not build_task.done()
+    allow_invalidation.set()
+    with pytest.raises(asyncio.CancelledError):
+        await build_task
+    assert invalidation_finished.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parent_child_enabled", [True, False])
+async def test_graph_reset_invalidates_query_cache_only_for_parent_child(monkeypatch, parent_child_enabled):
+    """图谱重置只清理 Parent-Child 查询缓存，不扩大 legacy 路径。"""
+    kb = SimpleNamespace(
+        kb_type="milvus",
+        additional_params={"parent_child": {"enabled": parent_child_enabled}},
+    )
+    chunk_repo = SimpleNamespace(reset_graph_state_by_kb_id=AsyncMock(return_value=2))
+    parent_repo = SimpleNamespace(reset_graph_state_by_kb_id=AsyncMock(return_value=3))
+    graph_repo = SimpleNamespace(delete_by_kb_id=AsyncMock())
+    service = MilvusGraphService(
+        kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)),
+        chunk_repo=chunk_repo,
+        parent_child_repo=parent_repo,
+        graph_repo=graph_repo,
+    )
+    monkeypatch.setattr(service, "delete_graph", MagicMock())
+    invalidate_cache = AsyncMock()
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
+
+    result = await service.reset("kb_test", clear_extraction_result=True, clear_config=False)
+
+    assert result["reset_chunks"] == (3 if parent_child_enabled else 2)
+    if parent_child_enabled:
+        invalidate_cache.assert_awaited_once_with("kb_test")
+        parent_repo.reset_graph_state_by_kb_id.assert_awaited_once_with("kb_test", True)
+        chunk_repo.reset_graph_state_by_kb_id.assert_not_awaited()
+    else:
+        invalidate_cache.assert_not_awaited()
+        chunk_repo.reset_graph_state_by_kb_id.assert_awaited_once_with("kb_test", True)
+        parent_repo.reset_graph_state_by_kb_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_parent_child_graph_reset_invalidates_query_cache_after_partial_failure(monkeypatch):
+    """Parent-Child 重置在外部删除后失败仍必须清理旧查询缓存。"""
+    kb = SimpleNamespace(kb_type="milvus", additional_params={"parent_child": {"enabled": True}})
+    graph_repo = SimpleNamespace(delete_by_kb_id=AsyncMock(side_effect=RuntimeError("postgres cleanup failed")))
+    service = MilvusGraphService(
+        kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)),
+        graph_repo=graph_repo,
+    )
+    delete_graph = MagicMock()
+    invalidate_cache = AsyncMock()
+    monkeypatch.setattr(service, "delete_graph", delete_graph)
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
+
+    with pytest.raises(RuntimeError, match="postgres cleanup failed"):
+        await service.reset("kb_test", clear_extraction_result=True, clear_config=False)
+
+    delete_graph.assert_called_once_with("kb_test")
+    invalidate_cache.assert_awaited_once_with("kb_test")
+
+
+@pytest.mark.asyncio
+async def test_parent_child_graph_reset_invalidates_query_cache_after_cancellation(monkeypatch):
+    """Parent-Child 重置被取消时也必须清理旧查询缓存。"""
+    kb = SimpleNamespace(kb_type="milvus", additional_params={"parent_child": {"enabled": True}})
+    graph_repo = SimpleNamespace(delete_by_kb_id=AsyncMock(side_effect=asyncio.CancelledError))
+    service = MilvusGraphService(
+        kb_repo=SimpleNamespace(get_by_kb_id=AsyncMock(return_value=kb)),
+        graph_repo=graph_repo,
+    )
+    invalidate_cache = AsyncMock()
+    monkeypatch.setattr(service, "delete_graph", MagicMock())
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.reset("kb_test", clear_extraction_result=True, clear_config=False)
+
+    invalidate_cache.assert_awaited_once_with("kb_test")
 
 
 @pytest.mark.asyncio
@@ -153,12 +302,15 @@ async def test_parent_child_graph_build_writes_explicit_parent_mapping(monkeypat
         "write_parent_child_graph",
         lambda *_args: ([{"entity_id": "entity-1"}], []),
     )
+    invalidate_cache = AsyncMock()
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
 
     result = await service.build_pending_chunks("kb_test")
 
     assert result["success"] == 1
     assert graph_repo.parent_graph["parent_id"] == "parent-1"
     assert parent.graph_structure_indexed is True
+    invalidate_cache.assert_awaited_once_with("kb_test")
 
 
 def test_graph_vector_store_initializes_database_with_connection_alias(monkeypatch):
@@ -685,6 +837,8 @@ async def test_graph_build_indexes_vectors_after_structure_write(monkeypatch):
         "write_chunk_graph",
         lambda kb_id, chunk, result: ([{"entity_id": "entity_1"}], []),
     )
+    invalidate_cache = AsyncMock()
+    monkeypatch.setattr(graph_service_module, "invalidate_query_cache", invalidate_cache)
 
     result = await service.build_pending_chunks("kb_test")
 
@@ -700,6 +854,7 @@ async def test_graph_build_indexes_vectors_after_structure_write(monkeypatch):
     vector_store.upsert_graph_records.assert_awaited_once()
     assert chunk.graph_structure_indexed is True
     assert chunk.graph_indexed is True
+    invalidate_cache.assert_not_awaited()
 
 
 @pytest.mark.asyncio

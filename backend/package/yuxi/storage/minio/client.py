@@ -14,6 +14,7 @@ from urllib.parse import quote, urlsplit
 
 from urllib3 import BaseHTTPResponse
 from yuxi.utils import logger
+from yuxi.utils.asyncio_utils import run_sync_with_deferred_cancellation
 
 from minio import Minio
 from minio.error import S3Error
@@ -23,10 +24,6 @@ class StorageError(Exception):
     """存储相关异常基类"""
 
     pass
-
-
-class StorageUploadError(StorageError):
-    """存储相关异常基类"""
 
 
 class UploadResult:
@@ -163,7 +160,8 @@ class MinIOClient:
         data: bytes,
         content_type: str | None = None,
     ) -> UploadResult:
-        result = await asyncio.to_thread(
+        """异步上传对象，并在底层线程结束后传播取消。"""
+        result = await run_sync_with_deferred_cancellation(
             self.upload_file, bucket_name=bucket_name, object_name=object_name, data=data, content_type=content_type
         )
         return result
@@ -304,7 +302,7 @@ class MinIOClient:
                     deleted_count += 1
             except S3Error as e:
                 if e.code == "NoSuchBucket":
-                    logger.debug(f"删除对象前缀时 bucket 不存在，视为无需清理: {bucket_name}/{prefix}")
+                    logger.warning(f"待清理的存储桶 '{bucket_name}' 不存在")
                     return
                 raise StorageError(f"删除对象前缀失败: {bucket_name}/{prefix}: {e}") from e
 

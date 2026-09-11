@@ -37,6 +37,8 @@ def neo4j_read(driver, cypher: str, **kwargs) -> list[dict[str, Any]]:
 
 class Neo4jConnectionManager:
     def __init__(self):
+        """创建连接管理器；LITE 进程保持关闭且不发起网络连接。"""
+
         self.driver = None
         self.status = "closed"
         if not knowledge_capability_enabled():

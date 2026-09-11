@@ -362,7 +362,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from '@/utils/dashboardCharts'
 import { Activity, Bot, Layers, Mail, MessageSquare, RefreshCw, Search } from '@lucide/vue'
 import { message } from 'ant-design-vue'
 import { dashboardApi } from '@/apis/dashboard_api'

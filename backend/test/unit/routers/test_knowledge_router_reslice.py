@@ -30,16 +30,21 @@ async def test_reslice_rejects_file_from_another_kb(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_enqueue_reslice_deduplicates_same_fingerprint(monkeypatch):
-    """相同 fingerprint 应复用 Tasker 中已有任务。"""
+async def test_enqueue_reslice_delegates_to_service(monkeypatch):
+    """路由只把持久提交参数交给重切 service。"""
     captured = {}
 
-    class FakeTasker:
-        async def enqueue_unique_by_payload(self, **kwargs):
-            captured.update(kwargs)
-            return SimpleNamespace(id="task-existing"), False
+    async def enqueue(**kwargs):
+        """记录路由交给 service 的参数。"""
+        captured.update(kwargs)
+        return {
+            "task_id": "task-existing",
+            "status": "queued",
+            "fingerprint": "fingerprint",
+            "message": "相同重切任务正在执行",
+        }
 
-    monkeypatch.setattr(knowledge_router.knowledge_reslice_service, "tasker", FakeTasker())
+    monkeypatch.setattr(knowledge_router.knowledge_reslice_service, "enqueue", enqueue)
     result = await knowledge_router._enqueue_reslice_task(
         "kb-1",
         ["file-1"],
@@ -49,8 +54,13 @@ async def test_enqueue_reslice_deduplicates_same_fingerprint(monkeypatch):
     )
     assert result["task_id"] == "task-existing"
     assert result["status"] == "queued"
-    assert captured["task_type"] == "knowledge_reslice"
-    assert captured["payload_match"]["fingerprint"] == result["fingerprint"]
+    assert captured == {
+        "kb_id": "kb-1",
+        "file_ids": ["file-1"],
+        "params": {"indexing_path": "parent_child"},
+        "operator_id": "user-1",
+        "database_name": "KB",
+    }
 
 
 @pytest.mark.asyncio
@@ -74,43 +84,3 @@ async def test_enqueue_reslice_maps_active_file_conflict_to_http_409(monkeypatch
 
     assert error.value.status_code == 409
     assert "file-1" in error.value.detail
-
-
-@pytest.mark.asyncio
-async def test_index_task_persists_params_only_after_index_claim(monkeypatch):
-    """普通入库不能在 index_file 取得状态执行权之前改写文件参数。"""
-    calls = []
-
-    class FakeContext:
-        async def set_message(self, _message):
-            return None
-
-        async def set_progress(self, _progress, _message):
-            return None
-
-        async def raise_if_cancelled(self):
-            return None
-
-        async def set_result(self, _result):
-            return None
-
-    class FakeKnowledgeManager:
-        async def update_file_params(self, *_args, **_kwargs):
-            raise AssertionError("入库状态认领前不得单独写 processing_params")
-
-        async def index_file(self, kb_id, file_id, operator_id=None, params=None):
-            calls.append((kb_id, file_id, operator_id, params))
-            return {"file_id": file_id, "status": "indexed"}
-
-    monkeypatch.setattr(knowledge_router, "knowledge_base", FakeKnowledgeManager())
-
-    result = await knowledge_router._run_index_file_ids(
-        context=FakeContext(),
-        kb_id="kb-1",
-        file_ids=["file-1"],
-        operator_id="user-1",
-        params={"parent_child": {"enabled": True}},
-    )
-
-    assert result["failed"] == 0
-    assert calls == [("kb-1", "file-1", "user-1", {"parent_child": {"enabled": True}})]

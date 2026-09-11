@@ -20,6 +20,8 @@ def test_safe_neo4j_label_rejects_invalid_labels(label):
 
 
 def test_neo4j_connection_manager_skips_connection_in_lite_mode(monkeypatch):
+    """LITE 连接管理器保持关闭且不尝试连接 Neo4j。"""
+
     monkeypatch.setenv("LITE_MODE", "true")
 
     manager = Neo4jConnectionManager()

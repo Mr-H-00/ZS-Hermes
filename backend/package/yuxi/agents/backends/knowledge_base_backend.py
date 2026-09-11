@@ -6,6 +6,8 @@ from yuxi.config.runtime import knowledge_capability_enabled
 
 
 async def resolve_visible_knowledge_bases_for_context(context) -> list[dict[str, Any]]:
+    """解析当前上下文可见的知识库，并在 LITE 模式下直接返回空集。"""
+
     if not knowledge_capability_enabled():
         setattr(context, "_visible_knowledge_bases", [])
         return []

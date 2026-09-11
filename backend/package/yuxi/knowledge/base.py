@@ -15,6 +15,7 @@ from yuxi.knowledge.schemas import (
 )
 from yuxi.knowledge.utils import resolve_processing_params, sanitize_processing_params
 from yuxi.utils import logger
+from yuxi.utils.asyncio_utils import run_sync_with_deferred_cancellation
 from yuxi.utils.datetime_utils import utc_isoformat
 
 
@@ -50,12 +51,6 @@ class KBNotFoundError(KnowledgeBaseException):
 
 class KBNameConflictError(KnowledgeBaseException):
     """知识库名称冲突错误。"""
-
-    pass
-
-
-class KBOperationError(KnowledgeBaseException):
-    """知识库操作错误"""
 
     pass
 
@@ -252,11 +247,44 @@ class KnowledgeBase(ABC):
         kb_id: str,
         file_id: str,
         operator_id: str | None = None,
+        params: dict | None = None,
         *,
         additional_params: dict[str, Any],
         embedding_model_spec: str | None = None,
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
     ) -> dict:
         """按最终处理参数把文件解析为 Markdown，并更新解析状态。"""
+        if (processing_task_id is None) != (processing_owner is None):
+            raise ValueError("processing_task_id 与 processing_owner 必须同时提供")
+
+        from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
+
+        async with KnowledgeFileRepository().lock_file_processing(kb_id, file_id):
+            return await self._parse_file_locked(
+                kb_id,
+                file_id,
+                operator_id,
+                params=params,
+                additional_params=additional_params,
+                embedding_model_spec=embedding_model_spec,
+                processing_task_id=processing_task_id,
+                processing_owner=processing_owner,
+            )
+
+    async def _parse_file_locked(
+        self,
+        kb_id: str,
+        file_id: str,
+        operator_id: str | None = None,
+        params: dict | None = None,
+        *,
+        additional_params: dict[str, Any],
+        embedding_model_spec: str | None = None,
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
+    ) -> dict:
+        """在文件处理锁内认领并解析单个文件。"""
         # Validate current status - only allow parsing from these states
         allowed_statuses = {
             FileStatus.UPLOADED,
@@ -267,7 +295,26 @@ class KnowledgeBase(ABC):
         from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
 
         file_repo = KnowledgeFileRepository()
-        claim_data = {"status": FileStatus.PARSING, "error_message": None}
+        owner_filter = (
+            {"processing_task_id": processing_task_id, "processing_owner": processing_owner}
+            if processing_task_id is not None and processing_owner is not None
+            else {}
+        )
+        claim_data = {
+            "status": FileStatus.PARSING,
+            "error_message": None,
+            "processing_task_id": processing_task_id,
+            "processing_owner": processing_owner,
+        }
+        if params:
+            current_file_meta = await self._load_file_meta(kb_id, file_id)
+            resolved_params = resolve_processing_params(
+                kb_additional_params=additional_params,
+                file_processing_params=current_file_meta.get("processing_params"),
+                request_params=params,
+                embedding_model_spec=embedding_model_spec,
+            )
+            claim_data["processing_params"] = sanitize_processing_params(resolved_params)
         if operator_id:
             claim_data["updated_by"] = operator_id
         claimed_record = await file_repo.update_fields_if_status(
@@ -291,7 +338,16 @@ class KnowledgeBase(ABC):
             update_data = {"status": FileStatus.ERROR_PARSING, "error_message": message}
             if operator_id:
                 update_data["updated_by"] = operator_id
-            await file_repo.update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
+            update_data.update({"processing_task_id": None, "processing_owner": None})
+            updated_record = await file_repo.update_fields_if_status(
+                file_id=file_id,
+                kb_id=kb_id,
+                allowed_statuses={FileStatus.PARSING},
+                data=update_data,
+                **owner_filter,
+            )
+            if updated_record is None and processing_owner is not None:
+                raise asyncio.CancelledError("File processing owner was lost")
             raise ValueError(message)
 
         try:
@@ -327,10 +383,20 @@ class KnowledgeBase(ABC):
                 "status": FileStatus.PARSED,
                 "markdown_file": markdown_file_path,
                 "error_message": None,
+                "processing_task_id": None,
+                "processing_owner": None,
             }
             if operator_id:
                 update_data["updated_by"] = operator_id
-            await file_repo.update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
+            updated_record = await file_repo.update_fields_if_status(
+                file_id=file_id,
+                kb_id=kb_id,
+                allowed_statuses={FileStatus.PARSING},
+                data=update_data,
+                **owner_filter,
+            )
+            if updated_record is None:
+                raise asyncio.CancelledError("File processing owner was lost")
 
             return file_meta
 
@@ -347,10 +413,23 @@ class KnowledgeBase(ABC):
             file_meta["updated_at"] = utc_isoformat()
             if operator_id:
                 file_meta["updated_by"] = operator_id
-            update_data = {"status": FileStatus.ERROR_PARSING, "error_message": error_msg}
+            update_data = {
+                "status": FileStatus.ERROR_PARSING,
+                "error_message": error_msg,
+                "processing_task_id": None,
+                "processing_owner": None,
+            }
             if operator_id:
                 update_data["updated_by"] = operator_id
-            await file_repo.update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
+            updated_record = await file_repo.update_fields_if_status(
+                file_id=file_id,
+                kb_id=kb_id,
+                allowed_statuses={FileStatus.PARSING},
+                data=update_data,
+                **owner_filter,
+            )
+            if updated_record is None and processing_owner is not None:
+                raise asyncio.CancelledError("File processing owner was lost")
 
             raise
 
@@ -396,23 +475,13 @@ class KnowledgeBase(ABC):
         if record is None:
             raise ValueError(f"File {file_id} not found")
 
-    async def _mark_file_unparsed(self, kb_id: str, file_id: str, operator_id: str | None = None) -> None:
-        from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
-
-        update_data = {"status": FileStatus.UPLOADED, "markdown_file": None, "error_message": None}
-        if operator_id:
-            update_data["updated_by"] = operator_id
-        record = await KnowledgeFileRepository().update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
-        if record is None:
-            raise ValueError(f"File {file_id} not found")
-
     async def _save_markdown_to_minio(self, kb_id: str, file_id: str, content: str) -> str:
         """Save markdown content to MinIO and return HTTP URL"""
         from yuxi.storage.minio import get_minio_client
 
         minio_client = get_minio_client()
         bucket_name = minio_client.KB_BUCKETS["parsed"]
-        await asyncio.to_thread(minio_client.ensure_bucket_exists, bucket_name)
+        await run_sync_with_deferred_cancellation(minio_client.ensure_bucket_exists, bucket_name)
 
         object_name = f"{kb_id}/parsed/{file_id}.md"
         data = content.encode("utf-8")
@@ -738,6 +807,8 @@ class KnowledgeBase(ABC):
         *,
         embedding_model_spec: str | None,
         additional_params: dict[str, Any],
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
     ) -> dict:
         """
         Index parsed file (Status: INDEXING -> INDEXED/ERROR_INDEXING)
@@ -879,29 +950,6 @@ class KnowledgeBase(ABC):
         return self._file_record_to_meta(record)
 
     @abstractmethod
-    async def update_content(
-        self,
-        kb_id: str,
-        file_ids: list[str],
-        params: dict | None = None,
-        *,
-        embedding_model_spec: str | None,
-        additional_params: dict[str, Any],
-    ) -> list[dict]:
-        """
-        更新内容 - 根据file_ids重新解析文件并更新向量库
-
-        Args:
-            kb_id: 数据库ID
-            file_ids: 文件ID列表
-            params: 处理参数
-
-        Returns:
-            更新结果列表
-        """
-        pass
-
-    @abstractmethod
     async def aquery(
         self,
         query_text: str,
@@ -1012,15 +1060,11 @@ class KnowledgeBase(ABC):
             chunk_counts.update(await parent_child_repo.count_by_file_ids(parent_child_file_ids))
             token_file_ids = [record.file_id for record in indexed_records if int(record.token_count or 0) <= 0]
             legacy_token_file_ids = [file_id for file_id in token_file_ids if file_id not in parent_child_file_id_set]
-            parent_child_token_file_ids = [
-                file_id for file_id in token_file_ids if file_id in parent_child_file_id_set
-            ]
+            parent_child_token_file_ids = [file_id for file_id in token_file_ids if file_id in parent_child_file_id_set]
             token_counts = {file_id: 0 for file_id in token_file_ids}
             for chunk in await chunk_repo.list_by_file_ids(legacy_token_file_ids):
                 token_counts[chunk.file_id] = token_counts.get(chunk.file_id, 0) + count_tokens(chunk.content or "")
-            parent_child_token_counts = await parent_child_repo.sum_token_count_by_file_ids(
-                parent_child_token_file_ids
-            )
+            parent_child_token_counts = await parent_child_repo.sum_token_count_by_file_ids(parent_child_token_file_ids)
             for file_id, token_count in parent_child_token_counts.items():
                 token_counts[file_id] = token_counts.get(file_id, 0) + token_count
             size_updates = await self._fill_missing_file_sizes_for_records(records)
@@ -1060,10 +1104,8 @@ class KnowledgeBase(ABC):
                     updated_files += 1
                     await file_repo.update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
 
-        stats = await file_repo.get_kb_file_stats(kb_id)
         return {
             "status": "success",
-            "stats": stats,
             "scanned_files": scanned_files,
             "scanned_indexed_files": scanned_indexed_files,
             "skipped_unindexed_files": skipped_file_count,

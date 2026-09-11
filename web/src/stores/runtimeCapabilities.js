@@ -20,9 +20,7 @@ export const useRuntimeCapabilitiesStore = defineStore('runtime-capabilities', (
   const knowledgeEnabled = computed(() => features.value.knowledge)
 
   async function ensureLoaded() {
-    if (status.value === 'ready') {
-      return features.value
-    }
+    if (status.value === 'ready') return features.value
     if (loadingPromise) return loadingPromise
 
     status.value = 'loading'
@@ -48,11 +46,5 @@ export const useRuntimeCapabilitiesStore = defineStore('runtime-capabilities', (
     return loadingPromise
   }
 
-  return {
-    features,
-    status,
-    error,
-    knowledgeEnabled,
-    ensureLoaded
-  }
+  return { features, status, error, knowledgeEnabled, ensureLoaded }
 })

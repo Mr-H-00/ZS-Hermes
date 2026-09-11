@@ -26,10 +26,6 @@ class _DummyKnowledgeBase(KnowledgeBase):
         del kb_id, file_id, operator_id
         return {}
 
-    async def update_content(self, kb_id: str, file_ids: list[str], params: dict | None = None) -> list[dict]:
-        del kb_id, file_ids, params
-        return []
-
     async def aquery(self, query_text: str, kb_id: str, **kwargs) -> list[dict]:
         del query_text, kb_id, kwargs
         return []
@@ -170,8 +166,8 @@ async def test_repair_missing_file_stats_uses_parent_child_tables(monkeypatch):
     assert records[0].token_count == 3
     assert records[1].chunk_count == 4
     assert records[1].token_count == 11
-    assert result["stats"]["chunk_count"] == 6
-    assert result["stats"]["token_count"] == 14
+    assert result["updated_chunk_files"] == 2
+    assert result["updated_token_files"] == 2
 
 
 @pytest.mark.asyncio

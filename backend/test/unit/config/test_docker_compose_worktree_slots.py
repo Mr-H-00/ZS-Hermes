@@ -17,15 +17,15 @@ PORT_MARKERS = {
         "127.0.0.1:${YUXI_NEO4J_BOLT_PORT:-7687}:7687",
     },
     "minio": {
-        "127.0.0.1:${YUXI_MINIO_API_PORT:-9000}:9000",
-        "127.0.0.1:${YUXI_MINIO_CONSOLE_PORT:-9001}:9001",
+        "127.0.0.1:${YUXI_MINIO_API_PORT:-19000}:9000",
+        "127.0.0.1:${YUXI_MINIO_CONSOLE_PORT:-19001}:9001",
     },
     "milvus": {
         "127.0.0.1:${YUXI_MILVUS_PORT:-19530}:19530",
         "127.0.0.1:${YUXI_MILVUS_HEALTH_PORT:-9091}:9091",
     },
     "postgres": {"127.0.0.1:${YUXI_POSTGRES_PORT:-5432}:5432"},
-    "redis": {"127.0.0.1:${YUXI_REDIS_PORT:-6379}:6379"},
+    "redis": {"127.0.0.1:${YUXI_REDIS_PORT:-16379}:6379"},
     "mineru-api": {"127.0.0.1:${YUXI_MINERU_PORT:-30001}:30001"},
     "paddlex": {"127.0.0.1:${YUXI_PADDLEX_PORT:-8080}:8080"},
 }
@@ -144,8 +144,8 @@ def test_production_compose_keeps_existing_deployment_image_identity() -> None:
 
 
 def test_host_test_runner_probes_current_compose_slot() -> None:
-    """测试运行器必须通过 Compose service 探测当前槽位。"""
+    """测试运行器必须通过 Compose service 探测当前槽位的 readiness。"""
     source = (_project_root() / "backend/test/run_tests.sh").read_text()
 
-    assert "docker compose exec -T api curl -fsS http://localhost:5050/api/system/health" in source
-    assert "if curl -s http://localhost:5050/api/system/health" not in source
+    assert "docker compose exec -T api curl -fsS http://localhost:5050/api/system/ready" in source
+    assert "docker compose exec -T api curl -fsS http://localhost:5050/api/system/health" not in source

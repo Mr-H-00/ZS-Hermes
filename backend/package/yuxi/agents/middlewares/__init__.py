@@ -3,7 +3,7 @@ from .dynamic_tool import DynamicToolMiddleware
 from .memory import create_memory_middleware
 from .model_input import ImageInputCompatibilityMiddleware
 from .steer import SteerMiddleware
-from .summary import create_summary_middleware
+from .summary import create_summary_middleware, create_summary_middleware_from_context
 from .token_usage import TokenUsageMiddleware
 
 __all__ = [
@@ -15,4 +15,5 @@ __all__ = [
     "context_based_model",
     "create_memory_middleware",
     "create_summary_middleware",
+    "create_summary_middleware_from_context",
 ]

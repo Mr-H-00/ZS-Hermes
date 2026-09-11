@@ -57,7 +57,7 @@
 
 <script setup>
 import { ref, onMounted, watch, nextTick, computed } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from '@/utils/dashboardCharts'
 import { getColorPalette } from '@/utils/chartColors'
 import { useThemeStore } from '@/stores/theme'
 import { formatNumber, formatStorageSize } from '@/utils/dashboard'

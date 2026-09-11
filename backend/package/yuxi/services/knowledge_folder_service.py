@@ -1,3 +1,4 @@
+from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
 from yuxi.services.task_service import TaskContext
 
@@ -5,8 +6,14 @@ from yuxi.services.task_service import TaskContext
 class KnowledgeFolderService:
     """编排知识库历史虚拟目录迁移。"""
 
-    def __init__(self, repository: KnowledgeFileRepository | None = None) -> None:
+    def __init__(
+        self,
+        repository: KnowledgeFileRepository | None = None,
+        knowledge_base_repository: KnowledgeBaseRepository | None = None,
+    ) -> None:
+        """注入文件与知识库仓储，未传入时使用默认实现。"""
         self.repository = repository or KnowledgeFileRepository()
+        self.knowledge_base_repository = knowledge_base_repository or KnowledgeBaseRepository()
 
     async def detect_virtual_folder_data(self, kb_id: str) -> dict[str, int | bool]:
         """检测知识库是否仍有路径型历史记录。"""
@@ -30,11 +37,19 @@ class KnowledgeFolderService:
 
         while True:
             await context.raise_if_cancelled()
-            batch = await self.repository.migrate_virtual_folder_batch(
-                kb_id=kb_id,
-                operator_id=operator_id,
-                after_file_id=cursor,
-            )
+            batch: dict = {}
+
+            async def migrate_batch(session, _task_record) -> None:
+                batch.update(
+                    await self.repository.migrate_virtual_folder_batch(
+                        session,
+                        kb_id=kb_id,
+                        operator_id=operator_id,
+                        after_file_id=cursor,
+                    )
+                )
+
+            await context.run_owned_transaction(migrate_batch)
             if batch["scanned"] == 0:
                 if pass_progress == 0:
                     break
@@ -55,6 +70,8 @@ class KnowledgeFolderService:
             )
 
         remaining = await self.repository.detect_virtual_folder_data(kb_id)
+        await self.knowledge_base_repository.refresh_stats(kb_id)
+        await self.repository.invalidate_kb_file_stats_cache(kb_id)
         result = {
             "processed_steps": processed_steps,
             "created_folders": created_folders,

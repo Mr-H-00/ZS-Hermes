@@ -115,14 +115,15 @@ class FakeParentChildRepository:
             for child_id in child_ids
         ]
 
-    async def list_active_version_ids(self, kb_id: str):
-        return ["version-1", "version-2"]
+    async def list_active_storage_targets(self, kb_id: str):
+        """返回 active 版本及其持久化 collection 维度。"""
+        return [("version-1", 2), ("version-2", 2)]
 
 
 def _make_kb(collection: FakeChildCollection) -> MilvusKB:
     """构造不连接外部服务的 Parent-Child 查询执行器。"""
     kb = MilvusKB.__new__(MilvusKB)
-    kb._get_or_create_collection_for_config = lambda *args, **kwargs: _async_value(collection)
+    kb._get_existing_child_collection_for_query = lambda *args, **kwargs: _async_value(collection)
     kb._get_embedding_function = lambda *_args, **_kwargs: lambda texts: [[0.1, 0.2] for _ in texts]
     kb._build_file_name_expr = lambda *_args, **_kwargs: _async_value(None)
     return kb
@@ -376,7 +377,8 @@ async def test_parent_child_query_fails_closed_when_active_versions_unavailable(
     class FailingParentChildRepository:
         """模拟 active 版本查询失败的 PostgreSQL repository。"""
 
-        async def list_active_version_ids(self, kb_id: str):
+        async def list_active_storage_targets(self, kb_id: str):
+            """模拟 PostgreSQL active 存储目标读取失败。"""
             raise RuntimeError("postgres unavailable")
 
     kb = MilvusKB.__new__(MilvusKB)
@@ -384,11 +386,117 @@ async def test_parent_child_query_fails_closed_when_active_versions_unavailable(
     async def fail_if_collection_is_requested(*_args, **_kwargs):
         raise AssertionError("active 版本未知时不得访问 Milvus collection")
 
-    kb._get_or_create_collection_for_config = fail_if_collection_is_requested
+    kb._get_existing_child_collection_for_query = fail_if_collection_is_requested
     monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", FailingParentChildRepository)
 
     with pytest.raises(RuntimeError, match="postgres unavailable"):
         await kb.aquery("query", "kb-1", config=_config())
+
+
+@pytest.mark.asyncio
+async def test_parent_child_query_uses_persisted_dimension_after_model_spec_changes(monkeypatch):
+    """同一模型 spec 维度原地变化后仍只打开旧 active 版本的持久化 collection。"""
+
+    class Repository(FakeParentChildRepository):
+        """返回旧 active 版本写入时保存的维度。"""
+
+        async def list_active_storage_targets(self, kb_id: str):
+            """模拟模型配置变化前写入的 active 版本。"""
+            return [("version-1", 1024)]
+
+    class EmptyCollection:
+        """记录 keyword 查询并返回空候选。"""
+
+        def __init__(self) -> None:
+            """初始化查询记录。"""
+            self.calls = []
+
+        def search(self, **kwargs):
+            """保存查询参数。"""
+            self.calls.append(kwargs)
+            return [[]]
+
+    kb = MilvusKB.__new__(MilvusKB)
+    collection = EmptyCollection()
+    requested_dimensions = []
+
+    async def get_existing(dimension: int, **_kwargs):
+        """只允许按 PostgreSQL 持久维度读取已有 collection。"""
+        requested_dimensions.append(dimension)
+        return collection
+
+    async def reject_current_config(*_args, **_kwargs):
+        """查询路径若按当前模型配置创建 collection 则让测试失败。"""
+        raise AssertionError("Parent-Child query must not create a collection from current model metadata")
+
+    kb._get_existing_child_collection_for_query = get_existing
+    kb._get_or_create_collection_for_config = reject_current_config
+    kb._build_file_name_expr = lambda *_args, **_kwargs: _async_value(None)
+    monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", Repository)
+    monkeypatch.setattr(
+        milvus_module.model_cache,
+        "get_model_info",
+        lambda _spec: SimpleNamespace(model_type="embedding", dimension=3072),
+    )
+    monkeypatch.setattr(milvus_module, "get_cached_query", lambda *_args: _async_value(None))
+    monkeypatch.setattr(milvus_module, "cache_query", lambda *_args: _async_value(None))
+
+    result = await kb.aquery("query", "kb-1", config=_config(), search_mode="keyword")
+
+    assert result == []
+    assert requested_dimensions == [1024]
+    assert len(collection.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_parent_child_query_rejects_mixed_active_dimensions(monkeypatch):
+    """多个 active 持久维度不能被旧缓存或单个 collection 静默覆盖。"""
+
+    class Repository(FakeParentChildRepository):
+        """返回无法由一次向量查询共同覆盖的多个持久维度。"""
+
+        async def list_active_storage_targets(self, kb_id: str):
+            """构造混合维度 active 版本。"""
+            return [("version-1", 1024), ("version-2", 3072)]
+
+    kb = MilvusKB.__new__(MilvusKB)
+
+    async def reject_collection_access(*_args, **_kwargs):
+        """混合维度必须在访问任何 collection 前失败。"""
+        raise AssertionError("mixed dimensions must fail before collection access")
+
+    kb._get_existing_child_collection_for_query = reject_collection_access
+    monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", Repository)
+    monkeypatch.setattr(milvus_module, "get_cached_query", lambda *_args: _async_value([{"id": "stale"}]))
+
+    with pytest.raises(ValueError, match="multiple embedding dimensions"):
+        await kb.aquery("query", "kb-1", config=_config())
+
+
+@pytest.mark.asyncio
+async def test_parent_child_query_rejects_dense_vector_with_wrong_persisted_dimension(monkeypatch):
+    """查询向量维度与 active 版本不符时必须在访问 Milvus 前失败。"""
+
+    class Repository(FakeParentChildRepository):
+        """返回唯一 active 版本的持久化维度。"""
+
+        async def list_active_storage_targets(self, kb_id: str):
+            """构造二维 active 存储目标。"""
+            return [("version-1", 2)]
+
+    kb = _make_kb(FakeChildCollection())
+    kb._get_embedding_function = lambda *_args, **_kwargs: lambda _texts: [[0.1, 0.2, 0.3]]
+
+    async def reject_collection_access(*_args, **_kwargs):
+        """维度失配时不得读取或加载 Milvus collection。"""
+        raise AssertionError("dimension mismatch must fail before collection access")
+
+    kb._get_existing_child_collection_for_query = reject_collection_access
+    monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", Repository)
+    monkeypatch.setattr(milvus_module, "get_cached_query", lambda *_args: _async_value(None))
+
+    with pytest.raises(ValueError, match="query embedding dimension mismatch: expected 2"):
+        await kb.aquery("query", "kb-1", config=_config(), search_mode="vector")
 
 
 @pytest.mark.asyncio

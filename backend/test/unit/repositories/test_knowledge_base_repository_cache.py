@@ -179,6 +179,11 @@ async def test_merge_query_params_options_rejects_invalid_final_combination(monk
     _patch_session(monkeypatch, session)
     _patch_cache_lock(monkeypatch, [])
 
+    async def fake_delete_cached(_kb_id: str) -> None:
+        """隔离本单元测试不关心的 Redis 缓存副作用。"""
+
+    monkeypatch.setattr(repository_module, "delete_cached_kb_config", fake_delete_cached)
+
     await KnowledgeBaseRepository().merge_query_params_options(
         "kb_1",
         {"top_k_child": 15},
@@ -197,13 +202,20 @@ async def test_merge_query_params_options_rejects_invalid_final_combination(monk
 
 
 @pytest.mark.asyncio
-async def test_update_stats_preserves_concurrent_additional_params(monkeypatch):
+async def test_refresh_stats_preserves_concurrent_additional_params(monkeypatch):
+    """验证统计刷新在行锁内聚合且保留并发写入的附加参数。"""
     row = SimpleNamespace(kb_id="kb_1", additional_params={"graph_build_config": {"locked": True}})
     session = _FakeSession(row)
     _patch_session(monkeypatch, session)
     _patch_cache_lock(monkeypatch, [])
 
-    result = await KnowledgeBaseRepository().update_stats("kb_1", {"file_count": 3})
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "yuxi.repositories.knowledge_file_repository.KnowledgeFileRepository.query_kb_file_stats",
+        AsyncMock(return_value={"file_count": 3}),
+    )
+    result = await KnowledgeBaseRepository().refresh_stats("kb_1")
 
     assert result is row
     assert row.additional_params == {

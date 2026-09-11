@@ -84,5 +84,9 @@ docs/vibe
 .workbuddy/
 web/src/utils/__tests__/
 
+# 本地依赖缓存与模型权重不入库
+.pnpm-store/
+
 
 ./rag_qa/models
+Yuxi-0.7.3/

@@ -98,6 +98,7 @@ def test_filter_config_by_role_keeps_admin_context_values_for_admin():
                 "summary_keep_messages": 8,
                 "summary_prompt": "custom summary",
                 "summary_tool_result_token_limit": 500,
+                "summary_l2_trigger_ratio": 0.4,
                 "max_execution_steps": 50,
                 "secret_setting": "nope",
             }
@@ -133,20 +134,18 @@ async def test_resolve_agent_resource_options_empty_fields_loads_nothing(monkeyp
 
 @pytest.mark.asyncio
 async def test_lite_resource_options_exclude_persisted_knowledge_skill(monkeypatch):
-    """LITE 切换后旧库残留的内置知识 Skill 也不能进入 Agent 默认能力。"""
+    """LITE 切换后旧库残留的知识 Skill 也不能进入 Agent 默认能力。"""
 
     async def fake_list_skills(_db, _user):
+        """返回知识 Skill 与普通 Skill 的持久化替身。"""
+
         return [
             types.SimpleNamespace(slug="knowledge-base", name="Knowledge Base", description=""),
             types.SimpleNamespace(slug="skill-a", name="Skill A", description=""),
         ]
 
     monkeypatch.setenv("LITE_MODE", "true")
-    monkeypatch.setitem(
-        sys.modules,
-        "yuxi.agents.skills.service",
-        types.SimpleNamespace(list_accessible_skills=fake_list_skills),
-    )
+    monkeypatch.setattr("yuxi.agents.skills.service.list_accessible_skills", fake_list_skills)
 
     options = await context_module.resolve_agent_resource_options(
         {"knowledges", "skills"},
@@ -254,6 +253,7 @@ async def test_normalize_agent_context_config_expands_null_and_filters_explicit_
             "summary_keep_messages": 8,
             "summary_prompt": "custom summary",
             "summary_tool_result_token_limit": 500,
+            "summary_l2_trigger_ratio": 0.4,
             "max_execution_steps": 50,
         },
         db=object(),
@@ -271,6 +271,7 @@ async def test_normalize_agent_context_config_expands_null_and_filters_explicit_
     assert "summary_keep_messages" not in normalized
     assert "summary_prompt" not in normalized
     assert "summary_tool_result_token_limit" not in normalized
+    assert "summary_l2_trigger_ratio" not in normalized
     assert "max_execution_steps" not in normalized
 
     empty_subagents_normalized = await normalize_agent_context_config(

@@ -10,12 +10,17 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import text
+from yuxi.config.runtime import knowledge_capability_enabled
 from yuxi.services.run_queue_service import (
     WORKER_HEALTH_KEY,
     WORKER_HEALTH_MAX_TTL_MS,
     WORKER_RECONCILIATION_HEALTH_KEY,
     WORKER_RECONCILIATION_HEALTH_TTL_SECONDS,
     get_redis_client,
+)
+from yuxi.services.task_queue_service import (
+    TASK_RECONCILIATION_HEALTH_KEY,
+    TASK_RECONCILIATION_HEALTH_TTL_SECONDS,
 )
 from yuxi.storage.postgres.manager import pg_manager
 
@@ -48,10 +53,12 @@ async def _probe_worker() -> None:
     """验证兼容 AgentRun worker 的短 TTL 健康事实仍然存在。"""
 
     redis = await get_redis_client()
-    leases = (
+    leases = [
         (WORKER_HEALTH_KEY, WORKER_HEALTH_MAX_TTL_MS),
         (WORKER_RECONCILIATION_HEALTH_KEY, WORKER_RECONCILIATION_HEALTH_TTL_SECONDS * 1000),
-    )
+    ]
+    if knowledge_capability_enabled():
+        leases.append((TASK_RECONCILIATION_HEALTH_KEY, TASK_RECONCILIATION_HEALTH_TTL_SECONDS * 1000))
     for key, max_ttl_ms in leases:
         value = await redis.get(key)
         ttl_ms = await redis.pttl(key)
@@ -131,7 +138,14 @@ async def get_readiness(
     global _readiness_cache
 
     component_snapshot = _component_snapshot(startup_components)
-    cache_key = (startup_complete, component_snapshot, id(_probe_postgres), id(_probe_redis), id(_probe_worker))
+    cache_key = (
+        startup_complete,
+        component_snapshot,
+        knowledge_capability_enabled(),
+        id(_probe_postgres),
+        id(_probe_redis),
+        id(_probe_worker),
+    )
     now = time.monotonic()
     if _readiness_cache is not None:
         cached_key, expires_at, cached_result = _readiness_cache

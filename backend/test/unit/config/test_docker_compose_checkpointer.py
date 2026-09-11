@@ -124,12 +124,48 @@ def test_api_healthcheck_uses_readiness_in_development_and_production():
         ]
 
 
+def _assert_worker_healthcheck_contract(healthcheck: dict) -> None:
+    """校验 Worker 健康命令与可覆盖冷导入的超时预算。"""
+    assert healthcheck["test"] == [
+        "CMD-SHELL",
+        "uv run --no-sync --no-dev arq --check server.worker_main.WorkerSettings",
+    ]
+    assert healthcheck["timeout"] == "30s"
+
+
 def test_worker_healthcheck_uses_arq_health_contract_in_development_and_production():
+    """开发与生产拓扑必须使用同一 Worker 健康契约和预算。"""
     project_root = _project_root()
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         compose = yaml.safe_load((project_root / filename).read_text())
+        _assert_worker_healthcheck_contract(compose["services"]["worker"]["healthcheck"])
 
-        assert compose["services"]["worker"]["healthcheck"]["test"] == [
-            "CMD-SHELL",
-            "uv run --no-sync --no-dev arq --check server.worker_main.WorkerSettings",
-        ]
+
+def test_worker_healthcheck_rejects_ten_second_import_budget():
+    """恢复会在冷导入时误判的十秒预算必须触发失败。"""
+    with pytest.raises(AssertionError):
+        _assert_worker_healthcheck_contract(
+            {
+                "test": [
+                    "CMD-SHELL",
+                    "uv run --no-sync --no-dev arq --check server.worker_main.WorkerSettings",
+                ],
+                "timeout": "10s",
+            }
+        )
+
+
+def test_worker_starts_owned_entrypoint_in_development_and_production():
+    """正式部署必须进入拥有本地任务过滤的 Worker 入口。"""
+    project_root = _project_root()
+    for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
+        compose = yaml.safe_load((project_root / filename).read_text())
+        assert "python -m server.worker_main" in compose["services"]["worker"]["command"]
+
+
+def test_arq_dependency_changes_trigger_real_dispatch_regression():
+    """单独升级依赖也必须触发拥有 ARQ 适配语义的真实 Redis gate。"""
+    project_root = _project_root()
+    workflow = yaml.load((project_root / ".github/workflows/system-tests.yml").read_text(), Loader=yaml.BaseLoader)
+    for event in ("pull_request", "push"):
+        assert {"backend/uv.lock", "backend/pyproject.toml"}.issubset(workflow["on"][event]["paths"])

@@ -50,9 +50,25 @@ def ensure_live_api_schema():
         from yuxi.storage.postgres.manager import pg_manager
 
         pg_manager.initialize()
-        await pg_manager.require_current_schema(include_knowledge=not LITE_MODE)
+        try:
+            await pg_manager.require_current_schema(include_knowledge=not LITE_MODE)
+        finally:
+            # 预检使用独立事件循环；不能把绑定该循环的连接池留给后续用例。
+            await pg_manager.close()
 
     anyio.run(verify_schema_version)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def close_shared_postgres_manager():
+    """用例结束时释放全局连接池，避免跨事件循环复用 asyncpg 连接。"""
+
+    yield
+
+    from yuxi.storage.postgres.manager import pg_manager
+
+    if pg_manager._initialized or pg_manager.async_engine or pg_manager.langgraph_pool:
+        await pg_manager.close()
 
 
 def _require_admin_credentials() -> tuple[str, str]:

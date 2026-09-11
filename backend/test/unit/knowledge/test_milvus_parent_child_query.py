@@ -38,7 +38,7 @@ async def test_parent_child_query_deduplicates_parent_and_hydrates_text(monkeypa
     """子块负责召回，同父块命中只返回一次完整父块正文。"""
     kb = MilvusKB.__new__(MilvusKB)
     collection = _Collection()
-    kb._get_or_create_collection_for_config = lambda *_args: _async_value(collection)
+    kb._get_existing_child_collection_for_query = lambda *_args, **_kwargs: _async_value(collection)
     kb._build_file_name_expr = lambda *_args: _async_value(None)
     kb._hydrate_chunk_sources = lambda _kb_id, chunks: _hydrate(chunks)
     fake_model = SimpleNamespace(batch_encode=lambda _texts, **_kwargs: [[0.1, 0.2]])
@@ -85,8 +85,8 @@ async def test_parent_child_query_deduplicates_parent_and_hydrates_text(monkeypa
     monkeypatch.setattr("yuxi.knowledge.implementations.milvus.get_cached_query", lambda *_args: _async_value(None))
     monkeypatch.setattr("yuxi.knowledge.implementations.milvus.cache_query", lambda *_args: _async_value(None))
     monkeypatch.setattr(
-        "yuxi.knowledge.implementations.milvus.KnowledgeParentChildChunkRepository.list_active_version_ids",
-        lambda *_args: _async_value(["version-1"]),
+        "yuxi.knowledge.implementations.milvus.KnowledgeParentChildChunkRepository.list_active_storage_targets",
+        lambda *_args: _async_value([("version-1", 2)]),
     )
     config = KnowledgeBaseConfig(
         kb_id="kb-1",

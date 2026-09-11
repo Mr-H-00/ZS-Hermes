@@ -117,11 +117,20 @@ async def _create_department_with_admin(test_client, headers, label: str) -> dic
     }
 
 
-async def _create_user(test_client, headers, label: str, role: str = "user", department_id: int | None = None) -> dict:
+async def _create_user(
+    test_client,
+    headers,
+    label: str,
+    role: str = "user",
+    department_id: int | None = None,
+    password: str | None = None,
+) -> dict:
+    """创建使用指定角色、部门和可选密码的临时测试用户。"""
+
     suffix = uuid.uuid4().hex[:8]
     payload = {
         "username": f"u{label}_{suffix}",
-        "password": f"Pw!{suffix}",
+        "password": password or f"Pw!{suffix}",
         "role": role,
     }
     if department_id is not None:
@@ -149,25 +158,35 @@ async def test_login_with_invalid_credentials(test_client):
 
 
 async def test_user_is_locked_after_repeated_failed_logins(test_client, standard_user):
+    """连续失败会锁定账号，并在断言后恢复临时用户供 fixture 清理。"""
     uid = standard_user["user"]["uid"]
 
-    for attempt in range(1, 5):
-        response = await test_client.post("/api/auth/token", data={"username": uid, "password": "wrong-password"})
-        assert response.status_code == 401, response.text
-        assert response.json()["detail"] == "用户名或密码错误"
+    try:
+        for attempt in range(1, 5):
+            response = await test_client.post(
+                "/api/auth/token",
+                data={"username": uid, "password": "wrong-password"},
+            )
+            assert response.status_code == 401, response.text
+            assert response.json()["detail"] == "用户名或密码错误"
 
-    locked_response = await test_client.post("/api/auth/token", data={"username": uid, "password": "wrong-password"})
-    assert locked_response.status_code == 423, locked_response.text
-    assert "X-Lock-Remaining" in locked_response.headers
-    assert "账户已被锁定" in locked_response.json()["detail"]
+        locked_response = await test_client.post(
+            "/api/auth/token",
+            data={"username": uid, "password": "wrong-password"},
+        )
+        assert locked_response.status_code == 423, locked_response.text
+        assert "X-Lock-Remaining" in locked_response.headers
+        assert "账户已被锁定" in locked_response.json()["detail"]
 
-    still_locked_response = await test_client.post(
-        "/api/auth/token",
-        data={"username": uid, "password": standard_user["password"]},
-    )
-    assert still_locked_response.status_code == 423, still_locked_response.text
-    assert "X-Lock-Remaining" in still_locked_response.headers
-    assert "登录被锁定" in still_locked_response.json()["detail"]
+        still_locked_response = await test_client.post(
+            "/api/auth/token",
+            data={"username": uid, "password": standard_user["password"]},
+        )
+        assert still_locked_response.status_code == 423, still_locked_response.text
+        assert "X-Lock-Remaining" in still_locked_response.headers
+        assert "登录被锁定" in still_locked_response.json()["detail"]
+    finally:
+        await _expire_login_lock(standard_user["user"]["id"])
 
 
 async def test_login_rate_limit_blocks_repeated_failures_per_ip_and_account(test_client, isolated_redis_client):
@@ -422,22 +441,45 @@ async def test_invalid_token_is_rejected(test_client):
     assert response.status_code == 401
 
 
-async def test_deleted_user_token_is_rejected(test_client, admin_headers, standard_user):
-    user_id = standard_user["user"]["id"]
+async def test_deleted_user_token_is_rejected(test_client, admin_headers):
+    """已删除用户的既有 token 必须失效，测试账号由本用例完整管理。"""
+    suffix = uuid.uuid4().hex[:8]
+    password = f"Pw!{suffix}"
+    created_user = None
+    try:
+        created_user = await _create_user(
+            test_client,
+            admin_headers,
+            "del",
+            password=password,
+        )
+        login_response = await test_client.post(
+            "/api/auth/token",
+            data={"username": created_user["uid"], "password": password},
+        )
+        assert login_response.status_code == 200, login_response.text
 
-    delete_response = await test_client.delete(f"/api/auth/users/{user_id}", headers=admin_headers)
-    assert delete_response.status_code == 200, delete_response.text
+        headers = {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+        delete_response = await test_client.delete(f"/api/auth/users/{created_user['id']}", headers=admin_headers)
+        assert delete_response.status_code == 200, delete_response.text
 
-    profile_response = await test_client.get("/api/auth/me", headers=standard_user["headers"])
-    assert profile_response.status_code == 401
+        profile_response = await test_client.get("/api/auth/me", headers=headers)
+        assert profile_response.status_code == 401
+    finally:
+        if created_user is not None:
+            await _cleanup_user(test_client, admin_headers, created_user["id"])
 
 
 async def test_locked_user_token_is_rejected(test_client, standard_user):
+    """账号锁定后既有 token 必须被拒绝，并恢复锁状态供 fixture 清理。"""
     uid = standard_user["user"]["uid"]
 
-    for _ in range(5):
-        await test_client.post("/api/auth/token", data={"username": uid, "password": "wrong-password"})
+    try:
+        for _ in range(5):
+            await test_client.post("/api/auth/token", data={"username": uid, "password": "wrong-password"})
 
-    profile_response = await test_client.get("/api/auth/me", headers=standard_user["headers"])
-    assert profile_response.status_code == 423
-    assert "X-Lock-Remaining" in profile_response.headers
+        profile_response = await test_client.get("/api/auth/me", headers=standard_user["headers"])
+        assert profile_response.status_code == 423
+        assert "X-Lock-Remaining" in profile_response.headers
+    finally:
+        await _expire_login_lock(standard_user["user"]["id"])

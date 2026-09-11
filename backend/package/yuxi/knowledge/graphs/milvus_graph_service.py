@@ -24,6 +24,7 @@ from yuxi.knowledge.graphs.graph_utils import (
     validate_parent_child_graph_mapping,
 )
 from yuxi.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
+from yuxi.knowledge.parent_child_cache import invalidate_query_cache
 from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from yuxi.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
 from yuxi.repositories.knowledge_graph_repository import KnowledgeGraphRepository
@@ -36,6 +37,7 @@ from yuxi.storage.neo4j import (
     safe_neo4j_label,
 )
 from yuxi.utils import logger
+from yuxi.utils.asyncio_utils import run_sync_with_deferred_cancellation
 from yuxi.utils.datetime_utils import utc_isoformat
 
 GRAPH_CONFIG_KEY = "graph_build_config"
@@ -243,10 +245,27 @@ class MilvusGraphService:
         samples = await chunk_owner.list_graph_extraction_failed_samples(kb_id, limit)
         return {"kb_id": kb_id, "samples": samples}
 
+    @staticmethod
+    async def _invalidate_parent_child_query_cache(kb_id: str) -> None:
+        """在传播重复取消前等待 Parent-Child 查询缓存失效完成。"""
+        invalidation_task = asyncio.create_task(invalidate_query_cache(kb_id))
+        cancelled_during_invalidation = False
+        while not invalidation_task.done():
+            try:
+                await asyncio.shield(invalidation_task)
+            except asyncio.CancelledError:
+                cancelled_during_invalidation = True
+        invalidation_task.result()
+        if cancelled_during_invalidation:
+            raise asyncio.CancelledError
+
     async def build_pending_chunks(self, kb_id: str, *, context=None) -> dict[str, Any]:
         kb = await self._get_milvus_kb(kb_id)
         if (dict(kb.additional_params or {}).get("parent_child") or {}).get("enabled") is True:
-            return await self._build_pending_parent_chunks(kb_id, kb, context=context)
+            try:
+                return await self._build_pending_parent_chunks(kb_id, kb, context=context)
+            finally:
+                await self._invalidate_parent_child_query_cache(kb_id)
         config = self._get_locked_config(kb.additional_params or {})
         extractor_options = self._runtime_extractor_options(config)
         extractor = GraphExtractorFactory.create(config["extractor_type"], extractor_options)
@@ -1145,24 +1164,27 @@ class MilvusGraphService:
 
     async def reset(self, kb_id: str, *, clear_extraction_result: bool, clear_config: bool) -> dict[str, Any]:
         kb = await self._get_milvus_kb(kb_id)
-        await asyncio.to_thread(self.delete_graph, kb_id)
-        await self.graph_repo.delete_by_kb_id(kb_id)
         params = dict(kb.additional_params or {})
-        chunk_owner = (
-            self.parent_child_repo if (params.get("parent_child") or {}).get("enabled") is True else self.chunk_repo
-        )
-        reset_chunks = await chunk_owner.reset_graph_state_by_kb_id(kb_id, clear_extraction_result)
-        if clear_config:
-            additional_params = dict(kb.additional_params or {})
-            additional_params.pop(GRAPH_CONFIG_KEY, None)
-            await self.kb_repo.update(kb_id, {"additional_params": additional_params})
-        return {
-            "message": "图谱构建状态已重置",
-            "status": "success",
-            "reset_chunks": reset_chunks,
-            "clear_extraction_result": clear_extraction_result,
-            "clear_config": clear_config,
-        }
+        parent_child_enabled = (params.get("parent_child") or {}).get("enabled") is True
+        try:
+            await asyncio.to_thread(self.delete_graph, kb_id)
+            await self.graph_repo.delete_by_kb_id(kb_id)
+            chunk_owner = self.parent_child_repo if parent_child_enabled else self.chunk_repo
+            reset_chunks = await chunk_owner.reset_graph_state_by_kb_id(kb_id, clear_extraction_result)
+            if clear_config:
+                additional_params = dict(kb.additional_params or {})
+                additional_params.pop(GRAPH_CONFIG_KEY, None)
+                await self.kb_repo.update(kb_id, {"additional_params": additional_params})
+            return {
+                "message": "图谱构建状态已重置",
+                "status": "success",
+                "reset_chunks": reset_chunks,
+                "clear_extraction_result": clear_extraction_result,
+                "clear_config": clear_config,
+            }
+        finally:
+            if parent_child_enabled:
+                await self._invalidate_parent_child_query_cache(kb_id)
 
     async def reconcile_vectors(self, kb_id: str, *, all_vectors: bool) -> dict[str, Any]:
         await self._get_milvus_kb(kb_id)
@@ -1188,7 +1210,7 @@ class MilvusGraphService:
     async def delete_file_graph(self, kb_id: str, file_id: str) -> None:
         """删除文件图谱投影，并在外部成功后提交 PostgreSQL 清理。"""
         orphan_entity_ids, orphan_triple_ids = await self.graph_repo.list_file_deletion_targets(file_id)
-        await asyncio.to_thread(self._delete_file_graph_from_neo4j, kb_id, file_id)
+        await run_sync_with_deferred_cancellation(self._delete_file_graph_from_neo4j, kb_id, file_id)
         await self.graph_vector_store.delete_graph_records(
             kb_id,
             entity_ids=orphan_entity_ids,
@@ -1199,7 +1221,7 @@ class MilvusGraphService:
     async def delete_parent_child_version_graph(self, kb_id: str, file_id: str, version_id: str) -> None:
         """删除一个 superseded 父子版本的图谱投影与孤立向量记录。"""
         orphan_entity_ids, orphan_triple_ids = await self.graph_repo.list_parent_version_deletion_targets(version_id)
-        await asyncio.to_thread(
+        await run_sync_with_deferred_cancellation(
             self._delete_parent_child_version_graph_from_neo4j,
             kb_id,
             file_id,

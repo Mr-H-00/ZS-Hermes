@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from yuxi.services import readiness_service
+from yuxi.services import readiness_service, task_queue_service
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
@@ -24,7 +24,9 @@ def reset_readiness_cache(monkeypatch: pytest.MonkeyPatch) -> None:
         async def pttl(self, key: str) -> int:
             if key == readiness_service.WORKER_HEALTH_KEY:
                 return readiness_service.WORKER_HEALTH_MAX_TTL_MS
-            return readiness_service.WORKER_RECONCILIATION_HEALTH_TTL_SECONDS * 1000
+            if key == readiness_service.WORKER_RECONCILIATION_HEALTH_KEY:
+                return readiness_service.WORKER_RECONCILIATION_HEALTH_TTL_SECONDS * 1000
+            return readiness_service.TASK_RECONCILIATION_HEALTH_TTL_SECONDS * 1000
 
     async def healthy_redis() -> HealthyWorkerRedis:
         return HealthyWorkerRedis()
@@ -148,9 +150,55 @@ async def test_worker_probe_requires_arq_and_reconciliation_leases_with_bounded_
             requested.append(("pttl", key))
             if key == readiness_service.WORKER_HEALTH_KEY:
                 return readiness_service.WORKER_HEALTH_MAX_TTL_MS
+            if key == readiness_service.WORKER_RECONCILIATION_HEALTH_KEY:
+                return readiness_service.WORKER_RECONCILIATION_HEALTH_TTL_SECONDS * 1000
+            return readiness_service.TASK_RECONCILIATION_HEALTH_TTL_SECONDS * 1000
+
+    async def worker_redis() -> WorkerRedis:
+        return WorkerRedis()
+
+    monkeypatch.setattr(readiness_service, "get_redis_client", worker_redis)
+
+    await readiness_service._probe_worker()
+
+    assert requested == [
+        ("get", readiness_service.WORKER_HEALTH_KEY),
+        ("pttl", readiness_service.WORKER_HEALTH_KEY),
+        ("get", readiness_service.WORKER_RECONCILIATION_HEALTH_KEY),
+        ("pttl", readiness_service.WORKER_RECONCILIATION_HEALTH_KEY),
+        ("get", task_queue_service.TASK_RECONCILIATION_HEALTH_KEY),
+        ("pttl", task_queue_service.TASK_RECONCILIATION_HEALTH_KEY),
+    ]
+
+
+async def test_lite_worker_probe_does_not_require_durable_task_reconciliation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LITE readiness 只验证 AgentRun worker 的两个健康租约。"""
+
+    requested: list[tuple[str, str]] = []
+    monkeypatch.setenv("LITE_MODE", "true")
+
+    class WorkerRedis:
+        """记录 LITE worker 健康探针读取的 Redis key。"""
+
+        async def get(self, key: str) -> str:
+            """记录并返回健康租约值。"""
+
+            requested.append(("get", key))
+            return "healthy"
+
+        async def pttl(self, key: str) -> int:
+            """记录并返回对应健康租约的有效 TTL。"""
+
+            requested.append(("pttl", key))
+            if key == readiness_service.WORKER_HEALTH_KEY:
+                return readiness_service.WORKER_HEALTH_MAX_TTL_MS
             return readiness_service.WORKER_RECONCILIATION_HEALTH_TTL_SECONDS * 1000
 
     async def worker_redis() -> WorkerRedis:
+        """返回记录型 Redis 替身。"""
+
         return WorkerRedis()
 
     monkeypatch.setattr(readiness_service, "get_redis_client", worker_redis)

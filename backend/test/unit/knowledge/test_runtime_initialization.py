@@ -13,6 +13,8 @@ pytestmark = pytest.mark.unit
 
 
 def test_knowledge_runtime_preserves_lite_mode(tmp_path):
+    """直接导入知识 runtime 时，LITE 也不得注册 Milvus 后端。"""
+
     env = os.environ.copy()
     env["LITE_MODE"] = "1"
     result = subprocess.run(
@@ -40,9 +42,9 @@ def test_knowledge_runtime_preserves_lite_mode(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_initialize_creates_executors_without_loading_all_configs(monkeypatch):
-    """initialize() 只创建已使用类型的执行器，不加载全部 KB 配置。"""
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+async def test_initialize_creates_executors_for_types_in_use(monkeypatch, tmp_path):
+    """initialize() 只为数据库中实际使用的知识库类型创建执行器。"""
+    manager = KnowledgeBaseManager(str(tmp_path))
 
     async def fake_get_all(_self):
         return [
@@ -69,7 +71,7 @@ async def test_initialize_creates_executors_without_loading_all_configs(monkeypa
 
     await manager.initialize()
 
-    assert "milvus" in manager.kb_instances
+    assert manager.kb_instances == {"milvus": fake_instance}
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -332,7 +333,7 @@ async def test_manager_returns_normalized_effective_config(monkeypatch, tmp_path
         "yuxi.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         classmethod(lambda cls, kb_type: kb_type == "milvus"),
     )
-    monkeypatch.setattr(manager, "_get_or_create_kb_instance", lambda _kb_type: executor)
+    monkeypatch.setattr(manager, "_get_or_create_kb_instance", AsyncMock(return_value=executor))
 
     config = await manager.get_kb_config("kb_1")
 

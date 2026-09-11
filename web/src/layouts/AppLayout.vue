@@ -111,12 +111,13 @@ const handleGlobalKeydown = (e) => {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
-  // 加载信息配置与知识库数据无依赖，可并行
-  await Promise.all([infoStore.loadInfoConfig(), getRemoteDatabase()])
-  await initAgentNavigation()
-  await getRemoteConfig()
+  // 各 Store 自行处理错误，导航不等待无依赖的品牌、知识库或配置请求。
+  void infoStore.loadInfoConfig()
+  void getRemoteDatabase()
+  void initAgentNavigation()
+  void getRemoteConfig()
   // 仅管理员加载任务中心数据
   if (userStore.isAdmin) {
     taskerStore.loadTasks()
@@ -269,6 +270,12 @@ const handleSearchSelectThread = (thread) => {
 const handleCreateConversationFromSearch = () => {
   if (!chatThreadsStore.setCurrentThreadId(null)) return
   router.push({ name: 'AgentComp' })
+}
+
+const handleCreateProjectChat = async (projectId) => {
+  if (!projectId || projectPendingId.value || threadCreationInFlight.value) return
+  await router.push({ name: 'AgentComp', query: { project_id: projectId } })
+  chatThreadsStore.setCurrentThreadId(null)
 }
 
 const searchWorkspace = (query) => searchWorkspaceFiles(query)
@@ -474,6 +481,7 @@ provide('settingsModal', {
           @toggle-pin="handleTogglePinChat"
           @rename-project="handleRenameProject"
           @delete-project="handleDeleteProject"
+          @create-project-chat="handleCreateProjectChat"
           @retry-projects="loadProjects"
           @load-more-chats="() => chatThreadsStore.loadMoreThreads()"
         />
@@ -597,7 +605,7 @@ div.header,
   flex: 0 0 @sidebar-width;
   justify-content: flex-start;
   align-items: stretch;
-  gap: 16px;
+  gap: 0;
   background-color: var(--main-5);
   height: 100%;
   width: @sidebar-width;
@@ -617,6 +625,7 @@ div.header,
     align-items: stretch;
     position: relative;
     gap: 2px;
+    margin-top: 12px;
   }
 
   .sidebar-conversations {
@@ -635,6 +644,13 @@ div.header,
   .fill {
     flex: 1 1 0;
     min-height: 0;
+  }
+
+  .foo {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    background: var(--main-5);
   }
 
   .sidebar-brand {

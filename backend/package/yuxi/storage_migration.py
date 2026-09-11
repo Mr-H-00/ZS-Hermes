@@ -126,7 +126,7 @@ async def main() -> None:
                 "business",
                 business_version,
                 BUSINESS_SCHEMA_VERSION,
-                upgrade_from=(1,),
+                upgrade_from=(2,),
             )
             knowledge_version = versions.get("knowledge")
             if not lite_mode_enabled():
@@ -134,7 +134,7 @@ async def main() -> None:
                     "knowledge",
                     knowledge_version,
                     KNOWLEDGE_SCHEMA_VERSION,
-                    upgrade_from=(1, 2),
+                    upgrade_from=(1, 2, 3),
                 )
 
             if business_version is None:
@@ -147,13 +147,13 @@ async def main() -> None:
                     await rewrite_v071_workdir_paths(session)
                     await verify_workdir_bindings(session)
                     await session.commit()
-            if business_version is None or business_version < BUSINESS_SCHEMA_VERSION:
+            if business_version in {None, 2}:
                 await pg_manager.ensure_business_schema()
                 if business_version is None:
                     await pg_manager.setup_langgraph_checkpointer()
                 await pg_manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
 
-            if not lite_mode_enabled() and (knowledge_version is None or knowledge_version < KNOWLEDGE_SCHEMA_VERSION):
+            if not lite_mode_enabled() and knowledge_version != KNOWLEDGE_SCHEMA_VERSION:
                 if knowledge_version is None:
                     await pg_manager.create_knowledge_tables()
                 await pg_manager.ensure_knowledge_schema()

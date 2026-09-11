@@ -6,6 +6,7 @@ import time
 import traceback
 import uuid
 import weakref
+from collections.abc import Awaitable, Callable
 from dataclasses import MISSING, dataclass, field, fields
 from functools import partial
 from typing import Any
@@ -27,8 +28,8 @@ from pymilvus import (
 from yuxi.config.options import system_options
 from yuxi.knowledge.base import FileStatus, KnowledgeBase
 from yuxi.knowledge.chunking.ragflow_like.dispatcher import chunk_markdown
-from yuxi.knowledge.chunking.ragflow_like.parent_child import chunk_markdown_parent_child
 from yuxi.knowledge.chunking.ragflow_like.nlp import count_tokens
+from yuxi.knowledge.chunking.ragflow_like.parent_child import chunk_markdown_parent_child
 from yuxi.knowledge.config_normalization import is_bge_m3_embedding_model_spec
 from yuxi.knowledge.parent_child_cache import (
     active_versions_fingerprint,
@@ -45,10 +46,11 @@ from yuxi.knowledge.read_models import KnowledgeBaseConfig
 from yuxi.knowledge.utils.kb_utils import resolve_processing_params
 from yuxi.models.providers.cache import model_cache
 from yuxi.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
-from yuxi.repositories.knowledge_parent_child_chunk_repository import KnowledgeParentChildChunkRepository
 from yuxi.repositories.knowledge_file_repository import KnowledgeFileRepository
-from yuxi.services.ocr_service import parse_document
+from yuxi.repositories.knowledge_parent_child_chunk_repository import KnowledgeParentChildChunkRepository
+from yuxi.repositories.task_repository import TaskRepository
 from yuxi.utils import hashstr, logger
+from yuxi.utils.asyncio_utils import run_sync_with_deferred_cancellation
 from yuxi.utils.datetime_utils import utc_isoformat
 
 MILVUS_AVAILABLE = True
@@ -66,6 +68,28 @@ _milvus_query_offload_semaphore_refs: dict[
     int,
     tuple[weakref.ReferenceType[asyncio.AbstractEventLoop], weakref.ReferenceType[asyncio.Semaphore]],
 ] = {}
+
+
+class _CommittedParentChildIndex(RuntimeError):
+    """携带已经激活的 Parent-Child 结果与提交后的异常。"""
+
+    def __init__(self, result: dict[str, Any], cause: BaseException) -> None:
+        """保存已提交结果，供公开索引入口传播提交后异常。"""
+        self.result = result
+        self.cause = cause
+        super().__init__(str(cause))
+
+
+async def _await_with_deferred_cancellation(awaitable) -> tuple[Any, bool]:
+    """等待关键提交任务取得确定结果，并报告期间收到的外层取消。"""
+    task = asyncio.create_task(awaitable)
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    return task.result(), cancelled
 
 
 def _get_milvus_query_offload_semaphore() -> asyncio.Semaphore:
@@ -428,7 +452,11 @@ class MilvusKB(KnowledgeBase):
             raise
 
     async def _create_kb_instance(self, kb_id: str, embedding_model_spec: str | None) -> Any:
-        """创建 Milvus 集合"""
+        """在线程中创建或加载 Milvus 集合，避免阻塞 worker heartbeat。"""
+        return await run_sync_with_deferred_cancellation(self._create_kb_instance_sync, kb_id, embedding_model_spec)
+
+    def _create_kb_instance_sync(self, kb_id: str, embedding_model_spec: str | None) -> Any:
+        """同步创建或加载 Milvus 集合。"""
         logger.info(f"Creating Milvus collection for {kb_id}")
 
         if not embedding_model_spec:
@@ -695,7 +723,11 @@ class MilvusKB(KnowledgeBase):
             collection = Collection(name=collection_name, using=self.connection_alias)
             self._validate_child_collection_schema(collection, dimension, sparse_enabled=sparse_enabled)
         else:
-            collection = self._create_new_child_collection(dimension, sparse_enabled=sparse_enabled)
+            collection = await run_sync_with_deferred_cancellation(
+                self._create_new_child_collection,
+                dimension,
+                sparse_enabled=sparse_enabled,
+            )
         await self._initialize_kb_instance(collection)
         child_collections[dimension] = collection
         return collection
@@ -703,7 +735,9 @@ class MilvusKB(KnowledgeBase):
     def _get_existing_child_collection(self, embedding_dimension: int) -> Collection | None:
         """读取已有 child collection，不因删除操作隐式创建集合。"""
         collection_name = self._child_collection_name(embedding_dimension)
-        child_collections = getattr(self, "child_collections", {})
+        child_collections = getattr(self, "child_collections", None)
+        if child_collections is None:
+            child_collections = self.child_collections = {}
         cached = child_collections.get(embedding_dimension)
         if cached is not None:
             return cached
@@ -711,6 +745,27 @@ class MilvusKB(KnowledgeBase):
             return None
         collection = Collection(name=collection_name, using=self.connection_alias)
         child_collections[embedding_dimension] = collection
+        return collection
+
+    async def _get_existing_child_collection_for_query(
+        self,
+        embedding_dimension: int,
+        *,
+        sparse_enabled: bool,
+    ) -> Collection | None:
+        """按持久维度打开并校验已有查询集合，禁止查询路径隐式创建。"""
+        child_collections = getattr(self, "child_collections", {})
+        was_cached = embedding_dimension in child_collections
+        collection = self._get_existing_child_collection(embedding_dimension)
+        if collection is None:
+            return None
+        self._validate_child_collection_schema(
+            collection,
+            embedding_dimension,
+            sparse_enabled=sparse_enabled,
+        )
+        if not was_cached:
+            await self._initialize_kb_instance(collection)
         return collection
 
     @staticmethod
@@ -810,7 +865,7 @@ class MilvusKB(KnowledgeBase):
         if sparse_embeddings is None and has_sparse_field:
             # Milvus 2.5 不允许 nullable 向量；空映射满足固定 schema，但不伪造稀疏坐标。
             entities.append([{} for _ in children])
-        await asyncio.to_thread(collection.insert, entities)
+        await run_sync_with_deferred_cancellation(collection.insert, entities)
 
     async def _delete_file_child_chunks_from_milvus(
         self,
@@ -820,7 +875,7 @@ class MilvusKB(KnowledgeBase):
     ) -> None:
         """按知识库和文件删除 child collection 中的子块，不影响其他知识库。"""
         expr = self._child_scope_expr(kb_id, file_id)
-        await asyncio.to_thread(collection.delete, expr)
+        await run_sync_with_deferred_cancellation(collection.delete, expr)
 
     def _list_existing_child_collections(self) -> list[Collection]:
         """枚举已存在的共享 child collection，不因清理动作创建集合。"""
@@ -849,7 +904,7 @@ class MilvusKB(KnowledgeBase):
         """从所有按维度共享的 child collection 删除指定知识库投影。"""
         for collection in self._list_existing_child_collections():
             escaped_kb_id = str(kb_id).replace('"', '\\"')
-            await asyncio.to_thread(
+            await run_sync_with_deferred_cancellation(
                 collection.delete,
                 f'{CHILD_KB_FIELD} == "{escaped_kb_id}"',
             )
@@ -864,7 +919,111 @@ class MilvusKB(KnowledgeBase):
         escaped_kb_id = str(kb_id).replace('"', '\\"')
         escaped_version_id = str(version_id).replace('"', '\\"')
         expression = f'knowledge_base_id == "{escaped_kb_id}" and version_id == "{escaped_version_id}"'
-        await asyncio.to_thread(collection.delete, expression)
+        await run_sync_with_deferred_cancellation(collection.delete, expression)
+
+    async def cleanup_superseded_parent_child_version(
+        self,
+        kb_id: str,
+        file_id: str,
+        version_id: str,
+        *,
+        control_check: Callable[[], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        """分阶段校验 owner 后幂等清理 superseded 版本的外部投影和引用。"""
+        repository = KnowledgeParentChildChunkRepository()
+        version = await repository.get_version(version_id)
+        if version is None:
+            return {"kb_id": kb_id, "file_id": file_id, "version_id": version_id, "status": "already_clean"}
+        if str(version.kb_id) != str(kb_id) or str(version.file_id) != str(file_id):
+            raise ValueError("Parent-Child cleanup target does not match its persisted owner")
+        if version.status != "superseded":
+            raise ValueError("Only superseded Parent-Child versions can be cleaned")
+
+        from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
+
+        cleanup_errors: list[str] = []
+        if control_check is not None:
+            await control_check()
+        try:
+            await MilvusGraphService().delete_parent_child_version_graph(kb_id, file_id, version_id)
+        except Exception as exc:
+            cleanup_errors.append(f"graph={type(exc).__name__}: {exc}")
+
+        if control_check is not None:
+            await control_check()
+        try:
+            collection = self._get_existing_child_collection(int(version.embedding_dimension))
+            if collection is not None:
+                if control_check is not None:
+                    await control_check()
+                await self._delete_child_version_from_milvus(collection, kb_id, version_id)
+                if control_check is not None:
+                    await control_check()
+        except Exception as exc:
+            cleanup_errors.append(f"milvus={type(exc).__name__}: {exc}")
+
+        if cleanup_errors:
+            raise RuntimeError("; ".join(cleanup_errors))
+
+        if control_check is not None:
+            await control_check()
+        await repository.delete_version(version_id)
+        if control_check is not None:
+            await control_check()
+        await invalidate_parent_version(kb_id, version_id)
+        return {"kb_id": kb_id, "file_id": file_id, "version_id": version_id, "status": "cleaned"}
+
+    @staticmethod
+    async def _enqueue_superseded_parent_child_cleanup(
+        kb_id: str,
+        file_id: str,
+        version_id: str,
+    ) -> str:
+        """为清理失败的 superseded 版本创建去重 Durable Task。"""
+        from yuxi.services.task_service import tasker
+
+        task, _created = await tasker.enqueue_unique_by_payload(
+            name=f"Parent-Child 旧版本清理 ({file_id})",
+            task_type="knowledge_parent_child_cleanup",
+            payload={"kb_id": kb_id, "file_id": file_id, "version_id": version_id},
+            payload_match={"version_id": version_id},
+        )
+        return task.id
+
+    async def _finish_parent_child_activation(
+        self,
+        kb_id: str,
+        file_id: str,
+        active_version: Any | None,
+        *,
+        control_check: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        """激活后失效缓存，并把旧投影清理失败转成持久任务。"""
+        if active_version is not None:
+            try:
+                cleanup_kwargs = {"control_check": control_check} if control_check is not None else {}
+                await self.cleanup_superseded_parent_child_version(
+                    kb_id,
+                    file_id,
+                    active_version.version_id,
+                    **cleanup_kwargs,
+                )
+            except (Exception, asyncio.CancelledError) as cleanup_error:
+                task_id = await self._enqueue_superseded_parent_child_cleanup(
+                    kb_id,
+                    file_id,
+                    active_version.version_id,
+                )
+                logger.warning(
+                    "Failed to clean superseded Parent-Child version %s; durable task %s will retry: %s",
+                    active_version.version_id,
+                    task_id,
+                    cleanup_error,
+                )
+
+        await invalidate_query_cache(kb_id)
+        if active_version is not None:
+            await invalidate_parent_version(kb_id, active_version.version_id)
 
     async def _index_parent_child_file(
         self,
@@ -875,6 +1034,9 @@ class MilvusKB(KnowledgeBase):
         params: dict[str, Any],
         embedding_model_spec: str,
         embedding_function,
+        processing_task_id: str,
+        processing_owner: str,
+        operator_id: str | None = None,
         markdown_content: str | None = None,
     ) -> dict:
         """以 staging -> Milvus -> flush -> active 顺序写入 Parent-Child 版本。"""
@@ -897,6 +1059,8 @@ class MilvusKB(KnowledgeBase):
         version_id = version.version_id
         child_collection: Collection | None = None
         inserted = False
+        activation_committed = False
+        committed_result: dict[str, Any] | None = None
         try:
             child_collection = await self._get_or_create_child_collection(
                 embedding_model_spec,
@@ -951,7 +1115,7 @@ class MilvusKB(KnowledgeBase):
                     embeddings,
                     sparse_embeddings=sparse_embeddings,
                 )
-                await asyncio.to_thread(child_collection.flush)
+                await run_sync_with_deferred_cancellation(child_collection.flush)
                 escaped_version_id = version_id.replace('"', '\\"')
                 rows = await asyncio.to_thread(
                     child_collection.query,
@@ -962,47 +1126,54 @@ class MilvusKB(KnowledgeBase):
                 if len(rows) != len(children):
                     raise RuntimeError("Milvus child write could not be read back after flush")
 
-            await repository.activate_version(version_id)
-            await invalidate_query_cache(kb_id)
-            if active_version is not None:
-                await invalidate_parent_version(kb_id, active_version.version_id)
-            old_external_storage_clean = True
-            if active_version is not None:
-                from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
+            chunk_count = len(children)
+            token_count = sum(int(parent.get("token_count") or 0) for parent in parents)
+            activation, cancelled_during_activation = await _await_with_deferred_cancellation(
+                repository.activate_version(
+                    version_id,
+                    processing_task_id=processing_task_id,
+                    processing_owner=processing_owner,
+                    chunk_count=chunk_count,
+                    token_count=token_count,
+                    updated_by=operator_id,
+                )
+            )
+            activation_committed = True
+            _activated_version, activated_file = activation
+            committed_result = self._file_record_to_meta(activated_file)
 
-                try:
-                    await MilvusGraphService().delete_parent_child_version_graph(
+            async def assert_task_control() -> None:
+                """确认直接索引 attempt 仍持有有效的 Durable Task lease。"""
+                owns_lease, cancel_requested = await TaskRepository().check_control(
+                    processing_task_id,
+                    worker_id=processing_owner,
+                )
+                if not owns_lease:
+                    raise asyncio.CancelledError("Task lease was lost")
+                if cancel_requested:
+                    raise asyncio.CancelledError("Task was cancelled")
+
+            try:
+                _, cancelled_during_finalization = await _await_with_deferred_cancellation(
+                    self._finish_parent_child_activation(
                         kb_id,
                         file_id,
-                        active_version.version_id,
+                        active_version,
+                        control_check=assert_task_control,
                     )
-                except Exception as cleanup_error:
-                    old_external_storage_clean = False
-                    logger.warning(
-                        f"Failed to clean superseded graph version {active_version.version_id}: {cleanup_error}"
-                    )
-            if active_version is not None and child_collection is not None:
-                try:
-                    await self._delete_child_version_from_milvus(child_collection, kb_id, active_version.version_id)
-                except Exception as cleanup_error:
-                    old_external_storage_clean = False
-                    logger.warning(
-                        f"Failed to clean superseded child version {active_version.version_id}: {cleanup_error}"
-                    )
-            if active_version is not None and old_external_storage_clean:
-                try:
-                    await repository.delete_version(active_version.version_id)
-                except Exception as cleanup_error:
-                    logger.warning(
-                        f"Failed to clean superseded PostgreSQL version {active_version.version_id}: {cleanup_error}"
-                    )
-
-            chunk_stats = {
-                "chunk_count": len(children),
-                "token_count": sum(int(parent.get("token_count") or 0) for parent in parents),
-            }
-            return {**file_meta, **chunk_stats, "status": FileStatus.INDEXED, "error": None}
-        except (Exception, asyncio.CancelledError):
+                )
+            except (Exception, asyncio.CancelledError) as exc:
+                raise _CommittedParentChildIndex(committed_result, exc) from exc
+            if cancelled_during_activation or cancelled_during_finalization:
+                cancellation = asyncio.CancelledError("File indexing was cancelled after Parent-Child activation")
+                raise _CommittedParentChildIndex(committed_result, cancellation) from cancellation
+            return committed_result
+        except _CommittedParentChildIndex:
+            raise
+        except (Exception, asyncio.CancelledError) as exc:
+            # 激活提交后 PostgreSQL 已切换事实版本，新 Milvus 投影不能再按 staging 回滚。
+            if activation_committed and committed_result is not None:
+                raise _CommittedParentChildIndex(committed_result, exc) from exc
             if inserted and child_collection is not None:
                 try:
                     await self._delete_child_version_from_milvus(child_collection, kb_id, version_id)
@@ -1046,7 +1217,7 @@ class MilvusKB(KnowledgeBase):
     async def _initialize_kb_instance(self, instance: Any) -> None:
         """初始化 Milvus 集合（加载到内存）"""
         try:
-            instance.load()
+            await run_sync_with_deferred_cancellation(instance.load)
             logger.info("Milvus collection loaded into memory")
         except Exception as e:
             logger.warning(f"Failed to load collection into memory: {e}")
@@ -1096,14 +1267,18 @@ class MilvusKB(KnowledgeBase):
             )
         return await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
 
-    def _get_existing_milvus_collection(self, kb_id: str) -> Collection | None:
+    async def _get_existing_milvus_collection(self, kb_id: str) -> Collection | None:
         """获取已存在的集合，不因删除操作创建新集合。"""
         collection = self.collections.get(kb_id)
         if collection is not None:
             return collection
-        if not utility.has_collection(kb_id, using=self.connection_alias):
-            return None
-        return Collection(name=kb_id, using=self.connection_alias)
+
+        def load_existing_collection() -> Collection | None:
+            if not utility.has_collection(kb_id, using=self.connection_alias):
+                return None
+            return Collection(name=kb_id, using=self.connection_alias)
+
+        return await asyncio.to_thread(load_existing_collection)
 
     def _split_text_into_chunks(self, text: str, file_id: str, filename: str, params: dict) -> list[dict]:
         """将文本分割成块"""
@@ -1173,7 +1348,7 @@ class MilvusKB(KnowledgeBase):
             collection.insert(entities)
 
         pg_task = chunk_repo.batch_upsert(self._build_chunk_pg_records(kb_id, chunks))
-        milvus_task = asyncio.to_thread(_insert_milvus_records)
+        milvus_task = run_sync_with_deferred_cancellation(_insert_milvus_records)
         results = await asyncio.gather(pg_task, milvus_task, return_exceptions=True)
         errors = [result for result in results if isinstance(result, Exception)]
         if not errors:
@@ -1234,17 +1409,18 @@ class MilvusKB(KnowledgeBase):
 
     async def _delete_file_chunks_from_milvus(self, collection: Collection, file_id: str) -> None:
         expr = f'file_id == "{file_id}"'
-        results = collection.query(expr=expr, output_fields=["id"], limit=1)
 
-        if not results:
-            logger.info(f"File {file_id} not found in Milvus, skipping delete operation")
-            return
-
-        def _delete_from_milvus():
+        def delete_from_milvus() -> bool:
+            results = collection.query(expr=expr, output_fields=["id"], limit=1)
+            if not results:
+                return False
             collection.delete(expr)
-            logger.info(f"Deleted chunks for file {file_id} from Milvus")
+            return True
 
-        await asyncio.to_thread(_delete_from_milvus)
+        if await run_sync_with_deferred_cancellation(delete_from_milvus):
+            logger.info(f"Deleted chunks for file {file_id} from Milvus")
+        else:
+            logger.info(f"File {file_id} not found in Milvus, skipping delete operation")
 
     async def _hydrate_chunk_sources(self, kb_id: str, chunks: list[dict]) -> None:
         file_ids = sorted(
@@ -1285,9 +1461,44 @@ class MilvusKB(KnowledgeBase):
         *,
         embedding_model_spec: str | None,
         additional_params: dict[str, Any],
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
     ) -> dict:
         """按最终处理参数索引已解析文件，并更新索引状态与统计。"""
+        if (processing_task_id is None) != (processing_owner is None):
+            raise ValueError("processing_task_id 与 processing_owner 必须同时提供")
+
+        async with KnowledgeFileRepository().lock_file_processing(kb_id, file_id):
+            return await self._index_file_locked(
+                kb_id,
+                file_id,
+                operator_id,
+                params=params,
+                embedding_model_spec=embedding_model_spec,
+                additional_params=additional_params,
+                processing_task_id=processing_task_id,
+                processing_owner=processing_owner,
+            )
+
+    async def _index_file_locked(
+        self,
+        kb_id: str,
+        file_id: str,
+        operator_id: str | None = None,
+        params: dict | None = None,
+        *,
+        embedding_model_spec: str | None,
+        additional_params: dict[str, Any],
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
+    ) -> dict:
+        """在文件处理锁内认领并索引单个文件。"""
         file_meta = await self._load_file_meta(kb_id, file_id)
+        previous_indexing_path = (file_meta.get("processing_params") or {}).get("indexing_path")
+        has_legacy_index = previous_indexing_path != "parent_child" and file_meta.get("status") in {
+            FileStatus.INDEXED,
+            "done",
+        }
         allowed_statuses = {
             FileStatus.PARSED,
             FileStatus.ERROR_INDEXING,
@@ -1300,16 +1511,27 @@ class MilvusKB(KnowledgeBase):
             request_params=params,
             embedding_model_spec=embedding_model_spec,
         )
+        if params.get("indexing_path") == "parent_child" and (not processing_task_id or not processing_owner):
+            raise ValueError("Parent-Child indexing requires a Durable Task owner")
+
+        file_repo = KnowledgeFileRepository()
+        owner_filter = (
+            {"processing_task_id": processing_task_id, "processing_owner": processing_owner}
+            if processing_task_id is not None and processing_owner is not None
+            else {}
+        )
 
         claim_data = {
             "status": FileStatus.INDEXING,
             "processing_params": params,
             "error_message": None,
+            "processing_task_id": processing_task_id,
+            "processing_owner": processing_owner,
         }
         if operator_id:
             claim_data["updated_by"] = operator_id
 
-        claimed_record = await KnowledgeFileRepository().update_fields_if_status(
+        claimed_record = await file_repo.update_fields_if_status(
             kb_id=kb_id,
             file_id=file_id,
             allowed_statuses=allowed_statuses,
@@ -1325,38 +1547,60 @@ class MilvusKB(KnowledgeBase):
 
         file_meta = self._file_record_to_meta(claimed_record)
         if not file_meta.get("markdown_file"):
-            await self._mark_file_unparsed(kb_id, file_id, operator_id)
+            reset_data = {
+                "status": FileStatus.UPLOADED,
+                "error_message": None,
+                "processing_task_id": None,
+                "processing_owner": None,
+            }
+            if operator_id:
+                reset_data["updated_by"] = operator_id
+            updated_record = await file_repo.update_fields_if_status(
+                kb_id=kb_id,
+                file_id=file_id,
+                allowed_statuses={FileStatus.INDEXING},
+                data=reset_data,
+                **owner_filter,
+            )
+            if updated_record is None and processing_owner is not None:
+                raise asyncio.CancelledError("File processing owner was lost")
             raise ValueError("File has not been parsed yet (no markdown_file)")
 
         logger.debug(f"[index_file] file_id={file_id}, processing_params={params}")
 
+        parent_child_activation_committed = False
         try:
             if params.get("indexing_path") == "parent_child":
                 if not embedding_model_spec:
                     raise ValueError("Parent-Child indexing requires an embedding model")
+                if has_legacy_index:
+                    await self.delete_file_chunks_only(
+                        kb_id,
+                        file_id,
+                        processing_task_id=processing_task_id,
+                        processing_owner=processing_owner,
+                    )
                 embedding_function = self._get_embedding_function(embedding_model_spec)
-                result = await self._index_parent_child_file(
-                    kb_id=kb_id,
-                    file_id=file_id,
-                    file_meta=file_meta,
-                    params=params,
-                    embedding_model_spec=embedding_model_spec,
-                    embedding_function=embedding_function,
-                )
-                update_data = {
-                    "status": FileStatus.INDEXED,
-                    "error_message": None,
-                    "chunk_count": result["chunk_count"],
-                    "token_count": result["token_count"],
-                }
-                if operator_id:
-                    update_data["updated_by"] = operator_id
-                updated_record = await KnowledgeFileRepository().update_fields(
-                    file_id=file_id,
-                    kb_id=kb_id,
-                    data=update_data,
-                )
-                return self._file_record_to_meta(updated_record) if updated_record is not None else result
+                deferred_error: BaseException | None = None
+                try:
+                    result = await self._index_parent_child_file(
+                        kb_id=kb_id,
+                        file_id=file_id,
+                        file_meta=file_meta,
+                        params=params,
+                        embedding_model_spec=embedding_model_spec,
+                        embedding_function=embedding_function,
+                        processing_task_id=processing_task_id,
+                        processing_owner=processing_owner,
+                        operator_id=operator_id,
+                    )
+                except _CommittedParentChildIndex as committed:
+                    result = committed.result
+                    deferred_error = committed.cause
+                parent_child_activation_committed = True
+                if deferred_error is not None:
+                    raise deferred_error
+                return result
 
             # 保持旧 single_chunk 路径的集合和写入语义。
             collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
@@ -1384,7 +1628,12 @@ class MilvusKB(KnowledgeBase):
             chunk_stats = self._calculate_chunk_stats(chunks)
 
             # Clean up existing chunks if any (for re-indexing)
-            await self.delete_file_chunks_only(kb_id, file_id)
+            await self.delete_file_chunks_only(
+                kb_id,
+                file_id,
+                processing_task_id=processing_task_id,
+                processing_owner=processing_owner,
+            )
 
             if chunks:
                 await self._embed_and_store_chunks(
@@ -1399,184 +1648,53 @@ class MilvusKB(KnowledgeBase):
             logger.info(f"Indexed file {file_id} into Milvus")
 
             # Update status
-            update_data = {"status": FileStatus.INDEXED, "error_message": None, **chunk_stats}
+            update_data = {
+                "status": FileStatus.INDEXED,
+                "error_message": None,
+                "processing_task_id": None,
+                "processing_owner": None,
+                **chunk_stats,
+            }
             if operator_id:
                 update_data["updated_by"] = operator_id
-            updated_record = await KnowledgeFileRepository().update_fields(
+            updated_record = await file_repo.update_fields_if_status(
                 file_id=file_id,
                 kb_id=kb_id,
+                allowed_statuses={FileStatus.INDEXING},
                 data=update_data,
+                **owner_filter,
             )
-            result = (
-                self._file_record_to_meta(updated_record)
-                if updated_record is not None
-                else {
-                    **file_meta,
-                    **chunk_stats,
-                    "status": FileStatus.INDEXED,
-                    "error": None,
-                }
-            )
-
-            return result
+            if updated_record is None:
+                raise asyncio.CancelledError("File processing owner was lost")
+            return self._file_record_to_meta(updated_record)
 
         except (Exception, asyncio.CancelledError) as e:
+            if parent_child_activation_committed:
+                raise
             if isinstance(e, asyncio.CancelledError):
                 current_task = asyncio.current_task()
                 if current_task is not None and current_task.cancelling():
                     current_task.uncancel()
             error_msg = "File indexing was cancelled" if isinstance(e, asyncio.CancelledError) else str(e)
             logger.error(f"Indexing failed for {file_id}: {error_msg}")
-            update_data = {"status": FileStatus.ERROR_INDEXING, "error_message": error_msg}
+            update_data = {
+                "status": FileStatus.ERROR_INDEXING,
+                "error_message": error_msg,
+                "processing_task_id": None,
+                "processing_owner": None,
+            }
             if operator_id:
                 update_data["updated_by"] = operator_id
-            await KnowledgeFileRepository().update_fields(file_id=file_id, kb_id=kb_id, data=update_data)
+            updated_record = await file_repo.update_fields_if_status(
+                file_id=file_id,
+                kb_id=kb_id,
+                allowed_statuses={FileStatus.INDEXING},
+                data=update_data,
+                **owner_filter,
+            )
+            if updated_record is None and processing_owner is not None:
+                raise asyncio.CancelledError("File processing owner was lost")
             raise
-
-    async def update_content(
-        self,
-        kb_id: str,
-        file_ids: list[str],
-        params: dict | None = None,
-        *,
-        embedding_model_spec: str | None,
-        additional_params: dict[str, Any],
-    ) -> list[dict]:
-        """更新内容 - 根据file_ids重新解析文件并更新向量库"""
-        embedding_function = self._get_embedding_function(embedding_model_spec)
-        collection: Collection | None = None
-
-        # 处理默认参数
-        if params is None:
-            params = {}
-        processed_items_info = []
-
-        for file_id in file_ids:
-            try:
-                file_meta = await self._load_file_meta(kb_id, file_id)
-            except ValueError:
-                logger.warning(f"File {file_id} not found in metadata, skipping")
-                continue
-
-            file_path = file_meta.get("path")
-            filename = file_meta.get("filename")
-
-            if not file_path:
-                logger.warning(f"File path not found for {file_id}, skipping")
-                continue
-
-            try:
-                # 更新状态为处理中
-                resolved_params = resolve_processing_params(
-                    kb_additional_params=additional_params,
-                    file_processing_params=file_meta.get("processing_params"),
-                    request_params=params,
-                    embedding_model_spec=embedding_model_spec,
-                )
-                file_meta["processing_params"] = resolved_params
-                file_meta["status"] = FileStatus.INDEXING
-                await KnowledgeFileRepository().update_fields(
-                    file_id=file_id,
-                    kb_id=kb_id,
-                    data={"status": FileStatus.INDEXING, "processing_params": resolved_params},
-                )
-
-                chunk_parser_config = dict(resolved_params.get("chunk_parser_config") or {})
-                chunk_parser_config.setdefault("embed_model_id", (await system_options.get())["embed_model"])
-                resolved_params["chunk_parser_config"] = chunk_parser_config
-
-                # 重新解析文件为 markdown
-                from yuxi.storage.minio import get_minio_client
-
-                parse_params = {
-                    **resolved_params,
-                    "image_bucket": get_minio_client().KB_BUCKETS["images"],
-                    "image_prefix": f"{kb_id}/kb-images",
-                }
-                markdown_content = await parse_document(source=file_path, params=parse_params)
-                if resolved_params.get("indexing_path") == "parent_child":
-                    if not embedding_model_spec:
-                        raise ValueError("Parent-Child indexing requires an embedding model")
-                    parent_child_result = await self._index_parent_child_file(
-                        kb_id=kb_id,
-                        file_id=file_id,
-                        file_meta=file_meta,
-                        params=resolved_params,
-                        embedding_model_spec=embedding_model_spec,
-                        embedding_function=embedding_function,
-                        markdown_content=markdown_content,
-                    )
-                    chunk_stats = {
-                        "chunk_count": parent_child_result["chunk_count"],
-                        "token_count": parent_child_result["token_count"],
-                    }
-                    file_meta.update(parent_child_result)
-                    await KnowledgeFileRepository().update_fields(
-                        file_id=file_id,
-                        kb_id=kb_id,
-                        data={"status": FileStatus.INDEXED, "error_message": None, **chunk_stats},
-                    )
-                    processed_items_info.append({**file_meta, "file_id": file_id, "status": FileStatus.INDEXED})
-                    continue
-                if collection is None:
-                    collection = await self._get_or_create_milvus_collection(kb_id, embedding_model_spec)
-                    if not collection:
-                        raise ValueError(f"Failed to get Milvus collection for {kb_id}")
-                sparse_enabled = (resolved_params.get("embedding_features") or {}).get("bge_m3_sparse_enabled") is True
-                if sparse_enabled:
-                    self._validate_single_collection_sparse_schema(collection)
-
-                # 重新生成 chunks
-                chunks = self._split_text_into_chunks(markdown_content, file_id, filename, resolved_params)
-                logger.info(f"Split {filename} into {len(chunks)} chunks")
-                chunk_stats = self._calculate_chunk_stats(chunks)
-
-                # 先删除现有 chunks，保留文件元数据
-                await self.delete_file_chunks_only(kb_id, file_id)
-
-                if chunks:
-                    await self._embed_and_store_chunks(
-                        kb_id,
-                        file_id,
-                        collection,
-                        chunks,
-                        embedding_function,
-                        sparse_enabled=sparse_enabled,
-                    )
-
-                logger.info(f"Updated file {file_path} in Milvus. Done.")
-
-                # 更新元数据状态
-                file_meta["status"] = FileStatus.INDEXED
-                file_meta.update(chunk_stats)
-                await KnowledgeFileRepository().update_fields(
-                    file_id=file_id,
-                    kb_id=kb_id,
-                    data={"status": FileStatus.INDEXED, "error_message": None, **chunk_stats},
-                )
-                # 返回更新后的文件信息
-                updated_file_meta = file_meta.copy()
-                updated_file_meta["status"] = FileStatus.INDEXED
-                updated_file_meta.update(chunk_stats)
-                updated_file_meta["file_id"] = file_id
-                processed_items_info.append(updated_file_meta)
-
-            except Exception as e:
-                logger.error(f"更新file {file_path} 失败: {e}, {traceback.format_exc()}")
-                await KnowledgeFileRepository().update_fields(
-                    file_id=file_id,
-                    kb_id=kb_id,
-                    data={"status": FileStatus.ERROR_INDEXING, "error_message": str(e)},
-                )
-
-                # 返回失败的文件信息
-                failed_file_meta = file_meta.copy()
-                failed_file_meta["status"] = FileStatus.ERROR_INDEXING
-                failed_file_meta["error"] = str(e)
-                failed_file_meta["file_id"] = file_id
-                processed_items_info.append(failed_file_meta)
-
-        return processed_items_info
 
     def _build_chunk_from_hit(
         self,
@@ -2102,27 +2220,44 @@ class MilvusKB(KnowledgeBase):
         """执行 Parent-Child 子块检索、融合、重排和父块回读。"""
         del agent_call
         repository = KnowledgeParentChildChunkRepository()
-        active_version_ids = await repository.list_active_version_ids(kb_id)
-        if not active_version_ids:
+        active_storage_targets = await repository.list_active_storage_targets(kb_id)
+        if not active_storage_targets:
             return []
+        active_version_ids = [version_id for version_id, _dimension in active_storage_targets]
+        active_dimensions = {dimension for _version_id, dimension in active_storage_targets}
+        if len(active_dimensions) != 1:
+            raise ValueError("Parent-Child active versions use multiple embedding dimensions; re-slice before querying")
+        persisted_dimension = next(iter(active_dimensions))
         cache_scope = active_versions_fingerprint(active_version_ids)
         fingerprint = query_fingerprint(query_text, merged_kwargs)
         cached_results = await get_cached_query(kb_id, cache_scope, fingerprint)
         if cached_results is not None:
             return cached_results
+
         embedding_model_spec = config.embedding_model_spec
-        collection = await self._get_or_create_collection_for_config(
-            kb_id,
-            embedding_model_spec,
-            config.additional_params,
-        )
-        if collection is None:
-            raise ValueError(f"Parent-Child collection for {kb_id} is unavailable")
-        top_k_child = max(int(merged_kwargs.get("top_k_child", 30)), 1)
-        top_k_parent = max(int(merged_kwargs.get("top_k_parent", merged_kwargs.get("final_top_k", 10))), 1)
         search_mode = str(merged_kwargs.get("search_mode", "vector")).lower()
         if search_mode not in {"vector", "keyword", "hybrid"}:
             search_mode = "vector"
+        query_embedding = None
+        if search_mode in {"vector", "hybrid"}:
+            if not embedding_model_spec:
+                raise ValueError("Parent-Child vector query requires an embedding model")
+            embedding_function = self._get_embedding_function(embedding_model_spec, sync=True)
+            query_embedding = await _run_milvus_query_io(embedding_function, [query_text])
+            if len(query_embedding) != 1 or len(query_embedding[0]) != persisted_dimension:
+                raise ValueError(f"Parent-Child query embedding dimension mismatch: expected {persisted_dimension}")
+
+        sparse_enabled = (config.additional_params.get("embedding_features") or {}).get("bge_m3_sparse_enabled") is True
+        collection = await self._get_existing_child_collection_for_query(
+            persisted_dimension,
+            sparse_enabled=sparse_enabled,
+        )
+        if collection is None:
+            raise ValueError(
+                f"Parent-Child collection for {kb_id} with persisted dimension {persisted_dimension} is unavailable"
+            )
+        top_k_child = max(int(merged_kwargs.get("top_k_child", 30)), 1)
+        top_k_parent = max(int(merged_kwargs.get("top_k_parent", merged_kwargs.get("final_top_k", 10))), 1)
         expression = self._child_scope_expr(kb_id)
         escaped_versions = ", ".join(
             '"' + str(version_id).replace('"', '\\"') + '"' for version_id in active_version_ids
@@ -2147,10 +2282,6 @@ class MilvusKB(KnowledgeBase):
         bm25_candidates: list[dict[str, Any]] = []
 
         if search_mode in {"vector", "hybrid"}:
-            if not embedding_model_spec:
-                raise ValueError("Parent-Child vector query requires an embedding model")
-            embedding_function = self._get_embedding_function(embedding_model_spec, sync=True)
-            query_embedding = await _run_milvus_query_io(embedding_function, [query_text])
             dense_results = await _run_milvus_query_io(
                 collection.search,
                 data=query_embedding,
@@ -2764,23 +2895,86 @@ class MilvusKB(KnowledgeBase):
 
         return sorted(fused.values(), key=lambda item: item.get("fusion_score", 0.0), reverse=True)
 
-    async def delete_file_chunks_only(self, kb_id: str, file_id: str) -> None:
-        """仅删除文件的chunks数据，保留元数据（用于更新操作）"""
+    async def _assert_file_processing_owner(
+        self,
+        kb_id: str,
+        file_id: str,
+        *,
+        processing_task_id: str,
+        processing_owner: str,
+    ) -> None:
+        """在文件破坏性副作用前确认 Durable Task 仍持有有效 lease。"""
+        record = await KnowledgeFileRepository().update_fields_if_status(
+            kb_id=kb_id,
+            file_id=file_id,
+            allowed_statuses={FileStatus.INDEXING},
+            data={
+                "processing_task_id": processing_task_id,
+                "processing_owner": processing_owner,
+            },
+            processing_task_id=processing_task_id,
+            processing_owner=processing_owner,
+        )
+        if record is None:
+            raise asyncio.CancelledError("File processing owner was lost")
+
+    async def delete_file_chunks_only(
+        self,
+        kb_id: str,
+        file_id: str,
+        *,
+        processing_task_id: str | None = None,
+        processing_owner: str | None = None,
+    ) -> None:
+        """仅删除文件的 chunks 数据，保留元数据（用于更新操作）。"""
+        if (processing_task_id is None) != (processing_owner is None):
+            raise ValueError("processing_task_id 与 processing_owner 必须同时提供")
+
+        async def assert_owner() -> None:
+            if processing_task_id is not None and processing_owner is not None:
+                await self._assert_file_processing_owner(
+                    kb_id,
+                    file_id,
+                    processing_task_id=processing_task_id,
+                    processing_owner=processing_owner,
+                )
+
         chunk_repo = KnowledgeChunkRepository()
         from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 
+        await assert_owner()
         await MilvusGraphService().delete_file_graph(kb_id, file_id)
-        collection = self._get_existing_milvus_collection(kb_id)
+        await assert_owner()
+        collection = await self._get_existing_milvus_collection(kb_id)
 
         if collection:
+            await assert_owner()
             await self._delete_file_chunks_from_milvus(collection, file_id)
+            await assert_owner()
+        await assert_owner()
         await self._delete_file_child_chunks_from_all_collections(kb_id, file_id)
+        await assert_owner()
         await chunk_repo.delete_by_file_id(file_id)
-        await KnowledgeFileRepository().update_fields(
-            file_id=file_id,
-            kb_id=kb_id,
-            data={"chunk_count": 0, "token_count": 0},
-        )
+        await assert_owner()
+        await KnowledgeParentChildChunkRepository().delete_active_by_file_id(kb_id, file_id)
+        await assert_owner()
+        if processing_task_id is not None and processing_owner is not None:
+            record = await KnowledgeFileRepository().update_fields_if_status(
+                file_id=file_id,
+                kb_id=kb_id,
+                allowed_statuses={FileStatus.INDEXING},
+                data={"chunk_count": 0, "token_count": 0},
+                processing_task_id=processing_task_id,
+                processing_owner=processing_owner,
+            )
+            if record is None:
+                raise asyncio.CancelledError("File processing owner was lost")
+        else:
+            await KnowledgeFileRepository().update_fields(
+                file_id=file_id,
+                kb_id=kb_id,
+                data={"chunk_count": 0, "token_count": 0},
+            )
 
     async def delete_file(self, kb_id: str, file_id: str) -> None:
         """删除文件（包括元数据）"""

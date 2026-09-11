@@ -1,4 +1,5 @@
 import asyncio
+import math
 import os
 import time
 from abc import ABC, abstractmethod
@@ -8,7 +9,6 @@ from threading import Lock
 from typing import Any
 
 import httpx
-import numpy as np
 import requests
 
 from yuxi.models.providers.cache import model_cache
@@ -24,10 +24,6 @@ PRO_BGE_M3_MODEL_ID = "Pro/BAAI/bge-m3"
 REMOTE_BGE_M3_HYBRID_MODEL_IDS = {LOCAL_BGE_M3_MODEL_ID, PRO_BGE_M3_MODEL_ID}
 LOCAL_BGE_M3_DEFAULT_MODEL_PATH = "rag_qa/models/bge-m3"
 LOCAL_BGE_M3_MAX_LENGTH = 8192
-
-
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
 
 
 class BaseEmbeddingModel(ABC):
@@ -219,7 +215,7 @@ class OtherEmbedding(BaseEmbeddingModel):
                     numeric = float(value)
                 except (TypeError, ValueError) as exc:
                     raise ValueError("BGE-M3 sparse provider returned invalid sparse weights") from exc
-                if index < 0 or not np.isfinite(numeric):
+                if index < 0 or not math.isfinite(numeric):
                     raise ValueError("BGE-M3 sparse provider returned invalid sparse weights")
                 normalized[index] = numeric
             dense.append(item["embedding"])
@@ -572,7 +568,7 @@ class LocalBGEM3Embedding(BaseEmbeddingModel):
                 if index in special_token_ids:
                     continue
                 numeric = float(weight)
-                if not np.isfinite(numeric):
+                if not math.isfinite(numeric):
                     raise ValueError("BGE-M3 sparse 权重必须是有限数字")
                 if numeric <= 0.0:
                     continue
@@ -710,17 +706,3 @@ def select_embedding_model(model_id: str):
         dimension=info.dimension,
         batch_size=info.batch_size,
     )
-
-
-async def test_embedding_model_status_by_spec(spec: str) -> dict:
-    try:
-        model = select_embedding_model(spec)
-        success, message = await model.test_connection()
-        return {
-            "spec": spec,
-            "status": "available" if success else "unavailable",
-            "message": "连接正常" if success else message,
-        }
-    except Exception as e:
-        logger.warning(f"测试 Embedding 模型状态失败 {spec}: {e}")
-        return {"spec": spec, "status": "error", "message": str(e)}

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 import os
 import uuid
 from types import SimpleNamespace
@@ -17,12 +19,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yuxi.repositories import knowledge_chunk_repository as legacy_repo_module
 from yuxi.repositories import knowledge_graph_repository as graph_repo_module
 from yuxi.repositories import knowledge_parent_child_chunk_repository as parent_child_repo_module
+from yuxi.repositories import task_repository as task_repo_module
 from yuxi.knowledge.implementations import milvus as milvus_module
 from yuxi.knowledge.implementations.milvus import CHILD_KB_FIELD, MilvusKB
 from yuxi.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
 from yuxi.repositories.knowledge_graph_repository import KnowledgeGraphRepository
 from yuxi.repositories.knowledge_parent_child_chunk_repository import KnowledgeParentChildChunkRepository
 from yuxi.storage.postgres.manager import PostgresManager
+from yuxi.storage.postgres.models_business import TaskRecord
 from yuxi.storage.postgres.models_knowledge import (
     Base,
     KnowledgeBase,
@@ -34,6 +38,7 @@ from yuxi.storage.postgres.models_knowledge import (
     KnowledgeParentGraphEntityMention,
     KnowledgeParentGraphTripleMention,
 )
+from yuxi.utils.datetime_utils import utc_now_naive
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -71,7 +76,7 @@ async def parent_child_database(monkeypatch):
         scoped_engine = create_async_engine(
             os.environ["POSTGRES_URL"],
             pool_pre_ping=True,
-            connect_args={"server_settings": {"search_path": schema}},
+            connect_args={"server_settings": {"search_path": schema, "timezone": "Asia/Shanghai"}},
         )
         manager = object.__new__(PostgresManager)
         PostgresManager.__init__(manager)
@@ -81,6 +86,7 @@ async def parent_child_database(monkeypatch):
 
         async with scoped_engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            await connection.run_sync(TaskRecord.__table__.create)
         async with manager.get_async_session_context() as session:
             session.add(
                 KnowledgeBase(
@@ -95,6 +101,7 @@ async def parent_child_database(monkeypatch):
                     file_id=file_id,
                     kb_id=kb_id,
                     filename="document.md",
+                    status="indexing",
                     processing_params={"existing": "kept"},
                     is_folder=False,
                 )
@@ -103,6 +110,7 @@ async def parent_child_database(monkeypatch):
         monkeypatch.setattr(parent_child_repo_module, "pg_manager", manager)
         monkeypatch.setattr(legacy_repo_module, "pg_manager", manager)
         monkeypatch.setattr(graph_repo_module, "pg_manager", manager)
+        monkeypatch.setattr(task_repo_module, "pg_manager", manager)
         yield SimpleNamespace(
             manager=manager,
             repository=KnowledgeParentChildChunkRepository(),
@@ -225,6 +233,120 @@ async def _create_version(database, *, doc_id: str):
     )
 
 
+async def _activate_version(
+    database,
+    version_id: str,
+    *,
+    processing_task_id: str | None = None,
+    processing_owner: str | None = None,
+    chunk_count: int = 0,
+    token_count: int = 0,
+    updated_by: str | None = None,
+):
+    """使用真实 Task lease 与文件 owner 激活测试文档版本。"""
+    processing_task_id = processing_task_id or f"task_{uuid.uuid4().hex[:20]}"
+    processing_owner = processing_owner or f"owner_{uuid.uuid4().hex[:20]}"
+    await _create_running_task(
+        database,
+        task_id=processing_task_id,
+        owner=processing_owner,
+    )
+    await _set_file_processing_attempt(
+        database,
+        task_id=processing_task_id,
+        owner=processing_owner,
+    )
+    activated, _file_record = await database.repository.activate_version(
+        version_id,
+        processing_task_id=processing_task_id,
+        processing_owner=processing_owner,
+        chunk_count=chunk_count,
+        token_count=token_count,
+        updated_by=updated_by,
+    )
+    return activated
+
+
+async def _create_running_task(
+    database,
+    *,
+    task_id: str,
+    owner: str,
+    lease_expired: bool = False,
+) -> None:
+    """创建持有当前或已过期 lease 的真实 Durable Task。"""
+    now = utc_now_naive()
+    async with database.manager.get_async_session_context() as session:
+        session.add(
+            TaskRecord(
+                id=task_id,
+                name="Parent-Child owner fence",
+                type="knowledge_index",
+                status="running",
+                worker_id=owner,
+                heartbeat_at=now,
+                lease_expires_at=now + timedelta(minutes=-1 if lease_expired else 5),
+            )
+        )
+
+
+async def _set_file_processing_attempt(database, *, task_id: str, owner: str) -> None:
+    """将测试知识文件绑定到指定 Task attempt。"""
+    async with database.manager.get_async_session_context() as session:
+        await session.execute(
+            update(KnowledgeFile)
+            .where(KnowledgeFile.file_id == database.file_id)
+            .values(
+                status="indexing",
+                processing_task_id=task_id,
+                processing_owner=owner,
+            )
+        )
+
+
+async def _assert_activation_rejected_state(
+    database,
+    *,
+    active_version_id: str,
+    staging_version_id: str,
+    task_id: str,
+    owner: str,
+    chunk_count: int,
+    token_count: int,
+) -> None:
+    """从 PostgreSQL 回读并断言拒绝激活后的版本与文件事实。"""
+    async with database.engine.connect() as connection:
+        version_statuses = dict(
+            (
+                await connection.execute(
+                    select(KnowledgeDocumentVersion.version_id, KnowledgeDocumentVersion.status).where(
+                        KnowledgeDocumentVersion.version_id.in_([active_version_id, staging_version_id])
+                    )
+                )
+            ).all()
+        )
+        file_state = (
+            await connection.execute(
+                select(
+                    KnowledgeFile.status,
+                    KnowledgeFile.processing_task_id,
+                    KnowledgeFile.processing_owner,
+                    KnowledgeFile.processing_params,
+                    KnowledgeFile.chunk_count,
+                    KnowledgeFile.token_count,
+                ).where(KnowledgeFile.file_id == database.file_id)
+            )
+        ).one()
+
+    assert version_statuses == {active_version_id: "active", staging_version_id: "staging"}
+    assert file_state.status == "indexing"
+    assert file_state.processing_task_id == task_id
+    assert file_state.processing_owner == owner
+    assert file_state.processing_params["document_version_id"] == active_version_id
+    assert file_state.chunk_count == chunk_count
+    assert file_state.token_count == token_count
+
+
 async def test_parent_child_records_round_trip_and_legacy_chunks_remain_readable(parent_child_database) -> None:
     """父子记录可真实回读，且旧 knowledge_chunks 查询不受新表影响。"""
     database = parent_child_database
@@ -260,6 +382,92 @@ async def test_parent_child_records_round_trip_and_legacy_chunks_remain_readable
     assert [(record.chunk_id, record.content) for record in legacy_chunks] == [("legacy-chunk", "旧单层块")]
 
 
+@pytest.mark.parametrize("chunk_kind", ["parent", "child"])
+async def test_batch_insert_locks_file_before_version_without_deadlock(
+    parent_child_database,
+    monkeypatch,
+    chunk_kind: str,
+) -> None:
+    """文件锁与分块写入交错时保持 File -> Version 锁序并完成写入。"""
+    database = parent_child_database
+    version = await _create_version(database, doc_id=f"doc-lock-order-{chunk_kind}")
+    if chunk_kind == "child":
+        await database.repository.batch_insert_parent_chunks(version.version_id, [_parent("lock-parent")])
+
+    batch_pid_future = asyncio.get_running_loop().create_future()
+
+    @asynccontextmanager
+    async def tracked_session_context():
+        """记录 batch 事务的 PostgreSQL PID，供锁等待断言使用。"""
+        async with database.manager.get_async_session_context() as session:
+            if not batch_pid_future.done():
+                batch_pid_future.set_result(await session.scalar(text("SELECT pg_backend_pid()")))
+            yield session
+
+    monkeypatch.setattr(
+        parent_child_repo_module,
+        "pg_manager",
+        SimpleNamespace(get_async_session_context=tracked_session_context),
+    )
+
+    async def insert_chunks():
+        """执行参数指定的父块或子块 batch 写入。"""
+        if chunk_kind == "parent":
+            return await database.repository.batch_insert_parent_chunks(
+                version.version_id,
+                [_parent("lock-parent")],
+            )
+        return await database.repository.batch_insert_child_chunks(
+            version.version_id,
+            [_child("lock-child", "lock-parent")],
+        )
+
+    batch_task = None
+    try:
+        async with database.manager.get_async_session_context() as blocker:
+            await blocker.execute(text("SET LOCAL lock_timeout = '5s'"))
+            blocker_pid = await blocker.scalar(text("SELECT pg_backend_pid()"))
+            await blocker.scalar(
+                select(KnowledgeFile).where(KnowledgeFile.file_id == database.file_id).with_for_update()
+            )
+
+            batch_task = asyncio.create_task(insert_chunks())
+            batch_pid = await asyncio.wait_for(batch_pid_future, timeout=2)
+            async with database.engine.connect() as observer:
+                for _attempt in range(200):
+                    blocking_pids = await observer.scalar(
+                        text("SELECT pg_blocking_pids(:batch_pid)"),
+                        {"batch_pid": batch_pid},
+                    )
+                    if blocker_pid in (blocking_pids or []):
+                        break
+                    await asyncio.sleep(0.01)
+                else:
+                    pytest.fail("batch 事务未在预期的 KnowledgeFile 行锁上等待")
+
+            locked_version = await blocker.scalar(
+                select(KnowledgeDocumentVersion)
+                .where(KnowledgeDocumentVersion.version_id == version.version_id)
+                .with_for_update()
+            )
+            assert locked_version is not None
+
+        inserted = await asyncio.wait_for(batch_task, timeout=5)
+    finally:
+        if batch_task is not None and not batch_task.done():
+            batch_task.cancel()
+            await asyncio.gather(batch_task, return_exceptions=True)
+
+    if chunk_kind == "parent":
+        assert [record.parent_id for record in inserted] == ["lock-parent"]
+        persisted = await database.repository.list_parents_by_ids(["lock-parent"])
+        assert [record.parent_id for record in persisted] == ["lock-parent"]
+    else:
+        assert [record.child_id for record in inserted] == ["lock-child"]
+        persisted = await database.repository.list_children_by_ids(["lock-child"])
+        assert [record.child_id for record in persisted] == ["lock-child"]
+
+
 async def test_parent_child_file_counts_and_token_totals_follow_active_versions(parent_child_database) -> None:
     """按文件统计必须只看 active 版本，并保留父块顺序。"""
     database = parent_child_database
@@ -276,7 +484,7 @@ async def test_parent_child_file_counts_and_token_totals_follow_active_versions(
             _child("child-b-1", "parent-b", 2),
         ],
     )
-    await database.repository.activate_version(version.version_id)
+    await _activate_version(database, version.version_id)
 
     parents = await database.repository.list_parents_by_file_id(database.file_id)
     parents_by_ids = await database.repository.list_parents_by_file_ids([database.file_id])
@@ -294,7 +502,7 @@ async def test_activation_is_atomic_and_partial_unique_index_rejects_second_acti
     second = await _create_version(database, doc_id="doc-second")
     await database.repository.batch_insert_parent_chunks(first.version_id, [_parent("parent-first")])
     await database.repository.batch_insert_parent_chunks(second.version_id, [_parent("parent-second")])
-    await database.repository.activate_version(first.version_id)
+    await _activate_version(database, first.version_id)
 
     with pytest.raises(IntegrityError):
         async with database.engine.begin() as connection:
@@ -305,7 +513,7 @@ async def test_activation_is_atomic_and_partial_unique_index_rejects_second_acti
             )
 
     with pytest.raises(ValueError, match="不存在"):
-        await database.repository.activate_version("missing-version")
+        await _activate_version(database, "missing-version")
     active = await database.repository.get_active_version(database.kb_id, database.file_id)
     assert active is not None
     assert active.version_id == first.version_id
@@ -316,20 +524,184 @@ async def test_activation_is_atomic_and_partial_unique_index_rejects_second_acti
             [_child("cross-version-child", "parent-first")],
         )
 
-    activated = await database.repository.activate_version(second.version_id)
+    activated = await _activate_version(
+        database,
+        second.version_id,
+        chunk_count=1,
+        token_count=3,
+        updated_by="user-2",
+    )
     assert activated.status == "active"
     async with database.engine.connect() as connection:
         first_status = await connection.scalar(
             select(KnowledgeDocumentVersion.status).where(KnowledgeDocumentVersion.version_id == first.version_id)
         )
-        file_params = await connection.scalar(
-            select(KnowledgeFile.processing_params).where(KnowledgeFile.file_id == database.file_id)
-        )
+        file_state = (
+            await connection.execute(
+                select(
+                    KnowledgeFile.status,
+                    KnowledgeFile.processing_task_id,
+                    KnowledgeFile.processing_owner,
+                    KnowledgeFile.processing_params,
+                    KnowledgeFile.chunk_count,
+                    KnowledgeFile.token_count,
+                    KnowledgeFile.updated_by,
+                ).where(KnowledgeFile.file_id == database.file_id)
+            )
+        ).one()
     assert first_status == "superseded"
-    assert file_params["existing"] == "kept"
-    assert file_params["document_version_id"] == second.version_id
-    assert file_params["indexing_path"] == "parent_child"
-    assert file_params["doc_id"] == "doc-second"
+    assert file_state.status == "indexed"
+    assert file_state.processing_task_id is None
+    assert file_state.processing_owner is None
+    assert file_state.processing_params["existing"] == "kept"
+    assert file_state.processing_params["document_version_id"] == second.version_id
+    assert file_state.processing_params["indexing_path"] == "parent_child"
+    assert file_state.processing_params["doc_id"] == "doc-second"
+    assert file_state.chunk_count == 1
+    assert file_state.token_count == 3
+    assert file_state.updated_by == "user-2"
+
+
+async def test_activation_rejects_expired_task_lease_without_changing_active_version(parent_child_database) -> None:
+    """过期 Task lease 不能发布 staging 版本或改写文件 owner。"""
+    database = parent_child_database
+    active = await _create_version(database, doc_id="doc-active-before-expiry")
+    await _activate_version(database, active.version_id, chunk_count=2, token_count=7)
+    staging = await _create_version(database, doc_id="doc-expired-attempt")
+    task_id = f"task_{uuid.uuid4().hex[:20]}"
+    owner = f"owner_{uuid.uuid4().hex[:20]}"
+    await _create_running_task(database, task_id=task_id, owner=owner, lease_expired=True)
+    await _set_file_processing_attempt(database, task_id=task_id, owner=owner)
+
+    with pytest.raises(asyncio.CancelledError, match="Task lease was lost"):
+        await database.repository.activate_version(
+            staging.version_id,
+            processing_task_id=task_id,
+            processing_owner=owner,
+            chunk_count=9,
+            token_count=90,
+        )
+
+    await _assert_activation_rejected_state(
+        database,
+        active_version_id=active.version_id,
+        staging_version_id=staging.version_id,
+        task_id=task_id,
+        owner=owner,
+        chunk_count=2,
+        token_count=7,
+    )
+
+
+async def test_activation_rejects_stale_attempt_after_file_owner_changes(parent_child_database) -> None:
+    """文件切换到新 attempt 后，仍有效的旧 Task owner 也不能发布版本。"""
+    database = parent_child_database
+    active = await _create_version(database, doc_id="doc-active-before-owner-change")
+    await _activate_version(database, active.version_id, chunk_count=2, token_count=7)
+    staging = await _create_version(database, doc_id="doc-stale-attempt")
+    stale_task_id = f"task_{uuid.uuid4().hex[:20]}"
+    stale_owner = f"owner_{uuid.uuid4().hex[:20]}"
+    current_task_id = f"task_{uuid.uuid4().hex[:20]}"
+    current_owner = f"owner_{uuid.uuid4().hex[:20]}"
+    await _create_running_task(database, task_id=stale_task_id, owner=stale_owner)
+    await _create_running_task(database, task_id=current_task_id, owner=current_owner)
+    await _set_file_processing_attempt(database, task_id=current_task_id, owner=current_owner)
+
+    with pytest.raises(asyncio.CancelledError, match="File processing owner was lost"):
+        await database.repository.activate_version(
+            staging.version_id,
+            processing_task_id=stale_task_id,
+            processing_owner=stale_owner,
+            chunk_count=9,
+            token_count=90,
+        )
+
+    await _assert_activation_rejected_state(
+        database,
+        active_version_id=active.version_id,
+        staging_version_id=staging.version_id,
+        task_id=current_task_id,
+        owner=current_owner,
+        chunk_count=2,
+        token_count=7,
+    )
+
+
+async def test_activation_rolls_back_version_and_file_when_lease_expires_before_commit(
+    parent_child_database,
+    monkeypatch,
+) -> None:
+    """事务提交前 lease 失效时，版本与文件成功终态必须一起回滚。"""
+    database = parent_child_database
+    active = await _create_version(database, doc_id="doc-active-before-commit-fence")
+    await _activate_version(database, active.version_id, chunk_count=2, token_count=7)
+    staging = await _create_version(database, doc_id="doc-expired-before-commit")
+    task_id = f"task_{uuid.uuid4().hex[:20]}"
+    owner = f"owner_{uuid.uuid4().hex[:20]}"
+    await _create_running_task(database, task_id=task_id, owner=owner)
+    await _set_file_processing_attempt(database, task_id=task_id, owner=owner)
+
+    now = utc_now_naive()
+    observed_times = iter([now, now + timedelta(minutes=10)])
+
+    async def advancing_task_clock(_session, _explicit):
+        """让第二次 lease 检查观察到事务执行期间已过期。"""
+        return next(observed_times)
+
+    monkeypatch.setattr(
+        task_repo_module.TaskRepository,
+        "_current_time",
+        staticmethod(advancing_task_clock),
+    )
+
+    with pytest.raises(asyncio.CancelledError, match="Task lease was lost"):
+        await database.repository.activate_version(
+            staging.version_id,
+            processing_task_id=task_id,
+            processing_owner=owner,
+            chunk_count=9,
+            token_count=90,
+        )
+
+    await _assert_activation_rejected_state(
+        database,
+        active_version_id=active.version_id,
+        staging_version_id=staging.version_id,
+        task_id=task_id,
+        owner=owner,
+        chunk_count=2,
+        token_count=7,
+    )
+
+
+async def test_activation_timestamps_preserve_instants_in_non_utc_session(parent_child_database) -> None:
+    """激活时间在非 UTC 会话写入后仍表示数据库当前时刻。"""
+    database = parent_child_database
+    version = await _create_version(database, doc_id="doc-aware-clock")
+    async with database.engine.connect() as connection:
+        before_activation = await connection.scalar(text("SELECT clock_timestamp()"))
+
+    await _activate_version(database, version.version_id)
+
+    async with database.engine.connect() as connection:
+        after_activation = await connection.scalar(text("SELECT clock_timestamp()"))
+        await connection.execute(text("SET TIME ZONE 'UTC'"))
+        timestamps = (
+            await connection.execute(
+                text(
+                    "SELECT version.activated_at, version.updated_at AS version_updated_at, "
+                    "file.updated_at AS file_updated_at "
+                    "FROM knowledge_document_versions AS version "
+                    "JOIN knowledge_files AS file ON file.file_id = version.file_id "
+                    "WHERE version.version_id = :version_id"
+                ),
+                {"version_id": version.version_id},
+            )
+        ).one()
+
+    for persisted_at in timestamps:
+        assert persisted_at.tzinfo is not None
+        assert before_activation <= persisted_at <= after_activation
 
 
 async def test_graph_index_counts_exclude_superseded_parent_versions(parent_child_database) -> None:
@@ -339,8 +711,8 @@ async def test_graph_index_counts_exclude_superseded_parent_versions(parent_chil
     second = await _create_version(database, doc_id="doc-second")
     await database.repository.batch_insert_parent_chunks(first.version_id, [_parent("parent-first")])
     await database.repository.batch_insert_parent_chunks(second.version_id, [_parent("parent-second")])
-    await database.repository.activate_version(first.version_id)
-    await database.repository.activate_version(second.version_id)
+    await _activate_version(database, first.version_id)
+    await _activate_version(database, second.version_id)
 
     async with database.manager.get_async_session_context() as session:
         await session.execute(
@@ -362,14 +734,14 @@ async def test_failed_graph_samples_use_active_parent_chunks_and_recent_order(pa
         superseded.version_id,
         [_parent("parent-superseded")],
     )
-    await database.repository.activate_version(superseded.version_id)
+    await _activate_version(database, superseded.version_id)
 
     active = await _create_version(database, doc_id="doc-active")
     await database.repository.batch_insert_parent_chunks(
         active.version_id,
         [_parent("parent-old", 0), _parent("parent-new", 1)],
     )
-    await database.repository.activate_version(active.version_id)
+    await _activate_version(database, active.version_id)
 
     async with database.manager.get_async_session_context() as session:
         await session.execute(
@@ -410,8 +782,8 @@ async def test_parent_version_graph_reference_cleanup_preserves_shared_entity(pa
     second = await _create_version(database, doc_id="doc-second")
     await database.repository.batch_insert_parent_chunks(first.version_id, [_parent("parent-first")])
     await database.repository.batch_insert_parent_chunks(second.version_id, [_parent("parent-second")])
-    await database.repository.activate_version(first.version_id)
-    await database.repository.activate_version(second.version_id)
+    await _activate_version(database, first.version_id)
+    await _activate_version(database, second.version_id)
     graph_repo = KnowledgeGraphRepository()
 
     def entity(entity_id: str) -> dict:
@@ -525,8 +897,17 @@ async def test_parent_child_flow_commits_verified_version_and_rolls_back_failed_
         """返回与测试 collection 维度一致的确定性稠密向量。"""
         return [[0.01] * dimension for _ in texts]
 
+    async def start_attempt() -> tuple[str, str]:
+        """创建真实 Task lease，并让文件绑定到该 attempt。"""
+        task_id = f"task_{uuid.uuid4().hex[:20]}"
+        owner = f"owner_{uuid.uuid4().hex[:20]}"
+        await _create_running_task(database, task_id=task_id, owner=owner)
+        await _set_file_processing_attempt(database, task_id=task_id, owner=owner)
+        return task_id, owner
+
     params = _processing_params()
     try:
+        first_task_id, first_owner = await start_attempt()
         first_result = await kb._index_parent_child_file(
             kb_id=database.kb_id,
             file_id=database.file_id,
@@ -534,6 +915,8 @@ async def test_parent_child_flow_commits_verified_version_and_rolls_back_failed_
             params=params,
             embedding_model_spec="provider:test-embedding",
             embedding_function=embed,
+            processing_task_id=first_task_id,
+            processing_owner=first_owner,
             markdown_content="完整父块正文",
         )
         assert first_result["status"] == "indexed"
@@ -549,6 +932,7 @@ async def test_parent_child_flow_commits_verified_version_and_rolls_back_failed_
             (f"child_{first_active.version_id}", first_active.version_id)
         ]
 
+        second_task_id, second_owner = await start_attempt()
         second_result = await kb._index_parent_child_file(
             kb_id=database.kb_id,
             file_id=database.file_id,
@@ -556,6 +940,8 @@ async def test_parent_child_flow_commits_verified_version_and_rolls_back_failed_
             params=params,
             embedding_model_spec="provider:test-embedding",
             embedding_function=embed,
+            processing_task_id=second_task_id,
+            processing_owner=second_owner,
             markdown_content="替换父块正文",
         )
         assert second_result["status"] == "indexed"
@@ -577,6 +963,7 @@ async def test_parent_child_flow_commits_verified_version_and_rolls_back_failed_
 
         proxy = _ReadBackFailureCollection(collection)
         monkeypatch.setattr(kb, "_get_or_create_child_collection", lambda *_args, **_kwargs: _async_value(proxy))
+        failed_task_id, failed_owner = await start_attempt()
         with pytest.raises(RuntimeError, match="read back"):
             await kb._index_parent_child_file(
                 kb_id=database.kb_id,
@@ -585,6 +972,8 @@ async def test_parent_child_flow_commits_verified_version_and_rolls_back_failed_
                 params=params,
                 embedding_model_spec="provider:test-embedding",
                 embedding_function=embed,
+                processing_task_id=failed_task_id,
+                processing_owner=failed_owner,
                 markdown_content="替换父块正文",
             )
 
@@ -629,7 +1018,7 @@ async def test_version_file_and_knowledge_base_deletes_cascade_parent_child_reco
         active.version_id,
         [_child("child-active", "parent-active")],
     )
-    await database.repository.activate_version(active.version_id)
+    await _activate_version(database, active.version_id)
     with pytest.raises(ValueError, match="active"):
         await database.repository.delete_version(active.version_id)
 

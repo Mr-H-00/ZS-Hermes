@@ -34,6 +34,8 @@ def test_discovery_endpoint_is_public(monkeypatch):
 
 
 def test_lite_discovery_does_not_advertise_unregistered_knowledge_routes(monkeypatch):
+    """LITE discovery 不得宣告未注册的知识能力。"""
+
     monkeypatch.setenv("LITE_MODE", "true")
     app = FastAPI()
     app.include_router(system, prefix="/api")

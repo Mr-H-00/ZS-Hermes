@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Iterator
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
 
+from yuxi.repositories.task_repository import TaskRepository
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_knowledge import (
     KnowledgeChildChunk,
@@ -13,7 +15,7 @@ from yuxi.storage.postgres.models_knowledge import (
     KnowledgeFile,
     KnowledgeParentChunk,
 )
-from yuxi.utils.datetime_utils import utc_now_naive
+from yuxi.utils.datetime_utils import utc_now, utc_now_naive
 
 SQL_IN_BATCH_SIZE = 10_000
 
@@ -51,6 +53,42 @@ class KnowledgeParentChildChunkRepository:
         """按 PostgreSQL IN 查询上限切分标识列表。"""
         for index in range(0, len(items), batch_size):
             yield items[index : index + batch_size]
+
+    @staticmethod
+    async def _lock_staging_version_for_write(session, version_id: str) -> KnowledgeDocumentVersion:
+        """按 File -> Version 顺序锁定待写入的 staging 版本。"""
+        version_identity = (
+            await session.execute(
+                select(KnowledgeDocumentVersion.kb_id, KnowledgeDocumentVersion.file_id).where(
+                    KnowledgeDocumentVersion.version_id == version_id
+                )
+            )
+        ).one_or_none()
+        if version_identity is None:
+            raise ValueError("文档版本不存在")
+
+        kb_id, file_id = version_identity
+        file_record = await session.scalar(
+            select(KnowledgeFile)
+            .where(KnowledgeFile.kb_id == kb_id, KnowledgeFile.file_id == file_id)
+            .with_for_update()
+        )
+        if file_record is None:
+            raise ValueError("文档版本对应的知识文件不存在")
+
+        version = await session.scalar(
+            select(KnowledgeDocumentVersion)
+            .where(KnowledgeDocumentVersion.version_id == version_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if version is None:
+            raise ValueError("文档版本不存在")
+        if version.kb_id != kb_id or version.file_id != file_id:
+            raise ValueError("文档版本归属在加锁期间发生变化")
+        if version.status != "staging":
+            raise ValueError("只能向 staging 文档版本写入分块")
+        return version
 
     async def create_staging_version(
         self,
@@ -102,15 +140,7 @@ class KnowledgeParentChildChunkRepository:
             return []
 
         async with pg_manager.get_async_session_context() as session:
-            version = await session.scalar(
-                select(KnowledgeDocumentVersion)
-                .where(KnowledgeDocumentVersion.version_id == version_id)
-                .with_for_update()
-            )
-            if version is None:
-                raise ValueError("文档版本不存在")
-            if version.status != "staging":
-                raise ValueError("只能向 staging 文档版本写入父块")
+            version = await self._lock_staging_version_for_write(session, version_id)
 
             records = []
             for parent in parents:
@@ -139,15 +169,7 @@ class KnowledgeParentChildChunkRepository:
             return []
 
         async with pg_manager.get_async_session_context() as session:
-            version = await session.scalar(
-                select(KnowledgeDocumentVersion)
-                .where(KnowledgeDocumentVersion.version_id == version_id)
-                .with_for_update()
-            )
-            if version is None:
-                raise ValueError("文档版本不存在")
-            if version.status != "staging":
-                raise ValueError("只能向 staging 文档版本写入子块")
+            version = await self._lock_staging_version_for_write(session, version_id)
 
             parent_ids = list(dict.fromkeys(str(child["parent_id"]) for child in children))
             result = await session.execute(
@@ -200,6 +222,29 @@ class KnowledgeParentChildChunkRepository:
                 .order_by(KnowledgeDocumentVersion.version_id.asc())
             )
             return [str(version_id) for version_id in result.scalars().all()]
+
+    async def list_active_storage_targets(self, kb_id: str) -> list[tuple[str, int]]:
+        """读取 active 版本及其持久化的 Milvus collection 维度。"""
+        async with pg_manager.get_async_session_context() as session:
+            result = await session.execute(
+                select(
+                    KnowledgeDocumentVersion.version_id,
+                    KnowledgeDocumentVersion.embedding_dimension,
+                )
+                .where(
+                    KnowledgeDocumentVersion.kb_id == kb_id,
+                    KnowledgeDocumentVersion.status == "active",
+                )
+                .order_by(KnowledgeDocumentVersion.version_id.asc())
+            )
+            return [(str(version_id), int(dimension)) for version_id, dimension in result.all()]
+
+    async def get_version(self, version_id: str) -> KnowledgeDocumentVersion | None:
+        """按版本标识读取 Parent-Child 持久化版本事实。"""
+        async with pg_manager.get_async_session_context() as session:
+            return await session.scalar(
+                select(KnowledgeDocumentVersion).where(KnowledgeDocumentVersion.version_id == version_id)
+            )
 
     async def count_by_kb_id(self, kb_id: str) -> int:
         """统计知识库中的 ParentChunk 数量。"""
@@ -498,62 +543,126 @@ class KnowledgeParentChildChunkRepository:
             )
             return int(result.rowcount or 0)
 
-    async def activate_version(self, version_id: str) -> KnowledgeDocumentVersion:
-        """原子切换 active 版本并同步知识文件的版本投影。"""
-        async with pg_manager.get_async_session_context() as session:
-            target_snapshot = await session.scalar(
-                select(KnowledgeDocumentVersion).where(KnowledgeDocumentVersion.version_id == version_id)
-            )
-            if target_snapshot is None:
-                raise ValueError("文档版本不存在")
+    async def activate_version(
+        self,
+        version_id: str,
+        *,
+        processing_task_id: str,
+        processing_owner: str,
+        chunk_count: int,
+        token_count: int,
+        updated_by: str | None = None,
+    ) -> tuple[KnowledgeDocumentVersion, KnowledgeFile]:
+        """在有效 Task lease 内原子发布版本与文件成功终态。"""
+        if not processing_task_id or not processing_owner:
+            raise ValueError("processing_task_id 与 processing_owner 不能为空")
 
-            file_record = await session.scalar(
-                select(KnowledgeFile)
-                .where(
-                    KnowledgeFile.kb_id == target_snapshot.kb_id,
-                    KnowledgeFile.file_id == target_snapshot.file_id,
-                )
-                .with_for_update()
-            )
-            if file_record is None:
-                raise ValueError("文档版本对应的知识文件不存在")
+        activation = None
 
-            target = await session.scalar(
-                select(KnowledgeDocumentVersion)
-                .where(KnowledgeDocumentVersion.version_id == version_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+        async def activate_in_owned_transaction(session, _task_record) -> None:
+            """在 Task owner 事务内执行文件版本发布。"""
+            nonlocal activation
+            activation = await self._activate_version_in_session(
+                session,
+                version_id,
+                processing_task_id=processing_task_id,
+                processing_owner=processing_owner,
+                chunk_count=chunk_count,
+                token_count=token_count,
+                updated_by=updated_by,
             )
-            if target is None or target.status != "staging":
-                raise ValueError("只有 staging 文档版本可以激活")
 
-            now = utc_now_naive()
-            await session.execute(
-                update(KnowledgeDocumentVersion)
-                .where(
-                    KnowledgeDocumentVersion.kb_id == target.kb_id,
-                    KnowledgeDocumentVersion.file_id == target.file_id,
-                    KnowledgeDocumentVersion.status == "active",
-                )
-                .values(status="superseded", updated_at=now)
-            )
-            await session.flush()
+        owns_lease = await TaskRepository().run_owned_transaction(
+            processing_task_id,
+            worker_id=processing_owner,
+            operation=activate_in_owned_transaction,
+        )
+        if not owns_lease:
+            raise asyncio.CancelledError("Task lease was lost")
 
-            target.status = "active"
-            target.activated_at = now
-            target.updated_at = now
-            processing_params = dict(file_record.processing_params or {})
-            processing_params.update(
-                {
-                    "document_version_id": target.version_id,
-                    "indexing_path": target.indexing_path,
-                    "doc_id": target.doc_id,
-                }
+        if activation is None:
+            raise asyncio.CancelledError("File processing owner was lost")
+        return activation
+
+    @staticmethod
+    async def _activate_version_in_session(
+        session,
+        version_id: str,
+        *,
+        processing_task_id: str,
+        processing_owner: str,
+        chunk_count: int,
+        token_count: int,
+        updated_by: str | None,
+    ) -> tuple[KnowledgeDocumentVersion, KnowledgeFile] | None:
+        """在调用方事务内校验 owner 并发布版本及文件终态。"""
+        target_snapshot = await session.scalar(
+            select(KnowledgeDocumentVersion).where(KnowledgeDocumentVersion.version_id == version_id)
+        )
+        if target_snapshot is None:
+            raise ValueError("文档版本不存在")
+
+        file_record = await session.scalar(
+            select(KnowledgeFile)
+            .where(
+                KnowledgeFile.kb_id == target_snapshot.kb_id,
+                KnowledgeFile.file_id == target_snapshot.file_id,
             )
-            file_record.processing_params = processing_params
-            file_record.updated_at = now
-            await session.flush()
-            return target
+            .with_for_update()
+        )
+        if file_record is None:
+            raise ValueError("文档版本对应的知识文件不存在")
+        if (
+            file_record.status != "indexing"
+            or file_record.processing_task_id != processing_task_id
+            or file_record.processing_owner != processing_owner
+        ):
+            return None
+
+        target = await session.scalar(
+            select(KnowledgeDocumentVersion)
+            .where(KnowledgeDocumentVersion.version_id == version_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if target is None or target.status != "staging":
+            raise ValueError("只有 staging 文档版本可以激活")
+
+        now = utc_now()
+        await session.execute(
+            update(KnowledgeDocumentVersion)
+            .where(
+                KnowledgeDocumentVersion.kb_id == target.kb_id,
+                KnowledgeDocumentVersion.file_id == target.file_id,
+                KnowledgeDocumentVersion.status == "active",
+            )
+            .values(status="superseded", updated_at=now)
+        )
+        await session.flush()
+
+        target.status = "active"
+        target.activated_at = now
+        target.updated_at = now
+        processing_params = dict(file_record.processing_params or {})
+        processing_params.update(
+            {
+                "document_version_id": target.version_id,
+                "indexing_path": target.indexing_path,
+                "doc_id": target.doc_id,
+            }
+        )
+        file_record.processing_params = processing_params
+        file_record.status = "indexed"
+        file_record.error_message = None
+        file_record.chunk_count = chunk_count
+        file_record.token_count = token_count
+        file_record.processing_task_id = None
+        file_record.processing_owner = None
+        if updated_by:
+            file_record.updated_by = updated_by
+        file_record.updated_at = now
+        await session.flush()
+        return target, file_record
 
     async def delete_version(self, version_id: str) -> bool:
         """删除 staging 或 superseded 版本及其级联父子块。"""

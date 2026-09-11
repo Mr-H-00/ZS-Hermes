@@ -139,14 +139,19 @@ async def test_preload_rejects_symlinked_source_ancestor(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_lite_mode_excludes_knowledge_base_from_preload(tmp_path, monkeypatch):
+async def test_lite_mode_excludes_persisted_knowledge_base_from_preload(tmp_path, monkeypatch):
+    """LITE 运行时必须过滤数据库残留的 knowledge-base Skill。"""
+
     item = _skill(tmp_path, "knowledge-base")
 
     async def fake_list_accessible_skills(_db, _user):
+        """返回一个模拟的历史知识 Skill 记录。"""
+
         return [item]
 
     monkeypatch.setattr(skill_runtime, "list_accessible_skills", fake_list_accessible_skills)
     monkeypatch.setattr(skill_runtime, "lite_mode_enabled", lambda: True)
+
     scope = await resolve_runtime_skills_for_context(
         SimpleNamespace(skills=["knowledge-base"], preload_skills=["knowledge-base"]),
         db=object(),
