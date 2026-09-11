@@ -88,5 +88,5 @@ web/src/utils/__tests__/
 .pnpm-store/
 
 
-./rag_qa/models
+/rag_qa/models/
 Yuxi-0.7.3/
