@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="520" viewBox="0 0 1400 520" role="img" aria-labelledby="title desc">
+  <title id="title">Yuxi Workdir and sandbox boundary</title>
+  <desc id="desc">Project workdir data is owned by UserWorkspace while shared skills are a separate read-only projection into a dynamic sandbox runtime.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#52616b"/></marker>
+    <style>
+      .title { font: 700 30px Arial, sans-serif; fill: #17212b; } .subtitle { font: 16px Arial, sans-serif; fill: #52616b; }
+      .group { fill: #f7f9fb; stroke: #b9c5cf; stroke-width: 1.5; } .group-title { font: 700 18px Arial, sans-serif; fill: #33414d; }
+      .box { fill: #fff; stroke: #71808c; stroke-width: 1.5; } .data { fill: #eef8ed; stroke: #4d8d5d; } .run { fill: #fff0f1; stroke: #b85262; } .tool { fill: #e8f4ff; stroke: #3979ad; }
+      .head { font: 700 15px Arial, sans-serif; fill: #17212b; } .text { font: 13px Arial, sans-serif; fill: #43515e; } .line { fill: none; stroke: #52616b; stroke-width: 1.7; marker-end: url(#arrow); } .label { font: 12px Arial, sans-serif; fill: #3f4e5a; }
+    </style>
+  </defs>
+  <rect width="1400" height="520" fill="#fff"/>
+  <text x="50" y="54" class="title">Workdir 与 Sandbox 边界</text>
+  <text x="50" y="82" class="subtitle">Workdir 是持久文件事实；共享 Skill projection 与个人 Skill 的 Owner 不同。</text>
+  <rect x="48" y="112" width="520" height="320" rx="8" class="group"/>
+  <text x="68" y="144" class="group-title">持久化 UserWorkspace</text>
+  <rect x="82" y="184" width="190" height="62" rx="6" class="box data"/>
+  <text x="177" y="208" text-anchor="middle" class="head">Project</text><text x="177" y="227" text-anchor="middle" class="text">project_id + workdir_path</text>
+  <rect x="320" y="184" width="205" height="62" rx="6" class="box data"/>
+  <text x="422" y="208" text-anchor="middle" class="head">UserWorkspace</text><text x="422" y="227" text-anchor="middle" class="text">uid 根 + no-follow 文件访问</text>
+  <rect x="82" y="292" width="190" height="72" rx="6" class="box data"/>
+  <text x="177" y="317" text-anchor="middle" class="head">Project Workdir</text><text x="177" y="336" text-anchor="middle" class="text">持久文件、附件、Artifact</text><text x="177" y="354" text-anchor="middle" class="text">当前工作目录视图</text>
+  <rect x="320" y="292" width="205" height="72" rx="6" class="box data"/>
+  <text x="422" y="317" text-anchor="middle" class="head">个人 Skill</text><text x="422" y="336" text-anchor="middle" class="text">agents/skills/&lt;slug&gt;</text><text x="422" y="354" text-anchor="middle" class="text">位于 UserWorkspace</text>
+  <path d="M272 215 H320" class="line"/><path d="M422 246 V292 H272" class="line"/>
+  <path d="M422 246 V292" class="line"/>
+
+  <rect x="616" y="112" width="736" height="320" rx="8" class="group"/>
+  <text x="636" y="144" class="group-title">动态隔离 Runtime</text>
+  <rect x="650" y="184" width="188" height="62" rx="6" class="box tool"/>
+  <text x="744" y="208" text-anchor="middle" class="head">Sandbox backend</text><text x="744" y="227" text-anchor="middle" class="text">虚拟路径与边界转换</text>
+  <rect x="886" y="184" width="188" height="62" rx="6" class="box run"/>
+  <text x="980" y="208" text-anchor="middle" class="head">provisioner</text><text x="980" y="227" text-anchor="middle" class="text">identity / lifecycle</text>
+  <rect x="1122" y="184" width="188" height="62" rx="6" class="box run"/>
+  <text x="1216" y="208" text-anchor="middle" class="head">Runtime</text><text x="1216" y="227" text-anchor="middle" class="text">Docker container / Pod</text>
+  <rect x="886" y="292" width="188" height="72" rx="6" class="box run"/>
+  <text x="980" y="317" text-anchor="middle" class="head">/home/gem/user-data</text><text x="980" y="336" text-anchor="middle" class="text">当前用户整个 Workspace</text><text x="980" y="354" text-anchor="middle" class="text">rw</text>
+  <rect x="1122" y="292" width="188" height="72" rx="6" class="box run"/>
+  <text x="1216" y="317" text-anchor="middle" class="head">/home/gem/skills</text><text x="1216" y="336" text-anchor="middle" class="text">skill-projections/&lt;uid&gt;</text><text x="1216" y="354" text-anchor="middle" class="text">ro</text>
+  <path d="M838 215 H886" class="line"/><path d="M1074 215 H1122" class="line"/><path d="M1216 246 V292 H1074" class="line"/><path d="M1216 246 V292" class="line"/>
+  <path d="M272 328 H886" class="line"/><text x="568" y="318" class="label">Workdir 映射为 runtime user-data 路径</text>
+  <rect x="650" y="394" width="660" height="22" fill="#fff" stroke="none"/>
+  <text x="650" y="412" class="label">runtime_scope_id 绑定一棵顶层执行树；Run 终态清理 Runtime 进程，但保留 UserWorkspace 的 Workdir 文件。</text>
+</svg>

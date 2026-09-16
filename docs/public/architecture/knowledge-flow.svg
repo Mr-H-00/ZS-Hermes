@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760" role="img" aria-labelledby="title desc">
+  <title id="title">Yuxi knowledge ingestion, retrieval, and graph task flow</title>
+  <desc id="desc">Document ingestion is distinct from the optional graph indexing durable task; agent access is mediated by the knowledge-base skill.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#52616b"/></marker>
+    <style>
+      .title { font: 700 30px Arial, sans-serif; fill: #17212b; } .subtitle { font: 16px Arial, sans-serif; fill: #52616b; }
+      .group { fill: #f7f9fb; stroke: #b9c5cf; stroke-width: 1.5; } .group-title { font: 700 18px Arial, sans-serif; fill: #33414d; }
+      .box { fill: #fff; stroke: #71808c; stroke-width: 1.5; } .db { fill: #eef8ed; stroke: #4d8d5d; } .queue { fill: #fff4df; stroke: #b7791f; } .knowledge { fill: #f6edff; stroke: #8057a0; } .agent { fill: #e8f4ff; stroke: #3979ad; }
+      .head { font: 700 15px Arial, sans-serif; fill: #17212b; } .text { font: 13px Arial, sans-serif; fill: #43515e; } .line { fill: none; stroke: #52616b; stroke-width: 1.7; marker-end: url(#arrow); } .label { font: 12px Arial, sans-serif; fill: #3f4e5a; }
+    </style>
+  </defs>
+  <rect width="1400" height="760" fill="#fff"/>
+  <text x="50" y="54" class="title">知识库导入、检索与图谱任务</text>
+  <text x="50" y="82" class="subtitle">文件索引与图谱构建是不同 Durable Task；知识访问从权限交集和工具校验开始。</text>
+  <rect x="48" y="112" width="1304" height="290" rx="8" class="group"/>
+  <text x="68" y="144" class="group-title">文件导入与检索索引</text>
+  <rect x="76" y="180" width="140" height="56" rx="6" class="box"/>
+  <text x="146" y="204" text-anchor="middle" class="head">管理者上传</text><text x="146" y="222" text-anchor="middle" class="text">manage 权限</text>
+  <rect x="256" y="180" width="165" height="56" rx="6" class="box agent"/>
+  <text x="338" y="204" text-anchor="middle" class="head">知识库 API</text><text x="338" y="222" text-anchor="middle" class="text">认证、文件状态</text>
+  <rect x="461" y="158" width="190" height="100" rx="6" class="box db"/>
+  <text x="556" y="184" text-anchor="middle" class="head">PostgreSQL</text><text x="556" y="204" text-anchor="middle" class="text">KnowledgeFile / Task / lease</text><text x="556" y="223" text-anchor="middle" class="text">chunk / active version</text>
+  <rect x="691" y="180" width="155" height="56" rx="6" class="box queue"/>
+  <text x="768" y="204" text-anchor="middle" class="head">Redis / ARQ</text><text x="768" y="222" text-anchor="middle" class="text">publisher 投递</text>
+  <rect x="886" y="180" width="160" height="56" rx="6" class="box agent"/>
+  <text x="966" y="204" text-anchor="middle" class="head">worker</text><text x="966" y="222" text-anchor="middle" class="text">claim + heartbeat</text>
+  <rect x="1086" y="158" width="220" height="100" rx="6" class="box knowledge"/>
+  <text x="1196" y="184" text-anchor="middle" class="head">KnowledgeBaseManager</text><text x="1196" y="204" text-anchor="middle" class="text">parser / executor / owner 校验</text><text x="1196" y="223" text-anchor="middle" class="text">状态收敛与副作用</text>
+  <path d="M216 208 H256" class="line"/><path d="M421 208 H461" class="line"/><path d="M651 208 H691" class="line"/><path d="M846 208 H886" class="line"/><path d="M1046 208 H1086" class="line"/>
+  <rect x="215" y="302" width="180" height="56" rx="6" class="box db"/>
+  <text x="305" y="326" text-anchor="middle" class="head">MinIO</text><text x="305" y="344" text-anchor="middle" class="text">原文件、Markdown、图片</text>
+  <rect x="490" y="302" width="180" height="56" rx="6" class="box knowledge"/>
+  <text x="580" y="326" text-anchor="middle" class="head">Milvus + etcd</text><text x="580" y="344" text-anchor="middle" class="text">dense / sparse / hybrid</text>
+  <rect x="765" y="302" width="180" height="56" rx="6" class="box db"/>
+  <text x="855" y="326" text-anchor="middle" class="head">PostgreSQL chunk</text><text x="855" y="344" text-anchor="middle" class="text">正文与版本事实</text>
+  <path d="M1196 258 V302 H395" class="line"/><path d="M1196 258 V302 H670" class="line"/><path d="M1196 258 V302 H945" class="line"/>
+
+  <rect x="48" y="434" width="790" height="272" rx="8" class="group"/>
+  <text x="68" y="466" class="group-title">可选图谱构建（独立 Durable Task）</text>
+  <rect x="84" y="510" width="190" height="62" rx="6" class="box db"/>
+  <text x="179" y="534" text-anchor="middle" class="head">graph 配置与 Task</text><text x="179" y="553" text-anchor="middle" class="text">PostgreSQL 锁定与状态</text>
+  <rect x="326" y="510" width="170" height="62" rx="6" class="box queue"/>
+  <text x="411" y="534" text-anchor="middle" class="head">Redis / ARQ</text><text x="411" y="553" text-anchor="middle" class="text">knowledge_graph_index</text>
+  <rect x="548" y="510" width="160" height="62" rx="6" class="box agent"/>
+  <text x="628" y="534" text-anchor="middle" class="head">worker</text><text x="628" y="553" text-anchor="middle" class="text">独立 lease / heartbeat</text>
+  <rect x="326" y="612" width="170" height="58" rx="6" class="box knowledge"/>
+  <text x="411" y="636" text-anchor="middle" class="head">Neo4j</text><text x="411" y="654" text-anchor="middle" class="text">实体、关系投影</text>
+  <rect x="548" y="612" width="160" height="58" rx="6" class="box knowledge"/>
+  <text x="628" y="636" text-anchor="middle" class="head">Milvus 图向量</text><text x="628" y="654" text-anchor="middle" class="text">可重建检索投影</text>
+  <path d="M274 541 H326" class="line"/><path d="M496 541 H548" class="line"/><path d="M628 572 V612 H496" class="line"/><path d="M628 572 V612" class="line"/>
+  <text x="83" y="692" class="label">图谱 Task 不由每次 chunk 索引直接触发；它独立记录配置、lease、状态与外部投影。</text>
+
+  <rect x="874" y="434" width="478" height="272" rx="8" class="group"/>
+  <text x="894" y="466" class="group-title">Agent 检索与下载</text>
+  <rect x="910" y="510" width="160" height="62" rx="6" class="box agent"/>
+  <text x="990" y="534" text-anchor="middle" class="head">用户可见 KB</text><text x="990" y="553" text-anchor="middle" class="text">与 Agent 选择取交集</text>
+  <rect x="1110" y="510" width="190" height="62" rx="6" class="box agent"/>
+  <text x="1205" y="534" text-anchor="middle" class="head">knowledge-base Skill</text><text x="1205" y="553" text-anchor="middle" class="text">工具目标再次校验</text>
+  <rect x="1010" y="612" width="190" height="58" rx="6" class="box knowledge"/>
+  <text x="1105" y="636" text-anchor="middle" class="head">检索 / 原文件下载</text><text x="1105" y="654" text-anchor="middle" class="text">受权后才写当前 Workdir</text>
+  <path d="M1070 541 H1110" class="line"/><path d="M1205 572 V612 H1200" class="line"/>
+  <text x="900" y="692" class="label">知识库不挂载为 Sandbox 目录，Agent 不直接绕过工具边界读取 MinIO。</text>
+</svg>

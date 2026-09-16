@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="660" viewBox="0 0 1400 660" role="img" aria-labelledby="title desc">
+  <title id="title">Yuxi AgentRun request and execution flow</title>
+  <desc id="desc">The regular Request FIFO workflow and the separate resume workflow.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#52616b"/></marker>
+    <style>
+      .title { font: 700 30px Arial, sans-serif; fill: #17212b; } .subtitle { font: 16px Arial, sans-serif; fill: #52616b; }
+      .lane { fill: #f7f9fb; stroke: #b9c5cf; stroke-width: 1.5; } .lane-title { font: 700 18px Arial, sans-serif; fill: #33414d; }
+      .box { fill: #fff; stroke: #71808c; stroke-width: 1.5; } .db { fill: #eef8ed; stroke: #4d8d5d; } .queue { fill: #fff4df; stroke: #b7791f; } .run { fill: #e8f4ff; stroke: #3979ad; } .resume { fill: #f6edff; stroke: #8057a0; }
+      .head { font: 700 15px Arial, sans-serif; fill: #17212b; } .text { font: 13px Arial, sans-serif; fill: #43515e; } .line { fill: none; stroke: #52616b; stroke-width: 1.7; marker-end: url(#arrow); } .label { font: 12px Arial, sans-serif; fill: #3f4e5a; }
+    </style>
+  </defs>
+  <rect width="1400" height="660" fill="#fff"/>
+  <text x="50" y="54" class="title">AgentRun 请求与执行</text>
+  <text x="50" y="82" class="subtitle">普通消息按 Request/FIFO 派发；resume 从 checkpoint 建立新 Run，不进入普通 Request 队列。</text>
+  <rect x="48" y="112" width="1304" height="332" rx="8" class="lane"/>
+  <text x="68" y="143" class="lane-title">普通消息、附件与新会话</text>
+  <rect x="76" y="184" width="146" height="58" rx="6" class="box"/>
+  <text x="149" y="208" text-anchor="middle" class="head">Web / 客户端</text><text x="149" y="227" text-anchor="middle" class="text">POST /api/agent/runs</text>
+  <rect x="262" y="184" width="166" height="58" rx="6" class="box run"/>
+  <text x="345" y="208" text-anchor="middle" class="head">API 用例层</text><text x="345" y="227" text-anchor="middle" class="text">认证、权限、输入验证</text>
+  <rect x="468" y="166" width="222" height="94" rx="6" class="box db"/>
+  <text x="579" y="191" text-anchor="middle" class="head">PostgreSQL 事务</text><text x="579" y="211" text-anchor="middle" class="text">Message + AgentRunRequest</text><text x="579" y="230" text-anchor="middle" class="text">FIFO / 活跃 Run / 权限</text>
+  <rect x="730" y="184" width="166" height="58" rx="6" class="box queue"/>
+  <text x="813" y="208" text-anchor="middle" class="head">Redis / ARQ</text><text x="813" y="227" text-anchor="middle" class="text">提交后才发布</text>
+  <rect x="936" y="184" width="166" height="58" rx="6" class="box run"/>
+  <text x="1019" y="208" text-anchor="middle" class="head">worker</text><text x="1019" y="227" text-anchor="middle" class="text">claim attempt + lease</text>
+  <rect x="1142" y="166" width="178" height="94" rx="6" class="box run"/>
+  <text x="1231" y="191" text-anchor="middle" class="head">LangGraph Agent</text><text x="1231" y="211" text-anchor="middle" class="text">checkpoint / tools</text><text x="1231" y="230" text-anchor="middle" class="text">同 Run 结果与审计</text>
+  <path d="M222 213 H262" class="line"/><path d="M428 213 H468" class="line"/><path d="M690 213 H730" class="line"/><path d="M896 213 H936" class="line"/><path d="M1102 213 H1142" class="line"/>
+  <path d="M1231 260 V329 H579 V260" class="line"/>
+  <text x="774" y="320" class="label">写入 output_message_id、状态、阶段时间；heartbeat 续租或收敛终态</text>
+  <rect x="468" y="344" width="222" height="62" rx="6" class="box db"/>
+  <text x="579" y="369" text-anchor="middle" class="head">最终事实</text><text x="579" y="389" text-anchor="middle" class="text">同 run_id 的 assistant Message</text>
+  <rect x="730" y="344" width="166" height="62" rx="6" class="box queue"/>
+  <text x="813" y="369" text-anchor="middle" class="head">短期运行事件</text><text x="813" y="389" text-anchor="middle" class="text">Redis Stream / cancel</text>
+  <path d="M579 260 V344" class="line"/><path d="M1231 260 V375 H896" class="line"/>
+  <text x="940" y="365" class="label">SSE 仅实时观察；断线后回读 PostgreSQL</text>
+
+  <rect x="48" y="478" width="1304" height="132" rx="8" class="lane"/>
+  <text x="68" y="510" class="lane-title">resume（独立入口）</text>
+  <rect x="170" y="535" width="170" height="48" rx="6" class="box resume"/>
+  <text x="255" y="556" text-anchor="middle" class="head">resume API</text><text x="255" y="573" text-anchor="middle" class="text">对应 checkpoint</text>
+  <rect x="450" y="535" width="200" height="48" rx="6" class="box db"/>
+  <text x="550" y="556" text-anchor="middle" class="head">PostgreSQL checkpoint</text><text x="550" y="573" text-anchor="middle" class="text">恢复上下文</text>
+  <rect x="760" y="535" width="200" height="48" rx="6" class="box run"/>
+  <text x="860" y="556" text-anchor="middle" class="head">创建新的 AgentRun</text><text x="860" y="573" text-anchor="middle" class="text">不创建普通 Request</text>
+  <rect x="1070" y="535" width="150" height="48" rx="6" class="box run"/>
+  <text x="1145" y="556" text-anchor="middle" class="head">worker 执行</text><text x="1145" y="573" text-anchor="middle" class="text">lease + Graph</text>
+  <path d="M340 559 H450" class="line"/><path d="M650 559 H760" class="line"/><path d="M960 559 H1070" class="line"/>
+</svg>

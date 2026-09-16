@@ -15,6 +15,7 @@
 
 | 专题 | 回答的问题 | 配置/操作入口 |
 | --- | --- | --- |
+| [系统架构](./system-architecture.md) | Web、API、worker、存储、知识库和沙盒怎样组成一套运行拓扑？ | [项目概览](../intro/project-overview.md)、[`ARCHITECTURE.md`](https://github.com/xerrors/Yuxi/blob/main/ARCHITECTURE.md) |
 | [Agent 运行时上下文](./agent-runtime.md) | 配置、权限、文件和 checkpoint 怎样组成一次运行？ | [配置和开发智能体](../agents/agents-config.md) |
 | [沙盒与文件系统](./sandbox.md) | runtime identity、挂载、路径权限和回收怎样协作？ | [沙盒配置与运维](../agents/sandbox-architecture.md) |
 | [上下文压缩](./context-compression.md) | 单一阈值怎样控制工具结果压缩、摘要和主动压缩？ | [中间件](../agents/middleware.md)、[智能体配置](../agents/agents-config.md) |

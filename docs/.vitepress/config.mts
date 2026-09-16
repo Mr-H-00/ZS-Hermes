@@ -79,6 +79,7 @@ export default defineConfig({
         text: '机制详解',
         items: [
           { text: '阅读路径', link: '/mechanisms/' },
+          { text: '系统架构', link: '/mechanisms/system-architecture' },
           { text: 'Agent 运行时上下文', link: '/mechanisms/agent-runtime' },
           { text: '沙盒与文件系统', link: '/mechanisms/sandbox' },
           { text: '上下文压缩', link: '/mechanisms/context-compression' },
