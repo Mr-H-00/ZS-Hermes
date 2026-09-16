@@ -12,6 +12,9 @@ __pycache__/
 dist
 node_modules
 
+### VitePress本地临时文件
+docs/.vitepress/.temp/
+
 ### common gitignore
 .DS_Store
 .env
