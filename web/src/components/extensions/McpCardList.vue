@@ -203,7 +203,7 @@ const filteredDisabledServers = computed(() =>
 )
 
 const navigateToDetail = (server) => {
-  router.push({ path: `/extensions/mcp/${encodeURIComponent(server.slug)}` })
+  router.push({ path: `/capabilities/mcp/${encodeURIComponent(server.slug)}` })
 }
 
 const handleCardClick = (server) => {

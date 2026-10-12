@@ -831,7 +831,7 @@ const canManageSkill = (skill) => skill?.can_manage !== false
 const isSkillToggling = (slug) => togglingSkillSlugs.value.includes(slug)
 const navigateToDetail = (skill) => {
   if (skill?.sourceScope === 'personal') return
-  router.push({ path: `/extensions/skill/${encodeURIComponent(skill.slug)}` })
+  router.push({ path: `/capabilities/skill/${encodeURIComponent(skill.slug)}` })
 }
 
 const closeSkillPreview = () => {

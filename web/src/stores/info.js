@@ -23,9 +23,9 @@ export const useInfoStore = defineStore('info', () => {
   const organization = computed(
     () =>
       infoConfig.value.organization || {
-        name: '',
-        logo: '',
-        avatar: ''
+        name: '智枢',
+        logo: '/favicon.svg',
+        avatar: '/favicon.svg'
       }
   )
 
@@ -33,7 +33,7 @@ export const useInfoStore = defineStore('info', () => {
   const branding = computed(
     () =>
       infoConfig.value.branding || {
-        name: '',
+        name: '智枢',
         title: '',
         subtitle: '',
         subtitles: []

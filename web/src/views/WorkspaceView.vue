@@ -1,6 +1,6 @@
 <template>
   <div class="workspace-view layout-container">
-    <PageHeader title="个人空间" :loading="loadingTree || loadingPreview" :show-border="true">
+    <PageHeader title="网盘" :loading="loadingTree || loadingPreview" :show-border="true">
       <template #actions>
         <a-button class="lucide-icon-btn" @click="fileSearchOpen = true">
           <template #icon><Search :size="16" /></template>
@@ -30,7 +30,7 @@
       :modes="['file']"
       default-mode="file"
       :file-search="searchWorkspace"
-      file-placeholder="搜索个人空间文件..."
+      file-placeholder="搜索网盘文件..."
       @select-file="handleFileSearchSelect"
     />
 
@@ -39,7 +39,7 @@
         <button
           type="button"
           class="sidebar-collapse-action"
-          aria-label="收起个人空间侧边栏"
+          aria-label="收起网盘侧边栏"
           @click="sidebarCollapsed = true"
         >
           <ChevronLeft :size="16" />
@@ -64,7 +64,7 @@
         v-else
         type="button"
         class="sidebar-expand-action"
-        aria-label="展开个人空间侧边栏"
+        aria-label="展开网盘侧边栏"
         @click="sidebarCollapsed = false"
       >
         <ChevronRight :size="16" />
@@ -498,8 +498,8 @@ const loadWorkspaceEntries = async (path = '/') => {
       selectionMode.value = false
     }
   } catch (error) {
-    console.warn('加载个人空间目录失败:', error)
-    message.error('加载个人空间目录失败')
+    console.warn('加载网盘目录失败:', error)
+    message.error('加载网盘目录失败')
   } finally {
     loadingTree.value = false
   }
@@ -740,7 +740,7 @@ const handleSavePreviewFile = async (content) => {
     await loadWorkspaceEntries(currentPath.value)
     message.success('文件保存成功')
   } catch (error) {
-    console.warn('保存个人空间文件失败:', error)
+    console.warn('保存网盘文件失败:', error)
     message.error(error?.message || '文件保存失败')
   } finally {
     savingPreviewFile.value = false
@@ -854,7 +854,7 @@ const deleteEntries = async (targetEntries) => {
     await loadWorkspaceEntries(currentPath.value)
     message.success(paths.length > 1 ? '选中项删除成功' : '删除成功')
   } catch (error) {
-    console.warn('删除个人空间文件失败:', error)
+    console.warn('删除网盘文件失败:', error)
     message.error(error?.message || '删除失败')
     await loadWorkspaceEntries(currentPath.value)
   } finally {

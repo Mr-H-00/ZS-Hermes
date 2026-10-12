@@ -3,24 +3,23 @@
 
 # 组织信息
 organization:
-  name: "语析"               # 完整组织名称
+  name: "智枢"          # 通用系统名称
   logo: "/favicon.svg"       # Logo文件路径（放在 web/public 目录下）
   avatar: "/favicon.svg"      # 头像文件路径（放在 web/public 目录下）
   login_bg: "/login-bg.jpg"  # 登录背景图片路径（放在 web/public 目录下）
 
 # 项目信息
 branding:
-  name: "Yuxi"
-  title: "让团队知识可连接，让智能体可行动"     # 系统标题
-  subtitle: "知识库 × 知识图谱 × 智能体 Harness，开源且可私有部署"   # 副标题（subtitles 为空时使用）
+  name: "智枢"
+  title: "智枢"     # 系统标题
+  subtitle: "对话、知识与工具，让 AI 助你完成工作"   # 副标题（subtitles 为空时使用）
   subtitles:
-    - "知识与智能体真正协同，每个回答都可溯源"
-    - "从回答问题到交付任务，工具与沙盒一站完成"
-    - "多租户、权限与模型治理，面向团队而非 Demo"
-    - "Docker Compose 一键部署，数据不出你的内网"
+    - "自然对话，随时获取灵感与解答"
+    - "连接知识，让信息更容易被使用"
+    - "组合工具，让智能体协助完成工作"
 
 # 页脚信息
 footer:
-  copyright: "© 语析 2026 v{{YUXI_VERSION}}"
+  copyright: "© 智枢 2026 v{{YUXI_VERSION}}"
   user_agreement_url: "/protocols/user-agreement.template.html"
   privacy_policy_url: "/protocols/privacy-policy.template.html"

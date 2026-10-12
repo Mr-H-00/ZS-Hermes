@@ -53,7 +53,7 @@
         @click="$emit('select-personal')"
       >
         <FileTypeIcon is-dir folder-variant="personal" :size="16" />
-        <span>个人空间</span>
+        <span>网盘</span>
       </button>
     </section>
 

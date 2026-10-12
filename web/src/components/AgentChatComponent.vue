@@ -965,8 +965,8 @@ const steeringRequestIds = reactive(new Set())
 let sendCooldownTimer = null
 // 预设的打招呼文本
 const greetingMessages = [
-  '语析，析万物之语',
-  '语析，与知识对话',
+  '你好，今天有什么可以帮你？',
+  '与智枢智能体对话，让想法更进一步',
   '答案藏在知识里，我来找',
   '与知识对话，与答案相遇',
   '你负责提问，我负责寻找'

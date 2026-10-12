@@ -523,13 +523,13 @@ const navigateToConfigPage = (kind) => {
         router.push({ path: '/extensions', query: { tab: 'knowledge' } })
         break
       case 'tools':
-        router.push({ path: '/extensions', query: { tab: 'tools' } })
+        router.push({ path: '/capabilities', query: { tab: 'tools' } })
         break
       case 'mcps':
-        router.push({ path: '/extensions', query: { tab: 'mcp' } })
+        router.push({ path: '/capabilities', query: { tab: 'mcp' } })
         break
       case 'skills':
-        router.push({ path: '/extensions', query: { tab: 'skills' } })
+        router.push({ path: '/capabilities', query: { tab: 'skills' } })
         break
       case 'subagents':
         router.push({ path: '/agent-manage', query: { tab: 'agents' } })

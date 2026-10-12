@@ -3,20 +3,14 @@
     <PageHeader
       v-if="!isDetailPage"
       v-model:active-key="activeTab"
-      title="智能体扩展"
+      title="技能・工具・MCP"
       :tabs="extensionTabs"
       :loading="activeChildLoading"
       :show-border="true"
-      aria-label="智能体扩展视图切换"
+      aria-label="技能・工具・MCP视图切换"
     />
 
     <div v-if="!isDetailPage" class="extensions-content">
-      <div
-        v-if="knowledgeEnabled && userStore.isAdmin && activeTab === 'knowledge'"
-        class="tab-panel"
-      >
-        <DataBaseView ref="knowledgeRef" embedded />
-      </div>
       <div v-if="userStore.isAdmin && activeTab === 'tools'" class="tab-panel">
         <ToolsCardList ref="toolsRef" />
       </div>
@@ -33,42 +27,31 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { storeToRefs } from 'pinia'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ToolsCardList from '@/components/extensions/ToolsCardList.vue'
 import McpCardList from '@/components/extensions/McpCardList.vue'
 import SkillCardList from '@/components/extensions/SkillCardList.vue'
 import PageHeader from '@/components/shared/PageHeader.vue'
-import DataBaseView from '@/views/DataBaseView.vue'
-import { useRuntimeCapabilitiesStore } from '@/stores/runtimeCapabilities'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-const runtimeCapabilitiesStore = useRuntimeCapabilitiesStore()
-const { knowledgeEnabled } = storeToRefs(runtimeCapabilitiesStore)
 const activeTab = ref(null)
-const knowledgeRef = ref(null)
 const skillsRef = ref(null)
 const mcpRef = ref(null)
 const toolsRef = ref(null)
 
-const adminExtensionTabs = computed(() => [
-  ...(knowledgeEnabled.value ? [{ key: 'knowledge', label: '知识库' }] : []),
+const adminExtensionTabs = [
   { key: 'skills', label: '技能' },
   { key: 'tools', label: '工具' },
   { key: 'mcp', label: 'MCP' }
-])
+]
 const userExtensionTabs = [{ key: 'skills', label: '技能' }]
-const extensionTabs = computed(() =>
-  userStore.isAdmin ? adminExtensionTabs.value : userExtensionTabs
-)
+const extensionTabs = computed(() => (userStore.isAdmin ? adminExtensionTabs : userExtensionTabs))
 const allowedTabKeys = computed(() => extensionTabs.value.map((tab) => tab.key))
 const defaultTabKey = computed(() => extensionTabs.value[0]?.key || 'skills')
-
-onMounted(() => runtimeCapabilitiesStore.ensureLoaded())
 
 const normalizeTab = (tab) => {
   if (allowedTabKeys.value.includes(tab)) return tab
@@ -86,16 +69,11 @@ const replaceTabQuery = (tab) => {
 }
 
 const isDetailPage = computed(() => {
-  return (
-    route.path.startsWith('/extensions/knowledgebase/') ||
-    route.path.startsWith('/extensions/mcp/') ||
-    route.path.startsWith('/extensions/skill/')
-  )
+  return route.name === 'ExtensionMcpDetail' || route.name === 'ExtensionSkillDetail'
 })
 
 const activeChildLoading = computed(() => {
   const refMap = {
-    knowledge: knowledgeRef,
     tools: toolsRef,
     skills: skillsRef,
     mcp: mcpRef
@@ -105,7 +83,7 @@ const activeChildLoading = computed(() => {
 })
 
 watch(
-  () => [route.query.tab, userStore.isAdmin, knowledgeEnabled.value],
+  () => [route.query.tab, userStore.isAdmin],
   ([tab]) => {
     const nextTab = normalizeTab(tab)
     if (activeTab.value !== nextTab) activeTab.value = nextTab

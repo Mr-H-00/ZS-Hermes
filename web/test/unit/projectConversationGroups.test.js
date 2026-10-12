@@ -44,7 +44,11 @@ test('项目视图按项目顺序分组并把 implicit 对话放在最后', () =
   )
   assert.deepEqual(
     result.groups[0].conversations.map((conversation) => conversation.id),
-    ['project-a-pinned', 'project-a-old']
+    ['project-a-old']
+  )
+  assert.deepEqual(
+    result.pinnedConversations.map((conversation) => conversation.id),
+    ['project-a-pinned']
   )
   assert.deepEqual(
     result.otherConversations.map((conversation) => conversation.id),

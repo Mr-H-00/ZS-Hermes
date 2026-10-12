@@ -100,6 +100,30 @@ const router = createRouter({
       ]
     },
     {
+      path: '/schedules',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'SchedulesComp',
+          component: () => import('../views/ScheduleManageView.vue'),
+          meta: { keepAlive: false, requiresAuth: true }
+        }
+      ]
+    },
+    {
+      path: '/api-services',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'ApiServicesComp',
+          component: () => import('../views/ApiServicesView.vue'),
+          meta: { keepAlive: false, requiresAuth: true, requiresAdmin: true }
+        }
+      ]
+    },
+    {
       path: '/extensions',
       name: 'extensions',
       component: AppLayout,
@@ -107,10 +131,11 @@ const router = createRouter({
         {
           path: '',
           name: 'ExtensionsComp',
-          component: () => import('../views/ExtensionsView.vue'),
+          component: () => import('../views/ResourceCenterView.vue'),
           meta: {
             keepAlive: false,
-            requiresAuth: true
+            requiresAuth: true,
+            requiresKnowledge: true
           },
           children: [
             {
@@ -134,9 +159,24 @@ const router = createRouter({
                 requiresAdmin: true,
                 requiresKnowledge: true
               }
-            },
+            }
+          ]
+        }
+      ]
+    },
+    {
+      path: '/capabilities',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'CapabilitiesComp',
+          component: () => import('../views/ExtensionsView.vue'),
+          meta: { keepAlive: false, requiresAuth: true },
+          children: [
             {
               path: 'mcp/:slug',
+              alias: '/extensions/mcp/:slug',
               name: 'ExtensionMcpDetail',
               component: () => import('../components/extensions/McpDetailView.vue'),
               meta: {
@@ -147,6 +187,7 @@ const router = createRouter({
             },
             {
               path: 'skill/:slug',
+              alias: '/extensions/skill/:slug',
               name: 'ExtensionSkillDetail',
               component: () => import('../components/extensions/SkillDetailView.vue'),
               meta: {
@@ -169,6 +210,14 @@ const router = createRouter({
 
 // 全局前置守卫
 router.beforeEach(async (to) => {
+  // 已有分享链接仍指向旧标签；统一转到拥有该功能的独立页面。
+  if (to.path === '/agent-manage' && ['schedules', 'providers'].includes(to.query.tab)) {
+    const { tab, ...query } = to.query
+    return { path: tab === 'schedules' ? '/schedules' : '/api-services', query }
+  }
+  if (to.path === '/extensions' && ['skills', 'tools', 'mcp'].includes(to.query.tab)) {
+    return { path: '/capabilities', query: to.query }
+  }
   // 检查路由是否需要认证
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth === true)
   const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
@@ -234,7 +283,7 @@ router.beforeEach(async (to) => {
   }
 
   if (requiresKnowledge && !runtimeCapabilitiesStore.knowledgeEnabled) {
-    return { path: '/extensions', query: { tab: 'skills' } }
+    return '/capabilities'
   }
 
   // 如果用户已登录但访问登录页，按 redirect 参数跳转

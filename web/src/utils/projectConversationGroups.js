@@ -21,6 +21,7 @@ export const deriveProjectThreadStatus = (conversations) => {
 
 export const buildProjectConversationGroups = (projects, conversations) => {
   const sortedConversations = sortSidebarConversations(conversations)
+  const pinnedConversations = sortedConversations.filter((conversation) => conversation.is_pinned)
   const activeProjects = projects.filter(
     (project) => project.status !== 'deleted' && project.selection_status === 'selectable'
   )
@@ -31,17 +32,18 @@ export const buildProjectConversationGroups = (projects, conversations) => {
     const projectConversations = conversationsByProject.get(conversation.project_id)
     if (projectConversations) {
       projectConversations.push(conversation)
-    } else {
+    } else if (!conversation.is_pinned) {
       otherConversations.push(conversation)
     }
   })
 
   return {
+    pinnedConversations,
     groups: activeProjects.map((project) => {
       const projectConversations = conversationsByProject.get(project.id)
       return {
         project,
-        conversations: projectConversations,
+        conversations: projectConversations.filter((conversation) => !conversation.is_pinned),
         threadStatus: deriveProjectThreadStatus(projectConversations)
       }
     }),

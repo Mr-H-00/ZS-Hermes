@@ -251,7 +251,7 @@ const currentProjectHint = computed(() => {
   if (isAutoOrEmpty.value) {
     return props.allowAuto ? '不使用项目（发送时创建独立目录）' : '请选择任务使用的项目'
   }
-  if (currentProject.value?.directory_mode === 'linked') return '个人空间已有目录'
+  if (currentProject.value?.directory_mode === 'linked') return '网盘已有目录'
   return '系统管理目录'
 })
 const filteredProjects = computed(() => filterProjects(projects.value, projectQuery.value))

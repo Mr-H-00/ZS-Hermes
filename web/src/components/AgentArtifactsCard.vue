@@ -19,7 +19,7 @@
         </button>
         <button
           class="item-action-btn"
-          :title="isSaving(file.path) ? '保存中' : '保存到个人空间'"
+          :title="isSaving(file.path) ? '保存中' : '保存到网盘'"
           :disabled="isSaving(file.path)"
           @click.stop="saveToWorkspace(file)"
         >
@@ -161,12 +161,12 @@ const confirmSave = async () => {
       file.path,
       selectedDestination.value
     )
-    message.success(`已保存到个人空间：${result.saved_path}`)
+    message.success(`已保存到网盘：${result.saved_path}`)
     emit('saved', result)
     saveDialogOpen.value = false
     pendingSaveFile.value = null
   } catch (error) {
-    message.error(error?.message || '保存到个人空间失败')
+    message.error(error?.message || '保存到网盘失败')
   } finally {
     setSaving(file.path, false)
   }

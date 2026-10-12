@@ -1,14 +1,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, provide, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { GithubOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import {
   BarChart3,
   ClipboardList,
   LibraryBig,
+  Clock3,
+  Unplug,
+  Wrench,
   Box,
-  HardDrive,
   PanelLeft,
   PanelLeftOpen,
   MessageCirclePlus,
@@ -31,6 +32,7 @@ import TaskCenterDrawer from '@/components/TaskCenterDrawer.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
 import ConversationNavSection from '@/components/ConversationNavSection.vue'
 import GlobalSearchModal from '@/components/GlobalSearchModal.vue'
+import NetDiskIcon from '@/components/shared/NetDiskIcon.vue'
 import { searchWorkspaceFiles } from '@/apis/workspace_api'
 import { projectApi } from '@/apis/project_api'
 
@@ -49,10 +51,6 @@ const { knowledgeEnabled } = storeToRefs(runtimeCapabilitiesStore)
 const { projects, isLoading: projectsLoading, error: projectsError } = storeToRefs(projectsStore)
 const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, threadCreationInFlight } =
   storeToRefs(chatThreadsStore)
-
-// Add state for GitHub stars
-const githubStars = ref(0)
-const isLoadingStars = ref(false)
 
 // Add state for settings modal
 const showSettingsModal = ref(false)
@@ -86,21 +84,6 @@ const getRemoteDatabase = async () => {
   }
 }
 
-// Fetch GitHub stars count
-const fetchGithubStars = async () => {
-  try {
-    isLoadingStars.value = true
-    // 公共API，可以直接使用fetch
-    const response = await fetch('https://api.github.com/repos/xerrors/Yuxi')
-    const data = await response.json()
-    githubStars.value = data.stargazers_count
-  } catch (error) {
-    console.error('获取GitHub stars失败:', error)
-  } finally {
-    isLoadingStars.value = false
-  }
-}
-
 const handleGlobalKeydown = (e) => {
   // Ctrl+Shift+D or Cmd+Shift+D: Toggle Debug Modal for SuperAdmin
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
@@ -121,7 +104,6 @@ onMounted(() => {
   // 仅管理员加载任务中心数据
   if (userStore.isAdmin) {
     taskerStore.loadTasks()
-    fetchGithubStars() // Fetch GitHub stars on mount
   }
   startThreadStatusSync()
 })
@@ -159,14 +141,14 @@ const activeConversationThreadId = computed(() => {
   return route.path.startsWith('/agent') ? currentThreadId.value : null
 })
 const organizationName = computed(() => {
-  return infoStore.organization.name || infoStore.branding.name || 'Yuxi'
+  return infoStore.organization.name || infoStore.branding.name || '智枢'
 })
 
-// 下面是导航菜单部分，添加智能体项
+// 功能模块按侧栏顺序排列，角色与运行时能力决定入口可见性。
 const mainList = computed(() => {
   const items = [
     {
-      name: '新建对话',
+      name: '新对话',
       path: '/agent',
       icon: MessageCirclePlus,
       activeIcon: MessageCirclePlus,
@@ -176,30 +158,55 @@ const mainList = computed(() => {
   ]
 
   items.push({
-    name: '智能体',
+    name: '定时任务',
+    path: '/schedules',
+    icon: Clock3,
+    activeIcon: Clock3
+  })
+
+  items.push({
+    name: '网盘',
+    path: '/workspace',
+    icon: NetDiskIcon,
+    activeIcon: NetDiskIcon
+  })
+
+  if (knowledgeEnabled.value) {
+    items.push({
+      name: '知识库',
+      path: '/extensions',
+      icon: LibraryBig,
+      activeIcon: LibraryBig
+    })
+  }
+
+  items.push({
+    name: '智能体中心',
     path: '/agent-manage',
     icon: Box,
     activeIcon: Box
   })
 
   items.push({
-    name: '个人空间',
-    path: '/workspace',
-    icon: HardDrive,
-    activeIcon: HardDrive
+    name: '技能・工具・MCP',
+    path: '/capabilities',
+    activePaths: ['/capabilities', '/extensions/skill', '/extensions/mcp'],
+    icon: Wrench,
+    activeIcon: Wrench
   })
 
-  items.push({
-    name: knowledgeEnabled.value ? '知识库 · 技能' : '技能',
-    path: '/extensions',
-    activePaths: ['/extensions'],
-    icon: LibraryBig,
-    activeIcon: LibraryBig
-  })
+  if (userStore.isAdmin) {
+    items.push({
+      name: 'API服务',
+      path: '/api-services',
+      icon: Unplug,
+      activeIcon: Unplug
+    })
+  }
 
   if (userStore.isSuperAdmin) {
     items.push({
-      name: '数据总览',
+      name: '系统仪表盘',
       path: '/dashboard',
       icon: BarChart3,
       activeIcon: BarChart3
@@ -213,6 +220,9 @@ const primaryNavItem = computed(() => mainList.value[0] || null)
 const secondaryNavItems = computed(() => mainList.value.slice(1))
 
 const isNavItemActive = (item) => {
+  if (item.path === '/extensions') {
+    return route.path === '/extensions' || route.path.startsWith('/extensions/knowledgebase/')
+  }
   const activePaths = item.activePaths || [item.path]
   if (item.exactActive) {
     return activePaths.some((path) => route.path === path)
@@ -374,7 +384,7 @@ provide('settingsModal', {
     <div class="header">
       <div class="sidebar-brand" @click.stop>
         <router-link v-if="!sidebarCollapsed" to="/" class="brand-link">
-          <img :src="infoStore.organization.avatar" class="brand-avatar" />
+          <img :src="infoStore.organization.avatar" :alt="organizationName" class="brand-avatar" />
           <span class="brand-name">{{ organizationName }}</span>
         </router-link>
         <button
@@ -384,7 +394,11 @@ provide('settingsModal', {
           aria-label="展开侧边栏"
           @click="setSidebarCollapsed(false)"
         >
-          <img :src="infoStore.organization.avatar" class="brand-avatar brand-avatar-image" />
+          <img
+            :src="infoStore.organization.avatar"
+            :alt="organizationName"
+            class="brand-avatar brand-avatar-image"
+          />
           <PanelLeftOpen class="brand-expand-icon" size="20" />
         </button>
         <div v-if="!sidebarCollapsed" class="sidebar-header-actions" aria-label="侧边栏操作">
@@ -487,18 +501,6 @@ provide('settingsModal', {
         />
       </div>
       <div class="foo">
-        <div class="github nav-item" @click.stop>
-          <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
-            <template #title>欢迎 Star</template>
-            <a href="https://github.com/xerrors/Yuxi" target="_blank" class="github-link">
-              <GithubOutlined class="icon" />
-              <span class="nav-text">GitHub</span>
-              <span v-if="githubStars > 0" class="github-stars">
-                <span class="star-count">{{ (githubStars / 1000).toFixed(1) }}k</span>
-              </span>
-            </a>
-          </a-tooltip>
-        </div>
         <!-- 用户信息组件 -->
         <div class="nav-item user-info" @click.stop>
           <UserInfoComponent :show-role="!sidebarCollapsed">
@@ -539,7 +541,7 @@ provide('settingsModal', {
       default-mode="conversation"
       :recent-threads="threads"
       :file-search="searchWorkspace"
-      file-placeholder="搜索个人空间文件..."
+      file-placeholder="搜索网盘文件..."
       @select-thread="handleSearchSelectThread"
       @create-thread="handleCreateConversationFromSearch"
       @thread-found="handleSearchThreadFound"
@@ -636,7 +638,6 @@ div.header,
 
   .sidebar-brand,
   :deep(.conversation-nav-section:not(.sidebar-conversations)),
-  .github,
   .user-info {
     flex-shrink: 0;
   }
@@ -813,51 +814,6 @@ div.header,
       color: var(--gray-1000);
     }
 
-    &.github {
-      margin-bottom: 8px;
-      &:hover {
-        border-color: transparent;
-      }
-
-      .github-link {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        min-width: 0;
-        color: inherit;
-        text-decoration: none;
-      }
-
-      .icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: @sidebar-icon-size;
-        line-height: 1;
-      }
-
-      .github-stars {
-        display: flex;
-        align-items: center;
-        max-width: 48px;
-        margin-left: auto;
-        overflow: hidden;
-        font-size: 12px;
-        color: var(--gray-600);
-        background-color: var(--gray-100);
-        padding: 2px 8px;
-        border-radius: 6px;
-        white-space: nowrap;
-        transition:
-          opacity 0.12s ease,
-          max-width 0.18s ease;
-
-        .star-count {
-          font-weight: 600;
-        }
-      }
-    }
-
     &.api-docs {
       padding: 10px 12px;
     }
@@ -999,18 +955,11 @@ div.header,
       width: 100%;
       padding: 0 @sidebar-collapsed-icon-padding-x;
 
-      .nav-text,
-      .github-stars {
+      .nav-text {
         max-width: 0;
         margin-left: 0;
         opacity: 0;
         pointer-events: none;
-      }
-
-      &.github {
-        .github-link {
-          justify-content: flex-start;
-        }
       }
 
       &.user-info {

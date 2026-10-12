@@ -177,7 +177,7 @@
         </div>
       </div>
 
-      <!-- 个人空间文件选择区域 -->
+      <!-- 网盘文件选择区域 -->
       <div class="workspace-area" v-if="uploadMode === 'workspace'">
         <div class="workspace-import-summary">
           已选 {{ selectedWorkspacePaths.length }} 个文件 · 导入后不保留目录层级
@@ -585,7 +585,7 @@ const uploadModeOptions = computed(() => [
     value: 'workspace',
     label: h('div', { class: 'segmented-option' }, [
       h(FolderOpen, { size: 16, class: 'option-icon' }),
-      h('span', { class: 'option-text' }, '个人空间')
+      h('span', { class: 'option-text' }, '网盘')
     ])
   }
 ])
@@ -720,7 +720,7 @@ const removeUrl = (index) => {
   urlList.value.splice(index, 1)
 }
 
-// 个人空间文件选择
+// 网盘文件选择
 const workspaceLoading = ref(false)
 const selectedWorkspacePaths = ref([])
 const isWorkspaceFileSelectable = (entry) => isSupportedExtension(entry.name || entry.path)
@@ -1158,7 +1158,7 @@ const chunkData = async () => {
 
   if (uploadMode.value === 'workspace') {
     if (selectedWorkspacePaths.value.length === 0) {
-      message.error('请先选择个人空间文件')
+      message.error('请先选择网盘文件')
       return
     }
 
@@ -1167,7 +1167,7 @@ const chunkData = async () => {
       const res = await fileApi.importWorkspaceFiles(kbId.value, selectedWorkspacePaths.value)
       const importedItems = Array.isArray(res?.items) ? res.items : []
       if (importedItems.length === 0) {
-        message.error('个人空间文件导入失败')
+        message.error('网盘文件导入失败')
         return
       }
 
@@ -1210,8 +1210,8 @@ const chunkData = async () => {
       handleCancel()
       selectedWorkspacePaths.value = []
     } catch (error) {
-      console.error('个人空间文件导入失败:', error)
-      message.error('个人空间文件导入失败: ' + (error.message || '未知错误'))
+      console.error('网盘文件导入失败:', error)
+      message.error('网盘文件导入失败: ' + (error.message || '未知错误'))
     } finally {
       store.state.chunkLoading = false
     }

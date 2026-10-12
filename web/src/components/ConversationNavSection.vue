@@ -2,6 +2,32 @@
   <section class="conversation-nav-section" :class="{ collapsed }">
     <div v-if="showHistory && !collapsed" class="history-panel">
       <div class="conversation-list">
+        <section v-if="pinnedConversations.length" class="history-group pinned-history-group">
+          <button
+            type="button"
+            class="history-label"
+            :aria-expanded="pinnedExpanded"
+            @click="pinnedExpanded = !pinnedExpanded"
+          >
+            <span>置顶</span>
+            <ChevronDown :size="14" class="collapse-icon" :class="{ collapsed: !pinnedExpanded }" />
+          </button>
+          <CollapseTransition>
+            <div v-if="pinnedExpanded" class="pinned-list">
+              <ConversationNavItem
+                v-for="chat in pinnedConversations"
+                :key="chat.id"
+                :chat="chat"
+                :current-chat-id="currentChatId"
+                @select-chat="$emit('select-chat', $event)"
+                @delete-chat="$emit('delete-chat', $event)"
+                @rename-chat="$emit('rename-chat', $event)"
+                @toggle-pin="$emit('toggle-pin', $event)"
+              />
+            </div>
+          </CollapseTransition>
+        </section>
+
         <section
           v-if="projectsLoading || projectsError || projectGroups.length"
           class="history-group project-history-group"
@@ -178,7 +204,7 @@
 </template>
 
 <script setup>
-import { computed, h, ref } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   ChevronDown,
@@ -219,13 +245,23 @@ const emit = defineEmits([
   'retry-projects'
 ])
 const projectsExpanded = ref(true)
+const pinnedExpanded = ref(true)
 const recentExpanded = ref(true)
 const expandedProjects = ref(new Set())
 const groupedNavigation = computed(() =>
   buildProjectConversationGroups(props.projects, props.chatsList)
 )
 const projectGroups = computed(() => groupedNavigation.value.groups)
+const pinnedConversations = computed(() => groupedNavigation.value.pinnedConversations)
 const otherConversations = computed(() => groupedNavigation.value.otherConversations)
+
+// 新置顶的对话立即可见，保留用户在其他情况下手动折叠的选择。
+watch(
+  () => pinnedConversations.value.length,
+  (count, previousCount) => {
+    if (count > previousCount) pinnedExpanded.value = true
+  }
+)
 
 const isProjectExpanded = (projectId) => expandedProjects.value.has(projectId)
 const toggleProject = (projectId) => {
@@ -331,6 +367,7 @@ const confirmDeleteProject = (project) => {
   padding-right: 2px;
   scrollbar-width: thin;
 }
+.pinned-history-group,
 .project-history-group {
   margin-bottom: 16px;
 }
@@ -493,6 +530,7 @@ const confirmDeleteProject = (project) => {
 }
 @media (prefers-reduced-motion: reduce) {
   .project-list,
+  .pinned-list,
   .project-conversations,
   .recent-list,
   .collapse-icon {

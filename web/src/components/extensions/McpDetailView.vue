@@ -437,7 +437,7 @@ const filteredTools = computed(() => {
 })
 
 const goBack = () => {
-  router.push({ path: '/extensions', query: { tab: 'mcp' } })
+  router.push({ path: '/capabilities', query: { tab: 'mcp' } })
 }
 
 const formatTime = (timeStr) => formatFullDateTime(timeStr)
@@ -544,7 +544,7 @@ const fetchServer = async () => {
       if (result.data?.enabled === false && !result.data?.requires_migration) {
         server.value = null
         message.info('请先添加 MCP 后再查看详情')
-        router.replace({ path: '/extensions', query: { tab: 'mcp' } })
+        router.replace({ path: '/capabilities', query: { tab: 'mcp' } })
         return
       }
       server.value = result.data
@@ -666,7 +666,7 @@ const confirmDeleteServer = (srv) => {
         const result = await mcpApi.deleteMcpServer(srv.slug)
         if (result.success) {
           message.success('MCP 删除成功')
-          router.push({ path: '/extensions', query: { tab: 'mcp' } })
+          router.push({ path: '/capabilities', query: { tab: 'mcp' } })
         } else {
           message.error(result.message || '删除失败')
         }
