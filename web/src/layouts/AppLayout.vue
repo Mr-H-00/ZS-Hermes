@@ -173,7 +173,7 @@ const mainList = computed(() => {
 
   if (knowledgeEnabled.value) {
     items.push({
-      name: '知识库',
+      name: '知识库·图谱',
       path: '/extensions',
       icon: LibraryBig,
       activeIcon: LibraryBig
