@@ -1,6 +1,8 @@
-![Yuxi：可私有部署的多租户知识智能体平台](https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-151118-mac-1787037059154-8c08f48c.png)
+# 智枢
 
-Yuxi 是一个可私有部署的多租户知识智能体平台。它把知识库检索、知识图谱、LangGraph 多智能体编排、MCP/Skills、沙盒工具和权限管理放进同一个工作区。
+![智枢：可私有部署的多租户知识智能体平台](https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-151118-mac-1787037059154-8c08f48c.png)
+
+智枢是一个可私有部署的知识库与多智能体平台，面向需要自主管理数据、模型和权限的个人与团队。通过统一工作区完成知识检索、智能体对话、定时任务、文件管理与能力扩展，结合 LangGraph、MCP、Skills 和沙盒工具执行多步骤任务。
 
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=ffffff)](https://github.com/xerrors/Yuxi/blob/main/docker-compose.yml)
 [![Release](https://img.shields.io/github/v/release/xerrors/Yuxi?color=046A82)](https://github.com/xerrors/Yuxi/releases/latest)
@@ -12,9 +14,9 @@ Yuxi 是一个可私有部署的多租户知识智能体平台。它把知识库
 
 [项目主页](https://xerrors.github.io/Yuxi/) · [快速开始](https://xerrors.github.io/Yuxi/intro/quick-start) · [演示视频](https://www.bilibili.com/video/BV1erE26iEgv/) · [版本记录](https://github.com/xerrors/Yuxi/releases) · [English](README.en.md)
 
-## Yuxi 能做什么
+## 智枢能做什么
 
-Yuxi 面向需要自己掌握数据、模型和权限的团队：
+从资料入库到任务交付，智枢提供以下能力：
 
 - **构建知识问答**：上传文档，经过解析、分块和向量索引后，让智能体结合检索内容回答问题。
 - **执行多步骤任务**：组合工具、MCP、Skills、子智能体和沙盒，产出可预览、可下载的文件。
@@ -22,16 +24,32 @@ Yuxi 面向需要自己掌握数据、模型和权限的团队：
 - **管理团队使用范围**：按用户、部门和共享范围管理知识库、智能体、Skills 和模型。
 - **对比运行质量**：评估知识库的检索结果，也可以用 Langfuse Dataset 评估完整智能体任务。
 
+## 工作区导航
+
+| 入口 | 用途 |
+| --- | --- |
+| 新对话 | 发起智能体对话，引用知识、文件和技能 |
+| 定时任务 | 创建、调整和管理定时执行的智能体任务 |
+| 网盘 | 管理个人文件与项目目录，预览和下载任务产物 |
+| 知识库 | 管理资料、文档解析、检索配置和评估 |
+| 智能体中心 | 管理智能体与子智能体的模型、提示词及运行配置 |
+| 技能・工具・MCP | 管理技能、工具与 MCP 服务 |
+| API服务 | 配置模型供应商、接入凭据和可用模型 |
+| 系统仪表盘 | 查看会话、用户、智能体与工具使用统计 |
+
+侧栏会话按“置顶 → 项目 → 最近”分组。置顶会话集中显示在项目上方，取消置顶后回到原项目或最近列表。
+
+入口和操作随角色与运行时能力显示：普通用户可使用技能，知识库、工具、MCP 和 API服务的管理能力仅管理员可用，系统仪表盘仅超级管理员可访问。LITE 模式隐藏知识库入口。
+
 ## 技术栈
 
-
-| 层       | 技术                                            |
-| ---------- | ------------------------------------------------- |
-| 前端     | Vue 3 · Vite · Ant Design· G6                |
-| 后端     | FastAPI · LangGraph · ARQ worker              |
-| 存储     | PostgreSQL · Redis · MinIO · Milvus · Neo4j |
-| 文档处理 | MinerU · PaddleX · RapidOCR                   |
-| 部署     | Docker Compose                                  |
+| 层 | 技术 |
+| --- | --- |
+| 前端 | Vue 3 · Vite · Ant Design Vue · G6 |
+| 后端 | FastAPI · LangGraph · ARQ worker |
+| 存储 | PostgreSQL · Redis · MinIO · Milvus · Neo4j |
+| 文档处理 | MinerU · PaddleX · RapidOCR |
+| 部署 | Docker Compose |
 
 ## 快速启动
 
@@ -42,8 +60,8 @@ Yuxi 面向需要自己掌握数据、模型和权限的团队：
 ### 1. 获取代码并初始化
 
 ```bash
-git clone --branch v0.7.3 --depth 1 https://github.com/xerrors/Yuxi.git
-cd Yuxi
+git clone --branch main https://github.com/Mr-H-00/ZS-Hermes.git
+cd ZS-Hermes
 
 # Linux/macOS
 ./scripts/init.sh
@@ -54,14 +72,16 @@ cd Yuxi
 
 初始化脚本会创建 `.env`、读取 SiliconFlow API Key，并为 JWT、API Key 派生和 Sandbox provisioner 生成独立的安全密钥。也可以手动复制 `.env.template` 并填写这些值。
 
+以上命令获取 `ZS-Hermes` 仓库的 `main` 分支，默认克隆目录为 `ZS-Hermes`；产品展示名称为“智枢”。
+
 ### 2. 启动开发环境
 
 ```bash
 docker compose up --build -d
-或
-docker compose up -d
 docker compose logs -f api worker web storage-migrator
 ```
+
+已有可用镜像且无需重新构建时，可使用 `docker compose up -d`。
 
 查看服务状态：
 
@@ -86,7 +106,7 @@ curl --fail http://localhost:5050/api/system/ready
 
 ## 能力展示
 
-Yuxi 把知识进入系统、Agent 执行任务和团队治理放在一条完整链路中。以下按六个核心模块介绍系统能力：
+智枢将资料管理、智能体执行和团队权限连接起来。以下按六个能力领域介绍使用方式：
 
 
 | 模块               | 解决的问题                           | 代表能力                                             |
@@ -106,14 +126,14 @@ Yuxi 把知识进入系统、Agent 执行任务和团队治理放在一条完整
 - 展示任务拆解步骤、工具调用状态与上下文 Token 消耗。
 - 支持预览和下载生成的文件产物。
 
-![Yuxi 统一智能体工作台](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825145022410.png)
+![智枢统一智能体工作台](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825145022410.png)
 
 <details>
 <summary><strong>展开详细截图：对话、执行状态与人工审批</strong></summary>
 
 **长任务执行状态与过程追踪**
 
-后台异步执行复杂任务时，界面会实时呈现智能体的思考链路、步骤计划、子任务状态与工具调用日志，不再让长任务变成黑盒等待。
+后台异步执行复杂任务时，界面展示步骤计划、子任务状态与工具调用过程，方便跟踪执行进度。
 
 ![image-20260826195730155](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260826195730155.png)
 
@@ -207,7 +227,7 @@ Yuxi 把知识进入系统、Agent 执行任务和团队治理放在一条完整
 - 支持多个 SubAgents 异步并行执行深度调研、数据分析或内容生成。
 - 原生兼容 Skills 插件机制与 MCP（Model Context Protocol）标准协议。
 
-![Yuxi 多智能体编排](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825152252874.png)
+![智枢多智能体编排](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825152252874.png)
 
 <details>
 <summary><strong>展开详细截图：Agent 配置、子智能体与扩展能力</strong></summary>
@@ -252,7 +272,7 @@ Yuxi 把知识进入系统、Agent 执行任务和团队治理放在一条完整
 - 支持生成图文报告、数据分析图表、Web 页面等多种格式产物。
 - 在浏览器中预览受支持的文件格式，并打包下载。
 
-![Yuxi 沙盒工作区与文件产物](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825152123583.png)
+![智枢沙盒工作区与文件产物](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825152123583.png)
 
 <details>
 <summary><strong>展开详细截图：文件管理、在线预览与任务交付</strong></summary>
@@ -300,13 +320,13 @@ Yuxi 把知识进入系统、Agent 执行任务和团队治理放在一条完整
 ![image-20260826201638124](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260826201638124.png)
 
 
-**模型供应商与统一凭据管理**
+**API服务与统一凭据管理**
 
 支持接入主流大模型供应商（OpenAI、Anthropic、DeepSeek、Qwen、本地 Ollama/vLLM 等），集中维护 API Key 凭据并统一分配模型能力，密钥对普通成员完全脱敏。
 
 ![模型供应商与模型能力](https://xerrors.oss-cn-shanghai.aliyuncs.com/github/image-20260825152458034.png)
 
-**Dashboard 与系统运行监控**
+**系统仪表盘与运行统计**
 
 直观的运维数据看板，实时展示系统请求量、Token 消耗统计、知识库检索频次与长任务排队状态，为容量规划和成本核算提供数据支撑。
 
@@ -328,7 +348,7 @@ Yuxi 把知识进入系统、Agent 执行任务和团队治理放在一条完整
 
 ---
 
-Yuxi 的实现和文档参考了以下优秀的开源项目：
+智枢的实现和文档参考了以下开源项目：
 
 - [LightRAG](https://github.com/HKUDS/LightRAG)：早期图谱构建和检索思路；
 - [DeepAgents](https://github.com/langchain-ai/deepagents)：深度智能体框架；
@@ -339,6 +359,6 @@ Yuxi 的实现和文档参考了以下优秀的开源项目：
 
 ## 许可证
 
-Yuxi 本体采用 MIT License，详见 [LICENSE](LICENSE)。Docker Compose 引入的第三方组件遵循各自的许可证；再分发和商业部署前，请按实际镜像版本核对上游许可和源码义务，相关边界见[生产部署指南](docs/advanced/deployment.md)。
+智枢采用 MIT License，详见 [LICENSE](LICENSE)。Docker Compose 引入的第三方组件遵循各自的许可证；再分发和商业部署前，请按实际镜像版本核对上游许可和源码义务，相关边界见[生产部署指南](docs/advanced/deployment.md)。
 
-[![给 Yuxi 一个 Star](https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-184409-image-da91658b.png)](https://github.com/xerrors/Yuxi)
+[![给智枢一个 Star](https://xerrors.oss-cn-shanghai.aliyuncs.com/posts/2026/08/20260818-184409-image-da91658b.png)](https://github.com/xerrors/Yuxi)
