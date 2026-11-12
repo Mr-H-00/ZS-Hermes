@@ -136,7 +136,7 @@ async def test_required_startup_component_failure_still_releases_every_runtime_c
         "default_agents": {"status": "error", "required": True, "code": "RuntimeError"}
     }
     assert "password" not in str(exc_info.value)
-    assert released == ["sandbox_provider", "queue_clients", "neo4j", "postgres"]
+    assert released == ["sandbox_provider", "queue_clients", "wps_development_tunnel", "neo4j", "postgres"]
 
 
 async def test_lite_shutdown_never_loads_neo4j_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,4 +164,4 @@ async def test_lite_shutdown_never_loads_neo4j_cleanup(monkeypatch: pytest.Monke
         async with lifespan_module.lifespan(FastAPI()):
             raise AssertionError("startup failure must prevent yield")
 
-    assert released == ["sandbox_provider", "queue_clients", "postgres"]
+    assert released == ["sandbox_provider", "queue_clients", "wps_development_tunnel", "postgres"]

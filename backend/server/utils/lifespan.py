@@ -12,6 +12,7 @@ from yuxi.utils import logger
 from yuxi.agents.backends.sandbox import init_sandbox_provider, shutdown_sandbox_provider
 from yuxi import get_version
 from yuxi.utils.auth_utils import AuthUtils
+from yuxi.services.wps_development_tunnel import wps_development_tunnel
 
 
 class RequiredStartupComponentError(RuntimeError):
@@ -232,6 +233,7 @@ async def lifespan(app: FastAPI):
         app.state.startup_complete = False
         await _shutdown_component("sandbox_provider", shutdown_sandbox_provider)
         await _shutdown_component("queue_clients", close_queue_clients)
+        await _shutdown_component("wps_development_tunnel", wps_development_tunnel.stop)
         if not lite_mode:
             await _shutdown_component("neo4j", _close_neo4j_connection)
         await _shutdown_component("postgres", pg_manager.close)

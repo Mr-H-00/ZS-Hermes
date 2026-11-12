@@ -70,7 +70,7 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 - `router` 定义公开首页、登录、智能体、工作区、智能体管理、扩展和仪表盘路由，并负责认证、管理员和超级管理员守卫。
 - `apis` 是后端接口封装边界。新增接口应在这里定义，复用 `base.js` 的请求、鉴权和错误处理。
 - `stores` 保存用户、智能体配置、主题和其他跨页面状态。
-- `views` 是页面级入口，`components` 是可复用界面块。智能体对话的主要交互位于 `AgentChatComponent`，由 `AgentView` 负责页面组合。
+- `views` 是页面级入口，`components` 是可复用界面块。智能体对话的主要交互位于 `AgentChatComponent`，由 `AgentView` 负责页面组合。网盘入口由 `WorkspaceView` 组合三个页签，`WorkspaceBrowser` 拥有工作区文件浏览、上传和预览，`SpacePlaceholder` 展示成果示例，`WPSCloudDrive` 从本人连接读取 WPS 文档库和文件；设置中的 `CloudDriveSettingsSection` 提供应用配置与本人授权入口。
 - `composables` 封装请求排队、Run SSE、流式消息、审批、线程状态、提及和其他可组合逻辑。
 - `utils` 放轻量转换和展示辅助；全局样式集中在 `assets/css`，颜色和基础规范优先复用 `base.css`。
 

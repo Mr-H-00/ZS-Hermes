@@ -1,5 +1,7 @@
 # 使用轻量级Python基础镜像
 FROM python:3.13-slim
+ARG TARGETARCH
+ARG CLOUDFLARED_VERSION=2026.10.0
 COPY --from=ghcr.io/astral-sh/uv:0.12.6 /uv /uvx /bin/
 COPY --from=node:24-slim /usr/local/bin /usr/local/bin
 COPY --from=node:24-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
@@ -43,6 +45,20 @@ RUN set -ex \
     # (D) 清理垃圾，减小体积
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# 固定 Cloudflare Tunnel 版本和校验值，供开发联调按需启动命名 Tunnel。
+RUN set -eux; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "$arch" in \
+      amd64) asset=cloudflared-linux-amd64; sha256=d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db ;; \
+      arm64) asset=cloudflared-linux-arm64; sha256=e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08 ;; \
+      *) echo "unsupported TARGETARCH: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --silent --show-error --location --retry 3 \
+      "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/${asset}" \
+      --output /usr/local/bin/cloudflared; \
+    echo "${sha256}  /usr/local/bin/cloudflared" | sha256sum --check --status; \
+    chmod 0755 /usr/local/bin/cloudflared
 
 # 复制项目配置文件
 COPY backend/pyproject.toml /app/pyproject.toml

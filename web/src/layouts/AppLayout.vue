@@ -541,7 +541,7 @@ provide('settingsModal', {
       default-mode="conversation"
       :recent-threads="threads"
       :file-search="searchWorkspace"
-      file-placeholder="搜索网盘文件..."
+      file-placeholder="搜索工作区文件..."
       @select-thread="handleSearchSelectThread"
       @create-thread="handleCreateConversationFromSearch"
       @thread-found="handleSearchThreadFound"

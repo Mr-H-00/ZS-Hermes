@@ -36,6 +36,12 @@ const router = createRouter({
       meta: { public: true }
     },
     {
+      path: '/auth/wps/callback',
+      name: 'WPSCallback',
+      component: () => import('@/views/WPSCallbackView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/auth/cli/authorize',
       name: 'CLIAuthAuthorize',
       component: () => import('@/views/CLIAuthAuthorizeView.vue'),

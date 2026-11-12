@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from yuxi import storage_migration
 from yuxi.storage_migrations.v071_workdirs import (
@@ -43,6 +44,7 @@ async def test_storage_migration_reads_legacy_schema_before_cutover(monkeypatch)
         create_business_tables=lambda: _record(calls, "create_business_tables"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge_tables"),
         ensure_business_schema=lambda: _record(calls, "ensure_business_schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "ensure_wps_cloud_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "ensure_knowledge_schema"),
         setup_langgraph_checkpointer=lambda: _record(calls, "setup_langgraph_checkpointer"),
         get_async_session_context=session_context,
@@ -113,6 +115,7 @@ async def test_storage_migration_rejects_v071_schema_without_quiescence_proof(mo
         create_business_tables=lambda: _record(calls, "create"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "wps_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
@@ -159,6 +162,7 @@ async def test_current_schema_skips_schema_ddl(monkeypatch):
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "business_schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "wps_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
@@ -251,6 +255,7 @@ async def test_main_v2_business_schema_is_converged_and_versioned_as_current(mon
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "business_schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "wps_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
@@ -304,6 +309,7 @@ async def test_historical_knowledge_schema_is_converged_and_versioned_as_current
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "business_schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "wps_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
@@ -440,6 +446,7 @@ async def test_lite_migration_does_not_create_or_version_knowledge_schema(monkey
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "business_schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "wps_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,
@@ -495,6 +502,7 @@ async def test_failed_business_migration_does_not_record_version(monkeypatch):
         create_business_tables=lambda: _record(calls, "create_business"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "business_schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "wps_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         setup_langgraph_checkpointer=fail_checkpoint_setup,
         get_async_session_context=session_context,
@@ -520,6 +528,144 @@ async def test_failed_business_migration_does_not_record_version(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_main_retries_postgres_recovery_before_migration(monkeypatch):
+    """PostgreSQL 恢复期短暂失败后应重新进入迁移，而不是直接退出。"""
+    calls: list[object] = []
+    attempts = 0
+
+    @asynccontextmanager
+    async def flaky_lock():
+        """前两次模拟锁获取期间的恢复期错误，第三次持有锁。"""
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise RuntimeError("the database system is in recovery mode")
+        yield
+
+    async def sleep(delay: float):
+        """记录退避而不让单元测试真实等待。"""
+        calls.append(delay)
+
+    manager = SimpleNamespace(schema_migration_lock=lambda: flaky_lock())
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(storage_migration.asyncio, "sleep", sleep)
+
+    async with storage_migration._schema_migration_lock_with_retries():
+        calls.append("migration")
+
+    assert attempts == 3
+    assert calls == [storage_migration._MIGRATION_RETRY_DELAY_SECONDS,
+                     storage_migration._MIGRATION_RETRY_DELAY_SECONDS, "migration"]
+
+
+@pytest.mark.asyncio
+async def test_main_does_not_retry_non_startup_operational_error(monkeypatch):
+    """认证或迁移 SQL 错误不得被伪装成 PostgreSQL 启动重试。"""
+    calls: list[object] = []
+    attempts = 0
+
+    @asynccontextmanager
+    async def failing_lock():
+        """模拟不可恢复的认证失败。"""
+        nonlocal attempts
+        attempts += 1
+        raise OperationalError("SELECT 1", {}, RuntimeError("password authentication failed"))
+        yield
+
+    manager = SimpleNamespace(schema_migration_lock=lambda: failing_lock())
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+
+    with pytest.raises(OperationalError, match="password authentication failed"):
+        async with storage_migration._schema_migration_lock_with_retries():
+            calls.append("migration")
+
+    assert attempts == 1
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_lock_retries_when_database_is_still_in_recovery(monkeypatch):
+    """持锁后探针仍发现恢复期时应释放锁并重试，避免进入迁移副作用。"""
+    calls: list[object] = []
+
+    class _Result:
+        def one(self):
+            return (True, "off")
+
+    class _Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _statement):
+            return _Result()
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    @asynccontextmanager
+    async def lock():
+        calls.append("lock")
+        try:
+            yield
+        finally:
+            calls.append("unlock")
+
+    async def sleep(delay: float):
+        calls.append(delay)
+        monkeypatch.setattr(storage_migration, "_probe_database_writable", _probe_ready)
+
+    async def _probe_ready():
+        return None
+
+    manager = SimpleNamespace(schema_migration_lock=lambda: lock(), async_engine=_Engine())
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+    monkeypatch.setattr(storage_migration.asyncio, "sleep", sleep)
+
+    async with storage_migration._schema_migration_lock_with_retries():
+        calls.append("migration")
+
+    assert calls == ["lock", "unlock", storage_migration._MIGRATION_RETRY_DELAY_SECONDS, "lock", "migration", "unlock"]
+
+
+@pytest.mark.asyncio
+async def test_lock_rejects_read_only_database(monkeypatch):
+    """只读数据库不得执行迁移，也不应进入重试循环。"""
+
+    class _Result:
+        def one(self):
+            return (False, "on")
+
+    class _Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _statement):
+            return _Result()
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    @asynccontextmanager
+    async def lock():
+        yield
+
+    manager = SimpleNamespace(schema_migration_lock=lambda: lock(), async_engine=_Engine())
+    monkeypatch.setattr(storage_migration, "pg_manager", manager)
+
+    with pytest.raises(RuntimeError, match="read-only"):
+        async with storage_migration._schema_migration_lock_with_retries():
+            pytest.fail("read-only database must not enter migration")
+
+
+@pytest.mark.asyncio
 async def test_current_schema_does_not_rewrite_workdir_data(monkeypatch):
     calls: list[str] = []
     sessions = [_Session(), _Session(), _Session()]
@@ -537,6 +683,7 @@ async def test_current_schema_does_not_rewrite_workdir_data(monkeypatch):
         create_business_tables=lambda: _record(calls, "create"),
         create_knowledge_tables=lambda: _record(calls, "create_knowledge"),
         ensure_business_schema=lambda: _record(calls, "schema"),
+        ensure_wps_cloud_schema=lambda: _record(calls, "wps_schema"),
         ensure_knowledge_schema=lambda: _record(calls, "knowledge_schema"),
         setup_langgraph_checkpointer=lambda: _record(calls, "checkpoint"),
         get_async_session_context=session_context,

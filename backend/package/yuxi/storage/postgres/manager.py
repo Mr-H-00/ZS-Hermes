@@ -16,6 +16,8 @@ from yuxi.storage.postgres.models_business import (
     PROJECT_STATUS_CONSTRAINT_NAME,
     PROJECT_STATUS_CONSTRAINT_SQL,
     UNVIEWED_RUN_MARKER,
+    WPSCloudConfig,
+    WPSConnection,
 )
 from yuxi.storage.postgres.models_business import Base as BusinessBase
 from yuxi.storage.postgres.models_knowledge import Base as KnowledgeBase
@@ -23,7 +25,7 @@ from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
 
 AGENT_RUN_TERMINAL_STATUS_SQL = ", ".join(f"'{status}'" for status in AGENT_RUN_TERMINAL_STATUSES)
-BUSINESS_SCHEMA_VERSION = 7
+BUSINESS_SCHEMA_VERSION = 9
 KNOWLEDGE_SCHEMA_VERSION = 4
 SCHEMA_VERSION_TABLE = "yuxi_schema_migrations"
 AGENT_RUN_LEASE_SCHEMA_STATEMENTS = (
@@ -1595,6 +1597,23 @@ class PostgresManager(metaclass=SingletonMeta):
                     text("UPDATE conversations SET last_viewed_run_id = :marker WHERE last_viewed_run_id IS NULL"),
                     {"marker": UNVIEWED_RUN_MARKER},
                 )
+
+    async def ensure_wps_cloud_schema(self) -> None:
+        """幂等新增 WPS 表、联调回调列与默认配置，不改动既有业务数据。"""
+        self._check_initialized()
+        async with self.async_engine.begin() as conn:
+            await conn.run_sync(
+                lambda connection: BusinessBase.metadata.create_all(
+                    connection, tables=[WPSCloudConfig.__table__, WPSConnection.__table__]
+                )
+            )
+            await conn.execute(
+                text("ALTER TABLE IF EXISTS wps_connections ADD COLUMN IF NOT EXISTS oauth_redirect_uri VARCHAR(2048)")
+            )
+            await conn.execute(
+                text("ALTER TABLE IF EXISTS wps_connections ADD COLUMN IF NOT EXISTS oauth_tunnel_id VARCHAR(64)")
+            )
+            await conn.execute(text("INSERT INTO wps_cloud_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING"))
 
     @property
     def is_postgresql(self) -> bool:

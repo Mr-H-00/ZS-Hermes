@@ -871,6 +871,44 @@ class ConfigOption(Base):
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
 
+class WPSCloudConfig(Base):
+    """管理员共享的 WPS 应用配置，密钥仅保存密文。"""
+
+    __tablename__ = "wps_cloud_config"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_wps_cloud_config_singleton"),)
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    app_id = Column(String(255), nullable=False, default="", server_default="")
+    app_secret_encrypted = Column(Text, nullable=False, default="", server_default="")
+    redirect_uri = Column(String(2048), nullable=False, default="", server_default="")
+    version = Column(String(32), nullable=False, default="", server_default="")
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+
+
+class WPSConnection(Base):
+    """每位用户独立的 WPS 连接与一次性授权状态。"""
+
+    __tablename__ = "wps_connections"
+
+    uid = Column(String, ForeignKey("users.uid", ondelete="CASCADE"), primary_key=True)
+    wps_user_id = Column(String(255), nullable=True)
+    wps_user_name = Column(String(255), nullable=True)
+    company_id = Column(String(255), nullable=True)
+    access_token_encrypted = Column(Text, nullable=True)
+    refresh_token_encrypted = Column(Text, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    refresh_expires_at = Column(DateTime, nullable=True)
+    config_version = Column(String(32), nullable=True)
+    oauth_state_hash = Column(String(64), nullable=True)
+    oauth_expires_at = Column(DateTime, nullable=True)
+    oauth_config_version = Column(String(32), nullable=True)
+    oauth_redirect_uri = Column(String(2048), nullable=True)
+    oauth_tunnel_id = Column(String(64), nullable=True)
+    connected_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+
+
 class TaskRecord(Base):
     __tablename__ = "tasks"
     __table_args__ = (

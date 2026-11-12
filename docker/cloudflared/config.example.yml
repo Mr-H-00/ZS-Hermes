@@ -1,0 +1,11 @@
+# 复制为同目录下的 config.yml，并将 UUID 换成 zs-dev 命名隧道的实际值。
+# credentials JSON 由 `cloudflared tunnel create zs-dev` 生成；不要提交该 JSON。
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: zs-dev.zs-wps.com
+    service: http://web:5173
+    originRequest:
+      httpHostHeader: localhost
+  - service: http_status:404

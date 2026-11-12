@@ -78,6 +78,8 @@ saves_dev
 notebooks
 graphrag
 docker/volumes
+docker/cloudflared/*
+!docker/cloudflared/config.example.yml
 docs/vibe
 .cursorrules
 

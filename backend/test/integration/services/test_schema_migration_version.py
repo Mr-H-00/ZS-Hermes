@@ -271,7 +271,7 @@ async def test_v072_business_converges_current_schema_idempotently() -> None:
             "ix_scheduled_agent_runs_job_created",
             "ix_scheduled_agent_runs_dispatching",
         }.issubset(scheduled_indexes)
-        assert BUSINESS_SCHEMA_VERSION == 7
+        assert BUSINESS_SCHEMA_VERSION == 9
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)
 
@@ -610,5 +610,48 @@ async def test_schema_version_is_persisted_and_runtime_validation_fails_closed()
             "business": BUSINESS_SCHEMA_VERSION,
             "knowledge": KNOWLEDGE_SCHEMA_VERSION,
         }
+    finally:
+        await _drop_isolated_schema(schema, admin_engine, scoped_engine)
+
+
+# 真实 PostgreSQL 从版本 7 的缺表状态升级，返回表、约束与保留数据的断言。
+async def test_wps_upgrade_adds_tables_and_preserves_existing_rows_idempotently() -> None:
+    """WPS 升级仅新增表，重复迁移保留密文与原有用户。"""
+    schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_wps_schema")
+    try:
+        await manager.create_business_tables()
+        await manager.create_schema_version_table()
+        await manager.record_schema_version("business", 7)
+        async with scoped_engine.begin() as connection:
+            await connection.execute(text("DROP TABLE wps_connections"))
+            await connection.execute(text("DROP TABLE wps_cloud_config"))
+            await connection.execute(
+                text(
+                    "INSERT INTO users (uid, username, password_hash, role, login_failed_count, is_deleted) "
+                    "VALUES ('legacy-user', 'legacy-user', 'test-placeholder', 'user', 0, 0)"
+                )
+            )
+        with pytest.raises(RuntimeError, match="business=7"):
+            await manager.require_current_schema(include_knowledge=False)
+        await manager.ensure_wps_cloud_schema()
+        async with scoped_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE wps_cloud_config SET app_id = 'existing-app', "
+                    "app_secret_encrypted = 'existing-cipher' WHERE id = 1"
+                )
+            )
+            await connection.execute(text("INSERT INTO wps_connections (uid) VALUES ('legacy-user')"))
+        await manager.ensure_wps_cloud_schema()
+        await manager.record_schema_version("business", BUSINESS_SCHEMA_VERSION)
+        await manager.require_current_schema(include_knowledge=False)
+        async with scoped_engine.connect() as connection:
+            config = (
+                await connection.execute(text("SELECT id, app_id, app_secret_encrypted FROM wps_cloud_config"))
+            ).one()
+            assert tuple(config) == (1, "existing-app", "existing-cipher")
+            assert await connection.scalar(text("SELECT uid FROM wps_connections")) == "legacy-user"
+            await connection.execute(text("DELETE FROM users WHERE uid = 'legacy-user'"))
+            assert await connection.scalar(text("SELECT COUNT(*) FROM wps_connections")) == 0
     finally:
         await _drop_isolated_schema(schema, admin_engine, scoped_engine)

@@ -238,6 +238,17 @@ def test_storage_migrator_gates_every_shipping_file_consumer(filename: str) -> N
     assert "minio" not in (migrator.get("depends_on") or {})
 
 
+@pytest.mark.parametrize("filename", ["docker-compose.yml", "docker-compose.prod.yml"])
+def test_postgres_healthcheck_waits_until_recovery_finishes(filename: str) -> None:
+    """PostgreSQL 健康状态必须同时表示可连接且已退出恢复只读阶段。"""
+    healthcheck = _load_compose(filename)["services"]["postgres"]["healthcheck"]
+    command = healthcheck["test"][1]
+
+    assert "pg_isready" in command
+    assert "pg_is_in_recovery()" in command
+    assert "grep -qx t" in command
+
+
 def test_storage_migration_script_quiesces_runtime_before_issuing_proof() -> None:
     """升级入口必须先停写入者和动态 Sandbox，再运行破坏性迁移。"""
     script = _project_root() / "scripts" / "migrate-storage.sh"

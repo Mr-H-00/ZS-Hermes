@@ -48,6 +48,15 @@
           </div>
           <div
             class="sider-item"
+            :class="{ activesec: activeTab === 'cloudDrive' }"
+            @click="activeTab = 'cloudDrive'"
+            v-if="userStore.isLoggedIn"
+          >
+            <Cloud class="icon" :size="18" />
+            <span>云盘配置</span>
+          </div>
+          <div
+            class="sider-item"
             :class="{ activesec: activeTab === 'ocr' }"
             @click="activeTab = 'ocr'"
             v-if="userStore.isAdmin"
@@ -121,6 +130,14 @@
         </div>
         <div
           class="nav-item"
+          :class="{ active: activeTab === 'cloudDrive' }"
+          @click="activeTab = 'cloudDrive'"
+          v-if="userStore.isLoggedIn"
+        >
+          云盘配置
+        </div>
+        <div
+          class="nav-item"
           :class="{ active: activeTab === 'ocr' }"
           @click="activeTab = 'ocr'"
           v-if="userStore.isAdmin"
@@ -173,6 +190,10 @@
             <BasicSettingsSection />
           </div>
 
+          <div v-show="activeTab === 'cloudDrive'" v-if="userStore.isLoggedIn && loadedTabs.has('cloudDrive')">
+            <CloudDriveSettingsSection />
+          </div>
+
           <div v-show="activeTab === 'ocr'" v-if="userStore.isAdmin && loadedTabs.has('ocr')">
             <OCRSettingsSection />
           </div>
@@ -198,6 +219,7 @@ import { computed, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import {
   CircleUser,
+  Cloud,
   Settings,
   Key,
   ScanText,
@@ -213,6 +235,7 @@ const AccountSettingsComponent = createAsyncPanel(
 )
 const AgentEnvSettingsCard = createAsyncPanel(() => import('@/components/AgentEnvSettingsCard.vue'))
 const BasicSettingsSection = createAsyncPanel(() => import('@/components/BasicSettingsSection.vue'))
+const CloudDriveSettingsSection = createAsyncPanel(() => import('@/components/CloudDriveSettingsSection.vue'))
 const OCRSettingsSection = createAsyncPanel(() => import('@/components/OCRSettingsSection.vue'))
 const ApiKeyManagementComponent = createAsyncPanel(
   () => import('@/components/ApiKeyManagementComponent.vue')
@@ -247,7 +270,7 @@ const visible = computed({
 
 const availableTabs = computed(() => {
   const tabs = []
-  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys', 'agentEnv')
+  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys', 'agentEnv', 'cloudDrive')
   if (userStore.isAdmin) tabs.push('base', 'ocr', 'user')
   if (userStore.isSuperAdmin) tabs.push('department')
   return tabs

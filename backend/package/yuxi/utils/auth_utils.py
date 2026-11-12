@@ -89,6 +89,13 @@ def _get_jwt_issuer() -> str:
 
 
 class AuthUtils:
+    # 根据凭据领域名称派生独立加密密钥，返回供加密库使用的 32 字节密钥。
+    @staticmethod
+    def derive_encryption_key(domain: str) -> bytes:
+        """由持久主密钥派生领域隔离的凭据加密密钥。"""
+        payload = f"yuxi-credential-encryption-v1:{domain}".encode()
+        return hmac.new(_get_api_key_derivation_secret().encode(), payload, hashlib.sha256).digest()
+
     @staticmethod
     def generate_api_key() -> tuple[str, str, str]:
         random_part = secrets.token_hex(24)

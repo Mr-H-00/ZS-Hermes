@@ -50,6 +50,11 @@ services:
     volumes:
       - ./backend/server:/app/server
       - ./backend/package:/app/package
+      # 命名 Cloudflare Tunnel 的配置和凭据由部署者提供，只读挂载，不能提交到仓库。
+      - type: bind
+        source: ${CLOUDFLARED_CONFIG_DIR:-./docker/cloudflared}
+        target: /etc/cloudflared
+        read_only: true
       - type: bind
         source: ${YUXI_STATE_DIR:-./docker/volumes}/yuxi/threads
         target: /app/user-data
@@ -76,6 +81,8 @@ services:
       <<: *api-worker-env
       YUXI_RUNTIME_DIR: /app/runtime/api
       YUXI_USER_DATA_DIR: /app/user-data
+      WPS_DEVELOPMENT_TUNNEL_CONFIG: ${WPS_DEVELOPMENT_TUNNEL_CONFIG:-/etc/cloudflared/config.yml}
+      WPS_DEVELOPMENT_TUNNEL_CREDENTIALS: ${WPS_DEVELOPMENT_TUNNEL_CREDENTIALS:-}
       POSTGRES_POOL_SIZE: ${API_POSTGRES_POOL_SIZE:-120}
       POSTGRES_MAX_OVERFLOW: ${API_POSTGRES_MAX_OVERFLOW:-40}
       POSTGRES_POOL_TIMEOUT_SECONDS: ${API_POSTGRES_POOL_TIMEOUT_SECONDS:-30}
@@ -418,7 +425,7 @@ services:
         source: ${YUXI_STATE_DIR:-./docker/volumes}/postgresql
         target: /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-yuxi} || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-yuxi} && psql -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-yuxi} -Atqc 'SELECT NOT pg_is_in_recovery()' | grep -qx t"]
       interval: 5s
       timeout: 3s
       retries: 30
