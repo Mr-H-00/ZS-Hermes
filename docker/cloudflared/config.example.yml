@@ -5,7 +5,7 @@ credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
 
 ingress:
   - hostname: zs-dev.zs-wps.com
-    service: http://web:5173
+    service: http://frontend:5173
     originRequest:
       httpHostHeader: localhost
   - service: http_status:404

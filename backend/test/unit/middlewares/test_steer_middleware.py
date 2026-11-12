@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import AIMessage
-from yuxi.agents.middlewares.steer import SteerMiddleware
-from yuxi.services import agent_request_queue_service
+from yuxi.modules.agents.runtime.middlewares.steer import SteerMiddleware
+import yuxi.modules.agents.services.runs as runs
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -16,7 +16,7 @@ async def test_before_model_ends_run_when_steer_is_waiting(monkeypatch: pytest.M
     async def should_end(run_id: str) -> bool:
         return run_id == "run-1"
 
-    monkeypatch.setattr(agent_request_queue_service, "should_end_run_for_steer", should_end)
+    monkeypatch.setattr(runs, "should_yield_for_steer", should_end)
     runtime = SimpleNamespace(context=SimpleNamespace(run_id="run-1"))
 
     result = await SteerMiddleware().abefore_model({}, runtime)
@@ -30,7 +30,7 @@ async def test_before_model_continues_without_steer(monkeypatch: pytest.MonkeyPa
     async def should_end(run_id: str) -> bool:
         return False
 
-    monkeypatch.setattr(agent_request_queue_service, "should_end_run_for_steer", should_end)
+    monkeypatch.setattr(runs, "should_yield_for_steer", should_end)
     runtime = SimpleNamespace(context=SimpleNamespace(run_id="run-1"))
 
     assert await SteerMiddleware().abefore_model({}, runtime) is None
@@ -45,7 +45,7 @@ async def test_before_model_ignores_context_without_run_id(monkeypatch: pytest.M
         called = True
         return True
 
-    monkeypatch.setattr(agent_request_queue_service, "should_end_run_for_steer", should_end)
+    monkeypatch.setattr(runs, "should_yield_for_steer", should_end)
     runtime = SimpleNamespace(context=SimpleNamespace())
 
     assert await SteerMiddleware().abefore_model({}, runtime) is None
@@ -58,7 +58,7 @@ async def test_after_model_ends_tool_free_turn_when_steer_arrives(monkeypatch: p
     async def should_end(run_id: str) -> bool:
         return run_id == "run-1"
 
-    monkeypatch.setattr(agent_request_queue_service, "should_end_run_for_steer", should_end)
+    monkeypatch.setattr(runs, "should_yield_for_steer", should_end)
     runtime = SimpleNamespace(context=SimpleNamespace(run_id="run-1"))
 
     result = await SteerMiddleware().aafter_model(
@@ -78,7 +78,7 @@ async def test_after_model_does_not_skip_tool_batch(monkeypatch: pytest.MonkeyPa
         called = True
         return True
 
-    monkeypatch.setattr(agent_request_queue_service, "should_end_run_for_steer", should_end)
+    monkeypatch.setattr(runs, "should_yield_for_steer", should_end)
     runtime = SimpleNamespace(context=SimpleNamespace(run_id="run-1"))
 
     result = await SteerMiddleware().aafter_model(

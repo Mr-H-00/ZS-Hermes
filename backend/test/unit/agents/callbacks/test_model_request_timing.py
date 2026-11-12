@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from yuxi.agents.callbacks.model_request_timing import FirstModelRequestRecorder
+from yuxi.modules.agents.runtime.callbacks.model_request_timing import FirstModelRequestRecorder
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -26,7 +26,7 @@ async def test_recorder_without_model_start_does_not_persist(monkeypatch):
     get_session_context = Mock()
     monkeypatch.setattr(recorder, "first_model_request_at", None)
     monkeypatch.setattr(
-        "yuxi.agents.callbacks.model_request_timing.pg_manager.get_async_session_context",
+        "yuxi.modules.agents.runtime.callbacks.model_request_timing.pg_manager.get_async_session_context",
         get_session_context,
     )
 

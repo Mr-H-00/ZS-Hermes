@@ -22,7 +22,11 @@ def critical_phase_samples(group):
         spans = request.get("spans", [])
         boundaries = [
             next((s for s in spans if s["name"].endswith(name)), None)
-            for name in ("run_worker.persist_run_manifest", "ChatbotAgent.get_graph", "AsyncPostgresSaver.aget_tuple")
+            for name in (
+                ("run_worker.prepare_and_record_run_execution", "run_worker.persist_run_manifest"),
+                "ChatbotAgent.get_graph",
+                "AsyncPostgresSaver.aget_tuple",
+            )
         ]
         sent = sends.get(request.get("run_id"))
         if sent is None or any(span is None for span in boundaries):
@@ -137,9 +141,7 @@ def main(path, refresh):
                 "p95_ms": group.get("p95_ms"),
                 **({"phase_error": group["phase_error"]} if group.get("phase_error") else {}),
                 "critical_phases": {name: values["mean"] for name, values in phases.items()},
-                "phase_percentiles": {
-                    name: {"p50": values["p50"], "p95": values["p95"]} for name, values in phases.items()
-                },
+                "phase_percentiles": {name: {"p50": values["p50"], "p95": values["p95"]} for name, values in phases.items()},
                 "api": api,
                 "worker": worker,
             }

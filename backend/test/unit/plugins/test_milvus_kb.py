@@ -1,145 +1,68 @@
 import asyncio
 import threading
 import types
-from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pymilvus import CollectionSchema, DataType, FieldSchema, Function, FunctionType
 
-import yuxi.knowledge.implementations.milvus as milvus_module
-from yuxi.knowledge.base import FileStatus, KnowledgeBase
-from yuxi.knowledge.chunking.ragflow_like.nlp import count_tokens
-from yuxi.knowledge.implementations.milvus import (
-    CONTENT_ANALYZER_PARAMS,
+import yuxi.modules.knowledge.implementations.milvus as milvus_module
+from test.unit.support.knowledge import make_knowledge_file_record
+from test.unit.support.milvus import (
+    EMBEDDING_MODEL_SPEC,
+    FakeCollection,
+    FakeHit,
+    make_kb,
+    make_query_config,
+)
+from test.unit.support.milvus import fake_milvus_embedding as fake_milvus_embedding
+from yuxi.modules.knowledge.base import FileStatus, KnowledgeExecutor
+from yuxi.modules.knowledge.chunking.ragflow_like.nlp import count_tokens
+from yuxi.modules.knowledge.implementations.milvus import (
     CONTENT_SPARSE_FIELD,
     VECTOR_METRIC_TYPE,
     MilvusKB,
+    _retrieval_config_options,
 )
-from yuxi.knowledge.read_models import KnowledgeBaseConfig
-
-EMBEDDING_MODEL_SPEC = "test-provider:test-embedding"
-
-
-def make_query_config() -> KnowledgeBaseConfig:
-    return KnowledgeBaseConfig(
-        kb_id="db",
-        kb_type="milvus",
-        embedding_model_spec=EMBEDDING_MODEL_SPEC,
-    )
+from yuxi.modules.knowledge.manager import KnowledgeBaseManager
+from yuxi.modules.knowledge.services import documents
+from yuxi.modules.knowledge.storage.milvus import CONTENT_ANALYZER_PARAMS
 
 
-def test_milvus_kb_initializes_database_with_connection_alias(monkeypatch):
-    kb = MilvusKB.__new__(MilvusKB)
-    kb.connection_alias = "test-alias"
-    kb.milvus_uri = "http://milvus:19530"
-    kb.milvus_token = ""
-    kb.milvus_db = "yuxi"
-    calls = []
-
-    monkeypatch.setattr(
-        "yuxi.knowledge.implementations.milvus.connections.connect",
-        lambda **kwargs: calls.append(("connect", kwargs)),
-    )
-    monkeypatch.setattr(
-        "yuxi.knowledge.implementations.milvus.db.list_database",
-        lambda **kwargs: calls.append(("list_database", kwargs)) or [],
-    )
-    monkeypatch.setattr(
-        "yuxi.knowledge.implementations.milvus.db.create_database",
-        lambda name, **kwargs: calls.append(("create_database", name, kwargs)),
-    )
-    monkeypatch.setattr(
-        "yuxi.knowledge.implementations.milvus.db.using_database",
-        lambda name, **kwargs: calls.append(("using_database", name, kwargs)),
-    )
-
-    kb._init_connection()
-
-    assert calls == [
-        ("connect", {"alias": "test-alias", "uri": "http://milvus:19530", "token": ""}),
-        ("list_database", {"using": "test-alias"}),
-        ("create_database", "yuxi", {"using": "test-alias"}),
-        ("using_database", "yuxi", {"using": "test-alias"}),
-    ]
+@pytest.fixture(autouse=True)
+def isolated_parent_child_cleanup(monkeypatch):
+    """单层向量单测隔离新增父子表与缓存，真实清理由PG测试验证。"""
+    monkeypatch.setattr(milvus_module.KnowledgeParentChildChunkRepository, "list_versions_for_generation", AsyncMock(return_value=[]))
+    monkeypatch.setattr(milvus_module.MilvusKB, "_list_existing_child_collections", lambda _self: [])
+    monkeypatch.setattr(milvus_module, "invalidate_parent_cache", AsyncMock())
+    monkeypatch.setattr(milvus_module, "invalidate_query_cache", AsyncMock())
 
 
-class FakeHit:
-    def __init__(self, content: str, distance: float):
-        self.distance = distance
-        self.entity = {
-            "content": content,
-            "chunk_id": "chunk-1",
-            "file_id": "file-1",
-            "chunk_index": 0,
-        }
+def test_milvus_retrieval_config_exposes_graph_and_dependencies(monkeypatch):
+    monkeypatch.setattr(milvus_module.model_cache, "get_all_specs", lambda _type=None: [])
+    options = _retrieval_config_options()
+    by_key = {option["key"]: option for option in options}
 
-
-class FakeCollection:
-    def __init__(self, distance: float = 0.8):
-        self.search_calls = []
-        self.hybrid_calls = []
-        self.insert_calls = []
-        self.distance = distance
-
-    def search(self, **kwargs):
-        self.search_calls.append(kwargs)
-        return [[FakeHit("BM25 result", self.distance)]]
-
-    def hybrid_search(self, **kwargs):
-        self.hybrid_calls.append(kwargs)
-        return [[FakeHit("Hybrid result", self.distance)]]
-
-    def insert(self, entities):
-        self.insert_calls.append(entities)
-
-
-def make_kb(collection: FakeCollection) -> MilvusKB:
-    kb = MilvusKB.__new__(MilvusKB)
-    kb._get_embedding_function = lambda embedding_model_spec, **kwargs: lambda texts: [[0.1, 0.2] for _ in texts]
-
-    async def get_collection(kb_id: str, embedding_model_spec: str | None):
-        del kb_id, embedding_model_spec
-        return collection
-
-    async def hydrate_chunk_sources(kb_id: str, chunks: list[dict]) -> None:
-        for chunk in chunks:
-            chunk["metadata"]["source"] = "demo.md"
-
-    kb._get_or_create_milvus_collection = get_collection
-    kb._hydrate_chunk_sources = hydrate_chunk_sources
-    return kb
+    assert by_key["use_graph_retrieval"]["default"] is False
+    assert by_key["graph_max_nodes"]["default"] == 10000
+    assert by_key["graph_max_nodes"]["depend_on"] == ("use_graph_retrieval", True)
+    assert by_key["graph_top_k"]["depend_on"] == ("use_graph_retrieval", True)
+    assert by_key["reranker_model"]["depend_on"] == ("use_reranker", True)
 
 
 def make_file_record(**overrides):
-    """构造可按字段覆盖的知识文件测试记录。"""
-    data = {
-        "file_id": "file-1",
-        "kb_id": "db",
-        "parent_id": None,
-        "filename": "demo.md",
-        "file_type": "md",
+    values = {
         "path": "/tmp/demo.md",
-        "minio_url": None,
         "markdown_file": "minio://parsed/db/file-1.md",
         "status": FileStatus.PARSED,
         "content_hash": None,
         "file_size": 0,
-        "chunk_count": 0,
-        "token_count": 0,
-        "content_type": "file",
         "processing_params": {},
-        "processing_task_id": None,
-        "processing_owner": None,
-        "is_folder": False,
-        "error_message": None,
         "created_by": None,
-        "updated_by": None,
-        "created_at": None,
-        "updated_at": None,
-        "original_filename": None,
     }
-    data.update(overrides)
-    return types.SimpleNamespace(**data)
+    values.update(overrides)
+    return make_knowledge_file_record(**values)
 
 
 class FakeKnowledgeFileRepository:
@@ -148,18 +71,8 @@ class FakeKnowledgeFileRepository:
         self.update_calls = []
         self.conditional_update_calls = []
         self.deleted = []
-        self.processing_locks = []
 
-    @asynccontextmanager
-    async def lock_file_processing(self, kb_id: str, file_id: str):
-        """记录文件处理副作用锁的持有区间。"""
-        self.processing_locks.append(("enter", kb_id, file_id))
-        try:
-            yield
-        finally:
-            self.processing_locks.append(("exit", kb_id, file_id))
-
-    async def get_by_file_id(self, file_id: str):
+    async def get_by_file_id(self, file_id: str, *, include_deleted: bool = False):
         return self.records.get(file_id)
 
     async def update_fields_if_status(
@@ -169,23 +82,45 @@ class FakeKnowledgeFileRepository:
         file_id: str,
         allowed_statuses: set[str],
         data: dict,
-        processing_task_id: str | None = None,
-        processing_owner: str | None = None,
+        processing_params: dict | None = None,
+        kb_additional_params: dict | None = None,
     ):
-        """按状态与可选任务 owner 条件更新伪文件记录。"""
+        """模拟已取得文件执行权后的参数合并，真实并发由 PG 测试验证。"""
         record = self.records.get(file_id)
-        self.conditional_update_calls.append(
-            (kb_id, file_id, set(allowed_statuses), dict(data), processing_task_id, processing_owner)
-        )
+        self.conditional_update_calls.append((kb_id, file_id, set(allowed_statuses), dict(data)))
         if record is None or record.kb_id != kb_id or record.status not in allowed_statuses:
             return None
-        if processing_task_id is not None and record.processing_task_id != processing_task_id:
-            return None
-        if processing_owner is not None and record.processing_owner != processing_owner:
-            return None
+        if kb_additional_params is not None:
+            from yuxi.modules.knowledge.utils.kb_utils import resolve_processing_params
+
+            record.processing_params = resolve_processing_params(kb_additional_params, record.processing_params, processing_params)
         for key, value in data.items():
             setattr(record, key, value)
         return record
+
+    async def begin_index_generation(self, *, kb_id: str, file_id: str):
+        record = self.records[file_id]
+        record.generation += 1
+        record.building_generation = record.generation
+        record.projection_status = "building"
+        return record.building_generation
+
+    async def finish_index_generation(self, *, kb_id: str, file_id: str, generation: int, chunk_count, token_count):
+        record = self.records[file_id]
+        record.active_generation = generation
+        record.generation = generation
+        record.building_generation = None
+        record.projection_status = "ready"
+        record.status = FileStatus.INDEXED
+        record.chunk_count = chunk_count
+        record.token_count = token_count
+        return record
+
+    async def mark_deleted(self, *, kb_id: str, file_id: str):
+        record = self.records[file_id]
+        record.deleted_at = "deleted"
+        record.status = "deleted"
+        return f"file:{file_id}:g{record.generation}:deleted"
 
     async def update_fields(self, *, file_id: str, data: dict, kb_id: str | None = None):
         await asyncio.sleep(0)
@@ -197,9 +132,17 @@ class FakeKnowledgeFileRepository:
         self.update_calls.append((file_id, kb_id, dict(data)))
         return record
 
-    async def get_filenames_by_file_ids(self, *, kb_id: str, file_ids: list[str]):
+    async def list_active_generations(self, kb_id):
+        """提供实际 Repository 的可见代次接口。"""
+        return [(file_id, row.active_generation) for file_id, row in self.records.items() if row.kb_id == kb_id and row.deleted_at is None]
+
+    async def get_chunk_sources_by_file_ids(self, *, kb_id: str, file_ids: list[str]):
         return {
-            file_id: record.filename
+            file_id: {
+                "source": record.filename,
+                "chunk_count": record.chunk_count,
+                "active_generation": record.active_generation,
+            }
             for file_id in file_ids
             if (record := self.records.get(file_id)) is not None and record.kb_id == kb_id
         }
@@ -217,19 +160,33 @@ class FakeKnowledgeFileRepository:
 
 
 def patch_file_repository(monkeypatch, file_repo: FakeKnowledgeFileRepository) -> None:
-    monkeypatch.setattr("yuxi.repositories.knowledge_file_repository.KnowledgeFileRepository", lambda: file_repo)
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeFileRepository", lambda: file_repo)
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def projection_lock(kb_id, *, shared=False):
+        """unit 只隔离锁；并发排他性由真实 PG integration 拥有。"""
+        yield
+
+    monkeypatch.setattr("yuxi.modules.knowledge.repositories.projections.knowledge_projection_lock", projection_lock)
+    monkeypatch.setattr("yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository", lambda: file_repo)
+    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeFileRepository", lambda: file_repo)
 
 
-async def _record_async(calls, value):
-    """记录异步调用参数并原样返回传入值，供测试桩模拟异步读取。"""
-    calls.append(value)
-    return value
+def patch_chunk_records(monkeypatch, records):
+    """检索测试显式提供 PG 权威 chunk，而非复用向量正文。"""
+    repository = types.SimpleNamespace(
+        list_by_chunk_ids=AsyncMock(
+            return_value=[
+                types.SimpleNamespace(kb_id="db", generation=1, chunk_index=0, **{"start_line": None, "end_line": None, **record})
+                for record in records
+            ]
+        )
+    )
+    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", lambda: repository)
 
 
 def make_chunk(index: int, content: str = "content") -> dict:
     return {
-        "id": f"id-{index}",
         "chunk_id": f"chunk-{index}",
         "file_id": "file-1",
         "chunk_index": index,
@@ -237,7 +194,7 @@ def make_chunk(index: int, content: str = "content") -> dict:
     }
 
 
-async def test_cleanup_database_resources_offloads_milvus_cleanup(monkeypatch):
+async def test_cleanup_knowledge_base_resources_offloads_milvus_cleanup(monkeypatch):
     kb = MilvusKB.__new__(MilvusKB)
     kb.connection_alias = "test-alias"
     event_loop_thread = threading.get_ident()
@@ -249,121 +206,41 @@ async def test_cleanup_database_resources_offloads_milvus_cleanup(monkeypatch):
         calls.append(name)
 
     monkeypatch.setattr(
-        "yuxi.knowledge.implementations.milvus.utility.has_collection",
+        "yuxi.modules.knowledge.implementations.milvus.utility.has_collection",
         lambda kb_id, using: record_cleanup("has_collection") or True,
     )
     monkeypatch.setattr(
-        "yuxi.knowledge.implementations.milvus.utility.drop_collection",
+        "yuxi.modules.knowledge.implementations.milvus.utility.drop_collection",
         lambda kb_id, using: record_cleanup("drop_collection"),
     )
 
-    class FakeGraphService:
-        def delete_graph(self, kb_id):
-            assert kb_id == "db"
-            record_cleanup("delete_graph")
+    class FakeGraphVectorStore:
+        def __init__(self):
+            record_cleanup("graph_init")
+
+        def drop_graph_collections(self, kb_id):
+            record_cleanup("drop_graph_collections")
 
     monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
+        "yuxi.modules.knowledge.graphs.service.MilvusGraphVectorStore",
+        FakeGraphVectorStore,
     )
 
     async def delete_base(self, kb_id):
         calls.append("delete_base")
         return {"message": "删除成功"}
 
-    monkeypatch.setattr(KnowledgeBase, "cleanup_database_resources", delete_base)
-    monkeypatch.setattr(
-        milvus_module,
-        "invalidate_parent_cache",
-        lambda kb_id: _record_async(calls, f"invalidate_parent:{kb_id}"),
-    )
-    monkeypatch.setattr(
-        milvus_module,
-        "invalidate_query_cache",
-        lambda kb_id: _record_async(calls, f"invalidate_query:{kb_id}"),
-    )
-    kb._delete_kb_child_chunks_from_all_collections = lambda kb_id: _record_async(calls, f"delete_children:{kb_id}")
+    monkeypatch.setattr(KnowledgeExecutor, "cleanup_knowledge_base_resources", delete_base)
 
-    result = await kb.cleanup_database_resources("db")
+    from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+
+    kb.graph_service = KnowledgeGraphService()
+    result = await kb.cleanup_knowledge_base_resources("db")
 
     assert result == {"message": "删除成功"}
-    assert calls == [
-        "has_collection",
-        "drop_collection",
-        "delete_graph",
-        "delete_children:db",
-        "delete_base",
-        "invalidate_parent:db",
-        "invalidate_query:db",
-    ]
+    assert calls == ["graph_init", "has_collection", "drop_collection", "drop_graph_collections", "delete_base"]
     assert cleanup_threads
     assert all(thread_id != event_loop_thread for thread_id in cleanup_threads)
-
-
-async def test_cleanup_database_resources_preserves_postgres_owner_when_collection_drop_fails(monkeypatch):
-    """知识库 Milvus collection 删除失败时不得继续删除 PostgreSQL Owner。"""
-    kb = MilvusKB.__new__(MilvusKB)
-    kb.connection_alias = "test-alias"
-    calls = []
-    monkeypatch.setattr(milvus_module.utility, "has_collection", lambda name, using: True)
-
-    def fail_drop(name, using):
-        assert (name, using) == ("db", "test-alias")
-        raise RuntimeError("drop unavailable")
-
-    monkeypatch.setattr(milvus_module.utility, "drop_collection", fail_drop)
-
-    class FakeGraphService:
-        def delete_graph(self, kb_id):
-            calls.append(("graph", kb_id))
-
-    monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
-    )
-
-    async def delete_base(self, kb_id):
-        calls.append(("postgres", kb_id))
-
-    monkeypatch.setattr(KnowledgeBase, "cleanup_database_resources", delete_base)
-
-    with pytest.raises(RuntimeError, match="drop unavailable"):
-        await kb.cleanup_database_resources("db")
-
-    assert calls == []
-
-
-async def test_detect_data_inconsistencies_stays_in_milvus_executor(monkeypatch):
-    kb = MilvusKB.__new__(MilvusKB)
-    kb.connection_alias = "test-alias"
-
-    class FakeCollection:
-        def __init__(self, name: str, using: str):
-            assert using == "test-alias"
-            self.num_entities = 4 if name == "kb_managed" else 2
-            self.description = f"collection:{name}"
-
-    class FakeRepository:
-        async def get_kb_file_stats(self, kb_id: str):
-            assert kb_id == "kb_managed"
-            return {"file_count": 0}
-
-    monkeypatch.setattr(milvus_module.utility, "list_collections", lambda using: ["kb_managed", "kb_orphan"])
-    monkeypatch.setattr(milvus_module.utility, "has_collection", lambda name, using: name == "kb_managed")
-    monkeypatch.setattr(milvus_module, "Collection", FakeCollection)
-    monkeypatch.setattr(milvus_module, "KnowledgeFileRepository", FakeRepository)
-
-    result = await kb.detect_data_inconsistencies({"kb_managed"}, {"kb_managed"})
-
-    assert [item["collection_name"] for item in result["missing_collections"]] == ["kb_orphan"]
-    assert result["missing_files"] == [
-        {
-            "kb_id": "kb_managed",
-            "vector_count": 4,
-            "metadata_files_count": 0,
-            "detected_at": result["missing_files"][0]["detected_at"],
-        }
-    ]
 
 
 def test_build_chunk_pg_records_preserves_extraction_result():
@@ -456,25 +333,16 @@ async def test_index_file_persists_chunk_stats(monkeypatch):
     async def embedding_function(texts):
         return [[0.1, 0.2] for _ in texts]
 
-    async def delete_file_chunks_only(kb_id, file_id, **kwargs):
-        del kwargs
-        deleted_files.append((kb_id, file_id))
+    async def delete_file_chunks_only(kb_id, file_id, generation=None):
+        deleted_files.append((kb_id, file_id, generation))
 
-    async def embed_and_store_chunks(
-        kb_id,
-        file_id,
-        collection_arg,
-        chunk_records,
-        embedding_fn,
-        *,
-        sparse_enabled=False,
-    ):
-        store_calls.append((kb_id, file_id, collection_arg, list(chunk_records), embedding_fn, sparse_enabled))
+    async def embed_and_store_chunks(kb_id, file_id, collection_arg, chunk_records, embedding_fn, *, sparse_enabled=False):
+        store_calls.append((kb_id, file_id, collection_arg, list(chunk_records), embedding_fn))
 
     kb._get_or_create_milvus_collection = get_collection
-    kb._read_markdown_from_minio = read_markdown
+    monkeypatch.setattr(documents, "read_markdown_from_minio", read_markdown)
     kb._split_text_into_chunks = lambda text, file_id, filename, params: chunks
-    kb._get_embedding_function = lambda embedding_model_spec: embedding_function
+    monkeypatch.setattr(milvus_module, "get_embedding_function", lambda embedding_model_spec: embedding_function)
     kb.delete_file_chunks_only = delete_file_chunks_only
     kb._embed_and_store_chunks = embed_and_store_chunks
 
@@ -492,280 +360,81 @@ async def test_index_file_persists_chunk_stats(monkeypatch):
         additional_params={},
     )
 
-    assert deleted_files == [("db", "file-1")]
+    assert deleted_files == []
     assert len(store_calls) == 1
-    assert [chunk["chunk_id"] for chunk in store_calls[0][3]] == ["chunk-0", "chunk-1"]
-    assert store_calls[0][5] is False
+    assert [chunk["chunk_id"] for chunk in store_calls[0][3]] == ["chunk-0-g2", "chunk-1-g2"]
     assert result["status"] == FileStatus.INDEXED
     assert result["chunk_count"] == 2
     assert result["token_count"] == count_tokens("alpha beta") + count_tokens("中文")
     assert file_repo.records["file-1"].chunk_count == result["chunk_count"]
     assert file_repo.conditional_update_calls[0][3]["status"] == FileStatus.INDEXING
-    assert file_repo.conditional_update_calls[-1][3]["status"] == FileStatus.INDEXED
+    assert result["active_generation"] == 2
 
 
-async def test_single_to_parent_child_cleans_legacy_projection_and_clears_owner(monkeypatch):
-    """single 转 Parent-Child 时先清旧投影，激活事务同时发布文件终态。"""
+async def test_index_file_rejects_folder_before_claim(monkeypatch):
+    """文件夹 done 与文件 done 同字面量，但不能进入入库声明。"""
     kb = MilvusKB.__new__(MilvusKB)
-    file_repo = FakeKnowledgeFileRepository(
-        {
-            "file-1": make_file_record(
-                status=FileStatus.INDEXED,
-                chunk_count=2,
-                token_count=10,
-                processing_params={"indexing_path": "single_chunk"},
-            )
-        }
-    )
-    patch_file_repository(monkeypatch, file_repo)
-    calls = []
-
-    async def delete_file_chunks_only(kb_id, file_id, **kwargs):
-        """记录切换前的旧单层投影清理及其 attempt owner。"""
-        calls.append(("cleanup", kb_id, file_id, kwargs))
-
-    async def index_parent_child(**kwargs):
-        """模拟激活事务原子发布版本与文件终态。"""
-        assert calls == [
-            (
-                "cleanup",
-                "db",
-                "file-1",
-                {"processing_task_id": "task-1", "processing_owner": "worker-1"},
-            )
-        ]
-        calls.append(("parent_child", kwargs["kb_id"], kwargs["file_id"]))
-        record = file_repo.records["file-1"]
-        record.status = FileStatus.INDEXED
-        record.chunk_count = 3
-        record.token_count = 20
-        record.processing_task_id = None
-        record.processing_owner = None
-        return {"chunk_count": 3, "token_count": 20, "status": FileStatus.INDEXED}
-
-    kb.delete_file_chunks_only = delete_file_chunks_only
-    kb._index_parent_child_file = index_parent_child
-    kb._get_embedding_function = lambda _embedding_model_spec: object()
-
-    result = await kb.index_file(
-        "db",
-        "file-1",
-        params={"parent_child": {"enabled": True}},
-        embedding_model_spec=EMBEDDING_MODEL_SPEC,
-        additional_params={},
-        processing_task_id="task-1",
-        processing_owner="worker-1",
-    )
-
-    assert calls == [
-        (
-            "cleanup",
-            "db",
-            "file-1",
-            {"processing_task_id": "task-1", "processing_owner": "worker-1"},
-        ),
-        ("parent_child", "db", "file-1"),
-    ]
-    assert result["status"] == FileStatus.INDEXED
-    assert result["chunk_count"] == 3
-    assert result["token_count"] == 20
-    assert file_repo.records["file-1"].processing_task_id is None
-    assert file_repo.records["file-1"].processing_owner is None
-    assert len(file_repo.conditional_update_calls) == 1
-    assert file_repo.conditional_update_calls[0][3]["processing_task_id"] == "task-1"
-    assert file_repo.conditional_update_calls[0][3]["processing_owner"] == "worker-1"
-
-
-async def test_parent_child_requires_durable_task_owner_before_claim(monkeypatch):
-    """Parent-Child 缺少 Durable Task owner 时不得认领文件或改写状态。"""
-    kb = MilvusKB.__new__(MilvusKB)
-    original_params = {"indexing_path": "single_chunk"}
-    file_repo = FakeKnowledgeFileRepository(
-        {
-            "file-1": make_file_record(
-                status=FileStatus.INDEXED,
-                processing_params=original_params,
-                chunk_count=2,
-                token_count=10,
-            )
-        }
-    )
+    record = make_file_record(file_id="folder-1", is_folder=True, status="done")
+    file_repo = FakeKnowledgeFileRepository({"folder-1": record})
     patch_file_repository(monkeypatch, file_repo)
 
-    with pytest.raises(ValueError, match="Durable Task owner"):
+    async def fail_collection(*_args, **_kwargs):
+        raise AssertionError("文件夹不能创建外部集合")
+
+    kb._get_or_create_milvus_collection = fail_collection
+
+    with pytest.raises(ValueError, match="Cannot index folder"):
         await kb.index_file(
             "db",
-            "file-1",
-            params={"parent_child": {"enabled": True}},
+            "folder-1",
+            operator_id="user-1",
+            params={},
             embedding_model_spec=EMBEDDING_MODEL_SPEC,
             additional_params={},
         )
-
-    record = file_repo.records["file-1"]
-    assert record.status == FileStatus.INDEXED
-    assert record.processing_params == original_params
-    assert record.chunk_count == 2
-    assert record.token_count == 10
-    assert file_repo.conditional_update_calls == []
-
-
-async def test_parent_child_committed_cancellation_publishes_indexed_before_propagating(monkeypatch):
-    """原子激活已提交后的取消不能回写 error_indexing。"""
-    kb = MilvusKB.__new__(MilvusKB)
-    file_repo = FakeKnowledgeFileRepository(
-        {
-            "file-1": make_file_record(
-                processing_params={"indexing_path": "parent_child", "parent_child": {"enabled": True}},
-            )
-        }
-    )
-    patch_file_repository(monkeypatch, file_repo)
-
-    async def committed_then_cancelled(**_kwargs):
-        """模拟内部 active 提交已完成后收到取消。"""
-        record = file_repo.records["file-1"]
-        record.status = FileStatus.INDEXED
-        record.error_message = None
-        record.chunk_count = 3
-        record.token_count = 20
-        record.processing_task_id = None
-        record.processing_owner = None
-        cancellation = asyncio.CancelledError("cancelled after activation")
-        raise milvus_module._CommittedParentChildIndex(
-            {"chunk_count": 3, "token_count": 20, "status": FileStatus.INDEXED},
-            cancellation,
-        ) from cancellation
-
-    kb._index_parent_child_file = committed_then_cancelled
-    kb._get_embedding_function = lambda _embedding_model_spec: object()
-
-    with pytest.raises(asyncio.CancelledError, match="after activation"):
-        await kb.index_file(
-            "db",
-            "file-1",
-            params={"parent_child": {"enabled": True}},
-            embedding_model_spec=EMBEDDING_MODEL_SPEC,
-            additional_params={},
-            processing_task_id="task-1",
-            processing_owner="worker-1",
-        )
-
-    record = file_repo.records["file-1"]
-    assert record.status == FileStatus.INDEXED
-    assert record.error_message is None
-    assert record.chunk_count == 3
-    assert record.token_count == 20
-    terminal_statuses = [call[3]["status"] for call in file_repo.conditional_update_calls[1:]]
-    assert terminal_statuses == []
-
-
-async def test_parent_child_success_does_not_overwrite_new_processing_owner(monkeypatch):
-    """旧 attempt 完成时若 owner 已切换，不得发布文件成功终态或统计。"""
-    kb = MilvusKB.__new__(MilvusKB)
-    file_repo = FakeKnowledgeFileRepository(
-        {
-            "file-1": make_file_record(
-                processing_params={"indexing_path": "parent_child", "parent_child": {"enabled": True}},
-                chunk_count=1,
-                token_count=7,
-            )
-        }
-    )
-    patch_file_repository(monkeypatch, file_repo)
-
-    async def index_parent_child(**_kwargs):
-        """模拟索引期间 Durable Task ownership 已转交给新 worker。"""
-        record = file_repo.records["file-1"]
-        record.processing_task_id = "task-2"
-        record.processing_owner = "worker-2"
-        raise asyncio.CancelledError("File processing owner was lost")
-
-    kb._index_parent_child_file = index_parent_child
-    kb._get_embedding_function = lambda _embedding_model_spec: object()
-
-    with pytest.raises(asyncio.CancelledError, match="owner was lost"):
-        await kb.index_file(
-            "db",
-            "file-1",
-            params={"parent_child": {"enabled": True}},
-            embedding_model_spec=EMBEDDING_MODEL_SPEC,
-            additional_params={},
-            processing_task_id="task-1",
-            processing_owner="worker-1",
-        )
-
-    record = file_repo.records["file-1"]
-    assert record.status == FileStatus.INDEXING
-    assert record.chunk_count == 1
-    assert record.token_count == 7
-    assert record.processing_task_id == "task-2"
-    assert record.processing_owner == "worker-2"
-    terminal_calls = file_repo.conditional_update_calls[1:]
-    assert [call[3]["status"] for call in terminal_calls] == [FileStatus.ERROR_INDEXING]
-    assert all(call[4:] == ("task-1", "worker-1") for call in terminal_calls)
-
-
-@pytest.mark.parametrize("operation", ["parse", "index"])
-@pytest.mark.parametrize(
-    "owner_kwargs",
-    [
-        {"processing_task_id": "task-1", "processing_owner": None},
-        {"processing_task_id": None, "processing_owner": "worker-1"},
-    ],
-)
-async def test_file_processing_owner_pair_is_rejected_before_claim(monkeypatch, operation, owner_kwargs):
-    """文件处理入口收到半套 Task owner 时不得认领或改写文件。"""
-    kb = MilvusKB.__new__(MilvusKB)
-    file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record()})
-    patch_file_repository(monkeypatch, file_repo)
-
-    with pytest.raises(ValueError, match="必须同时提供"):
-        if operation == "parse":
-            await kb.parse_file(
-                "db",
-                "file-1",
-                additional_params={},
-                embedding_model_spec=EMBEDDING_MODEL_SPEC,
-                **owner_kwargs,
-            )
-        else:
-            await kb.index_file(
-                "db",
-                "file-1",
-                embedding_model_spec=EMBEDDING_MODEL_SPEC,
-                additional_params={},
-                **owner_kwargs,
-            )
 
     assert file_repo.conditional_update_calls == []
+    assert record.status == "done"
 
 
-async def test_parse_file_persists_request_params_with_owner_claim(monkeypatch):
-    """解析请求参数必须与 parsing 状态及 Task owner 在同一次认领中写入。"""
+@pytest.mark.parametrize("status", ["done", "failed"])
+async def test_legacy_file_status_enters_index_claim(monkeypatch, status):
+    """历史文件 done 可重新入库，failed 可重试；声明发生后才读取 Markdown。"""
     kb = MilvusKB.__new__(MilvusKB)
-    file_repo = FakeKnowledgeFileRepository(
-        {"file-1": make_file_record(status=FileStatus.UPLOADED, path=None, processing_params={"kept": True})}
-    )
+    record = make_file_record(status=status, markdown_file="minio://parsed/db/file-1.md")
+    file_repo = FakeKnowledgeFileRepository({"file-1": record})
     patch_file_repository(monkeypatch, file_repo)
 
-    with pytest.raises(ValueError, match="no valid path"):
-        await kb.parse_file(
+    async def get_collection(*_args, **_kwargs):
+        return FakeCollection()
+
+    async def read_markdown(_path):
+        assert record.status == FileStatus.INDEXING
+        raise RuntimeError("stop after claim")
+
+    kb._get_or_create_milvus_collection = get_collection
+    monkeypatch.setattr(documents, "read_markdown_from_minio", read_markdown)
+    monkeypatch.setattr(milvus_module, "get_embedding_function", lambda _spec: lambda _texts: [])
+
+    async def get_system_options(_option, _db=None):
+        return {"embed_model": EMBEDDING_MODEL_SPEC}
+
+    monkeypatch.setattr(type(milvus_module.system_options), "get", get_system_options)
+
+    with pytest.raises(RuntimeError, match="stop after claim"):
+        await kb.index_file(
             "db",
             "file-1",
-            params={"chunk_parser_config": {"chunk_token_num": 256}},
-            additional_params={},
+            operator_id="user-1",
+            params={},
             embedding_model_spec=EMBEDDING_MODEL_SPEC,
-            processing_task_id="task-1",
-            processing_owner="worker-1",
+            additional_params={},
         )
 
-    claim = file_repo.conditional_update_calls[0][3]
-    assert claim["status"] == FileStatus.PARSING
-    assert claim["processing_task_id"] == "task-1"
-    assert claim["processing_owner"] == "worker-1"
-    assert claim["processing_params"]["kept"] is True
-    assert claim["processing_params"]["chunk_parser_config"]["chunk_token_num"] == 256
-    assert file_repo.processing_locks == [("enter", "db", "file-1"), ("exit", "db", "file-1")]
+    allowed_statuses, claim = file_repo.conditional_update_calls[0][2:]
+    assert status in allowed_statuses
+    assert {"done", "failed"} <= allowed_statuses
+    assert claim["status"] == FileStatus.INDEXING
 
 
 @pytest.mark.parametrize(
@@ -777,19 +446,17 @@ async def test_parse_file_persists_request_params_with_owner_claim(monkeypatch):
 )
 async def test_cancellation_marks_file_retryable(monkeypatch, operation, expected_status, expected_message):
     kb = MilvusKB.__new__(MilvusKB)
-    started = asyncio.Event()
-    release_step = asyncio.Event()
     if operation == "parse":
-        file_repo = FakeKnowledgeFileRepository(
-            {"file-1": make_file_record(markdown_file=None, status=FileStatus.UPLOADED)}
-        )
+        file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record(markdown_file=None, status=FileStatus.UPLOADED)})
         patch_file_repository(monkeypatch, file_repo)
+        started = asyncio.Event()
 
         async def cancelled_step(*args, **kwargs):
             started.set()
-            await release_step.wait()
+            await asyncio.Event().wait()
 
-        monkeypatch.setattr("yuxi.services.ocr_service.parse_document", cancelled_step)
+        monkeypatch.setattr("yuxi.modules.documents.service.parse_to_hosted_markdown", cancelled_step)
+        monkeypatch.setattr(kb, "_cleanup_parse_attempt", AsyncMock())
         task = asyncio.create_task(
             kb.parse_file(
                 "db",
@@ -801,6 +468,7 @@ async def test_cancellation_marks_file_retryable(monkeypatch, operation, expecte
     else:
         file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record()})
         patch_file_repository(monkeypatch, file_repo)
+        started = asyncio.Event()
 
         async def get_collection(kb_id, embedding_model_spec):
             del kb_id, embedding_model_spec
@@ -808,11 +476,11 @@ async def test_cancellation_marks_file_retryable(monkeypatch, operation, expecte
 
         async def cancelled_step(path):
             started.set()
-            await release_step.wait()
+            await asyncio.Event().wait()
 
         kb._get_or_create_milvus_collection = get_collection
-        kb._get_embedding_function = lambda embedding_model_spec: None
-        kb._read_markdown_from_minio = cancelled_step
+        monkeypatch.setattr(milvus_module, "get_embedding_function", lambda embedding_model_spec: None)
+        monkeypatch.setattr(documents, "read_markdown_from_minio", cancelled_step)
 
         async def get_system_options(_option, _db=None):
             return {"embed_model": EMBEDDING_MODEL_SPEC}
@@ -829,101 +497,33 @@ async def test_cancellation_marks_file_retryable(monkeypatch, operation, expecte
             )
         )
 
-    try:
-        await asyncio.wait_for(started.wait(), timeout=1)
-        task.cancel()
-        done, _pending = await asyncio.wait({task}, timeout=0.5)
-        assert task in done
-        with pytest.raises(asyncio.CancelledError):
-            task.result()
-    finally:
-        release_step.set()
-        task.cancel()
-        await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
     record = file_repo.records["file-1"]
     assert record.status == expected_status
     assert record.error_message == expected_message
-    assert file_repo.processing_locks == [("enter", "db", "file-1"), ("exit", "db", "file-1")]
-
-
-async def test_milvus_delete_finishes_sync_side_effect_before_propagating_cancellation():
-    """同步删除仍运行时，取消不能让文件处理协程提前退出。"""
-    kb = MilvusKB.__new__(MilvusKB)
-    delete_started = threading.Event()
-    release_delete = threading.Event()
-
-    class BlockingCollection:
-        """提供可控同步删除窗口的最小 Milvus collection。"""
-
-        @staticmethod
-        def query(**_kwargs):
-            return [{"id": "chunk-1"}]
-
-        @staticmethod
-        def delete(_expr):
-            delete_started.set()
-            release_delete.wait()
-
-    deletion = asyncio.create_task(kb._delete_file_chunks_from_milvus(BlockingCollection(), "file-1"))
-    try:
-        assert await asyncio.wait_for(asyncio.to_thread(delete_started.wait, 1), timeout=2) is True
-        deletion.cancel()
-        await asyncio.sleep(0.05)
-        assert deletion.done() is False
-
-        release_delete.set()
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(deletion, timeout=1)
-    finally:
-        release_delete.set()
-        deletion.cancel()
-        await asyncio.gather(deletion, return_exceptions=True)
 
 
 async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
-    """外部清理成功后再收敛单层与 Parent-Child 的 PostgreSQL Owner。"""
     repos = []
-    active_version_delete_calls = []
-    cleanup_order = []
 
     class FakeChunkRepo:
         def __init__(self):
             self.delete_calls = []
             repos.append(self)
 
-        async def count_graph_indexed_by_file_id(self, file_id):
+        async def count_graph_indexed_by_file_id(self, file_id, *, generation=None):
             return 0
 
         async def delete_by_file_id(self, file_id):
             self.delete_calls.append(file_id)
-            cleanup_order.append(("legacy_postgres", file_id))
             return 2
 
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
-
-    class FakeParentChildRepo:
-        async def delete_active_by_file_id(self, kb_id, file_id):
-            """记录 active Parent-Child 版本的事务化删除请求。"""
-            active_version_delete_calls.append((kb_id, file_id))
-            cleanup_order.append(("parent_child_postgres", kb_id, file_id))
-            return 1
-
-    monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", FakeParentChildRepo)
-    graph_cleanup_calls = []
-
-    class FakeGraphService:
-        async def delete_file_graph(self, kb_id, file_id):
-            graph_cleanup_calls.append((kb_id, file_id))
-            cleanup_order.append(("graph_external", kb_id, file_id))
-
-    monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
-    )
-    file_repo = FakeKnowledgeFileRepository(
-        {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
-    )
+    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
+    file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)})
     patch_file_repository(monkeypatch, file_repo)
     kb = MilvusKB.__new__(MilvusKB)
 
@@ -932,318 +532,70 @@ async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
         return None
 
     kb._get_existing_milvus_collection = get_collection
-    kb._delete_file_child_chunks_from_all_collections = lambda kb_id, file_id: _record_async(
-        cleanup_order,
-        ("child_external", kb_id, file_id),
-    )
+    kb.graph_service = SimpleNamespace(delete_file_graph=AsyncMock())
 
     await kb.delete_file_chunks_only("db", "file-1")
+    kb.graph_service.delete_file_graph.assert_awaited_once_with("db", "file-1", generation=None)
 
-    assert graph_cleanup_calls == [("db", "file-1")]
     assert repos[0].delete_calls == ["file-1"]
-    assert active_version_delete_calls == [("db", "file-1")]
-    assert cleanup_order == [
-        ("graph_external", "db", "file-1"),
-        ("child_external", "db", "file-1"),
-        ("legacy_postgres", "file-1"),
-        ("parent_child_postgres", "db", "file-1"),
-    ]
     assert file_repo.records["file-1"].chunk_count == 0
     assert file_repo.records["file-1"].token_count == 0
     assert file_repo.update_calls == [("file-1", "db", {"chunk_count": 0, "token_count": 0})]
 
 
-async def test_delete_file_chunks_only_stops_when_graph_cleanup_fails(monkeypatch):
-    """图谱清理失败时保留 PostgreSQL chunk 与文件统计，避免外部数据失去 Owner。"""
-    chunk_delete_calls = []
-
-    class FakeChunkRepo:
-        async def delete_by_file_id(self, file_id):
-            chunk_delete_calls.append(file_id)
-
-    class FakeGraphService:
-        async def delete_file_graph(self, kb_id, file_id):
-            del kb_id, file_id
-            raise RuntimeError("graph unavailable")
-
-    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
-    monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
+@pytest.mark.parametrize("failure", ["graph", "vector"])
+async def test_delete_file_commits_invisibility_without_external_cleanup(monkeypatch, failure):
+    """外部不可用不阻止 PG 删除；请求线程不能先调用外部清理。"""
+    error = RuntimeError("external storage unavailable")
+    chunk_repo = types.SimpleNamespace(
+        delete_by_file_id=AsyncMock(),
     )
-    file_repo = FakeKnowledgeFileRepository(
-        {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
-    )
+    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", lambda: chunk_repo)
+    file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record(chunk_count=2, token_count=10)})
     patch_file_repository(monkeypatch, file_repo)
-    kb = MilvusKB.__new__(MilvusKB)
-    kb._get_existing_milvus_collection = lambda _kb_id: _record_async([], None)
+    monkeypatch.setattr(
+        "yuxi.modules.knowledge.graphs.service.KnowledgeGraphService.delete_file_graph",
+        AsyncMock(side_effect=error),
+    )
+    kb = make_kb(FakeCollection())
+    kb._get_existing_milvus_collection = AsyncMock(return_value=FakeCollection())
+    kb._delete_file_chunks_from_milvus = AsyncMock(side_effect=error)
 
-    with pytest.raises(RuntimeError, match="graph unavailable"):
-        await kb.delete_file_chunks_only("db", "file-1")
+    manager = object.__new__(KnowledgeBaseManager)
+    monkeypatch.setattr(manager, "_require_kb_supports_documents", AsyncMock())
+    monkeypatch.setattr(manager, "_refresh_knowledge_base_stats", AsyncMock())
+    await manager.delete_file("db", "file-1")
 
-    assert chunk_delete_calls == []
+    assert file_repo.records["file-1"].status == "deleted"
+    assert file_repo.records["file-1"].deleted_at is not None
+    kb._delete_file_chunks_from_milvus.assert_not_awaited()
+    assert "file-1" in file_repo.records
     assert file_repo.records["file-1"].chunk_count == 2
     assert file_repo.records["file-1"].token_count == 10
-    assert file_repo.update_calls == []
+    chunk_repo.delete_by_file_id.assert_not_awaited()
 
 
-async def test_delete_file_chunks_only_stops_when_legacy_milvus_cleanup_fails(monkeypatch):
-    """旧单层 Milvus 删除失败时不得删除 PostgreSQL chunk 或重置统计。"""
-    chunk_delete_calls = []
-
-    class FakeChunkRepo:
-        async def delete_by_file_id(self, file_id):
-            chunk_delete_calls.append(file_id)
-
-    class FakeGraphService:
-        async def delete_file_graph(self, kb_id, file_id):
-            del kb_id, file_id
-
-    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
+async def test_knowledge_base_cleanup_stops_when_collection_drop_fails(monkeypatch):
+    """集合删除失败时不能继续清理并报告知识库已删除。"""
+    error = RuntimeError("Milvus unavailable")
+    monkeypatch.setattr(milvus_module.utility, "has_collection", lambda *args, **kwargs: True)
+    monkeypatch.setattr(milvus_module.utility, "drop_collection", Mock(side_effect=error))
+    graph_cleanup = Mock()
     monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
+        "yuxi.modules.knowledge.graphs.milvus_graph_vector_store.MilvusGraphVectorStore",
+        lambda: types.SimpleNamespace(drop_graph_collections=graph_cleanup),
     )
-    file_repo = FakeKnowledgeFileRepository(
-        {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
-    )
-    patch_file_repository(monkeypatch, file_repo)
-    kb = MilvusKB.__new__(MilvusKB)
-    collection = object()
-    kb._get_existing_milvus_collection = lambda _kb_id: _record_async([], collection)
+    base_cleanup = AsyncMock(return_value={"message": "success"})
+    monkeypatch.setattr(KnowledgeExecutor, "cleanup_knowledge_base_resources", base_cleanup)
+    kb = make_kb(FakeCollection())
+    kb.connection_alias = "test-connection"
 
-    async def fail_legacy_cleanup(collection_arg, file_id):
-        assert collection_arg is collection
-        assert file_id == "file-1"
-        raise RuntimeError("legacy milvus unavailable")
+    with pytest.raises(RuntimeError) as caught:
+        await kb.cleanup_knowledge_base_resources("db")
 
-    kb._delete_file_chunks_from_milvus = fail_legacy_cleanup
-    kb._delete_file_child_chunks_from_all_collections = lambda *_args: pytest.fail(
-        "child cleanup must not start after legacy cleanup fails"
-    )
-
-    with pytest.raises(RuntimeError, match="legacy milvus unavailable"):
-        await kb.delete_file_chunks_only("db", "file-1")
-
-    assert chunk_delete_calls == []
-    assert file_repo.records["file-1"].chunk_count == 2
-    assert file_repo.update_calls == []
-
-
-async def test_delete_file_chunks_only_stops_when_child_milvus_cleanup_fails(monkeypatch):
-    """共享 child collection 删除失败时保留 PostgreSQL Owner 与文件统计。"""
-    chunk_delete_calls = []
-    active_version_delete_calls = []
-
-    class FakeChunkRepo:
-        async def delete_by_file_id(self, file_id):
-            chunk_delete_calls.append(file_id)
-
-    class FakeGraphService:
-        async def delete_file_graph(self, kb_id, file_id):
-            del kb_id, file_id
-
-    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
-
-    class FakeParentChildRepo:
-        async def delete_active_by_file_id(self, kb_id, file_id):
-            """记录本不应在外部清理失败后发生的 active 版本删除。"""
-            active_version_delete_calls.append((kb_id, file_id))
-
-    monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", FakeParentChildRepo)
-    monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
-    )
-    file_repo = FakeKnowledgeFileRepository(
-        {"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)}
-    )
-    patch_file_repository(monkeypatch, file_repo)
-    kb = MilvusKB.__new__(MilvusKB)
-    kb._get_existing_milvus_collection = lambda _kb_id: _record_async([], None)
-
-    async def fail_child_cleanup(kb_id, file_id):
-        assert (kb_id, file_id) == ("db", "file-1")
-        raise RuntimeError("child milvus unavailable")
-
-    kb._delete_file_child_chunks_from_all_collections = fail_child_cleanup
-
-    with pytest.raises(RuntimeError, match="child milvus unavailable"):
-        await kb.delete_file_chunks_only("db", "file-1")
-
-    assert chunk_delete_calls == []
-    assert active_version_delete_calls == []
-    assert file_repo.records["file-1"].chunk_count == 2
-    assert file_repo.update_calls == []
-
-
-async def test_delete_file_chunks_only_fences_owner_after_graph_cleanup(monkeypatch):
-    """旧 attempt 在图谱清理后失去 owner 时，不得继续删除 successor 投影。"""
-    cleanup_calls = []
-    successor_projection = {"version": "successor-v1", "exists": True}
-    file_repo = FakeKnowledgeFileRepository(
-        {
-            "file-1": make_file_record(
-                status=FileStatus.INDEXING,
-                processing_task_id="task-old",
-                processing_owner="worker-old",
-                chunk_count=2,
-                token_count=10,
-            )
-        }
-    )
-    patch_file_repository(monkeypatch, file_repo)
-
-    class FakeGraphService:
-        async def delete_file_graph(self, kb_id, file_id):
-            """模拟旧投影删除后 successor 已接管同一文件。"""
-            cleanup_calls.append(("graph", kb_id, file_id))
-            record = file_repo.records[file_id]
-            record.processing_task_id = "task-successor"
-            record.processing_owner = "worker-successor"
-            successor_projection.clear()
-            successor_projection.update({"version": "successor-v2", "exists": True})
-
-    monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
-    )
-
-    class FakeChunkRepo:
-        async def delete_by_file_id(self, file_id):
-            cleanup_calls.append(("legacy_postgres", file_id))
-
-    class FakeParentChildRepo:
-        async def delete_active_by_file_id(self, kb_id, file_id):
-            cleanup_calls.append(("parent_child_postgres", kb_id, file_id))
-
-    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
-    monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", FakeParentChildRepo)
-
-    class FakeCollection:
-        pass
-
-    async def get_existing_collection(kb_id):
-        cleanup_calls.append(("get_collection", kb_id))
-        return FakeCollection()
-
-    async def delete_legacy_chunks(collection, file_id):
-        del collection
-        cleanup_calls.append(("legacy_milvus", file_id))
-
-    async def delete_shared_child_chunks(kb_id, file_id):
-        cleanup_calls.append(("shared_child", kb_id, file_id))
-
-    kb = MilvusKB.__new__(MilvusKB)
-    kb._get_existing_milvus_collection = get_existing_collection
-    kb._delete_file_chunks_from_milvus = delete_legacy_chunks
-    kb._delete_file_child_chunks_from_all_collections = delete_shared_child_chunks
-
-    with pytest.raises(asyncio.CancelledError, match="owner was lost"):
-        await kb.delete_file_chunks_only(
-            "db",
-            "file-1",
-            processing_task_id="task-old",
-            processing_owner="worker-old",
-        )
-
-    assert cleanup_calls == [("graph", "db", "file-1")]
-    assert successor_projection == {"version": "successor-v2", "exists": True}
-    record = file_repo.records["file-1"]
-    assert record.processing_task_id == "task-successor"
-    assert record.processing_owner == "worker-successor"
-    assert record.chunk_count == 2
-    assert record.token_count == 10
-    assert file_repo.update_calls == []
-
-
-@pytest.mark.asyncio
-async def test_delete_file_chunks_only_cleans_shared_parent_child_collections(monkeypatch):
-    """文件删除必须在所有按维度共享的 child collection 中按 kb/file 隔离清理。"""
-    delete_calls = []
-
-    class FakeChunkRepo:
-        async def count_graph_indexed_by_file_id(self, file_id):
-            del file_id
-            return 0
-
-        async def delete_by_file_id(self, file_id):
-            del file_id
-            return 0
-
-    class FakeCollection:
-        def __init__(self, name):
-            self.name = name
-
-        def delete(self, expression):
-            delete_calls.append((self.name, expression))
-
-    class FakeFileRepo:
-        async def update_fields(self, **kwargs):
-            del kwargs
-
-    class FakeParentChildRepo:
-        async def delete_active_by_file_id(self, kb_id, file_id):
-            """模拟 active Parent-Child 版本已经随文件作用域完成清理。"""
-            assert (kb_id, file_id) == ('kb"quoted', "file-1")
-            return 1
-
-    kb = MilvusKB.__new__(MilvusKB)
-    kb.connection_alias = "test-alias"
-    kb.child_collections = {768: FakeCollection("rag_child_chunk_768")}
-    kb._get_existing_milvus_collection = lambda _kb_id: _record_async([], None)
-    monkeypatch.setattr(milvus_module.utility, "list_collections", lambda using: ["rag_child_chunk_768"])
-    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", FakeChunkRepo)
-    monkeypatch.setattr(milvus_module, "KnowledgeFileRepository", lambda: FakeFileRepo())
-    monkeypatch.setattr(milvus_module, "KnowledgeParentChildChunkRepository", FakeParentChildRepo)
-    graph_cleanup_calls = []
-
-    class FakeGraphService:
-        async def delete_file_graph(self, kb_id, file_id):
-            graph_cleanup_calls.append((kb_id, file_id))
-
-    monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService",
-        FakeGraphService,
-    )
-
-    await kb.delete_file_chunks_only('kb"quoted', "file-1")
-
-    assert graph_cleanup_calls == [('kb"quoted', "file-1")]
-    assert delete_calls == [
-        (
-            "rag_child_chunk_768",
-            'knowledge_base_id == "kb\\"quoted" and file_id == "file-1"',
-        )
-    ]
-
-
-async def test_delete_file_invalidates_parent_child_cache_after_metadata_delete(monkeypatch):
-    """文件删除提交后必须清理知识库范围内的父块与查询缓存。"""
-    kb = MilvusKB.__new__(MilvusKB)
-    file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record(status=FileStatus.INDEXED)})
-    patch_file_repository(monkeypatch, file_repo)
-    calls = []
-    kb.delete_file_chunks_only = lambda kb_id, file_id: _record_async(calls, ("chunks", kb_id, file_id))
-    monkeypatch.setattr(
-        milvus_module,
-        "invalidate_parent_cache",
-        lambda kb_id: _record_async(calls, ("parent_cache", kb_id)),
-    )
-    monkeypatch.setattr(
-        milvus_module,
-        "invalidate_query_cache",
-        lambda kb_id: _record_async(calls, ("query_cache", kb_id)),
-    )
-
-    await kb.delete_file("db", "file-1")
-
-    assert file_repo.deleted == ["file-1"]
-    assert calls == [
-        ("chunks", "db", "file-1"),
-        ("parent_cache", "db"),
-        ("query_cache", "db"),
-    ]
+    assert caught.value is error
+    graph_cleanup.assert_not_called()
+    base_cleanup.assert_not_awaited()
 
 
 async def test_collection_lifecycle_calls_are_offloaded_from_event_loop(monkeypatch):
@@ -1296,123 +648,125 @@ async def test_milvus_chunk_delete_is_offloaded_from_event_loop():
     assert all(thread_id != event_loop_thread for thread_id in call_threads)
 
 
-async def test_insert_chunks_to_stores_inserts_current_batch(monkeypatch):
-    repos = []
+async def test_insert_chunks_to_stores_writes_pg_first_then_milvus_upsert(monkeypatch):
+    event_log = []
 
     class FakeChunkRepo:
-        def __init__(self):
-            self.upsert_calls = []
-            self.delete_calls = []
-            repos.append(self)
-
         async def batch_upsert(self, chunks):
-            self.upsert_calls.append(chunks)
+            event_log.append("pg")
             return []
 
-        async def delete_by_file_id(self, file_id):
-            self.delete_calls.append(file_id)
-            return 0
-
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
     kb = MilvusKB.__new__(MilvusKB)
     collection = FakeCollection()
+
+    original_upsert = collection.upsert
+
+    def upsert(entities):
+        event_log.append("milvus")
+        original_upsert(entities)
+
+    collection.upsert = upsert
     chunks = [make_chunk(index) for index in range(3)]
     embeddings = [[0.1, 0.2] for _ in chunks]
 
     await kb._insert_chunks_to_stores("db", "file-1", collection, chunks, embeddings)
 
-    assert len(collection.insert_calls) == 1
-    assert collection.insert_calls[0][0] == ["id-0", "id-1", "id-2"]
-    assert collection.insert_calls[0][5] == embeddings
-    assert len(repos[0].upsert_calls) == 1
-    assert [record["chunk_id"] for record in repos[0].upsert_calls[0]] == ["chunk-0", "chunk-1", "chunk-2"]
+    # PG 为权威源先行落库，Milvus 只做派生索引
+    assert event_log == ["pg", "milvus"]
+    assert len(collection.upsert_calls) == 1
+    assert collection.upsert_calls[0][0] == ["chunk-0", "chunk-1", "chunk-2"]
+    assert collection.upsert_calls[0][5] == embeddings
+    assert collection.insert_calls == []
 
 
-async def test_milvus_insert_finishes_sync_side_effect_before_propagating_cancellation(monkeypatch):
-    """同步插入仍运行时，取消不能让文件处理协程提前退出。"""
-
-    class FakeChunkRepo:
-        """提供立即完成的 PostgreSQL 双写分支。"""
-
-        @staticmethod
-        async def batch_upsert(_chunks):
-            return []
-
-    class BlockingCollection(FakeCollection):
-        """提供可控同步插入窗口的最小 Milvus collection。"""
-
-        def insert(self, entities):
-            del entities
-            insert_started.set()
-            release_insert.wait()
-            insert_finished.set()
-
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
-    kb = MilvusKB.__new__(MilvusKB)
-    insert_started = threading.Event()
-    release_insert = threading.Event()
-    insert_finished = threading.Event()
-    chunks = [make_chunk(0)]
-    insertion = asyncio.create_task(
-        kb._insert_chunks_to_stores("db", "file-1", BlockingCollection(), chunks, [[0.1, 0.2]])
-    )
-
-    try:
-        assert await asyncio.wait_for(asyncio.to_thread(insert_started.wait, 1), timeout=2) is True
-        insertion.cancel()
-        await asyncio.sleep(0.05)
-        assert insertion.done() is False
-        assert insert_finished.is_set() is False
-
-        release_insert.set()
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(insertion, timeout=1)
-        assert insert_finished.is_set() is True
-    finally:
-        release_insert.set()
-        insertion.cancel()
-        await asyncio.gather(insertion, return_exceptions=True)
-
-
-async def test_insert_chunks_to_stores_rolls_back_file_when_milvus_insert_fails(monkeypatch):
-    repos = []
+@pytest.mark.parametrize(
+    ("failure_mode", "expected_error", "expected_attempts"),
+    [
+        pytest.param("transient_milvus", None, 2, id="transient-milvus-retry"),
+        pytest.param(
+            "retry_exhaustion",
+            "milvus boom",
+            milvus_module.MILVUS_CHUNK_UPSERT_ATTEMPTS,
+            id="milvus-retry-exhaustion",
+        ),
+        pytest.param("postgres", "pg boom", 0, id="postgres-write-failure"),
+    ],
+)
+async def test_insert_chunks_to_stores_failure_paths_preserve_pg_facts(
+    monkeypatch,
+    failure_mode,
+    expected_error,
+    expected_attempts,
+):
+    """Milvus 重试成功或耗尽都不回滚 PG；PG 失败则不触碰 Milvus。"""
+    monkeypatch.setattr(milvus_module, "MILVUS_CHUNK_UPSERT_RETRY_DELAY_SECONDS", 0)
+    repositories = []
 
     class FakeChunkRepo:
         def __init__(self):
             self.upsert_calls = []
             self.delete_calls = []
-            repos.append(self)
+            repositories.append(self)
 
         async def batch_upsert(self, chunks):
             self.upsert_calls.append(chunks)
+            if failure_mode == "postgres":
+                raise RuntimeError("pg boom")
             return []
 
         async def delete_by_file_id(self, file_id):
             self.delete_calls.append(file_id)
             return 0
 
-    class FailingCollection(FakeCollection):
-        def insert(self, entities):
-            super().insert(entities)
-            raise RuntimeError("milvus boom")
-
-    monkeypatch.setattr("yuxi.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
     kb = MilvusKB.__new__(MilvusKB)
-    collection = FailingCollection()
+
+    class RetryCollection(FakeCollection):
+        def __init__(self):
+            super().__init__()
+            self.attempts = 0
+
+        def upsert(self, entities):
+            self.attempts += 1
+            if failure_mode == "transient_milvus" and self.attempts == 1:
+                raise RuntimeError("milvus transient")
+            if failure_mode == "retry_exhaustion":
+                raise RuntimeError("milvus boom")
+            self.upsert_calls.append(entities)
+
+    collection = RetryCollection()
     milvus_delete_calls = []
 
     async def delete_file_chunks_from_milvus(collection_arg, file_id):
         milvus_delete_calls.append((collection_arg, file_id))
 
+    kb = MilvusKB.__new__(MilvusKB)
     kb._delete_file_chunks_from_milvus = delete_file_chunks_from_milvus
     chunks = [make_chunk(index) for index in range(2)]
     embeddings = [[0.1, 0.2] for _ in chunks]
 
-    with pytest.raises(RuntimeError, match="milvus boom"):
+    if expected_error is None:
         await kb._insert_chunks_to_stores("db", "file-1", collection, chunks, embeddings)
+    else:
+        with pytest.raises(RuntimeError, match=expected_error):
+            await kb._insert_chunks_to_stores("db", "file-1", collection, chunks, embeddings)
 
-    assert repos[0].delete_calls == ["file-1"]
-    assert milvus_delete_calls == [(collection, "file-1")]
+    assert len(repositories) == 1
+    assert len(repositories[0].upsert_calls) == 1
+    persisted = repositories[0].upsert_calls[0]
+    assert [(row["chunk_id"], row["file_id"], row["content"]) for row in persisted] == [
+        (chunk["chunk_id"], chunk["file_id"], chunk["content"]) for chunk in chunks
+    ]
+    # 无论派生写入成功或失败，都不能撤销已写入的 PG 事实。
+    assert repositories[0].delete_calls == []
+    assert collection.attempts == expected_attempts
+    if failure_mode == "transient_milvus":
+        assert len(collection.upsert_calls) == 1
+        assert collection.upsert_calls[0][5] == embeddings
+    else:
+        assert collection.upsert_calls == []
+    assert milvus_delete_calls == []
 
 
 async def test_keyword_mode_uses_milvus_bm25_search():
@@ -1439,6 +793,101 @@ async def test_keyword_mode_uses_milvus_bm25_search():
         "params": {"drop_ratio_search": 0.2},
     }
     assert search_call["limit"] == 7
+
+
+@pytest.mark.parametrize("search_mode", ["vector", "keyword", "hybrid"])
+@pytest.mark.parametrize("use_graph_retrieval", [False, True])
+async def test_retrieval_limits_are_enforced_at_runtime(search_mode, use_graph_retrieval):
+    """超限配置在向量、关键词和混合检索中限制召回及最终结果。"""
+    collection = FakeCollection()
+    hits = [FakeHit(f"chunk {index}", 0.8) for index in range(200)]
+    collection.search = Mock(return_value=[hits])
+    collection.hybrid_search = Mock(return_value=[hits])
+    kb = make_kb(collection)
+    kb._retrieve_graph_chunks = AsyncMock(return_value=[])
+
+    chunks = await kb.aquery(
+        "bounded query",
+        "db",
+        config=make_query_config(),
+        search_mode=search_mode,
+        use_graph_retrieval=use_graph_retrieval,
+        recall_top_k=1_000_000,
+        bm25_top_k=1_000_000,
+        final_top_k=1_000_000,
+        highlight_results=False,
+    )
+
+    assert [chunk["content"] for chunk in chunks] == [f"chunk {index}" for index in range(100)]
+    recall_limit = 200 if use_graph_retrieval else 100
+    if search_mode == "hybrid":
+        request = collection.hybrid_search.call_args.kwargs
+        assert request["limit"] == recall_limit
+        assert [item.limit for item in request["reqs"]] == [recall_limit, 200]
+    else:
+        assert collection.search.call_args.kwargs["limit"] == (200 if search_mode == "keyword" else recall_limit)
+
+
+@pytest.mark.parametrize("exceeds_limit", [False, True])
+async def test_graph_retrieval_limits_reach_query_executors(monkeypatch, exceeds_limit):
+    """图检索执行器接收公开上限，范围内配置保持原值。"""
+    vector_store = types.SimpleNamespace(
+        search_entities=AsyncMock(return_value=[{"id": "entity-1", "score": 1.0}]),
+        search_triples=AsyncMock(return_value=[]),
+    )
+    graph_service = types.SimpleNamespace(query_and_rank_chunks_by_ppr=AsyncMock(return_value=[("chunk-1", 0.5)]))
+    monkeypatch.setattr("yuxi.modules.knowledge.graphs.milvus_graph_vector_store.MilvusGraphVectorStore", lambda: vector_store)
+    chunk = types.SimpleNamespace(chunk_id="chunk-1", file_id="file-1", chunk_index=0, content="graph result")
+    repository = types.SimpleNamespace(list_by_chunk_ids=AsyncMock(return_value=[chunk]))
+    monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", lambda: repository)
+    kb = make_kb(FakeCollection())
+    kb.graph_service = graph_service
+    graph_service.get_graph_vector_store = AsyncMock(return_value=vector_store)
+    params = {
+        "graph_entity_top_k": 1_000_000 if exceeds_limit else 7,
+        "graph_triple_top_k": 1_000_000 if exceeds_limit else 8,
+        "graph_top_k": 1_000_000 if exceeds_limit else 9,
+        "graph_max_nodes": 1_000_000 if exceeds_limit else 1000,
+    }
+
+    chunks = await kb._retrieve_graph_chunks("query", "db", [], params, EMBEDDING_MODEL_SPEC)
+
+    assert vector_store.search_entities.await_args.kwargs["top_k"] == (100 if exceeds_limit else 7)
+    assert vector_store.search_triples.await_args.kwargs["top_k"] == (100 if exceeds_limit else 8)
+    graph_query = graph_service.query_and_rank_chunks_by_ppr.await_args.kwargs
+    assert graph_query["top_k"] == (200 if exceeds_limit else 9)
+    assert graph_query["max_nodes"] == (50_000 if exceeds_limit else 1000)
+    assert chunks[0]["content"] == "graph result"
+    assert chunks[0]["metadata"]["chunk_id"] == "chunk-1"
+
+
+@pytest.mark.parametrize("search_mode", ["vector", "keyword", "hybrid"])
+async def test_query_failure_is_not_an_empty_result(search_mode):
+    """主检索失败必须传给调用方，不能伪装成没有命中。"""
+    error = RuntimeError("Milvus unavailable")
+
+    class FailingCollection(FakeCollection):
+        """返回确定性的检索故障。"""
+
+        def search(self, **kwargs):
+            """拒绝单路检索。"""
+            raise error
+
+        def hybrid_search(self, **kwargs):
+            """拒绝混合检索。"""
+            raise error
+
+    with pytest.raises(RuntimeError) as caught:
+        await make_kb(FailingCollection()).aquery("query", "db", config=make_query_config(), search_mode=search_mode)
+
+    assert caught.value is error
+
+
+async def test_query_without_matches_still_returns_empty_list():
+    """成功检索但低于阈值仍属于正常空结果。"""
+    result = await make_kb(FakeCollection(distance=0.1)).aquery("query", "db", config=make_query_config(), similarity_threshold=0.2)
+
+    assert result == []
 
 
 async def test_vector_mode_ignores_metric_type_override():
@@ -1492,7 +941,7 @@ async def test_hybrid_mode_uses_milvus_native_hybrid_search():
     assert bm25_request.param["metric_type"] == "BM25"
 
 
-async def test_hybrid_mode_filters_scores_below_similarity_threshold():
+async def test_hybrid_mode_does_not_apply_cosine_threshold_to_fusion_score():
     collection = FakeCollection(distance=0.1)
     kb = make_kb(collection)
     config = make_query_config()
@@ -1506,13 +955,14 @@ async def test_hybrid_mode_filters_scores_below_similarity_threshold():
         similarity_threshold=0.2,
     )
 
-    assert chunks == []
+    assert chunks[0]["hybrid_score"] == 0.1
 
 
-def test_query_params_config_uses_bm25_parameters():
+def test_query_params_config_uses_bm25_parameters(monkeypatch):
+    monkeypatch.setattr(milvus_module.model_cache, "get_all_specs", lambda _type=None: [])
     kb = MilvusKB.__new__(MilvusKB)
 
-    config = kb.get_query_params_config("db")
+    config = kb.get_query_params_config()
 
     option_keys = {option["key"] for option in config["options"]}
     assert "keyword_top_k" not in option_keys
@@ -1530,16 +980,18 @@ def test_query_params_config_uses_bm25_parameters():
     assert "BM25" in descriptions["hybrid"]
 
 
-def test_collection_supports_bm25_requires_analyzed_content_sparse_field_and_function():
+def test_collection_supports_text_retrieval_requires_match_and_bm25():
     kb = MilvusKB.__new__(MilvusKB)
     schema = CollectionSchema(
         fields=[
             FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=100, is_primary=True),
+            FieldSchema(name="generation", dtype=DataType.INT64),
             FieldSchema(
                 name="content",
                 dtype=DataType.VARCHAR,
                 max_length=65535,
                 enable_analyzer=True,
+                enable_match=True,
                 analyzer_params=CONTENT_ANALYZER_PARAMS,
             ),
             FieldSchema(name=CONTENT_SPARSE_FIELD, dtype=DataType.SPARSE_FLOAT_VECTOR),
@@ -1556,4 +1008,287 @@ def test_collection_supports_bm25_requires_analyzed_content_sparse_field_and_fun
 
     collection = type("Collection", (), {"schema": schema})()
 
-    assert kb._collection_supports_bm25(collection)
+    assert kb._collection_supports_text_retrieval(collection)
+
+
+@pytest.mark.parametrize("chunk_count", [0, 1, 4])
+async def test_hydrate_chunk_sources_filters_orphaned_file_chunks(monkeypatch, chunk_count):
+    """已从 PG 删除的文件（孤儿向量）不能出现在检索结果中。"""
+    file_repo = FakeKnowledgeFileRepository(
+        {
+            "file-live": make_file_record(file_id="file-live", filename="live.md", chunk_count=chunk_count),
+        }
+    )
+    patch_file_repository(monkeypatch, file_repo)
+    kb = MilvusKB.__new__(MilvusKB)
+
+    patch_chunk_records(
+        monkeypatch,
+        [
+            {"chunk_id": "live", "file_id": "file-live", "content": "PG live content", "start_line": 4, "end_line": 8},
+        ],
+    )
+    chunks = [
+        {"metadata": {"file_id": "file-live", "chunk_id": "live", "chunk_index": 0}, "content": "stale", "score": 0.9},
+        {"metadata": {"file_id": "file-deleted"}, "content": "orphan content", "score": 0.8},
+    ]
+
+    result = await kb._hydrate_chunk_sources("db", chunks)
+
+    assert len(result) == 1
+    assert result[0]["metadata"]["file_id"] == "file-live"
+    assert result[0]["metadata"]["source"] == "live.md"
+    assert result[0]["metadata"]["chunk_count"] == chunk_count
+    assert result[0]["metadata"]["chunk_index"] == 0
+    assert result[0]["content"] == "PG live content"
+    assert result[0]["metadata"]["start_line"] == 4
+    assert result[0]["metadata"]["end_line"] == 8
+
+
+async def test_hydrate_chunk_sources_returns_all_chunks_when_no_orphans(monkeypatch):
+    """所有 file_id 都在 PG 中时行为不变，只补充 source 字段。"""
+    file_repo = FakeKnowledgeFileRepository(
+        {
+            "file-a": make_file_record(file_id="file-a", filename="a.md"),
+            "file-b": make_file_record(file_id="file-b", filename="b.md"),
+        }
+    )
+    patch_file_repository(monkeypatch, file_repo)
+    kb = MilvusKB.__new__(MilvusKB)
+
+    patch_chunk_records(
+        monkeypatch,
+        [
+            {"chunk_id": "a", "file_id": "file-a", "content": "PG a"},
+            {"chunk_id": "b", "file_id": "file-b", "content": "PG b"},
+        ],
+    )
+    chunks = [
+        {"metadata": {"file_id": "file-a", "chunk_id": "a"}, "content": "a", "score": 0.9},
+        {"metadata": {"file_id": "file-b", "chunk_id": "b"}, "content": "b", "score": 0.8},
+    ]
+
+    result = await kb._hydrate_chunk_sources("db", chunks)
+
+    assert len(result) == 2
+    assert result[0]["metadata"]["source"] == "a.md"
+    assert result[1]["metadata"]["source"] == "b.md"
+
+
+@pytest.mark.parametrize(
+    "status, generation, content, reason",
+    [
+        ("indexed", 1, "原文", None),
+        ("parsed", 1, "原文", "document_not_indexed"),
+        ("indexed", 2, "原文", "index_changed"),
+        ("indexed", 1, "", "content_unavailable"),
+    ],
+)
+async def test_document_preview_location_requires_matching_index_snapshot(monkeypatch, status, generation, content, reason):
+    """完整原文和 Chunk 代次不自洽时，预览不得沿用片段行号高亮。"""
+    kb = MilvusKB.__new__(MilvusKB)
+    chunk = types.SimpleNamespace(
+        chunk_id="chunk",
+        chunk_index=0,
+        generation=generation,
+        content="原文",
+        start_line=1,
+        end_line=1,
+        start_char_pos=0,
+        end_char_pos=2,
+        start_token_pos=None,
+        end_token_pos=None,
+        graph_indexed=False,
+        ent_ids=None,
+        tags=None,
+        extraction_result=None,
+    )
+    monkeypatch.setattr(
+        "yuxi.modules.knowledge.repositories.chunks.KnowledgeChunkRepository",
+        lambda: types.SimpleNamespace(
+            list_by_file_id=AsyncMock(return_value=[chunk]),
+        ),
+    )
+    monkeypatch.setattr(documents, "read_markdown_from_minio", AsyncMock(return_value=content))
+    result = await documents.get_file_content_from_meta(
+        "file",
+        {
+            "status": status,
+            "active_generation": 1,
+            "markdown_file": "minio://parsed/document.md",
+        },
+    )
+    assert result["line_location"] == {"available": reason is None, "reason": reason}
+    assert result["content"] == content
+
+
+@pytest.mark.parametrize("visible_chunks", [0, 1])
+async def test_query_does_not_create_missing_vector_projection(monkeypatch, tmp_path, visible_chunks):
+    """读请求不创建集合；丢失 active 投影时显式失败。"""
+    artifact = tmp_path / "collection"
+    kb = make_kb(FakeCollection())
+    kb._get_existing_milvus_collection = AsyncMock(return_value=None)
+
+    async def create(*args):
+        """旧读路径会留下新的外部集合。"""
+        artifact.write_text("created by query")
+        return FakeCollection()
+
+    kb._get_or_create_milvus_collection = create
+    monkeypatch.setattr(
+        "yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository",
+        lambda: SimpleNamespace(
+            count_by_kb_id=AsyncMock(return_value=visible_chunks),
+        ),
+    )
+    if visible_chunks:
+        with pytest.raises(ValueError, match="no vector projection"):
+            await kb.aquery("query", "db", config=make_query_config())
+    else:
+        assert await kb.aquery("query", "db", config=make_query_config()) == []
+    assert not artifact.exists()
+
+
+async def test_query_filters_orphaned_chunks_from_search_results(monkeypatch):
+    """端到端：Milvus 返回孤儿向量时，aquery 最终结果不包含已删除文件的内容。"""
+    file_repo = FakeKnowledgeFileRepository(
+        {
+            "file-live": make_file_record(file_id="file-live", filename="live.md"),
+        }
+    )
+    patch_file_repository(monkeypatch, file_repo)
+    patch_chunk_records(
+        monkeypatch,
+        [
+            {"chunk_id": "chunk-1", "file_id": "file-live", "content": "live content"},
+        ],
+    )
+
+    class OrphanCollection(FakeCollection):
+        """模拟 Milvus 中残留已删除文件的向量。"""
+
+        def search(self, **kwargs):
+            self.search_calls.append(kwargs)
+            return [
+                [
+                    FakeHit("live content", 0.9, file_id="file-live"),
+                    FakeHit("orphan content", 0.85, file_id="file-deleted"),
+                ]
+            ]
+
+    kb = MilvusKB.__new__(MilvusKB)
+
+    async def get_collection(kb_id: str):
+        del kb_id
+        return OrphanCollection()
+
+    kb._get_existing_milvus_collection = get_collection
+
+    chunks = await kb.aquery("query", "db", config=make_query_config())
+
+    assert len(chunks) == 1
+    assert chunks[0]["content"] == "live content"
+
+
+async def test_cancelled_old_attempt_cleanup_preserves_published_result(monkeypatch):
+    """PG 发布成功后取消旧资源回收，不回滚当前解析产物。"""
+    kb = MilvusKB.__new__(MilvusKB)
+    previous_url = "http://minio:9000/knowledgebases/db/parsed/file-1/old-attempt/document.md"
+    current_url = "http://minio:9000/knowledgebases/db/parsed/file-1/new-attempt/document.md"
+    repository = FakeKnowledgeFileRepository({"file-1": make_file_record(status=FileStatus.UPLOADED, markdown_file=previous_url)})
+    patch_file_repository(monkeypatch, repository)
+    monkeypatch.setattr("yuxi.modules.documents.service.parse_to_hosted_markdown", AsyncMock(return_value="text"))
+    monkeypatch.setattr(kb, "save_markdown_artifact", AsyncMock(return_value=current_url))
+    cleanup = AsyncMock(side_effect=asyncio.CancelledError())
+    monkeypatch.setattr(kb, "_cleanup_parse_attempt", cleanup)
+    with pytest.raises(asyncio.CancelledError):
+        await kb.parse_file("db", "file-1", additional_params={})
+    assert repository.records["file-1"].status == FileStatus.PARSED
+    assert repository.records["file-1"].markdown_file == current_url
+    assert [call.args[2] for call in cleanup.await_args_list] == ["old-attempt"]
+
+
+def test_rrf_fusion_merges_chunk_and_graph_rankings():
+    kb = object.__new__(MilvusKB)
+    base_chunks = [
+        {"content": "base a", "metadata": {"chunk_id": "a"}, "score": 0.9},
+        {"content": "base b", "metadata": {"chunk_id": "b"}, "score": 0.8},
+    ]
+    graph_chunks = [
+        {"content": "graph b", "metadata": {"chunk_id": "b"}, "score": 0.7, "graph_score": 0.7},
+        {"content": "graph c", "metadata": {"chunk_id": "c"}, "score": 0.6, "graph_score": 0.6},
+    ]
+
+    fused = kb._fuse_chunk_rankings(base_chunks, graph_chunks, graph_weight=1.0)
+
+    assert [chunk["metadata"]["chunk_id"] for chunk in fused] == ["b", "a", "c"]
+    assert fused[0]["graph_score"] == 0.7
+    assert fused[0]["fusion_sources"] == ["chunk", "graph"]
+
+
+async def test_collection_load_failure_is_observable():
+    """加载失败不得被当作可查询的集合。"""
+
+    def fail_load():
+        raise RuntimeError("load unavailable")
+
+    with pytest.raises(RuntimeError, match="load unavailable"):
+        await object.__new__(MilvusKB)._initialize_kb_instance(SimpleNamespace(load=fail_load))
+
+
+@pytest.mark.parametrize("mismatch", ["model", "dimension", "missing_embedding", "text_schema"])
+def test_incompatible_collection_is_rejected_without_deletion(monkeypatch, mismatch):
+    """不匹配的集合显式失败，查询入口不能删除已存在的数据。"""
+    collection = SimpleNamespace(
+        description="Knowledge base collection for db using model",
+        schema=SimpleNamespace(fields=[SimpleNamespace(name="embedding", params={"dim": 4})]),
+    )
+    if mismatch == "model":
+        collection.description = "different model"
+    elif mismatch == "dimension":
+        collection.schema.fields[0].params["dim"] = 8
+    elif mismatch == "missing_embedding":
+        collection.schema.fields = []
+    monkeypatch.setattr(milvus_module.utility, "has_collection", lambda *args, **kwargs: True)
+    monkeypatch.setattr(milvus_module, "Collection", lambda **kwargs: collection)
+    monkeypatch.setattr(
+        milvus_module.model_cache,
+        "get_model_info",
+        lambda spec: SimpleNamespace(
+            model_type="embedding",
+            model_id="model",
+            dimension=4,
+        ),
+    )
+
+    def reject_drop(*args, **kwargs):
+        pytest.fail("collection was deleted")
+
+    monkeypatch.setattr(milvus_module.utility, "drop_collection", reject_drop)
+    kb = object.__new__(MilvusKB)
+    kb.connection_alias = "own"
+    kb._collection_supports_text_retrieval = lambda candidate: mismatch != "text_schema"
+    kb._create_new_collection = reject_drop
+    with pytest.raises(RuntimeError, match="does not match"):
+        kb._create_kb_instance_sync("db", "provider:model")
+
+
+async def test_hybrid_highlighting_preserves_ranking_and_scores():
+    """补取高亮只能附加片段，不能用第二次搜索的分数覆盖融合结果。"""
+    fusion_hits = [FakeHit("first", 0.7), FakeHit("second", 0.5)]
+    highlighted_hits = [FakeHit("second", 1), FakeHit("first", 1)]
+    for hit, chunk_id in zip(fusion_hits, ["a", "b"]):
+        hit.entity["chunk_id"] = chunk_id
+    for hit, chunk_id in zip(highlighted_hits, ["b", "a"]):
+        hit.entity["chunk_id"] = chunk_id
+        hit.highlight = {"content": {"fragments": [f"\ue000{hit.entity.get('content')}\ue001"], "scores": []}}
+    collection = FakeCollection()
+    collection.search = lambda **kwargs: [highlighted_hits]
+    collection.hybrid_search = lambda **kwargs: [fusion_hits]
+
+    chunks = await make_kb(collection).aquery("query", "db", config=make_query_config(), search_mode="hybrid")
+
+    assert [chunk["metadata"]["chunk_id"] for chunk in chunks] == ["a", "b"]
+    assert [chunk["score"] for chunk in chunks] == [0.7, 0.5]
+    assert all(chunk["score_type"] == "hybrid" for chunk in chunks)
+    assert chunks[0]["highlights"] == [[{"text": "first", "matched": True}]]

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from arq.worker import Worker
-from yuxi.services.arq_worker import YuxiWorker
+from yuxi.workers.arq import YuxiWorker
 
 
 @pytest.mark.asyncio

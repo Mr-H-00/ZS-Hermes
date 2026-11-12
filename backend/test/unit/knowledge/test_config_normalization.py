@@ -1,15 +1,14 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.knowledge.config_normalization import (
+from yuxi.modules.knowledge.config_normalization import (
     is_bge_m3_embedding_model_spec,
     normalize_knowledge_additional_params,
     normalize_query_params,
 )
-from yuxi.knowledge.manager import KnowledgeBaseManager
-from yuxi.knowledge.utils.kb_utils import resolve_processing_params
+from yuxi.modules.knowledge.manager import KnowledgeBaseManager
+from yuxi.modules.knowledge.config_normalization import resolve_feature_processing_params as resolve_processing_params
 
 
 @pytest.mark.parametrize(
@@ -281,11 +280,12 @@ def test_query_params_hide_inactive_fields_but_validate_supplied_values() -> Non
         )
 
 
-def test_milvus_retrieval_config_defines_parent_child_fusion_and_rrf_fields() -> None:
+def test_milvus_retrieval_config_defines_parent_child_fusion_and_rrf_fields(monkeypatch) -> None:
     """验证 Milvus 参数定义发布新增字段、边界和条件显示规则。"""
-    from yuxi.knowledge.implementations.milvus import MilvusKB
+    from yuxi.modules.knowledge.implementations.milvus import MilvusKB
 
-    config = MilvusKB.__new__(MilvusKB).get_query_params_config("kb_1")
+    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.model_cache.get_all_specs", lambda _type: [])
+    config = MilvusKB.__new__(MilvusKB).get_query_params_config()
     options = {option["key"]: option for option in config["options"]}
 
     assert options["top_k_child"]["default"] == 30
@@ -303,7 +303,7 @@ async def test_manager_returns_normalized_effective_config(monkeypatch, tmp_path
     executor = SimpleNamespace(
         apply_chunk_defaults=True,
         normalize_additional_params=lambda params: dict(params or {}),
-        get_default_query_params=lambda _kb_id: {"options": {}},
+        get_default_query_params=lambda: {"options": {}},
     )
     snapshot = {
         "kb_id": "kb_1",
@@ -328,12 +328,12 @@ async def test_manager_returns_normalized_effective_config(monkeypatch, tmp_path
         assert kb_id == "kb_1"
         return snapshot
 
-    monkeypatch.setattr("yuxi.knowledge.manager.get_cached_kb_config", get_cached_config)
+    monkeypatch.setattr("yuxi.modules.knowledge.manager.get_cached_kb_config", get_cached_config)
     monkeypatch.setattr(
-        "yuxi.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
+        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         classmethod(lambda cls, kb_type: kb_type == "milvus"),
     )
-    monkeypatch.setattr(manager, "_get_or_create_kb_instance", AsyncMock(return_value=executor))
+    monkeypatch.setattr("yuxi.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class", lambda _type: executor)
 
     config = await manager.get_kb_config("kb_1")
 

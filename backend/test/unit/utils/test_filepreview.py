@@ -5,11 +5,10 @@ from io import BytesIO
 import pytest
 from docx import Document
 
-from yuxi.utils.filepreview import (
+from yuxi.infrastructure.file_preview import (
     MAX_TEXT_PREVIEW_CHARS,
     detect_preview_type,
-    is_office_pdf_preview_file,
-    render_preview,
+    prepare_file_preview,
 )
 
 
@@ -25,7 +24,7 @@ def _build_docx_bytes(text: str) -> bytes:
     ("renderer", "expected_third"),
     [
         (detect_preview_type, "当前文件是二进制文件，暂不支持预览"),
-        (render_preview, None),
+        (prepare_file_preview, None),
     ],
 )
 def test_docx_is_not_treated_as_markdown_preview(renderer, expected_third):
@@ -41,8 +40,8 @@ def test_docx_is_not_treated_as_markdown_preview(renderer, expected_third):
     assert third == expected_third
 
 
-def test_render_preview_truncates_long_markdown():
-    result = render_preview("note.md", ("x" * (MAX_TEXT_PREVIEW_CHARS + 1)).encode("utf-8"))
+def test_prepare_file_preview_truncates_long_markdown():
+    result = prepare_file_preview("note.md", ("x" * (MAX_TEXT_PREVIEW_CHARS + 1)).encode("utf-8"))
 
     assert result.preview_type == "markdown"
     assert result.supported is True
@@ -51,10 +50,10 @@ def test_render_preview_truncates_long_markdown():
     assert len(result.content) == MAX_TEXT_PREVIEW_CHARS
 
 
-def test_render_preview_returns_complete_binary_result_from_signature():
+def test_prepare_file_preview_returns_complete_binary_result_from_signature():
     content = b"%PDF-1.4\npreview"
 
-    result = render_preview("report.bin", content)
+    result = prepare_file_preview("report.bin", content)
 
     assert result.content == content
     assert result.preview_type == "pdf"
@@ -63,17 +62,9 @@ def test_render_preview_returns_complete_binary_result_from_signature():
     assert result.filename == "report.bin"
 
 
-def test_render_preview_keeps_unsupported_binary_content_hidden():
-    result = render_preview("archive.bin", b"\x00binary")
+def test_prepare_file_preview_keeps_unsupported_binary_content_hidden():
+    result = prepare_file_preview("archive.bin", b"\x00binary")
 
     assert result.content is None
     assert result.preview_type == "unsupported"
     assert result.supported is False
-
-
-def test_office_pdf_preview_scope_only_includes_docx_and_pptx():
-    assert is_office_pdf_preview_file("demo.docx") is True
-    assert is_office_pdf_preview_file("demo.pptx") is True
-    assert is_office_pdf_preview_file("demo.xlsx") is False
-    assert is_office_pdf_preview_file("demo.doc") is False
-    assert is_office_pdf_preview_file("demo.ppt") is False

@@ -1,12 +1,14 @@
 # 使用 API Key 调用 Yuxi
 
-API Key 适合服务之间调用 Yuxi。它绑定到一个具体的 Yuxi 用户，请求会继承该用户的角色、部门和资源权限；它不是一个绕过权限的“超级凭证”。
+API Key 适合服务之间调用 Yuxi。它绑定到一个具体的 Yuxi 用户，未绑定 APP 的个人请求使用该用户的角色、部门和资源权限。绑定 APP 的 Agents 请求使用独立终端用户身份；共享 Agent 可见性按 Key 所属账号当前读取授权匹配，知识库和 Skill 依赖按终端用户授权解析，资源边界见[资源权限](../mechanisms/resource-permissions.md)。
 
 ## 创建 API Key
 
-登录 Web 后，进入“设置 → API Keys”，点击“创建 API Key”。创建时填写名称和可选的过期时间。
+登录 Web 后，进入“设置 → API Keys”，点击“创建 API Key”。创建时填写名称、权限、可选的 APP 标识与过期时间。Web 默认选择 `agents`；管理 API 省略 `access_level` 时仍默认 `full`。`agents` 权限只允许访问 [Agents Public API](./agents-public-api.md)：选择“本人身份”时不绑定 APP，选择“APP 终端用户身份”时必须填写 `app_id`；`knowledge` 权限只允许访问版本化的[知识库 HTTP 查询](./knowledge-base-api.md#外部查询接口)和[知识库 MCP](./knowledge-mcp.md)，不要求 `app_id`。`full` Key 受绑定用户权限及各入口的认证要求约束，产品 JWT 专用接口仍会拒绝 API Key。
 
-也可以调用管理接口：
+本人身份的 `agents` Key 与网页使用同一用户资源范围：能读取本人已有的可见会话和工作区，并通过 Agent 使用已授权工具。它不是只读凭据，不限制为单个 Agent，也不隔离不同 Key 创建的会话。本人 Key 不接受 `X-End-User-Id`，包括与本人 UID 相同的值。
+
+也可以调用管理接口。以下示例创建 APP Key；创建本人 Key 时省略 `app_id` 或传 `null`：
 
 ```http
 POST /api/user/apikey/
@@ -16,6 +18,8 @@ Content-Type: application/json
 {
   "request_id": "crm-integration-2026",
   "name": "外部客服系统",
+  "access_level": "agents",
+  "app_id": "crm-service",
   "expires_at": "2027-01-01T00:00:00Z"
 }
 ```
@@ -30,6 +34,8 @@ Content-Type: application/json
     "id": 12,
     "key_prefix": "yxkey_abcdef",
     "name": "外部客服系统",
+    "access_level": "agents",
+    "app_id": "crm-service",
     "user_id": 3,
     "is_enabled": true
   },
@@ -45,10 +51,10 @@ Content-Type: application/json
 | --- | --- | --- |
 | `GET` | `/api/user/apikey/` | 查看当前用户可见的 Key |
 | `POST` | `/api/user/apikey/` | 创建 Key |
-| `PUT` | `/api/user/apikey/{api_key_id}` | 修改名称、过期时间或启用状态 |
+| `PUT` | `/api/user/apikey/{api_key_id}` | 修改名称、过期时间、启用状态、权限或 APP 来源 |
 | `DELETE` | `/api/user/apikey/{api_key_id}` | 撤销 Key |
 
-`superadmin` 可以查看和管理全局可见的 Key；其他用户只能操作自己有权限的 Key。删除用户或撤销 Key 后，旧 secret 不能继续使用，也不会因为重复提交旧的创建请求而复活。列表和详情响应还包含 `last_used_at`：它表示最近一次成功认证时间，`null` 表示尚未使用；`key_prefix` 只用于识别 Key，服务端不会再次返回完整 secret。
+`superadmin` 可以查看和管理全局可见的 Key；其他用户只能操作自己有权限的 Key。管理接口也支持修改 `access_level` 与 `app_id`。更新时省略 `app_id` 保持原绑定；显式传 `null` 才清空 APP、切换为本人身份。界面保存前展示切换后的资源范围；切换不移动历史 APP 会话或文件，也不自动迁移已有 Key。禁用、过期、删除用户或撤销 Key 后，旧 secret 不能继续认证；撤销不取消已经接收的运行，也不会因为重复提交旧的创建请求而复活。列表和详情响应还包含 `last_used_at`：它表示最近一次成功认证时间，`null` 表示尚未使用；这些读取接口只返回 `key_prefix`，完整 secret 仅通过创建及其幂等重放返回。
 
 ## 选择调用地址
 
@@ -66,138 +72,35 @@ API Key 通过 `Authorization` 请求头发送。生产环境必须使用 HTTPS�
 Authorization: Bearer yxkey_<your-secret>
 ```
 
-服务端会根据 `yxkey_` 前缀进入 API Key 校验；其他 Bearer token 按 JWT 校验。当前派生的 secret 由 `yxkey_` 加 48 位十六进制字符组成，总长度为 54 个字符；客户端不要记录或打印完整 secret。两种方式可以调用同一个受保护接口，但 API Key 的实际权限仍等于它绑定的用户。
+服务端会根据 `yxkey_` 前缀进入 API Key 校验；其他 Bearer token 按 JWT 校验。当前派生的 secret 由 `yxkey_` 加 48 位十六进制字符组成，总长度为 54 个字符；客户端不要记录或打印完整 secret。`full` Key 的权限受绑定用户约束；`agents` Key 还受 Agents Public API 路由边界约束，访问旧产品接口会返回 `403`。普通登录用户的 JWT 也可调用 Public API；无 APP 的 `agents` Key 使用 Key 所属用户身份。`knowledge` Key 可通过 [MCP 入口](./knowledge-mcp.md) 或 HTTP 访问 [五个只读知识库工具](./knowledge-base-api.md#外部查询接口)；知识库管理与上传接口返回 `403`，未注册的下载工具路径返回 `404`，具体知识库仍按绑定用户的资源权限过滤。
 
-## 运行一次 Agent
+例如，用 `knowledge` Key 列出可见知识库：
 
-通用 Run API 分为创建线程、提交运行和读取事件三步。创建线程时，`agent_id` 的值是智能体 slug，不是数据库自增 ID：
+```bash
+curl --fail "https://yuxi.example.com/api/v1/knowledge/tools/list_kbs" \
+  -H 'Authorization: Bearer yxkey_<your-secret>'
+```
+
+## 使用 Agents Public API 运行 Agent
+
+Agent 对话统一使用 [Agents Public API](./agents-public-api.md)。绑定 APP 的 `agents` 或 `full` Key 可用 `X-End-User-Id` 在该 APP 内区分终端用户，未提供时使用 APP 默认终端用户。未绑定 APP 的 `agents` 或 `full` Key 使用密钥所属用户的产品作用域，不接受 `X-End-User-Id`。创建 Thread 时 `agent_id` 使用智能体 slug，创建和事件提交都需要 `Idempotency-Key`。下面示例使用绑定 APP 的 `agents` Key。
 
 ```bash
 BASE_URL=https://yuxi.example.com
-API_KEY=yxkey_<your-secret>
+API_KEY='yxkey_<your-secret>'
 
-curl --fail "$BASE_URL/api/chat/thread" \
+curl --fail "$BASE_URL/api/v1/agents/sessions" \
   -H "Authorization: Bearer $API_KEY" \
+  -H 'X-End-User-Id: crm-user-42' \
+  -H 'Idempotency-Key: crm-thread-0001' \
   -H 'Content-Type: application/json' \
-  -d '{"agent_id":"default-chatbot","title":"外部系统会话","metadata":{}}'
+  -d '{"agent_id":"default-chatbot","input":[{"role":"user","content":[{"type":"input_text","text":"请总结资料"}]}]}'
 ```
 
-从响应中取出线程 `id`，再提交运行：
+响应中的 `id` 标识公开 Session，`yuxi.receipt.input_id` 标识已接收输入；普通消息接收回执的 `turn_id/run_id` 始终为空。用 `GET /api/v1/agents/sessions/{session_id}/inputs/{input_id}` 等待消费并取得实际 Turn/Run，再通过 `/turns/{turn_id}` 读取整轮状态与明确结果。`/queue` 查看待处理输入，`/events` 订阅 Session SSE；断线后带 `Last-Event-ID` 续订，并回读持久快照。
 
-```bash
-curl --fail "$BASE_URL/api/agent/runs" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "query":"你好，请介绍一下你自己",
-    "agent_slug":"default-chatbot",
-    "thread_id":"<thread-id>",
-    "meta":{"request_id":"crm-run-2026-0001"},
-    "queue_policy":"enqueue"
-  }'
-```
+继续对话时向 `POST /api/v1/agents/sessions/{session_id}/events` 提交 `agent.session.input.message`；明确排队使用 `yuxi.mode=follow_up`，修正当前轮使用 `yuxi.mode=steer`。未指定 mode 时，服务在 Thread 锁内选择：运行中 steer，空闲时 follow-up；等待回答、审批或取消清理时拒绝普通消息，协作等待只接收 FIFO 输入。等待问题或审批时，通过 Turn 快照获取等待点，并提交结构化 `yuxi.session.input.resume`。取消当前轮和继续暂停队列是两个独立控制事件。字段和示例见 [Public 协议参考](./agents-public-api.md)。
 
-请求会返回 `run_id`、`request_id`、`thread_id`、状态和流地址。立即派发的 Run 提供 `stream_url`；仍在 FIFO 中等待的 Request 提供 `request_events_url`，具体状态以同一 `request_id` 查询结果为准。`agent_slug` 也使用智能体 slug；`thread_id` 用于把多轮输入放进同一上下文。
+## 排查
 
-通用 Run 的可选字段如下：
-
-| 字段 | 作用 |
-| --- | --- |
-| `meta.request_id` | 请求幂等和追踪标识；不传时服务端生成 UUID |
-| `image_content` | 可选的 base64 图片内容；普通 Chat 会把它作为图片消息提交 |
-| `model_spec` | 本次运行的模型覆盖，格式为 `provider_id:model_id` |
-| `tool_approval_mode` | 本次运行的工具审批模式覆盖 |
-| `queue_policy` | 普通 Chat 可用 `enqueue`、`reject` 或 `steer`；默认是 `enqueue` |
-| `resume` | LangGraph 恢复载荷；非空时走恢复路径，不进入普通 Request 队列 |
-| `created_by_run_id` | 恢复时填写被恢复的 Run ID |
-
-`resume` 不是布尔开关。恢复请求可以同时带 `query` 和 `image_content`，但 `queue_policy` 只适用于普通 Chat；恢复和 Steer 的状态、权限与失败语义见[Agent 请求队列与调度设计](../agents/agent-request-queue.md)。
-
-### 读取 SSE
-
-`stream_url` 是 Server-Sent Events 地址。使用 `curl` 订阅：
-
-```bash
-curl --no-buffer --fail "$BASE_URL<stream_url>" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H 'Accept: text/event-stream'
-```
-
-每个事件包含 `event`、`data` 和 `id`：
-
-- `event` 是事件类型；常见过程事件包括消息、工具和状态更新，`end` 表示该 Run 的终止事件，`error` 表示流中的错误事件；
-- `data` 是 JSON envelope，包含 `run_id`、`thread_id` 和事件载荷；
-- `id` 是 Redis Stream 游标；
-- 以 `:` 开头的行是 heartbeat，客户端应忽略；
-- 收到 `end` 或 `error` 后停止等待新的输出，并用同一 `run_id` 读取最终结果；
-- 断线重连时可以发送 `Last-Event-ID`，也可以在 URL 中使用 `after_seq`；
-- `?verbose=false` 返回面向客户端的精简载荷，适合普通 UI；默认模式保留更多调试字段。
-
-不需要过程事件时，直接读取同一个 Run 的最终结果：
-
-```http
-GET /api/agent/runs/{run_id}/result
-Authorization: Bearer yxkey_<your-secret>
-```
-
-结果接口只读，不会重复执行 Run。最终输出必须从该 `run_id` 绑定的结果读取，不要从相邻 Run 或最近一条消息猜测。
-
-## Agent Call 接口
-
-外部系统也可以使用面向调用方的 `agent-invocation` 接口。它不支持 `stream=true`：
-
-| 接口 | 用途 | 关键字段 |
-| --- | --- | --- |
-| `POST /api/agent-invocation/agent-call/runs` | 创建 Agent Call；默认等待终态，`async_mode=true` 时立即返回运行信息 | `agent_slug`、`messages`、`thread_id`、`request_id`、`model_spec`、`tool_approval_mode`、`agent_call_meta`、`async_mode`、`queue_policy`、`stream` |
-| `POST /api/agent-invocation/agent-call/runs/result` | 按 `run_id` 读取 OpenAI 风格的结果 | `run_id`、可选 `agent_slug` |
-| `POST /api/agent-invocation/eval/runs` | 运行一次评估样例并返回结果 | `query`、`agent_slug`、`thread_id`、`evaluation`、`image_content`、`model_spec`、`tool_approval_mode`、`include_trajectory_summary` |
-
-`evaluation` 可以包含 `dataset_name`、`dataset_item_id` 和 `experiment_name`，用于关联 Langfuse 评估上下文。`include_trajectory_summary=true` 时，响应附带最多 500 个运行事件聚合出的工具调用、错误、中断和事件范围摘要；它不是完整事件流。
-
-同步 Agent Call 不能排队，线程忙碌时会返回拒绝结果；异步调用默认使用 `enqueue`。一个最小请求：
-
-```bash
-curl --fail "$BASE_URL/api/agent-invocation/agent-call/runs" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "agent_slug":"default-chatbot",
-    "messages":[{"role":"user","content":"请总结这段文字：……"}],
-    "async_mode":false
-  }'
-```
-
-`messages` 使用 OpenAI 风格结构，系统会取最后一条 `user` 消息作为输入。文本可以直接使用字符串；图片使用多模态数组：
-
-```json
-{
-  "role": "user",
-  "content": [
-    {"type": "text", "text": "请描述这张图片"},
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,<base64-data>"}}
-  ]
-}
-```
-
-纯文本数组也可以使用；不支持的 content part 类型会返回 `422`。`model_spec` 可以覆盖本次运行使用的模型；不要通过 `agent_call_meta.context` 覆盖 Agent runtime context。`stream` 字段为兼容 OpenAI 客户端而保留，但只能传 `false`，传 `true` 会返回 `422`。同步 Agent Call 固定使用 `queue_policy=reject`；异步调用默认使用 `enqueue`，显式传入不适用的策略会被拒绝。
-
-Agent Call 结果包含 `run_id`、`agent_slug`、`thread_id`、`status`、`output`、`choices` 和可用时的 `usage`。同步等待超时时，接口返回 HTTP `504`；当前 Run 快照放在错误响应的 `detail.run` 中，里面的 `agent_run_id` 就是后续查询所需的运行 ID。此时不要把 504 当作 Run 失败：可以继续调用 `POST /api/agent-invocation/agent-call/runs/result`，提交 `{"run_id":"<agent-run-id>"}`，读取最终状态。
-
-```http
-POST /api/agent-invocation/agent-call/runs/result
-Authorization: Bearer yxkey_<your-secret>
-Content-Type: application/json
-
-{"run_id":"<agent-run-id>"}
-```
-
-## 安全建议
-
-- 为不同外部系统创建不同的 Key，并设置过期时间。
-- 只把 secret 放在密钥管理器或受保护的环境变量中，不要硬编码进源码、镜像或日志。
-- 怀疑泄露时立即在“API Keys”中停用或删除，并检查外部系统的重试配置。
-- API Key 继承绑定用户的权限。为集成创建权限最小化的专用用户，不要直接使用超级管理员 Key。
-- 生产调用使用 HTTPS；HTTP 只适合本机开发。
-- 排查时同时记录 `request_id`、`run_id` 和 `thread_id`，但不要记录完整 API Key。
-
-完整请求 Schema、状态码和当前字段以部署实例的 Swagger 页面为准：`<base-url>/docs`。更多关于 Run、FIFO、SSE 和取消语义的说明见[Agent 请求队列与调度设计](../agents/agent-request-queue.md)。
+记录 Thread、Input、Turn、Run ID 和 HTTP 状态，避免记录完整 API Key、图片内容或用户消息。`409` 表示幂等键意图冲突、状态或目标已变化；`404` 也用于隐藏跨用户或跨 APP 资源；`422` 表示输入格式无效。`202` 只表示事件已经接收，最终业务状态以持久查询为准。完整请求 Schema 与状态码以部署实例的 Swagger 页面 `<base-url>/docs` 为准；调度和 worker 恢复机制见 [Agent 输入队列与调度](../mechanisms/agent-request-queue.md)。

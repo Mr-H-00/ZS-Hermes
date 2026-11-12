@@ -1,0 +1,23 @@
+packages: []
+
+allowBuilds:
+  core-js: true
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@opencode-ai/models@0.0.55'
+
+overrides:
+  '@vscode/markdown-it-katex>katex': 0.18.4
+  source-map-js: 1.2.2
+  brace-expansion: 5.0.12
+  esbuild: 0.28.2
+  eslint-scope: 9.1.2
+  flatted: 3.4.2
+  lodash: 4.18.1
+  lodash-es: 4.18.1
+  nanoid: 3.3.18
+  postcss: 8.5.26
+  postcss-selector-parser: 7.1.6
+  undici: 6.28.0
+  yaml: 2.8.3

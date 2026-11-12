@@ -4,27 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from conftest import NoQueryKnowledgeBase, TrackingLlm, make_chunk
+from conftest import NoQueryKnowledgeBase, TrackingLlm
 
-from yuxi.knowledge.eval import benchmark_generation
-from yuxi.knowledge.eval import service as eval_service_module
-from yuxi.knowledge.eval.benchmark_generation import iter_generated_benchmark_items
-from yuxi.knowledge.eval.service import EvaluationService
+from yuxi.modules.knowledge.evaluation import benchmark_generation
+from yuxi.modules.knowledge.evaluation import service as eval_service_module
+from yuxi.modules.knowledge.evaluation.benchmark_generation import iter_generated_benchmark_items
+from yuxi.modules.knowledge.evaluation.service import EvaluationService
 
-
-@pytest.fixture(autouse=True)
-def fake_chunk_repository(monkeypatch):
-    class FakeChunkRepository:
-        chunks = [make_chunk("anchor_chunk")]
-
-        async def list_by_kb_id(self, kb_id):
-            return [chunk for chunk in self.chunks if chunk.kb_id == kb_id]
-
-    monkeypatch.setattr(
-        "yuxi.repositories.knowledge_chunk_repository.KnowledgeChunkRepository",
-        FakeChunkRepository,
-    )
-    return FakeChunkRepository
+pytestmark = pytest.mark.usefixtures("fake_chunk_repository")
 
 
 @pytest.mark.asyncio
@@ -66,7 +53,7 @@ def test_build_dataset_items_with_start_index():
 
 class FakeContext:
     def __init__(self, payload):
-        self.task_id = "task_1"
+        self.job_id = "job_1"
         self.payload = payload
         self.progress_calls = []
         self.messages = []
@@ -102,7 +89,7 @@ class FakeKB:
 
 
 @pytest.mark.asyncio
-async def test_generate_dataset_task_resumes_from_existing_items(monkeypatch):
+async def test_generate_dataset_job_resumes_from_existing_items(monkeypatch):
     async def fake_iter(*args, **kwargs):
         for i in range(2):
             yield {"query": f"q{i}", "gold_answer": f"a{i}", "gold_chunk_ids": ["c1"]}
@@ -147,7 +134,7 @@ async def test_generate_dataset_task_resumes_from_existing_items(monkeypatch):
             "graph_expand_top_k": 1,
         }
     )
-    await service._generate_dataset_task(context)
+    await service._generate_dataset_job(context)
 
     assert len(added_items) == 2
     assert added_items[0]["item_index"] == 3
@@ -156,7 +143,7 @@ async def test_generate_dataset_task_resumes_from_existing_items(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generate_dataset_task_persists_in_batches(monkeypatch):
+async def test_generate_dataset_job_persists_in_batches(monkeypatch):
     async def fake_iter(*args, **kwargs):
         for i in range(5):
             yield {"query": f"q{i}", "gold_answer": f"a{i}", "gold_chunk_ids": ["c1"]}
@@ -199,7 +186,7 @@ async def test_generate_dataset_task_persists_in_batches(monkeypatch):
             "graph_expand_top_k": 1,
         }
     )
-    await service._generate_dataset_task(context)
+    await service._generate_dataset_job(context)
 
     assert len(flush_batches) == 3
     assert len(flush_batches[0]) == 2
@@ -208,7 +195,7 @@ async def test_generate_dataset_task_persists_in_batches(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generate_dataset_task_fails_when_generated_count_is_below_target(monkeypatch):
+async def test_generate_dataset_job_fails_when_generated_count_is_below_target(monkeypatch):
     async def fake_iter(*args, **kwargs):
         yield {"query": "q1", "gold_answer": "a1", "gold_chunk_ids": ["c1"]}
 
@@ -248,14 +235,14 @@ async def test_generate_dataset_task_fails_when_generated_count_is_below_target(
     )
 
     with pytest.raises(ValueError, match="仅生成 1/5 道有效评估题目"):
-        await service._generate_dataset_task(context)
+        await service._generate_dataset_job(context)
 
     assert len(added_items) == 1
     assert metadata_updates[-1]["status"] == "running"
 
 
 @pytest.mark.asyncio
-async def test_resume_dataset_generation_enqueues_new_task(monkeypatch):
+async def test_resume_dataset_generation_enqueues_new_job(monkeypatch):
     """无进行中任务时按数据库 dedupe key 原子创建恢复任务。"""
     captured = {}
 
@@ -265,14 +252,14 @@ async def test_resume_dataset_generation_enqueues_new_task(monkeypatch):
 
     async def fake_create_unique(session, **kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(id="task_2"), True
+        return SimpleNamespace(id="job_2"), True
 
-    async def fake_publish(task):
-        captured["published"] = task.id
+    async def fake_publish(job_id):
+        captured["published"] = job_id
 
     monkeypatch.setattr(eval_service_module.pg_manager, "get_async_session_context", fake_session_context)
-    monkeypatch.setattr(eval_service_module.tasker, "create_unique_in_session", fake_create_unique)
-    monkeypatch.setattr(eval_service_module.tasker, "publish", fake_publish)
+    monkeypatch.setattr(eval_service_module, "register_job_in_session", fake_create_unique)
+    monkeypatch.setattr(eval_service_module, "dispatch_job", fake_publish)
 
     class FakeRepo(OwnedFakeRepo):
         async def count_dataset_items(self, dataset_id):
@@ -297,9 +284,9 @@ async def test_resume_dataset_generation_enqueues_new_task(monkeypatch):
                 },
             )
 
-        async def attach_dataset_generation_task_in_session(self, session, dataset_id, task_id):
-            self.attached = (dataset_id, task_id)
-            return SimpleNamespace(build_metadata={"status": "pending", "task_id": task_id})
+        async def attach_dataset_generation_job_in_session(self, session, dataset_id, job_id):
+            self.attached = (dataset_id, job_id)
+            return SimpleNamespace(build_metadata={"status": "pending", "job_id": job_id})
 
         async def update_dataset(self, dataset_id, data):
             pass
@@ -309,7 +296,7 @@ async def test_resume_dataset_generation_enqueues_new_task(monkeypatch):
 
     result = await service.resume_dataset_generation("kb_1", "ds_1", "user_1")
 
-    assert result["task_id"] == "task_2"
+    assert result["job_id"] == "job_2"
     assert result["message"] == "评估数据集生成任务已恢复"
     assert captured["payload_match"] == {"dataset_id": "ds_1"}
     assert "statuses" not in captured
@@ -317,7 +304,7 @@ async def test_resume_dataset_generation_enqueues_new_task(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_resume_dataset_generation_returns_existing_task(monkeypatch):
+async def test_resume_dataset_generation_returns_existing_job(monkeypatch):
     """已有进行中任务时直接返回该任务（created=False），不重复创建。"""
 
     @asynccontextmanager
@@ -325,10 +312,10 @@ async def test_resume_dataset_generation_returns_existing_task(monkeypatch):
         yield SimpleNamespace()
 
     async def fake_create_unique(session, **kwargs):
-        return SimpleNamespace(id="task_1"), False
+        return SimpleNamespace(id="job_1"), False
 
     monkeypatch.setattr(eval_service_module.pg_manager, "get_async_session_context", fake_session_context)
-    monkeypatch.setattr(eval_service_module.tasker, "create_unique_in_session", fake_create_unique)
+    monkeypatch.setattr(eval_service_module, "register_job_in_session", fake_create_unique)
 
     class FakeRepo(OwnedFakeRepo):
         async def count_dataset_items(self, dataset_id):
@@ -343,16 +330,16 @@ async def test_resume_dataset_generation_returns_existing_task(monkeypatch):
                 build_metadata={"source": "generated", "params": {"count": 5}},
             )
 
-        async def attach_dataset_generation_task_in_session(self, session, dataset_id, task_id):
-            self.attached = (dataset_id, task_id)
-            return SimpleNamespace(build_metadata={"status": "pending", "task_id": task_id})
+        async def attach_dataset_generation_job_in_session(self, session, dataset_id, job_id):
+            self.attached = (dataset_id, job_id)
+            return SimpleNamespace(build_metadata={"status": "pending", "job_id": job_id})
 
     service = EvaluationService()
     service.eval_repo = FakeRepo()
 
     result = await service.resume_dataset_generation("kb_1", "ds_1", "user_1")
 
-    assert result["task_id"] == "task_1"
+    assert result["job_id"] == "job_1"
     assert "已有" in result["message"]
 
 
@@ -433,7 +420,7 @@ def make_generation_context(neighbors_count=2):
     return FakeContext(
         {
             "dataset_id": "ds_1",
-            # 与本文件 autouse fixture fake_chunk_repository 中 chunk 的 kb_id 对齐
+            # 与本文件 fake_chunk_repository fixture 中 chunk 的 kb_id 对齐
             "kb_id": "db_1",
             "count": 5,
             "neighbors_count": neighbors_count,
@@ -453,9 +440,7 @@ def make_generation_context(neighbors_count=2):
         (3, 2, [2, 1]),  # 失败时未满一批的残余 buffer 一并落库
     ],
 )
-async def test_generate_dataset_task_persists_partial_batches_on_failure(
-    monkeypatch, fail_after, batch_size, expected_batches
-):
+async def test_generate_dataset_job_persists_partial_batches_on_failure(monkeypatch, fail_after, batch_size, expected_batches):
     """生成中途失败时保留已提交 checkpoint，终态由 Task failure hook 原子投影。"""
     added_items = []
     metadata_updates = []
@@ -468,14 +453,14 @@ async def test_generate_dataset_task_persists_partial_batches_on_failure(
     )
 
     with pytest.raises(RuntimeError, match="kb query failed"):
-        await service._generate_dataset_task(make_generation_context())
+        await service._generate_dataset_job(make_generation_context())
 
     assert [len(batch) for batch in added_items] == expected_batches
     assert metadata_updates[-1]["status"] == "running"
 
 
 @pytest.mark.asyncio
-async def test_generate_dataset_task_flushes_remaining_buffer_on_cancellation(monkeypatch):
+async def test_generate_dataset_job_flushes_remaining_buffer_on_cancellation(monkeypatch):
     """取消时未满一批的残余 buffer 经 except CancelledError 分支落库（批次 2+1）。"""
     added_items = []
     metadata_updates = []
@@ -492,7 +477,7 @@ async def test_generate_dataset_task_flushes_remaining_buffer_on_cancellation(mo
     context.raise_if_cancelled = raise_if_cancelled
 
     with pytest.raises(asyncio.CancelledError):
-        await service._generate_dataset_task(context)
+        await service._generate_dataset_job(context)
 
     assert [len(batch) for batch in added_items] == [2, 1]
 
@@ -516,14 +501,14 @@ async def test_lost_lease_attempt_cannot_flush_or_overwrite_dataset_state(monkey
     context.raise_if_cancelled = lose_lease
 
     with pytest.raises(asyncio.CancelledError):
-        await service._generate_dataset_task(context)
+        await service._generate_dataset_job(context)
 
     assert added_items == []
     assert metadata_updates[-1]["status"] == "running"
 
 
 @pytest.mark.asyncio
-async def test_generate_dataset_task_preserves_original_error_when_flush_fails(monkeypatch):
+async def test_generate_dataset_job_preserves_original_error_when_flush_fails(monkeypatch):
     """残余落库失败不掩盖原始异常，Handler 不提前提交领域失败终态。"""
     added_items = []
     metadata_updates = []
@@ -537,6 +522,6 @@ async def test_generate_dataset_task_preserves_original_error_when_flush_fails(m
     )
 
     with pytest.raises(RuntimeError, match="kb query failed"):
-        await service._generate_dataset_task(make_generation_context())
+        await service._generate_dataset_job(make_generation_context())
 
     assert metadata_updates[-1]["status"] == "running"

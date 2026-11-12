@@ -1,0 +1,27 @@
+<!doctype html><html><body><div id="app"></div><script type="module">
+import { createApp, reactive, h } from 'vue'
+import { Button } from 'ant-design-vue'
+import Reader from '/src/modules/knowledge/ui/ExternalDocumentReader.vue'
+import { queryApi } from '/src/apis/knowledge_api.js'
+window.fixture = reactive({ fileId: 'A', startLine: null })
+window.calls = []
+queryApi.openDocument = async (kb, file, offset, windowSize = 200) => {
+  window.calls.push([file, offset, windowSize])
+  if (window.failNext) { window.failNext = false; throw new Error('测试失败') }
+  if (window.failPrevious && offset < 1000) throw new Error(window.failPrevious)
+  if (window.blockOffset === offset) {
+    window.blockOffset = null
+    await new Promise(resolve => { window.releaseOld = resolve })
+    window.oldResolved = true
+  }
+  if (file === 'oversized') {
+    if (offset === 899) throw Object.assign(new Error('文档单行超过读取窗口字节上限'), { response: { data: { detail: { code: 'document_line_too_large' } } } })
+    const end = offset < 899 ? Math.min(offset + windowSize, 899) : Math.min(offset + windowSize, 1200)
+    const content = Array.from({ length: end - offset }, (_, index) => `${offset + index + 1}\toversized-${offset + index + 1}`).join('\n')
+    return { offset, window_size: windowSize, start_line: offset + 1, end_line: end, total_lines: 1200, has_more_before: offset > 0, has_more_after: end < 1200, next_offset: end < 1200 ? end : null, content }
+  }
+  const next = ['deep', 'single'].includes(file) ? (offset + Math.min(windowSize, file === 'single' ? 1 : 67) < 11000 ? offset + Math.min(windowSize, file === 'single' ? 1 : 67) : null) : { 0: 3, 3: 7, 7: null }[offset]
+  return { offset, window_size: windowSize, start_line: offset + 1, end_line: (next ?? 10), total_lines: ['deep', 'single'].includes(file) ? 11000 : 10, has_more_before: offset > 0, has_more_after: next != null, next_offset: next, content: `${offset + 1}\t${file}-${offset}` }
+}
+createApp({ render: () => h(Reader, { kbId: 'fixture', fileId: window.fixture.fileId, startLine: window.fixture.startLine }) }).component('a-button', Button).mount('#app')
+</script></body></html>

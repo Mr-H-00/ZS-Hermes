@@ -1,0 +1,12 @@
+# 产品品牌配置
+branding:
+  name: "智枢"               # 产品名称
+  logo: "/favicon.svg"       # 产品 Logo（放在 frontend/public 目录下）
+  title: "对话、知识与工具，让 AI 助你完成工作"  # 首页口号
+  login_bg: "/login-bg.jpg"  # 保留本地登录背景
+
+# 页脚信息
+footer:
+  copyright: "© 智枢 2026 v{{YUXI_VERSION}}"
+  user_agreement_url: "/protocols/user-agreement.template.html"
+  privacy_policy_url: "/protocols/privacy-policy.template.html"

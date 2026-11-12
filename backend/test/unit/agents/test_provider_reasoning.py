@@ -7,10 +7,10 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
-from yuxi.models.chat import load_chat_model
-from yuxi.models.utils import parse_assistant_message_body
-from yuxi.models.providers.cache import ModelInfo
-from yuxi.services.chat_service import _protocol_event_yuxi_event
+from yuxi.modules.models.chat import load_chat_model
+from yuxi.modules.models.utils import parse_assistant_message_body
+from yuxi.modules.models.providers.cache import ModelInfo
+from yuxi.modules.agents.services.openai_events import OpenAIEventAdapter
 
 REASONING = " First\nthen check. "
 TOOL = {"type": "function", "function": {"name": "inspect_code", "parameters": {"type": "object", "properties": {}}}}
@@ -89,12 +89,10 @@ def make_model(monkeypatch, provider, field="reasoning_content", *, enabled=True
                 text="".join(f"data: {json.dumps(e)}\n\n" for e in events) + "data: [DONE]\n\n",
                 headers={"content-type": "text/event-stream"},
             )
-        return httpx.Response(
-            200, json={**base, "choices": [{"index": 0, "message": message, "finish_reason": finish}]}
-        )
+        return httpx.Response(200, json={**base, "choices": [{"index": 0, "message": message, "finish_reason": finish}]})
 
     info = ModelInfo(provider, "test", "chat", "Test", "test-key", "https://example.com/v1", "openai")
-    monkeypatch.setattr("yuxi.models.chat.model_cache.get_model_info", lambda _: info)
+    monkeypatch.setattr("yuxi.modules.models.chat.model_cache.get_model_info", lambda _: info)
     transport = httpx.MockTransport(respond)
     model = load_chat_model(
         info.spec,
@@ -151,18 +149,30 @@ async def test_real_v3_reasoning_projection_and_checkpoint(monkeypatch):
     compiled = graph.compile(checkpointer=InMemorySaver())
     config = {"configurable": {"thread_id": "reasoning-test"}}
     run = await compiled.astream_events({"messages": [HumanMessage("Inspect code")]}, config, version="v3")
+    adapter = OpenAIEventAdapter(run_id="r", turn_id="turn", thread_id="reasoning-test", worker_id="w")
+
+    async def save(operation, role, key, item, content_index=None):
+        """协议映射的独立存储边界；数据库语义由 integration 验证。"""
+        return {
+            **item,
+            "id": key,
+            "turn_id": "turn",
+            "yuxi": {**item.get("yuxi", {}), "output_index": 0, "run_id": "r"},
+        }
+
+    monkeypatch.setattr(adapter, "_save", save)
     emitted = []
     async for event in run:
         if event["method"] == "messages":
-            raw, metadata = event["params"]["data"]
-            projected = _protocol_event_yuxi_event(raw, message_id="m", thread_id="t", namespace=[])
-            if projected:
-                emitted.append(projected)
-    assert "".join(e.get("reasoning_content", "") for e in emitted) == REASONING
-    assert any(e["type"] == "tool_call" and e["tool_call_id"] == "call-test" for e in emitted)
+            emitted.extend(await adapter.consume(event))
+    assert "".join(e["delta"] for e in emitted if e["type"] == "yuxi.session.turn.reasoning.delta") == REASONING
+    assert any(
+        e["type"] == "agent.session.turn.item.added" and e["item"]["type"] == "function_call" and e["item"]["call_id"] == "call-test"
+        for e in emitted
+    )
     state = await compiled.aget_state(config)
     persisted = state.values["messages"][-1].model_dump()
-    assert parse_assistant_message_body(persisted["content"], persisted)["reasoning_content"] == REASONING
+    assert parse_assistant_message_body(persisted["content"])["reasoning_content"] == REASONING
 
 
 def test_non_reasoning_provider_is_unchanged(monkeypatch):
@@ -200,7 +210,7 @@ async def test_missing_reasoning_still_completes_tool_roundtrip(monkeypatch, pro
 
 
 @pytest.mark.parametrize(
-    "content,metadata,expected",
+    "content,expected",
     [
         (
             [
@@ -214,46 +224,14 @@ async def test_missing_reasoning_still_completes_tool_roundtrip(monkeypatch, pro
                 {"type": "reasoning", "reasoning": "next"},
                 {"type": "tool_call", "name": "inspect_code"},
             ],
-            None,
             {"content": " first second", "reasoning_content": " thought next"},
         ),
-        (
-            "stored answer",
-            {"content": [{"type": "text", "text": "metadata text"}]},
-            {"content": "stored answer", "reasoning_content": ""},
-        ),
-        (
-            "answer",
-            {"content": "invalid blocks", "additional_kwargs": {"reasoning_content": "saved thought"}},
-            {"content": "answer", "reasoning_content": "saved thought"},
-        ),
-        ("answer", {}, {"content": "answer", "reasoning_content": ""}),
-        ("answer", {"additional_kwargs": None}, {"content": "answer", "reasoning_content": ""}),
-        (
-            "answer",
-            {"additional_kwargs": {"reasoning_content": {"bad": True}}},
-            {"content": "answer", "reasoning_content": ""},
-        ),
-        ("<think> old thought </think>answer", {}, {"content": "answer", "reasoning_content": " old thought "}),
-        ("<think>partial", {}, {"content": "", "reasoning_content": "partial"}),
-        (
-            "example: <think>literal</think>",
-            {},
-            {"content": "example: <think>literal</think>", "reasoning_content": ""},
-        ),
-        (
-            "answer",
-            {
-                "content": [{"type": "reasoning", "reasoning": "canonical"}],
-                "additional_kwargs": {"reasoning_content": "duplicate"},
-            },
-            {"content": "answer", "reasoning_content": "canonical"},
-        ),
+        ("stored answer", {"content": "stored answer", "reasoning_content": ""}),
     ],
 )
-def test_history_recovery_is_best_effort(content, metadata, expected):
-    """旧历史只恢复真实已有内容；缺失或畸形推理不影响正文。"""
-    assert parse_assistant_message_body(content, metadata) == expected
+def test_body_projection_is_block_canonical(content, expected):
+    """展示正文只来自标准 text/reasoning 块；缺失或畸形块不影响正文。"""
+    assert parse_assistant_message_body(content) == expected
 
 
 def test_standard_blocks_encode_history_once(monkeypatch):

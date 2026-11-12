@@ -1,0 +1,69 @@
+/* 通用字重、间距和说明文字在此维护；组件皮肤由 theme token 拥有。 */
+button.ant-btn,
+a.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 8px;
+  font-weight: 500;
+
+  > .lucide,
+  > .anticon,
+  > .ant-btn-loading-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  // 图文间距统一由 gap 提供，避免与 Ant 原生 margin 叠加。
+  > .anticon + span,
+  > span + .anticon {
+    margin-inline-start: 0;
+  }
+
+  &:not(.ant-btn-icon-only) > .ant-btn-loading-icon > .anticon.anticon-loading {
+    margin-inline-end: 0;
+  }
+}
+
+.ant-btn > span {
+  font-weight: inherit;
+}
+
+.ant-form-item-label > label {
+  font-weight: 500;
+}
+
+.ant-alert .ant-alert-description {
+  color: var(--gray-600);
+}
+
+.ant-modal .ant-modal-header {
+  margin-bottom: 16px;
+}
+
+.ant-modal .ant-modal-footer,
+.ant-modal .ant-modal-confirm-btns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+
+  .ant-btn + .ant-btn:not(.ant-dropdown-trigger) {
+    margin-inline-start: 0;
+  }
+}
+
+/* 暗色浮层不依赖阴影，细描边区分菜单与相邻表面。 */
+:root.dark {
+  .ant-switch:not(.ant-switch-checked) .ant-switch-inner-unchecked {
+    color: var(--gray-900);
+  }
+
+  .ant-select-dropdown,
+  .ant-dropdown-menu,
+  .ant-popover-inner {
+    outline: 1px solid var(--gray-200);
+  }
+}

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import uuid
+from unittest.mock import AsyncMock
+from yuxi.modules.agents.runtime.context import BaseContext
 from typing import Annotated, Any, TypedDict
 
 import httpx
@@ -15,11 +17,14 @@ from langgraph.graph.message import add_messages
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from server.routers.chat_router import chat
-from server.utils.auth_middleware import get_db, get_required_user
-from yuxi.services import context_compression_service
-from yuxi.storage.postgres.manager import pg_manager
-from yuxi.storage.postgres.models_business import Conversation, Project, User
+from yuxi.api.routers.public_v1.agents import public_agents_router
+from yuxi.api.dependencies.auth import get_db, get_required_user
+import yuxi.modules.agents.services.compression as context_compression_service
+from yuxi.infrastructure.postgres.manager import pg_manager
+from yuxi.infrastructure.postgres.checkpointer import get_langgraph_checkpointer
+from yuxi.modules.agents.models.sessions import Session
+from yuxi.modules.workspace.models import Project
+from yuxi.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -31,27 +36,18 @@ class _CheckpointState(TypedDict, total=False):
     token_usage: dict[str, Any]
 
 
-class _Context:
-    uid = ""
-    thread_id = ""
-    summary_threshold = 200
-
-    def update_from_dict(self, values):
-        for key, value in values.items():
-            setattr(self, key, value)
-
-
 async def test_compress_thread_persists_canonical_checkpoint_through_http(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """成功 HTTP 请求通过真实 PostgreSQL checkpointer 写入摘要事件。"""
-    thread_id = f"pytest-compression-{uuid.uuid4()}"
+    thread_id = str(uuid.uuid4())
     uid = f"pytest-user-{uuid.uuid4()}"
     project_id = str(uuid.uuid4())
     engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    await pg_manager.close()
     pg_manager.initialize()
-    checkpointer = await pg_manager.setup_langgraph_checkpointer()
+    checkpointer = get_langgraph_checkpointer(pg_manager)
 
     builder = StateGraph(_CheckpointState)
     builder.add_node("idle", lambda _state: {})
@@ -81,19 +77,19 @@ async def test_compress_thread_persists_canonical_checkpoint_through_http(
         )
         await db.flush()
         db.add(
-            Conversation(
+            Session(
                 thread_id=thread_id,
                 uid=uid,
                 project_id=project_id,
                 agent_id="main",
                 status="active",
+                config_snapshot={"model": "test:model", "summary_threshold": 200},
             )
         )
         await db.commit()
 
     class Agent:
-        capabilities = ["context_compression"]
-        context_schema = _Context
+        context_schema = BaseContext
 
         async def get_graph(self, *, context):
             assert context.uid == uid
@@ -105,7 +101,11 @@ async def test_compress_thread_persists_canonical_checkpoint_through_http(
             pass
 
         async def get_visible_by_slug(self, **_kwargs):
-            return type("AgentItem", (), {"backend_id": "ChatbotAgent", "config_json": {"context": {}}})()
+            return type(
+                "AgentItem",
+                (),
+                {"backend_id": "ChatbotAgent", "config_json": {"context": {"summary_threshold": 200}}},
+            )()
 
     class Compressor:
         async def aforce_summarize(self, values):
@@ -118,7 +118,7 @@ async def test_compress_thread_persists_canonical_checkpoint_through_http(
                 "_summarization_event": {
                     "cutoff_index": 2,
                     "summary_message": AIMessage(content="summary of the first exchange"),
-                    "file_path": "/home/gem/user-data/projects/history.md",
+                    "file_path": "/home/user/workspace/projects/history.md",
                 },
                 "_summarization_session_id": "session-1",
             }, {
@@ -126,32 +126,16 @@ async def test_compress_thread_persists_canonical_checkpoint_through_http(
                 "before_tokens": 30,
                 "after_tokens": 20,
                 "compressed_messages": 2,
-                "file_path": "/home/gem/user-data/projects/history.md",
+                "file_path": "/home/user/workspace/projects/history.md",
             }
-
-    async def normalize(*_args, **_kwargs):
-        return {}
-
-    async def resolve_model(*_args, **_kwargs):
-        return "test:model"
 
     async def workdir(**_kwargs):
         return f"projects/{project_id}"
 
-    async def runtime(**_kwargs):
-        return None
-
-    async def build_context(agent_config, *, thread_id, uid):
-        return {**agent_config, "thread_id": thread_id, "uid": uid}
-
     monkeypatch.setattr(context_compression_service, "AgentRepository", AgentRepo)
-    monkeypatch.setattr(context_compression_service.agent_manager, "get_agent", lambda _backend_id: Agent())
-    monkeypatch.setattr(context_compression_service, "normalize_agent_context_config", normalize)
-    monkeypatch.setattr(context_compression_service, "resolve_agent_run_model_spec", resolve_model)
-    monkeypatch.setattr(context_compression_service, "ensure_conversation_workdir_available", workdir)
-    monkeypatch.setattr(context_compression_service, "_ensure_runtime_available", runtime)
-    monkeypatch.setattr(context_compression_service, "_release_runtime", runtime)
-    monkeypatch.setattr(context_compression_service, "build_agent_input_context", build_context)
+    monkeypatch.setattr(context_compression_service, "get_agent_backend", lambda _backend_id: Agent())
+    monkeypatch.setattr(context_compression_service, "ensure_session_workdir_available", workdir)
+    monkeypatch.setattr(context_compression_service, "prepare_agent_runtime_context", AsyncMock())
     monkeypatch.setattr(context_compression_service, "create_agent_composite_backend", lambda _context: object())
     monkeypatch.setattr(
         context_compression_service,
@@ -160,7 +144,7 @@ async def test_compress_thread_persists_canonical_checkpoint_through_http(
     )
 
     app = FastAPI()
-    app.include_router(chat, prefix="/api")
+    app.include_router(public_agents_router, prefix="/api")
 
     async def override_db():
         async with session_factory() as db:
@@ -174,7 +158,7 @@ async def test_compress_thread_persists_canonical_checkpoint_through_http(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            response = await client.post(f"/api/chat/thread/{thread_id}/compress", json={})
+            response = await client.post(f"/api/v1/agents/sessions/{thread_id}/compress", json={})
 
         assert response.status_code == 200, response.text
         assert response.json()["status"] == "completed"
@@ -191,8 +175,9 @@ async def test_compress_thread_persists_canonical_checkpoint_through_http(
     finally:
         await checkpointer.adelete_thread(thread_id)
         async with session_factory() as db:
-            await db.execute(delete(Conversation).where(Conversation.thread_id == thread_id))
+            await db.execute(delete(Session).where(Session.thread_id == thread_id))
             await db.execute(delete(Project).where(Project.id == project_id))
             await db.execute(delete(User).where(User.uid == uid))
             await db.commit()
         await engine.dispose()
+        await pg_manager.close()

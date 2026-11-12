@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import tempfile
 import unittest
 from datetime import datetime
@@ -49,110 +48,145 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                     ": heartbeat",
                     "",
                     "id: 1-0",
-                    "event: run_created",
-                    'data: {"request_id":"request-1",',
-                    'data: "run_id":"run-1"}',
+                    "event: yuxi.session.run.created",
+                    'data: {"session_id":"thread-1",',
+                    'data: "input_id":"input-1","turn_id":"turn-1","yuxi":{"run_id":"run-1"}}',
                     "",
                 )
             )
         ]
 
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].name, "run_created")
+        self.assertEqual(events[0].name, "yuxi.session.run.created")
         self.assertEqual(events[0].event_id, "1-0")
-        self.assertEqual(events[0].data["run_id"], "run-1")
+        self.assertEqual(events[0].data["yuxi"]["run_id"], "run-1")
 
     async def test_iter_sse_rejects_non_json_data(self) -> None:
         with self.assertRaises(LoadTestError):
             async for _ in iter_sse(_lines("event: end", "data: not-json", "")):
                 pass
 
-    async def test_request_sse_returns_its_run_created_id(self) -> None:
+    async def test_thread_sse_returns_only_target_input_run(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
-            self.assertEqual(request.url.path, "/api/agent/requests/request-1/events")
+            self.assertEqual(request.url.path, "/api/v1/agents/sessions/thread-1/events")
             return httpx.Response(
                 200,
                 text=(
-                    'event: queued\ndata: {"request_id":"request-1","position":1}\n\n'
-                    'event: run_created\ndata: {"request_id":"request-1","run_id":"run-1"}\n\n'
+                    "event: yuxi.session.run.created\n"
+                    'data: {"session_id":"thread-1","input_id":"neighbor","turn_id":"other",'
+                    '"yuxi":{"run_id":"other"}}\n\n'
+                    "event: yuxi.session.run.created\n"
+                    'data: {"session_id":"thread-1","input_id":"input-1","turn_id":"turn-1",'
+                    '"yuxi":{"run_id":"run-1"}}\n\n'
                 ),
             )
 
         async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handler)) as client:
             load_client = AgentLoadClient(client, {}, 10)
-            run_id = await load_client.wait_for_run_id(
-                "request-1",
-                "/api/agent/requests/request-1/events",
-            )
+            run_id, turn_id = await load_client.wait_for_run_id("thread-1", "input-1")
 
-        self.assertEqual(run_id, "run-1")
+        self.assertEqual((run_id, turn_id), ("run-1", "turn-1"))
 
-    async def test_request_sse_rejects_neighbor_request(self) -> None:
+    async def test_thread_sse_rejects_neighbor_thread(self) -> None:
         async def handler(_: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 200,
-                text='event: run_created\ndata: {"request_id":"request-2","run_id":"run-2"}\n\n',
+                text=(
+                    'event: yuxi.session.run.created\ndata: {"session_id":"other","input_id":"input-1",'
+                    '"turn_id":"turn-2","yuxi":{"run_id":"run-2"}}\n\n'
+                ),
             )
 
         async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handler)) as client:
             load_client = AgentLoadClient(client, {}, 10)
             with self.assertRaises(LoadTestError):
-                await load_client.wait_for_run_id(
-                    "request-1",
-                    "/api/agent/requests/request-1/events",
-                )
+                await load_client.wait_for_run_id("thread-1", "input-1")
+
+    async def test_public_input_submission_preserves_thread_and_key(self) -> None:
+        """压测输入走 Public Thread 事件协议。"""
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.url.path, "/api/v1/agents/sessions/thread-1/events")
+            self.assertEqual(request.headers["Idempotency-Key"], "load-event")
+            event = json.loads(request.content)["events"][0]
+            self.assertEqual((event["type"], event["yuxi"]["mode"]), ("agent.session.input.message", "follow_up"))
+            self.assertEqual(event["input"][0]["content"][0]["text"], "say hi")
+            return httpx.Response(202, json={"thread_id": "thread-1", "input_id": "input-1"})
+
+        async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handler)) as client:
+            payload, duration = await AgentLoadClient(client, {}, 10).submit_input(
+                thread_id="thread-1", event_key="load-event", prompt="say hi"
+            )
+        self.assertEqual(payload["input_id"], "input-1")
+        self.assertGreaterEqual(duration, 0)
+
+    async def test_load_thread_cleanup_uses_public_archive(self) -> None:
+        """压测会话清理由 Public Thread 归档协议完成。"""
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.method, "POST")
+            self.assertEqual(request.url.path, "/api/v1/agents/sessions/thread-1/archive")
+            return httpx.Response(200, json={"status": "archived"})
+
+        async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handler)) as client:
+            await AgentLoadClient(client, {}, 10).archive_thread("thread-1")
 
     def test_sandbox_result_requires_execute_completion_marker(self) -> None:
         payload = {
+            "id": "run-1",
+            "input_id": "input-1",
+            "turn_id": "turn-1",
             "status": "completed",
-            "request_id": "request-1",
-            "agent_run_id": "run-1",
-            "output": "LOAD_TEST_OK",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "LOAD_TEST_OK"}],
+                    "turn_id": "turn-1",
+                    "yuxi": {"run_id": "run-1"},
+                }
+            ],
         }
 
         success, error, _ = evaluate_result(
             scenario="sandbox",
             payload=payload,
-            request_id="request-1",
+            input_id="input-1",
+            turn_id="turn-1",
             run_id="run-1",
+            turn_payload={
+                "id": "turn-1",
+                "object": "agent.session.turn",
+                "status": "completed",
+                "yuxi": {"result_run_id": "run-1"},
+            },
             evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=False),
         )
 
         self.assertFalse(success)
         self.assertIn("LOAD_TEST_TOOL_OK", error or "")
 
-    def test_compact_tool_message_proves_execute_completion(self) -> None:
-        evidence = ToolEvidence(execute_started=True)
-
+    def test_function_output_proves_execute_completion(self):
+        evidence = ToolEvidence(execute_started=True, call_ids={"execute-call"})
         observe_tool_evidence(
-            {"payload": {"chunk": {"msg": {"type": "tool", "content": "LOAD_TEST_TOOL_OK\n"}}}},
+            {
+                "type": "agent.session.turn.item.done",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "execute-call",
+                    "status": "completed",
+                    "output": "LOAD_TEST_TOOL_OK",
+                },
+            },
             evidence,
         )
-
         self.assertTrue(evidence.execute_finished)
         self.assertTrue(evidence.output_marker_seen)
 
-    def test_first_model_output_accepts_text_and_tool_call_delta(self) -> None:
+    def test_first_model_output_accepts_text_and_full_function_call(self):
+        self.assertTrue(contains_model_output({"type": "agent.session.turn.output_text.delta", "delta": "你"}))
         self.assertTrue(
-            contains_model_output(
-                {"payload": {"items": [{"stream_event": {"type": "message_delta", "content": "你"}}]}}
-            )
-        )
-        self.assertTrue(
-            contains_model_output(
-                {
-                    "payload": {
-                        "items": [
-                            {
-                                "stream_event": {
-                                    "type": "tool_call_delta",
-                                    "args_delta": "{",
-                                }
-                            }
-                        ]
-                    }
-                }
-            )
+            contains_model_output({"type": "agent.session.turn.item.added", "item": {"type": "function_call", "arguments": {}}})
         )
 
     def test_metadata_does_not_count_as_first_model_output(self) -> None:
@@ -188,12 +222,12 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             "first_model_request_at": "2026-09-05T10:00:01.250000Z",
             "first_model_request_latency_ms": 1000.0,
         }
-        result = TaskResult(level=10, task_index=1, request_id="timing-test")
+        result = TaskResult(level=10, task_index=1, event_key="timing-test")
         record_run_timing(result, started_at, {"timing": timing})
         self.assertEqual(result.first_model_request_ms, 1250.0)
         self.assertEqual(result.created_to_first_model_request_ms, 1000.0)
         self.assertEqual(result.run_timing, timing)
-        missing = TaskResult(level=10, task_index=2, request_id="missing-timing")
+        missing = TaskResult(level=10, task_index=2, event_key="missing-timing")
         record_run_timing(missing, started_at, {"timing": {}})
         summary = summarize([result, missing])[0]
         self.assertEqual(summary["created_to_first_model_request_p95_ms"], 1000.0)
@@ -203,13 +237,29 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
         success, error, output_chars = evaluate_result(
             scenario="sandbox",
             payload={
+                "id": "run-1",
+                "input_id": "input-1",
+                "turn_id": "turn-1",
                 "status": "completed",
-                "request_id": "request-1",
-                "agent_run_id": "run-1",
-                "output": "LOAD_TEST_OK",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "LOAD_TEST_OK"}],
+                        "turn_id": "turn-1",
+                        "yuxi": {"run_id": "run-1"},
+                    }
+                ],
             },
-            request_id="request-1",
+            input_id="input-1",
+            turn_id="turn-1",
             run_id="run-1",
+            turn_payload={
+                "id": "turn-1",
+                "object": "agent.session.turn",
+                "status": "completed",
+                "yuxi": {"result_run_id": "run-1"},
+            },
             evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=True),
         )
 
@@ -221,18 +271,34 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
         success, error, _ = evaluate_result(
             scenario="sandbox",
             payload={
+                "id": "run-neighbor",
+                "input_id": "input-1",
+                "turn_id": "turn-1",
                 "status": "completed",
-                "request_id": "request-1",
-                "agent_run_id": "run-neighbor",
-                "output": "LOAD_TEST_OK",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "LOAD_TEST_OK"}],
+                        "turn_id": "turn-1",
+                        "yuxi": {"run_id": "run-neighbor"},
+                    }
+                ],
             },
-            request_id="request-1",
+            input_id="input-1",
+            turn_id="turn-1",
             run_id="run-1",
+            turn_payload={
+                "id": "turn-1",
+                "object": "agent.session.turn",
+                "status": "completed",
+                "yuxi": {"result_run_id": "run-1"},
+            },
             evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=True),
         )
 
         self.assertFalse(success)
-        self.assertIn("agent_run_id", error or "")
+        self.assertIn("Run 结果", error or "")
 
     def test_parse_concurrency_rejects_out_of_range_value(self) -> None:
         with self.assertRaises(argparse.ArgumentTypeError):
@@ -242,46 +308,32 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(_parse_memory_mb("--"))
         self.assertAlmostEqual(_parse_memory_mb("1 GiB") or 0, 1024)
 
-    def test_resource_sampler_uses_distinct_sandbox_prefixes(self) -> None:
-        commands = []
-
-        def fake_run(command, *, allow_partial=False):
-            del allow_partial
-            commands.append(command)
-            if command[1:3] == ["network", "ls"]:
-                return "network-prefix-one\nother-network\n"
-            return "container-id\tcontainer-prefix-one\n"
-
-        sampler = LocalResourceSampler(
-            "project-one",
-            "container-prefix",
-            "network-prefix",
+    def test_resource_sampler_only_counts_current_compose_services(self) -> None:
+        """本机统计不把无关容器或远端 VM 当成零用量沙盒。"""
+        sampler = LocalResourceSampler("project-one")
+        stats = "\n".join(
+            json.dumps(row)
+            for row in [
+                {"ID": "api-id", "Name": "api", "MemUsage": "64MiB / 1GiB", "CPUPerc": "5%"},
+                {"ID": "other-id", "Name": "project-one-sandbox-old", "MemUsage": "128MiB / 1GiB", "CPUPerc": "90%"},
+            ]
         )
-        with patch("test.performance.load._run_local_command", side_effect=fake_run):
-            self.assertEqual(sampler._sandbox_containers(), ["container-id"])
-            self.assertEqual(sampler._sandbox_network_count(), 1)
+        with patch("test.performance.load._run_local_command", return_value=stats):
+            memory, cpu = sampler._container_stats({"api-id": "api"})
+        self.assertEqual(memory, {"api": 64.0})
+        self.assertEqual(cpu, {"api": 5.0})
 
-        self.assertEqual(commands[0][3], "name=container-prefix")
-        self.assertEqual(commands[1][4], "name=network-prefix")
-
-    def test_parser_reads_distinct_sandbox_prefix_environment(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "SANDBOX_DOCKER_SANDBOX_PREFIX": "container-prefix",
-                "SANDBOX_DOCKER_NETWORK_PREFIX": "network-prefix",
-            },
-        ):
-            args = build_parser().parse_args(["load"])
-
-        self.assertEqual(args.sandbox_container_prefix, "container-prefix")
-        self.assertEqual(args.sandbox_network_prefix, "network-prefix")
+    def test_parser_rejects_retired_docker_sandbox_options(self) -> None:
+        """已删除的部署旋钮不能继续改变压测范围。"""
+        for option in ("--sandbox-container-prefix", "--sandbox-network-prefix"):
+            with self.assertRaises(SystemExit):
+                build_parser().parse_args(["load", option, "unused"])
 
     def test_summarize_uses_nearest_rank_and_counts_failures(self) -> None:
         summary = summarize(
             [
-                TaskResult(level=2, task_index=1, request_id="a", success=True, total_ms=100),
-                TaskResult(level=2, task_index=2, request_id="b", success=False, total_ms=300),
+                TaskResult(level=2, task_index=1, event_key="a", success=True, total_ms=100),
+                TaskResult(level=2, task_index=2, event_key="b", success=False, total_ms=300),
             ]
         )[0]
 
@@ -298,7 +350,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
         result = TaskResult(
             level=1,
             task_index=1,
-            request_id="request-1",
+            event_key="request-1",
             run_id="run-1",
             success=True,
             output_chars=1234,

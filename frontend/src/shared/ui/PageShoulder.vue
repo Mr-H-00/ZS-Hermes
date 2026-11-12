@@ -1,0 +1,82 @@
+<template>
+  <div class="page-shoulder">
+    <div class="page-shoulder-left">
+      <a-input
+        v-if="!$slots.search"
+        v-model:value="searchModel"
+        :placeholder="searchPlaceholder"
+        allow-clear
+        class="search-input"
+      >
+        <template #prefix><Search :size="14" class="text-muted" /></template>
+      </a-input>
+      <slot name="search" />
+      <slot name="filters" />
+    </div>
+    <div v-if="$slots.actions" class="page-shoulder-right">
+      <slot name="actions" />
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { Search } from '@lucide/vue'
+
+const searchModel = defineModel('search', { type: String, default: '' })
+
+defineProps({
+  searchPlaceholder: { type: String, default: '搜索...' }
+})
+</script>
+
+<style lang="less" scoped>
+.page-shoulder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px var(--page-padding) 0;
+
+  &-left {
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &-right {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.search-input {
+  width: 280px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+
+  :deep(.ant-input-prefix) {
+    margin-right: 8px;
+  }
+
+  :deep(.ant-input) {
+    height: 100%;
+  }
+}
+
+.text-muted {
+  color: var(--gray-400);
+}
+
+</style>

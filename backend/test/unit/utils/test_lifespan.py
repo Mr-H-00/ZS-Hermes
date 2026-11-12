@@ -5,9 +5,16 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 
-from server.utils import lifespan as lifespan_module
+import yuxi.api.lifespan as lifespan_module
+import yuxi.bootstrap.api as api_bootstrap
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
+
+
+@pytest.fixture(autouse=True)
+def shared_instance(monkeypatch):
+    """默认启用知识库时，API 测试也提供显式共享身份。"""
+    monkeypatch.setenv("YUXI_INSTANCE_ID", "api-startup-test")
 
 
 async def test_optional_startup_component_failure_is_structured_without_raw_message() -> None:
@@ -17,22 +24,21 @@ async def test_optional_startup_component_failure_is_structured_without_raw_mess
     async def fail() -> None:
         raise RuntimeError("database-password-must-not-leak")
 
-    await lifespan_module._initialize_startup_component(
+    await api_bootstrap._initialize_startup_component(
         app,
         name="builtin_mcp_servers",
         required=False,
         operation=fail,
     )
 
-    assert app.state.startup_components == {
-        "builtin_mcp_servers": {"status": "error", "required": False, "code": "RuntimeError"}
-    }
+    assert app.state.startup_components == {"builtin_mcp_servers": {"status": "error", "required": False, "code": "RuntimeError"}}
     assert "password" not in str(app.state.startup_components)
 
 
 async def test_invalid_security_secrets_fail_before_database_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "false")
     monkeypatch.delenv("API_KEY_DERIVATION_SECRET", raising=False)
 
     def forbidden_initialize() -> None:
@@ -42,75 +48,44 @@ async def test_invalid_security_secrets_fail_before_database_startup(
     app = FastAPI()
 
     with pytest.raises(
-        lifespan_module.RequiredStartupComponentError,
+        api_bootstrap.RequiredStartupComponentError,
         match="component=security_secrets, type=ValueError",
     ):
-        await lifespan_module._startup(app)
+        await lifespan_module.startup(app)
 
-    assert app.state.startup_components == {
-        "security_secrets": {"status": "error", "required": True, "code": "ValueError"}
-    }
+    assert app.state.startup_components == {"security_secrets": {"status": "error", "required": True, "code": "ValueError"}}
 
 
 async def test_api_startup_validates_full_schema_without_running_ddl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[object] = []
-    monkeypatch.delenv("LITE_MODE", raising=False)
     monkeypatch.setenv("API_KEY_DERIVATION_SECRET", "schema-test-api-secret-at-least-thirty-two-characters")
     monkeypatch.setenv("JWT_SECRET_KEY", "schema-test-jwt-secret-at-least-thirty-two-characters")
-    monkeypatch.setenv("SANDBOX_PROVISIONER_TOKEN", "schema-test-sandbox-token-at-least-thirty-two-characters")
     monkeypatch.setattr(lifespan_module.pg_manager, "initialize", lambda: calls.append("initialize"))
 
-    async def require_current_schema(*, include_knowledge: bool) -> None:
-        calls.append(("require_current_schema", include_knowledge))
+    async def require_current_schema(_manager) -> None:
+        calls.append("require_current_schema")
         raise RuntimeError("stop after schema assertion")
 
-    monkeypatch.setattr(lifespan_module.pg_manager, "require_current_schema", require_current_schema)
+    monkeypatch.setattr(api_bootstrap, "require_current_schema", require_current_schema)
 
     with pytest.raises(RuntimeError, match="stop after schema assertion"):
-        await lifespan_module._startup(FastAPI())
+        await lifespan_module.startup(FastAPI())
 
-    assert calls == ["initialize", ("require_current_schema", True)]
-
-
-async def test_lite_api_startup_only_requires_business_schema(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """LITE API 启动不得要求 knowledge schema。"""
-
-    calls: list[object] = []
-    monkeypatch.setenv("LITE_MODE", "true")
-    monkeypatch.setenv("API_KEY_DERIVATION_SECRET", "schema-test-api-secret-at-least-thirty-two-characters")
-    monkeypatch.setenv("JWT_SECRET_KEY", "schema-test-jwt-secret-at-least-thirty-two-characters")
-    monkeypatch.setenv("SANDBOX_PROVISIONER_TOKEN", "schema-test-sandbox-token-at-least-thirty-two-characters")
-    monkeypatch.setattr(lifespan_module.pg_manager, "initialize", lambda: calls.append("initialize"))
-
-    async def require_current_schema(*, include_knowledge: bool) -> None:
-        """记录 API 请求的 schema 范围并终止后续启动。"""
-
-        calls.append(("require_current_schema", include_knowledge))
-        raise RuntimeError("stop after schema assertion")
-
-    monkeypatch.setattr(lifespan_module.pg_manager, "require_current_schema", require_current_schema)
-
-    with pytest.raises(RuntimeError, match="stop after schema assertion"):
-        await lifespan_module._startup(FastAPI())
-
-    assert calls == ["initialize", ("require_current_schema", False)]
+    assert calls == ["initialize", "require_current_schema"]
 
 
 async def test_required_startup_component_failure_still_releases_every_runtime_component(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     released: list[str] = []
-    monkeypatch.delenv("LITE_MODE", raising=False)
 
     async def fail_startup(app: FastAPI) -> None:
         async def fail() -> None:
             raise RuntimeError("database-password-must-not-leak")
 
-        await lifespan_module._initialize_startup_component(
+        await api_bootstrap._initialize_startup_component(
             app,
             name="default_agents",
             required=True,
@@ -121,47 +96,73 @@ async def test_required_startup_component_failure_still_releases_every_runtime_c
         del operation
         released.append(name)
 
-    monkeypatch.setattr(lifespan_module, "_startup", fail_startup)
-    monkeypatch.setattr(lifespan_module, "_shutdown_component", record_shutdown)
+    monkeypatch.setattr(lifespan_module, "startup", fail_startup)
+    monkeypatch.setattr(lifespan_module, "shutdown_component", record_shutdown)
 
     app = FastAPI()
     with pytest.raises(
-        lifespan_module.RequiredStartupComponentError,
+        api_bootstrap.RequiredStartupComponentError,
         match="component=default_agents, type=RuntimeError",
     ) as exc_info:
         async with lifespan_module.lifespan(app):
             raise AssertionError("startup failure must prevent yield")
 
-    assert app.state.startup_components == {
-        "default_agents": {"status": "error", "required": True, "code": "RuntimeError"}
-    }
+    assert app.state.startup_components == {"default_agents": {"status": "error", "required": True, "code": "RuntimeError"}}
     assert "password" not in str(exc_info.value)
-    assert released == ["sandbox_provider", "queue_clients", "wps_development_tunnel", "neo4j", "postgres"]
+    assert released == ["wps_development_tunnel", "queue_clients", "neo4j", "postgres"]
 
 
-async def test_lite_shutdown_never_loads_neo4j_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """LITE 补偿清理不得通过 Neo4j shutdown 反向加载图谱模块。"""
+async def test_invalid_oidc_configuration_blocks_startup_before_database(monkeypatch):
+    """延迟配置读取仍在启动阶段拒绝不完整的 OIDC 信任根。"""
+    monkeypatch.setenv("API_KEY_DERIVATION_SECRET", "fixture-api-key-secret-at-least-thirty-two-characters")
+    monkeypatch.setenv("JWT_SECRET_KEY", "fixture-jwt-secret-at-least-thirty-two-characters")
+    monkeypatch.setenv("OIDC_ENABLED", "true")
+    monkeypatch.setenv("OIDC_ISSUER_URL", "")
 
-    released: list[str] = []
-    monkeypatch.setenv("LITE_MODE", "true")
+    def forbidden_initialize():
+        """无效配置不能进入数据库装配。"""
+        raise AssertionError("database startup must not begin")
 
-    async def fail_startup(app: FastAPI) -> None:
-        """在取得业务资源前模拟启动失败。"""
+    monkeypatch.setattr(api_bootstrap.pg_manager, "initialize", forbidden_initialize)
+    app = FastAPI()
+    with pytest.raises(api_bootstrap.RequiredStartupComponentError, match="component=oidc_config, type=ValueError"):
+        await api_bootstrap.startup(app)
+    assert app.state.startup_complete is False
+    assert app.state.startup_components["oidc_config"] == {"status": "error", "required": True, "code": "ValueError"}
 
-        del app
-        raise RuntimeError("startup failed")
 
-    async def record_shutdown(name: str, operation) -> None:
-        """记录补偿清理组件而不执行真实关闭。"""
+async def test_disabled_knowledge_does_not_initialize_existing_backends(monkeypatch):
+    """关闭部署跳过已有知识库连接，但仍完成其余必需组件装配。"""
+    from types import SimpleNamespace
 
-        del operation
-        released.append(name)
+    from yuxi.modules.system.services import options
 
-    monkeypatch.setattr(lifespan_module, "_startup", fail_startup)
-    monkeypatch.setattr(lifespan_module, "_shutdown_component", record_shutdown)
+    initialized = []
 
-    with pytest.raises(RuntimeError, match="startup failed"):
-        async with lifespan_module.lifespan(FastAPI()):
-            raise AssertionError("startup failure must prevent yield")
+    async def initialize(app, *, name, required, operation):
+        """只执行装配选择，不取得本测试无关的真实资源。"""
+        if name == "knowledge_base":
+            raise AssertionError("关闭知识库后不应初始化已有知识库后端")
+        initialized.append(name)
+        app.state.startup_components[name] = {"status": "ok", "required": required}
 
-    assert released == ["sandbox_provider", "queue_clients", "wps_development_tunnel", "postgres"]
+    async def done(*args):
+        """替换本测试不涉及的共享依赖。"""
+
+    async def redis():
+        """提供预热 Redis 的最小协议。"""
+        return SimpleNamespace(ping=done)
+
+    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "false")
+    monkeypatch.setattr(api_bootstrap, "_initialize_startup_component", initialize)
+    monkeypatch.setattr(api_bootstrap.pg_manager, "initialize", lambda: None)
+    monkeypatch.setattr(api_bootstrap, "require_current_schema", done)
+    monkeypatch.setattr(options, "invalidate_option_cache", done)
+    monkeypatch.setattr(api_bootstrap, "get_redis_client", redis)
+    app = FastAPI()
+
+    await api_bootstrap.startup(app)
+
+    assert app.state.startup_complete is True
+    assert app.state.startup_components["knowledge_base"] == {"status": "disabled", "required": False}
+    assert initialized == ["security_secrets", "oidc_config", "model_cache", "sandbox_provider"]

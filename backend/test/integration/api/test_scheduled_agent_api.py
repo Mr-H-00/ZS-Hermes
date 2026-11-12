@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -148,6 +149,26 @@ async def test_scheduled_task_crud_persists_and_enforces_owner_scope(
     assert first_run.status_code == 200, first_run.text
     assert second_run.status_code == 200, second_run.text
     assert second_run.json()["id"] == first_run.json()["id"]
+
+    thread_id = first_run.json()["thread_id"]
+    turn_id = first_run.json()["turn_id"]
+    cancel_sent = False
+    for _ in range(150):
+        turn = await test_client.get(f"/api/v1/agents/sessions/{thread_id}/turns/{turn_id}", headers=owner_headers)
+        assert turn.status_code == 200, turn.text
+        if turn.json()["status"] in {"completed", "failed", "cancelled"}:
+            break
+        if not cancel_sent:
+            cancel = await test_client.post(
+                f"/api/v1/agents/sessions/{thread_id}/events",
+                headers={**owner_headers, "Idempotency-Key": f"pytest-scheduled-cancel-{uuid.uuid4()}"},
+                json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id}}]},
+            )
+            assert cancel.status_code in {202, 409}, cancel.text
+            cancel_sent = True
+        await asyncio.sleep(0.2)
+    else:
+        pytest.fail("Scheduled Thread did not settle before Project archival")
 
     project_delete = await test_client.delete(f"/api/projects/{project_id}", headers=owner_headers)
     assert project_delete.status_code == 200, project_delete.text

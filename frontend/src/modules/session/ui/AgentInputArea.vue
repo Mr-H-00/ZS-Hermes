@@ -1,0 +1,502 @@
+<template>
+  <div class="agent-composer" :class="{ 'has-extra': showExtra && $slots.extra }">
+    <div v-if="showExtra && $slots.extra" class="composer-extra-region" aria-label="对话上下文">
+      <slot name="extra"></slot>
+    </div>
+
+    <input ref="imagePickerRef" type="file" accept="image/*" multiple hidden @change="handleImagePickerChange" />
+
+    <MessageInputComponent
+      ref="inputRef"
+      :model-value="modelValue"
+      @update:modelValue="updateValue"
+      :is-loading="isLoading"
+      :disabled="disabled"
+      :send-button-disabled="sendButtonDisabled"
+      :placeholder="placeholder"
+      :mention="mention"
+      :thread-id="threadId"
+      enable-uploads
+      @upload-attachment="handleAttachmentUpload"
+      @add-images="openImagePicker"
+      @send="handleSend"
+      @keydown="handleKeyDown"
+      @paste-images="handlePastedImages"
+      @drop-files="handleDroppedFiles"
+    >
+      <template #top>
+        <div v-if="currentImages.length || previewAttachments.length" class="input-top-stack">
+          <div v-if="currentImages.length" class="image-preview-list">
+            <template v-for="(image, index) in currentImages" :key="image.localId">
+              <div v-if="image.status === 'uploading'" class="image-preview-wrapper image-uploading-tile">
+                <span class="image-uploading-text">上传中…</span>
+                <button
+                  class="image-uploading-remove"
+                  type="button"
+                  aria-label="移除上传中的图片"
+                  @click.stop="handleImageRemoved(index)"
+                >
+                  <X :size="14" />
+                </button>
+              </div>
+              <ImagePreviewComponent
+                v-else
+                :image-data="image"
+                @remove="handleImageRemoved(index)"
+                class="image-preview-wrapper"
+              />
+            </template>
+          </div>
+
+          <div v-if="previewAttachments.length" class="attachment-preview-list">
+            <div
+              v-for="attachment in previewAttachments"
+              :key="attachment.fileId"
+              class="attachment-file-card"
+            >
+              <div class="attachment-file-icon">
+                <FileTypeIcon :name="attachment.name" :size="18" />
+              </div>
+              <div class="attachment-file-body">
+                <div class="attachment-file-name" :title="attachment.name">
+                  {{ attachment.name }}
+                </div>
+                <div class="attachment-file-meta">{{ attachment.meta }}</div>
+              </div>
+              <button
+                class="attachment-remove-btn"
+                type="button"
+                :aria-label="`移除附件 ${attachment.name}`"
+                @click.stop="handleAttachmentRemoved(attachment)"
+              >
+                <X :size="14" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <template #actions-left>
+        <div class="input-actions-left">
+          <slot name="actions-left-extra"></slot>
+        </div>
+      </template>
+      <template #actions-right>
+        <div class="input-actions-right">
+          <slot name="actions-right-extra"></slot>
+        </div>
+      </template>
+    </MessageInputComponent>
+  </div>
+</template>
+
+<script setup>
+import { computed, ref } from 'vue'
+import { message } from 'ant-design-vue'
+import MessageInputComponent from '@/modules/session/ui/MessageInputComponent.vue'
+import ImagePreviewComponent from '@/shared/ui/ImagePreviewComponent.vue'
+import { X } from '@lucide/vue'
+import { normalizeAttachmentPreviews } from '@/shared/lib/file_utils'
+import { uploadMultimodalImage } from '@/modules/session/model/multimodal_image_upload'
+import {
+  MAX_MULTIMODAL_IMAGES,
+  MAX_MULTIMODAL_TOTAL_BASE64_BYTES,
+  isWithinBase64Budget,
+  removeUploadedImage,
+  reserveImageSlots,
+  settleUploadedImage,
+  splitDroppedFiles
+} from '@/modules/session/model/multimodal_image_limits'
+import FileTypeIcon from '@/shared/ui/FileTypeIcon.vue'
+
+const props = defineProps({
+  modelValue: { type: String, default: '' },
+  isLoading: { type: Boolean, default: false },
+  disabled: { type: Boolean, default: false },
+  sendButtonDisabled: { type: Boolean, default: false },
+  mention: { type: Object, default: () => null },
+  threadId: { type: String, default: '' },
+  showExtra: { type: Boolean, default: false },
+  attachments: {
+    type: Array,
+    default: () => []
+  }
+})
+
+const emit = defineEmits([
+  'update:modelValue',
+  'send',
+  'keydown',
+  'upload-attachment',
+  'remove-attachment'
+])
+
+const inputRef = ref(null)
+// 按选择顺序保存上传占位和成功结果，上传中的项也占用名额。
+const currentImages = ref([])
+let localIdSeed = 0
+const nextLocalId = () => `image-${(localIdSeed += 1)}`
+const placeholder = '问点什么？使用 @ 可以引用对话、文件、知识库、技能或智能体。'
+
+const previewAttachments = computed(() => normalizeAttachmentPreviews(props.attachments))
+const updateValue = (val) => {
+  emit('update:modelValue', val)
+}
+
+const handleAttachmentUpload = (files = []) => {
+  emit('upload-attachment', files)
+}
+
+/** 并行上传一批图片文件，成功的逐张进列表。 */
+const uploadImageFiles = async (files = []) => {
+  const { images } = splitDroppedFiles(files)
+  if (!images.length) return
+
+  // 选图即按顺序占位：上传中的项计入张数上限（两批并发选图不会超限），
+  // 占位顺序即最终顺序，上传完成只回填对应项，不按完成先后追加。
+  const { accepted, placeholders, rejected } = reserveImageSlots(currentImages.value, images, {
+    nextId: () => nextLocalId()
+  })
+  if (rejected > 0) {
+    message.error(`最多添加 ${MAX_MULTIMODAL_IMAGES} 张图片，超出的未添加`)
+  }
+  currentImages.value.push(...placeholders)
+
+  await Promise.all(
+    accepted.map(async (file, index) => {
+      const { localId } = placeholders[index]
+      // 失败按张分 key：多张同时失败时每条都看得见，而不是只剩最后一条
+      const imageData = await uploadMultimodalImage(file, `image-upload-${localId}`)
+      if (imageData?.success) {
+        // 等待期间用户移除了该项时返回 null，上传结果直接丢弃
+        settleUploadedImage(currentImages.value, localId, imageData)
+      } else {
+        removeUploadedImage(currentImages.value, localId)
+      }
+    })
+  )
+}
+
+/** 菜单选图：关掉选项面板后与粘贴/拖拽同路。 */
+const handleImageFilesSelected = (files = []) => {
+  inputRef.value?.closeOptions()
+  uploadImageFiles(files)
+}
+
+/** 粘贴：载荷是剪贴板里的全部图片（原先只取第一张）。 */
+const handlePastedImages = async (files = []) => {
+  if (props.disabled) return
+  await uploadImageFiles(files)
+}
+
+/** 拖拽分流：图片走多模态直读；其它文件仍走附件通道（图片的 OCR 入口在「添加附件」菜单）。 */
+const handleDroppedFiles = (files = []) => {
+  if (props.disabled || !files.length) return
+  const { images, others } = splitDroppedFiles(files)
+  if (images.length) {
+    uploadImageFiles(images)
+  }
+  if (others.length) {
+    handleAttachmentUpload(others)
+  }
+}
+
+const imagePickerRef = ref(null)
+
+/** 共用原生选图入口，上传与限额仍由图片流程处理。 */
+const openImagePicker = () => {
+  if (props.disabled) return
+  imagePickerRef.value?.click()
+}
+
+/** 清空文件选择，允许再次选择同一张图片。 */
+const handleImagePickerChange = (event) => {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  handleImageFilesSelected(files)
+}
+
+const handleImageRemoved = (index) => {
+  currentImages.value.splice(index, 1)
+}
+
+// 发送被后端拒绝时把旧图片恢复到输入区，覆盖等待期间可能新选的图片，
+// 避免旧图片被悄悄丢弃；用户可重新选择新图片。
+const restoreImages = (images = []) => {
+  currentImages.value = images.map((image) => ({ ...image, localId: nextLocalId() }))
+}
+
+const handleAttachmentRemoved = (attachment) => {
+  emit('remove-attachment', attachment.raw)
+}
+
+const handleSend = (mode = 'follow_up') => {
+  if (currentImages.value.some((image) => image.status === 'uploading')) {
+    // 占位中的图还没有 base64，此时发送等于丢图；等上传完再发。
+    message.warning('图片还在上传中，请稍候再发送')
+    return
+  }
+  if (currentImages.value.length && !isWithinBase64Budget(currentImages.value)) {
+    // 请求体是内联 base64，体积上限由网关与后端共同决定；超了就地拦下，不发请求。
+    const limitMb = Math.round(MAX_MULTIMODAL_TOTAL_BASE64_BYTES / (1024 * 1024))
+    message.error(`图片总大小超出单次请求上限（约 ${limitMb}MB），请减少张数或改用更小的图片`)
+    return
+  }
+
+  emit('send', { images: [...currentImages.value], mode: typeof mode === 'string' ? mode : 'follow_up' })
+  currentImages.value = []
+}
+
+const handleKeyDown = (e) => {
+  if (props.sendButtonDisabled) {
+    return
+  }
+
+  // 输入法仍在组合状态时，回车用于确认候选词，不应触发发送
+  if (e.isComposing || e.keyCode === 229) {
+    return
+  }
+
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    handleSend()
+  } else {
+    emit('keydown', e)
+  }
+}
+
+defineExpose({
+  submit: handleSend,
+  hasImages: computed(() => currentImages.value.length > 0),
+  focus: () => inputRef.value?.focus(),
+  closeOptions: () => inputRef.value?.closeOptions(),
+  restoreImages
+})
+</script>
+
+<style lang="less" scoped>
+@import '@/modules/session/ui/composerStyles.less';
+
+.agent-composer {
+  width: 100%;
+}
+
+.composer-extra-region {
+  .composer-top-attachment();
+  display: flex;
+  min-height: 36px;
+  align-items: flex-start;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 14px 2px;
+}
+
+.agent-composer.has-extra :deep(.input-box) {
+  z-index: 1;
+}
+
+.input-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.input-actions-right {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+  gap: 2px;
+}
+
+.input-top-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.image-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 上传占位卡：与 ImagePreviewComponent 的 80x80 预览同尺寸，虚线边框区分等待态 */
+.image-uploading-tile {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border: 1px dashed var(--gray-200);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-uploading-text {
+  font-size: 12px;
+  color: var(--gray-600); /* 调和中灰，适合次要文本 */
+}
+
+.image-uploading-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--main-color);
+  color: var(--color-on-primary);
+}
+
+.attachment-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.attachment-file-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 220px;
+  min-width: 0;
+  padding: 10px 34px 10px 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: 12px;
+  background: var(--gray-0);
+  box-shadow: 0 1px 4px var(--shadow-0);
+}
+
+.attachment-file-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--main-700);
+  background: var(--main-30);
+}
+
+:global(:root.dark .agent-composer .attachment-file-card) {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+
+:global(:root.dark .composer-extra-region) {
+  background: var(--gray-10);
+}
+
+.attachment-file-body {
+  min-width: 0;
+}
+
+.attachment-file-name {
+  overflow: hidden;
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-file-meta {
+  margin-top: 2px;
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.attachment-remove-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--gray-0);
+  background: var(--gray-900);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s ease;
+
+  &:hover {
+    background: var(--gray-700);
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+}
+
+// 输入框操作按钮通用样式（穿透到 slot 内容）
+:deep(.input-action-btn) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  background: transparent;
+  border: none;
+
+  &:hover {
+    color: var(--gray-900);
+    background: var(--gray-50);
+  }
+
+  &.active {
+    color: var(--gray-900);
+    background: var(--gray-100);
+    font-weight: 500;
+  }
+
+  &.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+// slot 内容的 hide-text 响应式样式
+:deep(.hide-text) {
+  @media (max-width: 768px) {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .input-top-stack {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .attachment-file-card {
+    width: min(220px, 100%);
+  }
+}
+</style>

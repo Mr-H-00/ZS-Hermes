@@ -1,3 +1,0 @@
-recursive-include yuxi/config/static *.txt *.yaml
-recursive-include yuxi/agents/skills *.md
-recursive-include yuxi/agents/skills/buildin/mysql-reporter/scripts *.py

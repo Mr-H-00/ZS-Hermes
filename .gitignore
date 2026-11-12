@@ -12,9 +12,6 @@ __pycache__/
 dist
 node_modules
 
-### VitePress本地临时文件
-docs/.vitepress/.temp/
-
 ### common gitignore
 .DS_Store
 .env
@@ -50,14 +47,11 @@ cache
 ### IDE
 .vscode
 .idea
-.vibe
-.qoder
 .claude
 .cursor
-.trae
 .codex
-.sisyphus
 .pytest_cache
+.zcode
 
 *.secret*
 *.nogit*
@@ -70,28 +64,23 @@ cache
 *.local/*
 
 *.pdf
-src/data
 */package-lock.json
-web/package-lock.json
-saves
-saves_dev
-notebooks
-graphrag
+frontend/package-lock.json
 docker/volumes
+docs/vibe
+/backend/test/ci-reports/
+
+# 本地开发数据、模型与合并备份不进入源码变更。
+.tmp/
+.uv-cache/
+.uv-cache-local/
+.pnpm-store/
+/models/
+/rag_qa/models/
+/saves/
+/saves_dev/
+/Yuxi-0.7.3/
 docker/cloudflared/*
 !docker/cloudflared/config.example.yml
-docs/vibe
-.cursorrules
-
-/models
-
-.taskr/
-.workbuddy/
-web/src/utils/__tests__/
-
-# 本地依赖缓存与模型权重不入库
-.pnpm-store/
-
-
-rag_qa/models/
-Yuxi-0.7.3/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/

@@ -10,12 +10,12 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.repositories.api_key_repository import APIKeyRepository, APIKeySubjectUnavailable
-from yuxi.repositories.user_repository import UserRepository
-from yuxi.storage.postgres.models_business import APIKey, User
-from yuxi.utils.auth_utils import AuthUtils
+from yuxi.modules.identity.repositories.api_keys import APIKeyRepository, APIKeySubjectUnavailable
+from yuxi.modules.identity.repositories.users import UserRepository
+from yuxi.modules.identity.models import APIKey, User
+from yuxi.modules.identity.security import AuthUtils
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
 
 async def _create_user(factory: async_sessionmaker) -> int:

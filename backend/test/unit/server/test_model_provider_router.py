@@ -1,7 +1,18 @@
 import pytest
 
-from server.routers import model_provider_router
-from server.routers.model_provider_router import ModelProviderPayload
+import yuxi.api.routers.models as model_provider_router
+from yuxi.api.routers.models import ModelProviderPayload
+
+
+@pytest.mark.parametrize("value", ["true", "false", 1, 0])
+def test_model_provider_payload_rejects_non_boolean_uid_header_values(value):
+    with pytest.raises(ValueError):
+        ModelProviderPayload(include_user_uid=value)
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_model_provider_payload_accepts_boolean_uid_header_values(value):
+    assert ModelProviderPayload(include_user_uid=value).include_user_uid is value
 
 
 def test_model_provider_payload_accepts_embedding_and_rerank_urls():

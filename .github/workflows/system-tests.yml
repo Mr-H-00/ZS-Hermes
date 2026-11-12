@@ -1,37 +1,26 @@
 name: Runtime System Tests
 
 on:
-  pull_request:
-    paths:
-      - '.env.template'
-      - 'backend/package/yuxi/**'
-      - 'backend/pyproject.toml'
-      - 'backend/uv.lock'
-      - 'backend/server/**'
-      - 'backend/test/integration/**'
-      - 'backend/test/e2e/**'
-      - 'backend/test/support/**'
-      - 'docker/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.prod.yml'
-      - 'scripts/migrate-storage.sh'
-      - '.github/workflows/system-tests.yml'
+  workflow_call:
   push:
     tags: ['v[0-9]*']
-    branches: [main]
+    branches: [main, 'develop/**']
     paths:
       - '.env.template'
-      - 'backend/package/yuxi/**'
+      - 'backend/yuxi/**'
       - 'backend/pyproject.toml'
       - 'backend/uv.lock'
-      - 'backend/server/**'
       - 'backend/test/integration/**'
       - 'backend/test/e2e/**'
       - 'backend/test/support/**'
+      - 'backend/test/run_tests.sh'
       - 'docker/**'
       - 'docker-compose.yml'
       - 'docker-compose.prod.yml'
-      - 'scripts/migrate-storage.sh'
+      - 'docker-compose.no-knowledge.yml'
+      - 'scripts/ci/prepare_system_tests_env.sh'
+      - 'scripts/ci/build_topology_images.sh'
+      - '.github/actions/**'
       - '.github/workflows/system-tests.yml'
   workflow_dispatch:
 
@@ -39,37 +28,166 @@ permissions:
   contents: read
 
 concurrency:
-  group: system-tests-${{ github.event.pull_request.number || github.ref }}
+  group: system-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  JWT_SECRET_KEY: ci-jwt-secret-at-least-thirty-two-characters
+  API_KEY_DERIVATION_SECRET: ci-api-key-derivation-secret-at-least-32-chars
+  CONTAINER_E2E_REPLAY_URL_TEMPLATE: http://api:{port}/v1
+  OPENAI_REPLAY_URL: http://api:8765/v1
+  COOPERATION_REPLAY_URL: http://api:8766/v1
+  E2E_USERNAME: ci_e2e_admin
+  E2E_PASSWORD: ci-e2e-password-at-least-eight
+
 jobs:
-  system-tests:
-    name: PostgreSQL, readiness and deterministic Agent path
-    runs-on: ubuntu-latest
-    # 新 runner 首次构建 sandbox-provisioner 会下载 Debian 与 Python 依赖，启动预算需覆盖冷缓存构建。
+  # 后台作业验证会重建 api/worker 和 Milvus；其独立拓扑也执行检索测试。
+  # 各 job 各自持有完整拓扑，并共享镜像层缓存。
+  background-job-worker-path:
+    name: 后台作业与检索
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
-    env:
-      JWT_SECRET_KEY: ci-jwt-secret-at-least-thirty-two-characters
-      API_KEY_DERIVATION_SECRET: ci-api-key-derivation-secret-at-least-32-chars
-      SANDBOX_PROVISIONER_TOKEN: ci-sandbox-token-at-least-thirty-two-characters
-      E2E_USERNAME: ci_e2e_admin
-      E2E_PASSWORD: ci-e2e-password-at-least-eight
     steps:
       - uses: actions/checkout@v7
-      - name: Prepare Compose environment
+      - name: Prepare writable test report directory
+        run: mkdir -p backend/test/ci-reports && chmod 777 backend/test/ci-reports
+      - name: Prepare topology images
+        uses: ./.github/actions/prepare-topology
+      - name: Prepare isolated storage for runtime identity
         run: |
-          cp .env.template .env
-          sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=${JWT_SECRET_KEY}/" .env
-          sed -i "s/^API_KEY_DERIVATION_SECRET=.*/API_KEY_DERIVATION_SECRET=${API_KEY_DERIVATION_SECRET}/" .env
-          sed -i "s/^SANDBOX_PROVISIONER_TOKEN=.*/SANDBOX_PROVISIONER_TOKEN=${SANDBOX_PROVISIONER_TOKEN}/" .env
-          cat >> .env <<'EOF'
-          LANGFUSE_PUBLIC_KEY=ci-langfuse-public-key
-          LANGFUSE_SECRET_KEY=ci-langfuse-secret-key
-          LANGFUSE_BASE_URL=http://api:8765
-          EOF
-          grep -E "^(JWT_SECRET_KEY|API_KEY_DERIVATION_SECRET|SANDBOX_PROVISIONER_TOKEN|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_BASE_URL)=.+" .env
-      - name: Start focused runtime topology
-        run: docker compose up -d --build postgres redis minio sandbox-provisioner api worker
+          docker compose run --rm --no-deps --user 0:0 api \
+            install -d -o 1000 -g 1000 -m 0700 /app/user-data /app/skill-sources /app/skill-projections
+      - name: Start background-job runtime topology
+        run: docker compose up -d postgres redis minio etcd milvus graph sandbox-runner api worker
+      - name: Wait for background-job topology readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              docker compose logs etcd minio milvus --tail 200
+              exit 1
+            fi
+            sleep 2
+          done
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://localhost:5050/api/system/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs api worker --tail 200
+          exit 1
+      - name: Initialize isolated E2E administrator
+        run: |
+          curl -fsS -X POST http://localhost:5050/api/auth/initialize \
+            -H 'Content-Type: application/json' \
+            --data "{\"uid\":\"${E2E_USERNAME}\",\"password\":\"${E2E_PASSWORD}\"}" >/dev/null
+      - name: Verify 后台作业 worker path
+        run: |
+          docker compose stop api worker
+          docker compose run --rm app-init
+          docker compose run --rm --no-deps \
+            -e BACKGROUND_JOB_GATE_ID=${{ github.run_id }} api \
+            uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-01.xml --durations=20 \
+              test/integration/services/test_background_job_worker_path.py::test_prepare_job_with_failed_initial_arq_publication -q
+          docker compose up -d --force-recreate milvus api worker
+          for attempt in $(seq 1 60); do
+            if docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              docker compose logs etcd minio milvus --tail 200
+              exit 1
+            fi
+            sleep 2
+          done
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:5050/api/system/ready >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              docker compose logs api worker --tail 200
+              exit 1
+            fi
+            sleep 2
+          done
+          docker compose exec -T -e BACKGROUND_JOB_GATE_ID=${{ github.run_id }} api \
+            uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-02.xml --durations=20 \
+              test/integration/services/test_background_job_worker_path.py::test_shipping_worker_startup_recovers_pending_publication -q
+          docker compose exec -T -e BACKGROUND_JOB_GATE_ID=${{ github.run_id }} api \
+            uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-03.xml --durations=20 \
+              test/integration/services/test_background_job_worker_path.py::test_shipping_worker_failure_runs_domain_hook -q
+          docker compose exec -T \
+            -e TEST_USERNAME=${E2E_USERNAME} \
+            -e TEST_PASSWORD=${E2E_PASSWORD} api \
+            uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-04.xml --durations=20 \
+              test/integration/api/test_background_jobs_router.py::test_enqueue_document_creates_job \
+              test/integration/api/test_knowledge_upload_staging.py \
+              test/integration/api/test_knowledge_directory_imports.py \
+              test/integration/api/test_knowledge_document_list_sort.py \
+              test/integration/api/test_knowledge_file_summary.py \
+              test/integration/api/test_graph_build_status.py -q
+      - name: Verify document rollback projections and recovery
+        run: |
+          docker compose exec -T api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-05.xml --durations=20 \
+            test/integration/graphs/test_file_graph_clear.py \
+            test/integration/services/test_knowledge_document_resets.py -q
+      - name: Verify Milvus 3 text retrieval through worker
+        run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-19.xml --durations=20 test/e2e/test_milvus_text_retrieval_e2e.py -q
+      - name: Make container test reports readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" backend/test/ci-reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: background-job-worker-path-junit
+          path: backend/test/ci-reports/*.xml
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Runtime logs on failure
+        if: failure() || cancelled()
+        run: |
+          docker compose logs api worker sandbox-runner milvus graph --tail 200
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+          docker stats --no-stream
+          sudo ss -lntup
+          free -h
+          df -h / "$RUNNER_TEMP"
+          sudo dmesg | tail -60
+      - name: Stop runtime topology
+        if: always()
+        run: docker compose down -v
+
+  # 会话协作 E2E 是生命周期批次中最重的文件（约 445 秒，多为时序等待断言），
+  # 单独成 job 与其余模型驱动 E2E 并行；每个拓扑 job 各自构建镜像并初始化独立管理员。
+  cooperation-e2e:
+    name: 会话协作 E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare writable test report directory
+        run: mkdir -p backend/test/ci-reports && chmod 777 backend/test/ci-reports
+      - name: Prepare topology images
+        uses: ./.github/actions/prepare-topology
+      - name: Prepare isolated storage for runtime identity
+        run: |
+          docker compose run --rm --no-deps --user 0:0 api \
+            install -d -o 1000 -g 1000 -m 0700 /app/user-data /app/skill-sources /app/skill-projections
+      - name: Start runtime topology
+        run: docker compose up -d postgres redis minio milvus graph sandbox-runner api worker
+      - name: Wait for Milvus retrieval readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs etcd minio milvus --tail 200
+          exit 1
       - name: Wait for truthful readiness
         run: |
           for attempt in $(seq 1 90); do
@@ -79,7 +197,7 @@ jobs:
             sleep 2
           done
           docker compose ps
-          docker compose logs api worker sandbox-provisioner --tail 200
+          docker compose logs api worker --tail 200
           exit 1
       - name: Initialize isolated E2E administrator
         run: |
@@ -89,17 +207,219 @@ jobs:
       - name: Start deterministic OpenAI-compatible replay
         run: |
           docker compose exec -d api uv run --no-sync --no-dev python test/support/openai_replay_server.py
+          docker compose exec -d api uv run --no-sync --no-dev python -m test.support.cooperation_replay_server
           for attempt in $(seq 1 20); do
-            if docker compose exec -T api curl -fsS http://localhost:8765/health >/dev/null; then
+            if docker compose exec -T api curl -fsS http://localhost:8765/health >/dev/null && \
+               docker compose exec -T api curl -fsS http://localhost:8766/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Verify 会话协作 E2E
+        timeout-minutes: 15
+        run: CI_TEST_REPORT_DIR=test/ci-reports TEST_USERNAME="$E2E_USERNAME" TEST_PASSWORD="$E2E_PASSWORD" bash backend/test/run_tests.sh e2e-cooperation
+      - name: Make container test reports readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" backend/test/ci-reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cooperation-e2e-junit
+          path: backend/test/ci-reports/*.xml
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Runtime logs on failure
+        if: failure() || cancelled()
+        run: |
+          docker compose logs api worker sandbox-runner milvus graph --tail 200
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+          docker stats --no-stream
+          sudo ss -lntup
+          free -h
+          df -h / "$RUNNER_TEMP"
+          sudo dmesg | tail -60
+      - name: Stop runtime topology
+        if: always()
+        run: docker compose down -v
+
+  # 生命周期批次其余文件与经 worker 执行的模型驱动 E2E 共用一拓扑；
+  # 全部步骤依赖共享模型重放，重放启动后不再重建 api 容器。
+  lifecycle-worker-e2e:
+    name: 生命周期与 worker E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare writable test report directory
+        run: mkdir -p backend/test/ci-reports && chmod 777 backend/test/ci-reports
+      - name: Prepare topology images
+        uses: ./.github/actions/prepare-topology
+      - name: Prepare isolated storage for runtime identity
+        run: |
+          docker compose run --rm --no-deps --user 0:0 api \
+            install -d -o 1000 -g 1000 -m 0700 /app/user-data /app/skill-sources /app/skill-projections
+      - name: Start runtime topology
+        run: docker compose up -d postgres redis minio milvus graph sandbox-runner api worker
+      - name: Wait for Milvus retrieval readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs etcd minio milvus --tail 200
+          exit 1
+      - name: Wait for truthful readiness
+        run: |
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://localhost:5050/api/system/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs api worker --tail 200
+          exit 1
+      - name: Initialize isolated E2E administrator
+        run: |
+          curl -fsS -X POST http://localhost:5050/api/auth/initialize \
+            -H 'Content-Type: application/json' \
+            --data "{\"uid\":\"${E2E_USERNAME}\",\"password\":\"${E2E_PASSWORD}\"}" >/dev/null
+      - name: Start deterministic OpenAI-compatible replay
+        run: |
+          docker compose exec -d api uv run --no-sync --no-dev python test/support/openai_replay_server.py
+          docker compose exec -d api uv run --no-sync --no-dev python -m test.support.cooperation_replay_server
+          for attempt in $(seq 1 20); do
+            if docker compose exec -T api curl -fsS http://localhost:8765/health >/dev/null && \
+               docker compose exec -T api curl -fsS http://localhost:8766/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Verify deterministic Agent lifecycle
+        timeout-minutes: 10
+        run: CI_TEST_REPORT_DIR=test/ci-reports TEST_USERNAME="$E2E_USERNAME" TEST_PASSWORD="$E2E_PASSWORD" bash backend/test/run_tests.sh e2e-core
+      - name: Verify MCP failure isolation through worker
+        run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-09.xml --durations=20 test/e2e/test_mcp_failure_isolation.py -q
+      - name: Verify permission revocation through worker
+        run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-15.xml --durations=20 test/e2e/test_permission_revocation_e2e.py -q
+      - name: Verify Agent knowledge MCP tools and sources
+        run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-20.xml --durations=20 test/e2e/test_knowledge_mcp_agent.py -q
+      - name: Verify container Agent execution and steer cleanup through HTTP and worker
+        run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD -e CONTAINER_E2E_REPLAY_URL_TEMPLATE api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-31.xml --durations=20 test/e2e/test_container_agent_execution_e2e.py -q
+      - name: Make container test reports readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" backend/test/ci-reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lifecycle-worker-e2e-junit
+          path: backend/test/ci-reports/*.xml
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Runtime logs on failure
+        if: failure() || cancelled()
+        run: |
+          docker compose logs api worker sandbox-runner milvus graph --tail 200
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+          docker stats --no-stream
+          sudo ss -lntup
+          free -h
+          df -h / "$RUNNER_TEMP"
+          sudo dmesg | tail -60
+      - name: Stop runtime topology
+        if: always()
+        run: docker compose down -v
+
+  # HTTP 契约、权限边界与 Knowledge 开关验证；其中附件 HTTP 与专属 Skill E2E 消费共享模型重放。
+  # Knowledge 开关最先执行（它会重建 api 容器），重放随后启动；web 工具叠加拓扑最后执行（同样重建 api）。
+  runtime-contracts:
+    name: 运行时契约与知识开关
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare writable test report directory
+        run: mkdir -p backend/test/ci-reports && chmod 777 backend/test/ci-reports
+      - name: Prepare topology images
+        uses: ./.github/actions/prepare-topology
+      - name: Prepare isolated storage for runtime identity
+        run: |
+          docker compose run --rm --no-deps --user 0:0 api \
+            install -d -o 1000 -g 1000 -m 0700 /app/user-data /app/skill-sources /app/skill-projections
+      - name: Start runtime topology
+        run: docker compose up -d postgres redis minio milvus graph sandbox-runner api worker
+      - name: Wait for Milvus retrieval readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs etcd minio milvus --tail 200
+          exit 1
+      - name: Wait for truthful readiness
+        run: |
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://localhost:5050/api/system/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs api worker --tail 200
+          exit 1
+      - name: Initialize isolated E2E administrator
+        run: |
+          curl -fsS -X POST http://localhost:5050/api/auth/initialize \
+            -H 'Content-Type: application/json' \
+            --data "{\"uid\":\"${E2E_USERNAME}\",\"password\":\"${E2E_PASSWORD}\"}" >/dev/null
+      - name: Verify optional Knowledge deployment and chat recovery
+        timeout-minutes: 8
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.no-knowledge.yml up -d --no-build app-init api worker milvus etcd graph
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:5050/api/system/ready >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then exit 1; fi
+            sleep 2
+          done
+          docker compose exec -T api uv run --no-sync --no-dev python - <<'PY'
+          import httpx
+          ready = httpx.get("http://localhost:5050/api/system/ready").json()
+          assert ready["status"] == "ready" and ready["components"]["knowledge_base"]["status"] == "disabled", ready
+          for path in ("/api/mcp", "/api/knowledge/knowledge-bases"):
+              assert httpx.get("http://localhost:5050" + path).status_code == 404, path
+          PY
+          if docker compose ps --services --status running | rg '^(milvus|etcd|graph)$'; then exit 1; fi
+          docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-06.xml --durations=20 test/e2e/test_knowledge_mcp_agent.py::test_worker_preserves_selection_and_completes_after_knowledge_error -q
+          docker compose -f docker-compose.yml up -d --no-build app-init api worker milvus etcd graph
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:5050/api/system/ready >/dev/null && docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then exit 1; fi
+            sleep 2
+          done
+      - name: Start deterministic OpenAI-compatible replay
+        run: |
+          docker compose exec -d api uv run --no-sync --no-dev python test/support/openai_replay_server.py
+          docker compose exec -d api uv run --no-sync --no-dev python -m test.support.cooperation_replay_server
+          for attempt in $(seq 1 20); do
+            if docker compose exec -T api curl -fsS http://localhost:8765/health >/dev/null && \
+               docker compose exec -T api curl -fsS http://localhost:8766/health >/dev/null; then
               exit 0
             fi
             sleep 1
           done
           exit 1
       - name: Verify worker shipping health
-        run: docker compose exec -T worker uv run --no-sync --no-dev arq --check server.worker_main.WorkerSettings
-      - name: Verify local job filtering preserves ARQ dispatch and retry
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_arq_worker_dispatch.py -q
+        run: docker compose exec -T worker uv run --no-sync --no-dev arq --check yuxi.workers.main.WorkerSettings
       - name: Verify worker can write personal Skill UserWorkspace
         run: |
           docker compose exec -T -e E2E_USERNAME worker uv run --no-sync --no-dev python - <<'PY'
@@ -146,77 +466,168 @@ jobs:
           done
           exit 1
       - name: Verify readiness API
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_and_openapi_declare_full_knowledge_capabilities -q
-      - name: Verify versioned Schema migration contract
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_schema_migration_version.py test/integration/api/test_cloud_drive_router.py -q
-      - name: Verify knowledge statistics projection
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_knowledge_stats_refresh.py -q
-      - name: Verify queue transaction and recovery
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_request_queue_concurrency.py -q
-      - name: Verify AgentRun lease ownership
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_agent_run_lease.py -q
-      - name: Verify Run result causality
-        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest test/integration/api/test_agent_run_result_causality.py -q
+        run: docker compose exec -T api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-07.xml --durations=20 test/integration/api/test_system_router_api.py::test_health_endpoint_is_public test/integration/api/test_system_router_api.py::test_readiness_endpoint_proves_core_runtime_dependencies test/integration/api/test_system_router_api.py::test_discovery_and_openapi_declare_full_knowledge_capabilities -q
+      - name: Verify attachment HTTP and object contract
+        timeout-minutes: 3
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-08.xml --durations=20 test/integration/api/test_chat_router.py::test_thread_artifact_uses_image_signature_for_content_type test/integration/api/test_public_agent_files.py -q
+      - name: Verify MCP management connection contract
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-10.xml --durations=20 test/integration/api/test_mcp_router.py -q
+      - name: Verify knowledge MCP authentication and persisted documents
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-11.xml --durations=20 test/integration/api/test_knowledge_mcp.py test/integration/api/test_knowledge_mcp_delegation.py -q
+      - name: Verify module failure and permission boundaries
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-12.xml --durations=20 test/integration/api/test_module_failure_boundaries.py -q
+      - name: Verify roles, grants and private Agent HTTP boundaries
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-13.xml --durations=20 test/integration/api/test_permission_convergence.py test/integration/identity/test_identity_permission_constraints.py -q
+      - name: Verify private owner fields and shared manager resource patches
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-14.xml --durations=20 test/integration/api/test_agent_config_resource_authorization.py -q
+      - name: Verify Skill content commits and Agent exclusive history HTTP boundaries
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-16.xml --durations=20 test/integration/api/test_agent_bound_skill.py test/integration/api/test_shared_skill_edit_router.py -q
+      - name: Verify exclusive Skill preload and restore through worker
+        run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-17.xml --durations=20 test/e2e/test_agent_bound_skill_e2e.py -q
+      - name: Verify atomic Agent creation with Skill and MCP
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-18.xml --durations=20 test/integration/api/test_agent_create_resources.py -q
+      - name: Verify Input attachment persistence and object storage
+        run: >-
+          docker compose exec -T -e TEST_BASE_URL=http://127.0.0.1:1 -e CUBE_API_URL=http://127.0.0.1:1
+          -e TEST_USERNAME=fixture-probe -e TEST_PASSWORD=fixture-probe api uv run --no-sync --no-dev pytest
+          --junitxml=test/ci-reports/system-21.xml --durations=20
+          test/integration/services/test_input_attachments.py
+          test/integration/services/test_knowledge_object_lifecycle.py -q
+      - name: Verify Turn result causality
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-22.xml --durations=20 test/integration/api/test_turn_result_causality.py -q
+      - name: Verify feedback HTTP access
+        timeout-minutes: 5
+        run: |
+          docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-23.xml --durations=20 test/integration/api/test_agent_feedback_api.py -q
+      - name: Verify lifecycle HTTP and PostgreSQL boundaries
+        timeout-minutes: 8
+        run: |
+          docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api \
+            uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-24.xml --durations=20 \
+            test/integration/api/test_chat_router.py::test_public_thread_endpoints_require_authentication \
+            test/integration/api/test_chat_router.py::test_public_create_rejects_empty_input \
+            test/integration/api/test_chat_router.py::test_public_missing_thread_and_turn_return_not_found \
+            test/integration/api/test_chat_router.py::test_public_input_rejects_unbound_attachment_without_persisting_receipt \
+            test/integration/api/test_removed_api_endpoints.py::test_removed_agent_session_entrypoints_are_unreachable \
+            test/integration/api/test_public_agents_key_boundary.py \
+            test/integration/services/test_agent_input_schema.py \
+            test/integration/services/test_project_thread_archive.py \
+            test/integration/services/test_run_stream_redis.py -q
+      - name: Verify Knowledge Key HTTP boundary without optional knowledge runtime
+        run: |
+          docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api \
+            uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-25.xml --durations=20 \
+            test/integration/api/test_public_knowledge_tools.py::test_knowledge_key_tool_route_boundary_without_kb \
+            test/integration/api/test_public_knowledge_tools.py::test_agents_key_cannot_access_public_knowledge_api \
+            test/integration/api/test_removed_api_endpoints.py::test_public_knowledge_does_not_expose_management_routes -q
+      - name: Verify Session tree recovery and visibility
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-26.xml --durations=20 test/integration/api/test_session_cooperation_state_recovery.py -q
       - name: Verify Message audit HTTP contract
         timeout-minutes: 3
-        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest test/integration/api/test_chat_router.py::test_thread_message_audits_return_persisted_facts_without_leaking_into_history -q --setup-show -o faulthandler_timeout=60
-      - name: Verify deterministic Agent assembled path
-        run: docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest test/e2e/test_deterministic_agent_path_e2e.py -q
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-27.xml --durations=20 test/integration/api/test_chat_router.py::test_thread_message_audits_return_persisted_facts_without_leaking_into_history test/integration/api/test_chat_router.py::test_debug_messages_follow_database_sequence_and_include_unassigned_inputs -q --setup-show -o faulthandler_timeout=60
       - name: Verify identity transaction and replayable secret publication
-        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_schema_migration.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q
-      - name: Verify destructive storage migration and Skill authorization
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-28.xml --durations=20 test/integration/services/test_identity_admin_service.py test/integration/services/test_api_key_user_lifecycle.py test/integration/api/test_apikey_router.py -q
+      - name: Verify department HTTP counts and lifecycle
+        run: docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-29.xml --durations=20 test/integration/api/test_department_router.py -q
+      - name: Verify OIDC and MCP OAuth proxy log and cache boundaries
+        run: python3 scripts/ci/verify_oidc_proxy.py
+      - name: Verify Workdir and Skill authorization
         run: |
-          docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest \
-            test/integration/services/test_workdir_user_workspace.py \
+          docker compose exec -T -e TEST_USERNAME="$E2E_USERNAME" -e TEST_PASSWORD="$E2E_PASSWORD" api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-30.xml --durations=20 \
+            test/integration/services/test_project_workdir.py::test_sessions_share_workdir_only_through_project \
             test/integration/services/test_user_skill_projection.py \
             test/integration/api/test_skill_artifact_authorization.py -q
-      - name: Verify real Sandbox storage isolation and shared projections
-        run: docker compose exec -T api uv run --no-sync --no-dev pytest test/integration/services/test_project_workdir_provisioner.py -q
-      - name: Verify Durable Task worker path
+      - name: Verify web tool configuration and official HTTPS protocols
         run: |
-          docker compose stop api worker
-          docker compose run --rm storage-migrator
-          docker compose run --rm --no-deps api \
-            uv run --no-sync --no-dev pytest test/integration/services/test_durable_task_repository.py -q
-          docker compose run --rm --no-deps \
-            -e DURABLE_TASK_GATE_ID=${{ github.run_id }} api \
-            uv run --no-sync --no-dev pytest \
-              test/integration/services/test_durable_task_worker_path.py::test_prepare_task_with_failed_initial_arq_publication -q
-          docker compose up -d --force-recreate milvus api worker
+          docker compose exec -T api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-33.xml --durations=20 \
+            test/integration/api/test_web_tools_settings.py \
+            test/integration/services/test_web_provider_protocol.py -q
+      - name: Verify OCR configuration and complete parsing artifacts
+        timeout-minutes: 8
+        run: |
+          docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api \
+            uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-ocr.xml --durations=20 \
+            test/e2e/test_ocr_config_center_e2e.py test/e2e/test_document_parsing_artifacts_e2e.py -q
+      - name: Verify Search and Fetch configuration through worker
+        run: |
+          docker compose -f docker-compose.yml -f backend/test/e2e/web-tools.compose.yml up -d web-provider-replay api worker
           for attempt in $(seq 1 60); do
-            if docker compose exec -T milvus curl -fsS http://localhost:9091/healthz >/dev/null; then
+            if docker compose exec -T api curl -fsS http://localhost:5050/api/system/ready >/dev/null; then
               break
-            fi
-            if [ "$attempt" = 60 ]; then
-              docker compose logs etcd minio milvus --tail 200
-              exit 1
             fi
             sleep 2
           done
-          for attempt in $(seq 1 60); do
-            if curl -fsS http://localhost:5050/api/system/ready >/dev/null; then
-              break
-            fi
-            if [ "$attempt" = 60 ]; then
-              docker compose logs api worker --tail 200
-              exit 1
-            fi
-            sleep 2
-          done
-          docker compose exec -T -e DURABLE_TASK_GATE_ID=${{ github.run_id }} api \
-            uv run --no-sync --no-dev pytest \
-              test/integration/services/test_durable_task_worker_path.py::test_shipping_worker_startup_recovers_pending_publication -q
-          docker compose exec -T -e DURABLE_TASK_GATE_ID=${{ github.run_id }} api \
-            uv run --no-sync --no-dev pytest \
-              test/integration/services/test_durable_task_worker_path.py::test_shipping_worker_failure_runs_domain_hook -q
-          docker compose exec -T \
-            -e TEST_USERNAME=${E2E_USERNAME} \
-            -e TEST_PASSWORD=${E2E_PASSWORD} api \
-            uv run --no-sync --no-dev pytest \
-              test/integration/api/test_task_router.py::test_enqueue_document_creates_task -q
+          docker compose exec -T -e E2E_USERNAME -e E2E_PASSWORD api uv run --no-sync --no-dev pytest --junitxml=test/ci-reports/system-34.xml --durations=20 test/e2e/test_web_tools_e2e.py -q
+      - name: Make container test reports readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" backend/test/ci-reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-contracts-junit
+          path: backend/test/ci-reports/*.xml
+          retention-days: 7
+          if-no-files-found: warn
       - name: Runtime logs on failure
         if: failure() || cancelled()
-        run: docker compose logs api worker sandbox-provisioner --tail 300
+        run: |
+          docker compose logs api worker sandbox-runner milvus graph --tail 200
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+          docker stats --no-stream
+          sudo ss -lntup
+          free -h
+          df -h / "$RUNNER_TEMP"
+          sudo dmesg | tail -60
       - name: Stop runtime topology
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.yml -f backend/test/e2e/web-tools.compose.yml down -v --remove-orphans
+
+  # 沙盒容器隔离在宿主机直接执行 container 语义，不需要 Compose 拓扑；
+  # 只复用拓扑镜像构建产物中的 sandbox 镜像。
+  sandbox-isolation:
+    name: 沙盒容器隔离
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.12.6'
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Prepare writable test report directory
+        run: mkdir -p backend/test/ci-reports
+      - name: Prepare topology images
+        uses: ./.github/actions/prepare-topology
+        with:
+          sandbox-only: 'true'
+      - name: Verify real container storage and process isolation
+        timeout-minutes: 12
+        run: SANDBOX_CONTAINER_TEST=1 SANDBOX_CONTAINER_IMAGE="$(docker compose config --format json | jq -r '.services["sandbox-image"].image')" uv run --project backend --locked --group test pytest --junitxml=backend/test/ci-reports/system-32.xml --durations=20 backend/test/integration/sandbox/test_container_sandbox.py -q
+      - name: Make container test reports readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" backend/test/ci-reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sandbox-isolation-junit
+          path: backend/test/ci-reports/*.xml
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Runtime logs on failure
+        if: failure() || cancelled()
+        run: |
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+          df -h / "$RUNNER_TEMP"
+          sudo dmesg | tail -60
+
+  result:
+    if: always()
+    needs: [background-job-worker-path, cooperation-e2e, lifecycle-worker-e2e, runtime-contracts, sandbox-isolation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check all job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 scripts/ci/gate.py check-jobs

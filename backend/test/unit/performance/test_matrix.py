@@ -56,22 +56,22 @@ class MatrixTimingTest(unittest.TestCase):
 
     def test_complete_requires_api_and_worker_chunks(self):
         """只有 worker 已输出，或相邻 API 已输出，都不能冒充本请求完整。"""
-        requests = [{"request_id": "a", "run_id": "r"}]
+        requests = [{"event_key": "a", "run_id": "r"}]
         events = [
             {"event": "stages_done", "run_id": "r"},
-            {"event": "stages_done", "request_id": "other"},
+            {"event": "stages_done", "event_key": "other"},
         ]
         self.assertFalse(stages_complete(requests, events))
-        events.append({"event": "stages_done", "request_id": "a"})
+        events.append({"event": "stages_done", "event_key": "a"})
         self.assertTrue(stages_complete(requests, events))
 
     def test_server_boundary_and_missing(self):
         rows = [
-            {"request_id": "a", "uid": "u", "run_id": "r"},
-            {"request_id": "b", "uid": "v"},
+            {"event_key": "a", "uid": "u", "input_id": "i", "turn_id": "t", "run_id": "r"},
+            {"event_key": "b", "uid": "v"},
         ]
         events = [
-            {"event": "api_received", "request_id": "a", "time_ns": 1000000},
+            {"event": "api_received", "event_key": "a", "time_ns": 1000000},
             {
                 "event": "model_send",
                 "run_id": "r",
@@ -89,16 +89,16 @@ class MatrixTimingTest(unittest.TestCase):
     def test_wrong_user_rejected(self):
         with self.assertRaisesRegex(ValueError, "串绑"):
             join_timings(
-                [{"request_id": "a", "uid": "u", "run_id": "r"}],
+                [{"event_key": "a", "uid": "u", "input_id": "i", "turn_id": "t", "run_id": "r"}],
                 [],
-                [{"id": "r", "request_id": "a", "uid": "other"}],
+                [{"id": "r", "event_key": "a", "input_id": "i", "turn_id": "t", "uid": "other"}],
             )
 
     def test_late_stage_chunks_join_only_their_request_and_run(self):
-        """SSE 结束后输出的分块也必须回到同一 Request/Run。"""
-        rows = [{"request_id": "a", "uid": "u", "run_id": "r"}]
+        """SSE 结束后输出的分块也必须回到同一 Input/Turn/Run。"""
+        rows = [{"event_key": "a", "uid": "u", "input_id": "i", "turn_id": "t", "run_id": "r"}]
         events = [
-            {"event": "stage_spans", "request_id": "a", "spans": [{"id": 1}]},
+            {"event": "stage_spans", "event_key": "a", "spans": [{"id": 1}]},
             {"event": "stage_spans", "run_id": "r", "spans": [{"id": 2}]},
             {"event": "stage_spans", "run_id": "other", "spans": [{"id": 99}]},
             {"event": "stage_spans", "run_id": "r", "spans": [{"id": 3}]},
@@ -110,17 +110,19 @@ class MatrixTimingTest(unittest.TestCase):
     def test_wrong_request_rejected(self):
         with self.assertRaisesRegex(ValueError, "串绑"):
             join_timings(
-                [{"request_id": "a", "uid": "u", "run_id": "r"}],
+                [{"event_key": "a", "uid": "u", "input_id": "i", "turn_id": "t", "run_id": "r"}],
                 [],
-                [{"id": "r", "request_id": "other", "uid": "u"}],
+                [{"id": "r", "event_key": "other", "input_id": "i", "turn_id": "t", "uid": "u"}],
             )
 
     def test_database_stages_survive_missing_model_probe(self):
         """没有发送模型的失败请求，仍保留已经经历的数据库阶段。"""
-        row = {"request_id": "a", "uid": "u", "run_id": "r"}
+        row = {"event_key": "a", "uid": "u", "input_id": "i", "turn_id": "t", "run_id": "r"}
         stored = {
             "id": "r",
-            "request_id": "a",
+            "event_key": "a",
+            "input_id": "i",
+            "turn_id": "t",
             "uid": "u",
             "created_at": "1970-01-01T00:00:00.002",
             "started_at": "1970-01-01T00:00:00.005",
@@ -128,7 +130,7 @@ class MatrixTimingTest(unittest.TestCase):
         }
         for events in (
             [],
-            [{"event": "api_received", "request_id": "a", "time_ns": 1000000}],
+            [{"event": "api_received", "event_key": "a", "time_ns": 1000000}],
         ):
             with self.subTest(events=events):
                 joined = join_timings([row.copy()], events, [stored])[0]
@@ -147,7 +149,7 @@ class ApiBoundaryTest(unittest.IsolatedAsyncioTestCase):
         async def app(scope, receive, send):
             """用业务处理开始验证探针的装配顺序。"""
             self.assertEqual(observed[0]["time_ns"], 123)
-            self.assertEqual(observed[0]["request_id"], "matrix-test")
+            self.assertEqual(observed[0]["event_key"], "matrix-test")
 
         with (
             patch(
@@ -163,7 +165,7 @@ class ApiBoundaryTest(unittest.IsolatedAsyncioTestCase):
                 {
                     "type": "http",
                     "method": "POST",
-                    "path": "/api/agent/runs",
+                    "path": "/api/v1/agents/sessions/t/events",
                     "headers": [(b"x-load-test-id", b"matrix-test")],
                 },
                 None,
@@ -251,19 +253,28 @@ class ContinuousChannelsTest(unittest.IsolatedAsyncioTestCase):
                 """每个测试通道拥有独立请求头。"""
                 self.headers = {}
 
-            async def submit_run(self, **kwargs):
-                return {"run_id": "r"}, 20
+            async def submit_input(self, **kwargs):
+                return {"input_id": "i", "turn_id": "turn", "run_id": "r"}, 20
 
-            async def consume_run_events(self, run_id, submitted_at):
+            async def consume_run_events(self, thread_id, run_id, submitted_at):
                 self.observed_start = submitted_at
                 return {}, None, 30, 40, 50
 
-            async def get_run_result(self, run_id):
+            async def get_run_result(self, thread_id, run_id):
                 return {
-                    "request_id": "matrix-r",
-                    "agent_run_id": "r",
+                    "id": "r",
+                    "input_id": "i",
+                    "turn_id": "turn",
                     "status": "completed",
-                    "output": "hi",
+                    "output": {"run_id": "r", "turn_id": "turn", "content": "hi"},
+                }
+
+            async def get_turn_result(self, thread_id, turn_id):
+                return {
+                    "id": "turn",
+                    "object": "agent.session.turn",
+                    "status": "completed",
+                    "yuxi": {"result_run_id": "r"},
                 }
 
         client = Client()
@@ -283,23 +294,33 @@ class ContinuousChannelsTest(unittest.IsolatedAsyncioTestCase):
 
         async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(transport)) as client:
             failed = AgentLoadClient(client, {}, 1)
-            failed.submit_run = AsyncMock(side_effect=RuntimeError("submit failed"))
+            failed.submit_input = AsyncMock(return_value=({"input_id": "input-bad"}, 1))
+            failed.wait_for_run_id = AsyncMock(side_effect=RuntimeError("dispatch failed"))
             healthy = AgentLoadClient(client, {}, 1)
 
             async def submit(**kwargs):
                 """将每一轮请求绑定到该轮的结果。"""
                 healthy.get_run_result = AsyncMock(
                     return_value={
-                        "request_id": kwargs["request_id"],
-                        "agent_run_id": "r",
+                        "id": "r",
+                        "input_id": "i",
+                        "turn_id": "turn",
                         "status": "completed",
-                        "output": "hi",
+                        "output": {"run_id": "r", "turn_id": "turn", "content": "hi"},
                     }
                 )
-                return {"run_id": "r"}, 1
+                return {"input_id": "i", "turn_id": "turn", "run_id": "r"}, 1
 
-            healthy.submit_run = submit
+            healthy.submit_input = submit
             healthy.consume_run_events = AsyncMock(return_value=({}, None, 1, 2, 3))
+            healthy.get_turn_result = AsyncMock(
+                return_value={
+                    "id": "turn-1",
+                    "object": "agent.session.turn",
+                    "status": "completed",
+                    "yuxi": {"result_run_id": "r"},
+                }
+            )
             async with asyncio.TaskGroup() as tasks:
                 bad = tasks.create_task(run_channel((failed, "a", "bad", "req-bad", "bad"), 5, 0))
                 good = tasks.create_task(run_channel((healthy, "a", "good", "req-good", "good"), 5, 1))
@@ -309,50 +330,44 @@ class ContinuousChannelsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bad.result()[0]["error"], "RuntimeError")
         self.assertEqual(bad.result()[0]["cancel_error"], "ConnectError")
 
-    async def test_lost_submit_response_resolves_exact_dispatched_run_and_waits(self):
-        """提交响应丢失后，409 提供的精确 Run 必须取消并回读终态。"""
+    async def test_lost_turn_response_resolves_consumed_input_and_waits(self):
+        """Input 已消费但本地未记下 Turn 时，按 Input 查询后取消并回读。"""
         run_id = "00000000-0000-0000-0000-000000000001"
         calls = []
-        statuses = iter(["running", "cancelled"])
+        statuses = iter(["in_progress", "cancelled"])
 
         def transport(request):
             """第一次结果仍在运行，不能据取消接口的 200 提前结束。"""
             calls.append((request.method, request.url.path))
-            if request.url.path == "/api/agent/requests/req/cancel":
-                return httpx.Response(
-                    409,
-                    json={
-                        "detail": {
-                            "code": "request_already_dispatched",
-                            "run_id": run_id,
-                        }
-                    },
-                )
-            if request.url.path == f"/api/agent/runs/{run_id}/cancel":
-                return httpx.Response(200, json={"status": "running"})
-            self.assertEqual(request.url.path, f"/api/agent/runs/{run_id}/result")
+            if request.url.path == "/api/v1/agents/sessions/thread/inputs/i":
+                return httpx.Response(200, json={"status": "consumed", "turn_id": "turn", "run_id": run_id})
+            if request.method == "POST":
+                self.assertEqual(request.url.path, "/api/v1/agents/sessions/thread/events")
+                self.assertEqual(request.headers["Idempotency-Key"], "cancel:req")
+                return httpx.Response(202, json={"turn_id": "turn", "status": "accepted"})
+            self.assertEqual(request.url.path, "/api/v1/agents/sessions/thread/turns/turn")
             return httpx.Response(
                 200,
                 json={
-                    "request_id": "req",
-                    "agent_run_id": run_id,
+                    "id": "turn",
+                    "object": "agent.session.turn",
                     "status": next(statuses),
                 },
             )
 
-        row = {"request_id": "req", "run_id": None}
+        row = {"event_key": "req", "thread_id": "thread", "input_id": "i", "turn_id": None, "run_id": None}
         async with httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(transport)) as client:
             await cancel_failed_request(AgentLoadClient(client, {}, 1), row)
         self.assertEqual(row["run_id"], run_id)
         self.assertTrue(row["cancel_confirmed"])
-        self.assertEqual([method for method, _ in calls], ["POST", "POST", "GET", "GET"])
+        self.assertEqual([method for method, _ in calls], ["GET", "POST", "GET", "GET"])
 
     async def test_cancelled_channel_cleans_up_and_propagates_cancellation(self):
         """任务取消也先触发精确清理，并保留 asyncio 的取消语义。"""
         client = AsyncMock()
         client.headers = {}
         client.timeout_seconds = 1
-        client.submit_run.side_effect = asyncio.CancelledError()
+        client.submit_input.side_effect = asyncio.CancelledError()
         with (
             patch(
                 "test.performance.matrix.cancel_failed_request",
@@ -361,7 +376,7 @@ class ContinuousChannelsTest(unittest.IsolatedAsyncioTestCase):
             self.assertRaises(asyncio.CancelledError),
         ):
             await run_request(client, "a", "t", "req", "u")
-        self.assertEqual(cleanup.call_args.args[1]["request_id"], "req")
+        self.assertEqual(cleanup.call_args.args[1]["event_key"], "req")
 
 
 class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
@@ -371,7 +386,7 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
         """主入口取消或通道异常保留本组证据，未确认终态时不删除用户与会话。"""
         for confirmed, failure in ((False, "cancel"), (True, "cancel"), (False, "exception")):
             with self.subTest(confirmed=confirmed, failure=failure), tempfile.TemporaryDirectory() as directory:
-                deletions, submitted = [], {}
+                deletions, archives, submitted = [], [], {}
                 inflight = asyncio.Event()
 
                 def respond(request):
@@ -379,21 +394,24 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
                     if request.method == "DELETE":
                         deletions.append(request.url.path)
                         return httpx.Response(200, json={})
+                    if request.method == "POST" and request.url.path == "/api/v1/agents/sessions/t/archive":
+                        archives.append(request.url.path)
+                        return httpx.Response(200, json={"status": "archived"})
                     if request.url.path == "/api/auth/users":
                         return httpx.Response(200, json={"id": 1, "uid": "u"})
-                    if request.url.path == "/api/auth/impersonate/1":
+                    if request.url.path == "/api/auth/token":
                         return httpx.Response(200, json={"access_token": "test-token"})
-                    if request.url.path == "/api/chat/thread":
+                    if request.url.path == "/api/v1/agents/sessions":
                         return httpx.Response(200, json={"id": "t"})
                     raise AssertionError(request.url.path)
 
                 async def submit(load, **kwargs):
-                    """分别构造已经完成和正在运行的精确请求。"""
+                    """分别构造已完成和在途的精确 Input/Turn/Run。"""
                     run_id = f"r{len(submitted) + 1}"
-                    submitted[run_id] = kwargs["request_id"]
-                    return {"run_id": run_id}, 1
+                    submitted[run_id] = kwargs["event_key"]
+                    return {"input_id": f"i{len(submitted)}", "turn_id": f"t{len(submitted)}", "run_id": run_id}, 1
 
-                async def consume(load, run_id, started):
+                async def consume(load, thread_id, run_id, started):
                     """第一轮完成，第二轮保留在途或模拟协议异常。"""
                     if run_id == "r2":
                         inflight.set()
@@ -402,13 +420,22 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
                         await asyncio.Future()
                     return {}, None, 1, 2, 3
 
-                async def result(load, run_id):
-                    """返回同一 Request/Run 的完成结果。"""
+                async def result(load, thread_id, run_id):
+                    """返回同一 Input/Turn/Run 的完成结果。"""
                     return {
-                        "request_id": submitted[run_id],
-                        "agent_run_id": run_id,
+                        "id": run_id,
+                        "input_id": "i1",
+                        "turn_id": "t1",
                         "status": "completed",
-                        "output": "hi",
+                        "output": {"run_id": run_id, "turn_id": "t1", "content": "hi"},
+                    }
+
+                async def turn_result(load, thread_id, turn_id):
+                    return {
+                        "id": turn_id,
+                        "object": "agent.session.turn",
+                        "status": "completed",
+                        "yuxi": {"result_run_id": "r1"},
                     }
 
                 async def cancel(load, row):
@@ -425,9 +452,7 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
                     output_dir=Path(directory),
                 )
                 with (
-                    patch.dict(
-                        "os.environ", {"COMPOSE_PROJECT_NAME": "yuxi-alpha", "YUXI_STATE_DIR": "../.yuxi/slots/alpha"}
-                    ),
+                    patch.dict("os.environ", {"COMPOSE_PROJECT_NAME": "yuxi-alpha", "YUXI_STATE_DIR": "../.yuxi/slots/alpha"}),
                     patch("test.performance.matrix.httpx.AsyncClient", return_value=client),
                     patch("test.performance.matrix.authenticate", new=AsyncMock(return_value={})),
                     patch("test.performance.matrix.resolve_agent_slug", new=AsyncMock(return_value="a")),
@@ -436,9 +461,10 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
                         "test.performance.matrix.read_probe_events",
                         return_value=[{"event": "worker_ready", "container": "w"}],
                     ),
-                    patch.object(AgentLoadClient, "submit_run", submit),
+                    patch.object(AgentLoadClient, "submit_input", submit),
                     patch.object(AgentLoadClient, "consume_run_events", consume),
                     patch.object(AgentLoadClient, "get_run_result", result),
+                    patch.object(AgentLoadClient, "get_turn_result", turn_result),
                     patch("test.performance.matrix.cancel_failed_request", cancel),
                 ):
                     task = asyncio.create_task(main(args))
@@ -458,9 +484,11 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(group["requests"][1]["cancel_confirmed"], confirmed)
                 self.assertIn("client_total_ms", group["requests"][1])
                 if confirmed:
-                    self.assertEqual(len(deletions), 2)
+                    self.assertEqual(len(deletions), 1)
+                    self.assertEqual(archives, ["/api/v1/agents/sessions/t/archive"])
                 else:
                     self.assertEqual(deletions, [])
+                    self.assertEqual(archives, [])
                     self.assertEqual(group["unconfirmed_terminal"], 1)
 
     async def test_incomplete_probes_save_rows_and_known_stages_before_raising(self):
@@ -470,7 +498,7 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
             "rounds_per_thread": 5,
             "requests": [
                 {
-                    "request_id": "req",
+                    "event_key": "req",
                     "uid": "u",
                     "run_id": "r",
                     "success": True,
@@ -489,7 +517,7 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "已保存样本"):
                 await record_group(report, group, path, "start")
             saved = json.loads(path.read_text())["groups"][0]
-        self.assertEqual(saved["requests"][0]["request_id"], "req")
+        self.assertEqual(saved["requests"][0]["event_key"], "req")
         self.assertTrue(saved["requests"][0]["success"])
         self.assertFalse(saved["stages_complete"])
         self.assertEqual(saved["observation_error"], "RuntimeError")

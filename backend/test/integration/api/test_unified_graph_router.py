@@ -9,9 +9,9 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 async def _create_dify_database(test_client, admin_headers) -> str:
     response = await test_client.post(
-        "/api/knowledge/databases",
+        "/api/knowledge/knowledge-bases",
         json={
-            "database_name": f"pytest_graph_dify_{uuid.uuid4().hex[:8]}",
+            "name": f"pytest_graph_dify_{uuid.uuid4().hex[:8]}",
             "description": "Graph router Dify negative test",
             "kb_type": "dify",
             "additional_params": {
@@ -27,7 +27,7 @@ async def _create_dify_database(test_client, admin_headers) -> str:
 
 
 async def _delete_database(test_client, admin_headers, kb_id: str) -> None:
-    await test_client.delete(f"/api/knowledge/databases/{kb_id}", headers=admin_headers)
+    await test_client.delete(f"/api/knowledge/knowledge-bases/{kb_id}", headers=admin_headers)
 
 
 async def test_graph_routes_require_auth(test_client):
@@ -35,12 +35,24 @@ async def test_graph_routes_require_auth(test_client):
     assert response.status_code == 401
 
 
+async def test_file_subgraph_requires_auth(test_client):
+    response = await test_client.get("/api/graph/subgraph", params={"kb_id": "missing", "file_id": "missing"})
+    assert response.status_code == 401
+
+
+async def test_standard_user_cannot_read_file_subgraph(test_client, standard_user):
+    response = await test_client.get(
+        "/api/graph/subgraph", params={"kb_id": "missing", "file_id": "missing"}, headers=standard_user["headers"]
+    )
+    assert response.status_code == 403
+
+
 async def test_standard_user_cannot_access_graph_endpoints(test_client, standard_user):
     response = await test_client.get("/api/graph/list", headers=standard_user["headers"])
     assert response.status_code == 403
 
 
-async def test_get_graphs_list_only_returns_milvus(test_client, admin_headers, knowledge_database):
+async def test_get_graphs_list_only_returns_milvus(test_client, admin_headers, knowledge_base_resource):
     response = await test_client.get("/api/graph/list", headers=admin_headers)
 
     assert response.status_code == 200
@@ -49,7 +61,7 @@ async def test_get_graphs_list_only_returns_milvus(test_client, admin_headers, k
     assert isinstance(payload["data"], list)
     assert payload["data"]
     assert all(graph["type"] == "milvus" for graph in payload["data"])
-    assert any(graph["id"] == knowledge_database["kb_id"] for graph in payload["data"])
+    assert any(graph["id"] == knowledge_base_resource["kb_id"] for graph in payload["data"])
 
 
 @pytest.mark.parametrize("path", ["/api/graph/subgraph", "/api/graph/stats", "/api/graph/labels"])
@@ -72,10 +84,10 @@ async def test_graph_endpoints_reject_non_milvus_types(test_client, admin_header
         ("/api/graph/labels", {}, ("labels",)),
     ],
 )
-async def test_milvus_graph_endpoints(test_client, admin_headers, knowledge_database, path, params, expected_keys):
+async def test_milvus_graph_endpoints(test_client, admin_headers, knowledge_base_resource, path, params, expected_keys):
     response = await test_client.get(
         path,
-        params={"kb_id": knowledge_database["kb_id"], **params},
+        params={"kb_id": knowledge_base_resource["kb_id"], **params},
         headers=admin_headers,
     )
 
@@ -84,19 +96,3 @@ async def test_milvus_graph_endpoints(test_client, admin_headers, knowledge_data
     assert payload["success"] is True
     for key in expected_keys:
         assert key in payload["data"]
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/graph/neo4j/nodes",
-        "/api/graph/neo4j/node",
-        "/api/graph/neo4j/info",
-        "/api/graph/neo4j/index-entities",
-        "/api/graph/neo4j/add-entities",
-    ],
-)
-async def test_neo4j_upload_routes_are_removed(test_client, admin_headers, path):
-    method = test_client.post if path.endswith(("index-entities", "add-entities")) else test_client.get
-    response = await method(path, headers=admin_headers)
-    assert response.status_code == 404

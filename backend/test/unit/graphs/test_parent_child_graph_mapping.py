@@ -3,14 +3,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from yuxi.knowledge.graphs.extractors import normalize_extraction_result
-from yuxi.knowledge.graphs.graph_utils import (
+from yuxi.modules.knowledge.graphs.extractors import normalize_extraction_result
+from yuxi.modules.knowledge.graphs.graph_utils import (
     ParentChildGraphMappingError,
     expand_parent_scores_to_child_candidates,
     validate_parent_child_graph_mapping,
 )
-from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
-import yuxi.knowledge.graphs.milvus_graph_service as graph_service_module
+from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+import yuxi.modules.knowledge.graphs.service as graph_service_module
 
 
 def _parent(**overrides):
@@ -77,7 +77,7 @@ def test_parent_graph_write_uses_parent_and_child_nodes_and_edges():
     session.execute_write.side_effect = lambda func: func(tx)
     driver = MagicMock()
     driver.session.return_value = session
-    service = MilvusGraphService(neo4j_connection=SimpleNamespace(driver=driver))
+    service = KnowledgeGraphService(neo4j_connection=SimpleNamespace(driver=driver))
 
     entities, triples = service.write_parent_child_graph(
         "kb_test",
@@ -119,7 +119,7 @@ def test_parent_graph_ppr_uses_parent_id_not_child_or_legacy_chunk_id():
     }
 
     assert (
-        MilvusGraphService.rank_parent_chunks_by_ppr(
+        KnowledgeGraphService.rank_parent_chunks_by_ppr(
             subgraph,
             {"seed": 1.0},
             top_k=5,
@@ -139,8 +139,14 @@ async def test_parent_graph_subgraph_filters_versions_before_ppr_top_k(monkeypat
         captured["version_ids"] = args[4]
         return {"nodes": [], "edges": []}
 
-    monkeypatch.setattr(graph_service_module, "_run_neo4j_query_io", capture_query)
-    service = MilvusGraphService()
+    monkeypatch.setattr(graph_service_module, "run_neo4j_query_io", capture_query)
+    service = KnowledgeGraphService()
+
+    async def preserve_visible(_kb_id, result):
+        """此测试仅隔离 Cypher 版本过滤，PG 可见性另测。"""
+        return result
+
+    monkeypatch.setattr(service, "_filter_visible_subgraph", preserve_visible)
 
     await service.query_seed_subgraph(
         "kb_1",
@@ -171,7 +177,7 @@ async def test_parent_graph_version_cleanup_coordinates_all_stores(monkeypatch):
         async def delete_graph_records(self, kb_id, *, entity_ids, triple_ids):
             calls.append(("vectors", kb_id, entity_ids, triple_ids))
 
-    service = MilvusGraphService(
+    service = KnowledgeGraphService(
         graph_repo=FakeGraphRepository(),
         graph_vector_store=FakeGraphVectorStore(),
     )

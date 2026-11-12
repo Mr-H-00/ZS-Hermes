@@ -43,11 +43,7 @@ async def test_personal_skill_install_list_preview_and_delete_without_database_r
             headers=headers,
         )
         assert cards_response.status_code == 200, cards_response.text
-        personal = [
-            item
-            for item in cards_response.json()["data"]
-            if item["slug"] == slug and item["source_scope"] == "personal"
-        ]
+        personal = [item for item in cards_response.json()["data"] if item["slug"] == slug and item["source_scope"] == "personal"]
         assert len(personal) == 1
         assert "share_config" not in personal[0]
         assert personal[0]["tool_dependencies"] == []
@@ -55,9 +51,7 @@ async def test_personal_skill_install_list_preview_and_delete_without_database_r
         accessible_response = await test_client.get("/api/skills/accessible", headers=headers)
         assert accessible_response.status_code == 200, accessible_response.text
         accessible_personal = next(
-            item
-            for item in accessible_response.json()["data"]
-            if item["slug"] == slug and item["source_scope"] == "personal"
+            item for item in accessible_response.json()["data"] if item["slug"] == slug and item["source_scope"] == "personal"
         )
         assert "share_config" not in accessible_personal
 

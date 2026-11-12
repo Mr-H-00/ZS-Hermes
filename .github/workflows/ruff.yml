@@ -3,24 +3,18 @@
 #
 # 触发场景：
 # 1. Pull Request：发现问题直接标红，要求开发者本地运行 make format
-# 2. Push 到 main：仅检查并在发现问题时标红，不修改仓库内容
+# 2. Push 到 main/develop/**：仅检查并在发现问题时标红，不修改仓库内容
 
 name: Ruff Format Check
 
 on:
+  workflow_call:
+  workflow_dispatch:
   push:
     tags: ['v[0-9]*']
     branches:
       - main
-    paths:
-      - 'backend/**/*.py'
-      - 'backend/pyproject.toml'
-      - 'backend/uv.lock'
-      - 'Makefile'
-      - '.github/workflows/ruff.yml'
-  pull_request:
-    branches:
-      - main
+      - 'develop/**'
     paths:
       - 'backend/**/*.py'
       - 'backend/pyproject.toml'
@@ -38,11 +32,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      # 1. 检出代码
+      # 1. 检出代码（ruff 只检查工作区，不需要 git 历史）
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       # 2. 安装 uv（项目使用 uv 作为包管理器）
       - name: Install uv
@@ -63,6 +55,6 @@ jobs:
 
       - name: Check lint, formatting and imports
         run: |
-          ruff check package
-          ruff format package --check
-          ruff check --select I package
+          ruff check yuxi
+          ruff format yuxi --check
+          ruff check --select I yuxi

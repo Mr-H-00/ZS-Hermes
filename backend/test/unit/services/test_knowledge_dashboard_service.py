@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.services import knowledge_dashboard_service
+import yuxi.modules.knowledge.services.dashboard as knowledge_dashboard_service
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -28,10 +28,10 @@ async def test_knowledge_dashboard_uses_repository_aggregates(monkeypatch):
     stats = await knowledge_dashboard_service.get_knowledge_stats()
 
     assert stats == {
-        "total_databases": 3,
+        "total_knowledge_bases": 3,
         "total_files": 4,
         "total_nodes": 24,
         "total_storage_size": 1300,
-        "databases_by_type": {"Milvus": 2, "custom": 1},
+        "knowledge_bases_by_type": {"Milvus": 2, "custom": 1},
         "file_type_distribution": {"PDF文档": 3, "其他": 1},
     }

@@ -6,6 +6,25 @@
 set -e
 umask 077
 
+# 环境输入优先于文件；无人值守必须显式选择，避免 EOF 被当成用户回答。
+env_file="${YUXI_ENV_FILE:-.env}"
+non_interactive="${YUXI_INIT_NON_INTERACTIVE:-0}"
+skip_images="${YUXI_INIT_SKIP_IMAGES:-0}"
+compose_file=docker-compose.yml
+
+fail() {
+    echo "$*" >&2
+    exit 1
+}
+
+prompt_value() {
+    local name="$1"
+    local prompt="$2"
+    [ "$non_interactive" = 0 ] && [ -t 0 ] || fail "Set ${name} through the environment or ${env_file}; interactive input is unavailable."
+    read -r -s -p "$prompt: " PROMPT_VALUE || fail "Could not read ${name}."
+    echo ""
+}
+
 generate_hex() {
     local length="$1"
     if command -v openssl >/dev/null 2>&1; then
@@ -19,7 +38,19 @@ set_env_value() {
     local name="$1"
     local value="$2"
 
-    if grep -Eq "^${name}=" .env; then
+    # Compose 双引号内转义反斜杠、双引号和美元符，拒绝换行以防配置注入。
+    case "$value" in
+        *$'\n'*|*$'\r'*) fail "${name} must be a single-line value." ;;
+    esac
+    case "$value" in
+        *[\$\#\ \"\'\\]*)
+            value="${value//\\/\\\\}"
+            value="${value//\"/\\\"}"
+            value="${value//\$/\$\$}"
+            value="\"${value}\""
+            ;;
+    esac
+    if grep -Eq "^${name}=" "$env_file"; then
         ENV_VALUE="$value" awk -v name="$name" '
             $0 ~ "^" name "=" {
                 if (!updated) {
@@ -29,21 +60,51 @@ set_env_value() {
                 next
             }
             { print }
-        ' .env > .env.tmp
-        mv .env.tmp .env
+        ' "$env_file" > "${env_file}.tmp"
+        mv "${env_file}.tmp" "$env_file"
     else
-        printf '\n%s=%s\n' "$name" "$value" >> .env
+        printf '\n%s=%s\n' "$name" "$value" >> "$env_file"
     fi
 }
 
 get_env_value() {
     local name="$1"
-    awk -v name="$name" '
+    local value
+    value=$(awk -v name="$name" '
         index($0, name "=") == 1 && !found {
             print substr($0, length(name) + 2)
             found = 1
         }
-    ' .env
+    ' "$env_file")
+    if [[ "$value" == \'* || "$value" == \"* ]]; then
+        local quote="${value:0:1}" decoded="" char next closed=0
+        value="${value:1}"
+        while [ -n "$value" ]; do
+            char="${value:0:1}"
+            value="${value:1}"
+            if [ "$char" = "$quote" ]; then
+                closed=1
+                break
+            fi
+            next="${value:0:1}"
+            if [ "$char" = '\' ] && { [ "$next" = "$quote" ] || { [ "$quote" = '"' ] && [ "$next" = '\' ]; }; }; then
+                char="$next"
+                value="${value:1}"
+            fi
+            decoded+="$char"
+        done
+        [ "$closed" = 1 ] || fail "${name} has an unterminated quote in ${env_file}."
+        value=$(trim_whitespace "$value")
+        [[ -z "$value" || "$value" == \#* ]] || fail "${name} has unexpected text after its quote in ${env_file}."
+        if [ "$quote" = '"' ]; then
+            decoded="${decoded//\$\$/\$}"
+        fi
+        value="$decoded"
+    elif [[ "$value" == *' #'* ]]; then
+        value="${value%% #*}"
+        value=$(trim_whitespace "$value")
+    fi
+    printf '%s' "$value"
 }
 
 trim_whitespace() {
@@ -77,11 +138,11 @@ read_security_secret() {
     shift
     local value
     while true; do
-        read -s -p "Please enter your ${name} (press Enter to auto-generate): " value
-        echo ""
+        prompt_value "$name" "Please enter your ${name} (press Enter to auto-generate)"
+        value="$PROMPT_VALUE"
         if [ -z "$value" ]; then
             value=$(generate_hex 32)
-            echo "Generated ${name} and saved it to .env."
+            echo "Generated ${name} for ${env_file}."
         fi
         if security_secret_is_valid "$value" "$@"; then
             SECURITY_SECRET_VALUE="$value"
@@ -105,16 +166,20 @@ ensure_security_secret() {
         return
     fi
 
-    echo "${name} is missing, too short, or reuses another security secret in .env."
+    if [ "$non_interactive" = 1 ]; then
+        [ -z "$current" ] || fail "${name} is invalid in ${env_file}; refusing to rotate an existing secret."
+        set_env_value "$name" "$(generate_hex 32)"
+        return
+    fi
+    echo "${name} is missing, too short, or reuses another security secret in ${env_file}."
     read_security_secret "$name" "${other_values[@]}"
     set_env_value "$name" "$SECURITY_SECRET_VALUE"
 }
 
 validate_security_env() {
-    local jwt_secret api_key_secret sandbox_secret
+    local jwt_secret api_key_secret
     jwt_secret=$(get_env_value "JWT_SECRET_KEY")
     api_key_secret=$(get_env_value "API_KEY_DERIVATION_SECRET")
-    sandbox_secret=$(get_env_value "SANDBOX_PROVISIONER_TOKEN")
 
     security_secret_is_valid "$jwt_secret" || {
         echo "JWT_SECRET_KEY must contain at least 32 non-whitespace characters." >&2
@@ -124,57 +189,29 @@ validate_security_env() {
         echo "API_KEY_DERIVATION_SECRET must be at least 32 characters and independent from JWT_SECRET_KEY." >&2
         return 1
     }
-    security_secret_is_valid "$sandbox_secret" "$jwt_secret" "$api_key_secret" || {
-        echo "SANDBOX_PROVISIONER_TOKEN must be at least 32 characters and independent from other security secrets." >&2
-        return 1
-    }
 }
 
-ensure_required_api_env() {
-    if grep -Eq '^SILICONFLOW_API_KEY=.+' .env; then
-        return
-    fi
-
-    echo "SILICONFLOW_API_KEY is missing in .env."
-    while true; do
-        read -s -p "Please enter your SILICONFLOW_API_KEY: " SILICONFLOW_API_KEY
-        echo ""
-        if [ -n "$SILICONFLOW_API_KEY" ]; then
-            break
-        fi
-        echo "❌ API Key cannot be empty. Please try again."
+ensure_required_value() {
+    local name="$1"
+    local value
+    value=$(get_env_value "$name")
+    while [ -z "$value" ]; do
+        prompt_value "$name" "Please enter your ${name}"
+        value="$PROMPT_VALUE"
+        set_env_value "$name" "$value"
     done
-    set_env_value "SILICONFLOW_API_KEY" "$SILICONFLOW_API_KEY"
-}
-
-ensure_jwt_env() {
-    ensure_security_secret "JWT_SECRET_KEY"
-    ensure_security_secret "API_KEY_DERIVATION_SECRET" "JWT_SECRET_KEY"
-
-    if ! grep -Eq '^YUXI_INSTANCE_ID=.+' .env; then
-        echo "YUXI_INSTANCE_ID is missing in .env."
-        read -p "Please enter your YUXI_INSTANCE_ID (press Enter to auto-generate): " YUXI_INSTANCE_ID
-        if [ -z "$YUXI_INSTANCE_ID" ]; then
-            YUXI_INSTANCE_ID="instance-$(generate_hex 8)"
-            echo "Generated YUXI_INSTANCE_ID and saved it to .env."
-        fi
-
-        set_env_value "YUXI_INSTANCE_ID" "$YUXI_INSTANCE_ID"
-    fi
-}
-
-ensure_sandbox_env() {
-    ensure_security_secret "SANDBOX_PROVISIONER_TOKEN" "JWT_SECRET_KEY" "API_KEY_DERIVATION_SECRET"
 }
 
 if [ "${1:-}" = "--validate-security-env" ]; then
-    if [ ! -f ".env" ]; then
-        echo ".env does not exist" >&2
-        exit 1
-    fi
+    [ -f "$env_file" ] || fail "${env_file} does not exist"
     validate_security_env
     exit 0
 fi
+[ $# -eq 0 ] || fail "Unknown argument: $1"
+case "$non_interactive:$skip_images" in
+    0:0|0:1|1:0|1:1) ;;
+    *) fail "YUXI_INIT_NON_INTERACTIVE and YUXI_INIT_SKIP_IMAGES must be 0 or 1." ;;
+esac
 
 skip_existing_image() {
     local image="$1"
@@ -190,101 +227,99 @@ skip_existing_image() {
 echo "🚀 Initializing Yuxi project..."
 echo "=================================="
 
-# Check if .env file exists
-if [ -f ".env" ]; then
-    echo "✅ .env file already exists. Checking required settings."
-    ensure_required_api_env
-    ensure_jwt_env
-    ensure_sandbox_env
-    validate_security_env
-    chmod 600 .env
-else
-    echo "📝 .env file not found. Let's set up your environment variables."
-    echo ""
+if [ ! -f "$env_file" ]; then
+    touch "$env_file"
+fi
+chmod 600 "$env_file"
 
-    # Get SILICONFLOW_API_KEY
-    echo "🔑 SiliconFlow API Key required"
-    echo "Get your API key from: https://cloud.siliconflow.cn/i/Eo5yTHGJ"
-    while true; do
-        read -s -p "Please enter your SILICONFLOW_API_KEY: " SILICONFLOW_API_KEY
-        echo ""
-        if [ -z "$SILICONFLOW_API_KEY" ]; then
-            echo "❌ API Key cannot be empty. Please try again."
-        else
-            break
+# 只接收初始化拥有的输入，不把宿主全部环境或开发配置复制进新部署。
+for name in SILICONFLOW_API_KEY WEB_SEARCH_PROVIDER DOUBAO_SEARCH_API_KEY TAVILY_API_KEY DEEPSEEK_API_KEY \
+    JWT_SECRET_KEY API_KEY_DERIVATION_SECRET YUXI_INSTANCE_ID YUXI_ENV \
+    POSTGRES_PASSWORD NEO4J_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY \
+    CUBE_API_URL CUBE_API_KEY CUBE_PROXY_NODE_IP CUBE_PROXY_PORT_HTTP CUBE_TEMPLATE_ID \
+    CUBE_NODE_USER_DATA_DIR CUBE_NODE_SKILL_PROJECTION_DIR \
+    SANDBOX_BACKEND SANDBOX_RUNNER_TOKEN SANDBOX_RUNNER_URL SANDBOX_CONTAINER_IMAGE \
+    SANDBOX_CONTAINER_IMAGE_DIGEST SANDBOX_CONTAINER_NETWORK SANDBOX_CONTAINER_UID SANDBOX_CONTAINER_GID \
+    COMPOSE_PROJECT_NAME YUXI_STATE_DIR YUXI_FRONTEND_PORT; do
+    if [ "${!name+x}" = x ]; then
+        case "$name" in
+            JWT_SECRET_KEY|API_KEY_DERIVATION_SECRET)
+                security_secret_is_valid "${!name}" || fail "${name} must be at least 32 characters without surrounding whitespace or quotes."
+                ;;
+        esac
+        set_env_value "$name" "${!name}"
+    fi
+done
+
+ensure_required_value SILICONFLOW_API_KEY
+provider=$(get_env_value WEB_SEARCH_PROVIDER)
+provider="${provider#"${provider%%[![:space:]]*}"}"
+provider="${provider%"${provider##*[![:space:]]}"}"
+provider=$(printf '%s' "$provider" | tr '[:upper:]' '[:lower:]')
+case "$provider" in
+    ""|tavily|deepseek|doubao) ;;
+    *) fail "WEB_SEARCH_PROVIDER must be tavily, deepseek, or doubao." ;;
+esac
+echo "🔍 Configure Search and Fetch after login in Settings → 网络搜索 (environment keys are also supported)."
+
+# 先检查已有的非空值，避免无人值守时轮换持久密钥。
+ensure_security_secret JWT_SECRET_KEY
+ensure_security_secret API_KEY_DERIVATION_SECRET JWT_SECRET_KEY
+validate_security_env
+if [ -z "$(get_env_value YUXI_INSTANCE_ID)" ]; then
+    if [ "$non_interactive" = 1 ]; then
+        instance="instance-$(generate_hex 8)"
+    else
+        prompt_value YUXI_INSTANCE_ID "YUXI_INSTANCE_ID (Enter to auto-generate)"
+        instance="${PROMPT_VALUE:-instance-$(generate_hex 8)}"
+    fi
+    set_env_value YUXI_INSTANCE_ID "$instance"
+fi
+
+sandbox_backend=$(get_env_value SANDBOX_BACKEND)
+sandbox_backend="${sandbox_backend:-container}"
+case "$sandbox_backend" in
+    cube|container) ;;
+    *) fail "SANDBOX_BACKEND must be cube or container." ;;
+esac
+set_env_value SANDBOX_BACKEND "$sandbox_backend"
+if [ "$sandbox_backend" = container ]; then
+    runner_token=$(get_env_value SANDBOX_RUNNER_TOKEN)
+    if [ -z "$runner_token" ]; then
+        set_env_value SANDBOX_RUNNER_TOKEN "$(generate_hex 32)"
+    else
+        security_secret_is_valid "$runner_token" || fail "SANDBOX_RUNNER_TOKEN must be at least 32 characters without surrounding whitespace or quotes."
+    fi
+fi
+
+if [ "$(get_env_value YUXI_ENV)" = production ]; then
+    compose_file=docker-compose.prod.yml
+    for name in POSTGRES_PASSWORD NEO4J_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY; do
+        if [ -z "$(get_env_value "$name")" ]; then
+            set_env_value "$name" "$(generate_hex 32)"
         fi
     done
-
-    # Get Web Search Provider and API Key (optional)
-    echo ""
-    echo "🔍 Web Search Provider (optional)"
-    echo "1) doubao (Doubao Custom Search)"
-    echo "2) tavily (Tavily Search)"
-    read -p "Please select web search provider (1 for doubao, 2 for tavily, press Enter to skip): " SEARCH_CHOICE
-
-    WEB_SEARCH_PROVIDER=""
-    DOUBAO_SEARCH_API_KEY=""
-    TAVILY_API_KEY=""
-
-    if [ "$SEARCH_CHOICE" = "1" ] || [ "$SEARCH_CHOICE" = "doubao" ]; then
-        WEB_SEARCH_PROVIDER="doubao"
-        echo "Get your Doubao API Key from Volcengine Console https://console.volcengine.com/search-infinity/api-key"
-        read -s -p "Please enter your DOUBAO_SEARCH_API_KEY: " DOUBAO_SEARCH_API_KEY
-        echo ""
-    elif [ "$SEARCH_CHOICE" = "2" ] || [ "$SEARCH_CHOICE" = "tavily" ]; then
-        WEB_SEARCH_PROVIDER="tavily"
-        echo "Get your Tavily API key from: https://app.tavily.com/"
-        read -s -p "Please enter your TAVILY_API_KEY: " TAVILY_API_KEY
-        echo ""
+    if [ "$sandbox_backend" = container ]; then
+        ensure_required_value SANDBOX_CONTAINER_IMAGE
+        ensure_required_value SANDBOX_CONTAINER_IMAGE_DIGEST
+        case "$(get_env_value SANDBOX_CONTAINER_IMAGE_DIGEST)" in
+            sha256:*) ;;
+            *) fail "SANDBOX_CONTAINER_IMAGE_DIGEST must start with sha256:" ;;
+        esac
+    else
+        for name in CUBE_API_URL CUBE_PROXY_NODE_IP; do
+            ensure_required_value "$name"
+        done
     fi
+fi
 
-    echo ""
-    echo "JWT security settings"
-    read_security_secret "JWT_SECRET_KEY"
-    JWT_SECRET_KEY="$SECURITY_SECRET_VALUE"
-
-    read_security_secret "API_KEY_DERIVATION_SECRET" "$JWT_SECRET_KEY"
-    API_KEY_DERIVATION_SECRET="$SECURITY_SECRET_VALUE"
-
-    read -p "Please enter your YUXI_INSTANCE_ID (press Enter to auto-generate): " YUXI_INSTANCE_ID
-    if [ -z "$YUXI_INSTANCE_ID" ]; then
-        YUXI_INSTANCE_ID="instance-$(generate_hex 8)"
-        echo "Generated YUXI_INSTANCE_ID and saved it to .env."
-    fi
-
-    read_security_secret "SANDBOX_PROVISIONER_TOKEN" "$JWT_SECRET_KEY" "$API_KEY_DERIVATION_SECRET"
-    SANDBOX_PROVISIONER_TOKEN="$SECURITY_SECRET_VALUE"
-
-    # Create .env file
-    cat > .env << EOF
-# SiliconFlow API Key (required)
-SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY}
-
-# Web Search Provider settings
-EOF
-
-    if [ -n "$WEB_SEARCH_PROVIDER" ]; then
-        echo "WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER}" >> .env
-    fi
-    if [ -n "$DOUBAO_SEARCH_API_KEY" ]; then
-        echo "DOUBAO_SEARCH_API_KEY=${DOUBAO_SEARCH_API_KEY}" >> .env
-    fi
-    if [ -n "$TAVILY_API_KEY" ]; then
-        echo "TAVILY_API_KEY=${TAVILY_API_KEY}" >> .env
-    fi
-
-    cat >> .env << EOF
-
-# JWT security settings
-JWT_SECRET_KEY=${JWT_SECRET_KEY}
-API_KEY_DERIVATION_SECRET=${API_KEY_DERIVATION_SECRET}
-YUXI_INSTANCE_ID=${YUXI_INSTANCE_ID}
-SANDBOX_PROVISIONER_TOKEN=${SANDBOX_PROVISIONER_TOKEN}
-EOF
-
-    validate_security_env
-    chmod 600 .env
-    echo "✅ .env file created successfully!"
+echo "✅ Configuration saved to ${env_file}."
+if [ "$sandbox_backend" = container ]; then
+    echo "🐳 Container sandbox selected: start services with docker compose --profile container up -d."
+fi
+if [ "$skip_images" = 1 ]; then
+    echo "Image preparation skipped (YUXI_INIT_SKIP_IMAGES=1)."
+    exit 0
 fi
 
 echo ""
@@ -293,15 +328,15 @@ echo "========================="
 
 # List of Docker images to pull
 images=(
+    "alpine:3.20"
     "python:3.13-slim"
     "node:24-slim"
-    "node:24-alpine"
-    "milvusdb/milvus:v2.5.6"
+    "node:22-alpine"
+    "milvusdb/milvus:v3.0.2"
     "neo4j:5.26.29"
-    "minio/minio:RELEASE.2023-03-20T20-16-18Z"
     "ghcr.io/astral-sh/uv:0.12.6"
     "nginx:alpine"
-    "quay.io/coreos/etcd:v3.5.5"
+    "quay.io/coreos/etcd:v3.5.25"
     "postgres:16"
     "redis:7.4.10-alpine"
 )
@@ -321,15 +356,20 @@ for image in "${images[@]}"; do
     fi
 done
 
-sandbox_image="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:1.11.0"
-if ! skip_existing_image "$sandbox_image"; then
-    echo "🔄 Pulling ${sandbox_image}..."
-    docker pull "$sandbox_image"
-    echo "✅ Successfully pulled ${sandbox_image}"
+# MinIO 官方镜像已全面下架，改为从仓库内 Dockerfile 构建
+echo "🔄 Building minio and storage-init images..."
+if YUXI_ENV_FILE="$env_file" docker compose --env-file "$env_file" -f "$compose_file" build minio storage-init; then
+    echo "✅ Successfully built minio and storage-init images"
+else
+    echo "❌ Failed to build minio or storage-init image"
+    exit 1
 fi
+
 
 echo ""
 echo "🎉 Initialization complete!"
 echo "=========================="
-echo "You can now run: docker compose up -d --build"
-echo "This will start all services in development mode with hot-reload enabled."
+echo "Use ${env_file} with ${compose_file}; see docs/advanced/deployment.md for production startup."
+if [ "$compose_file" = docker-compose.yml ]; then
+    echo "Backend code changes require an explicit service restart; frontend hot-reload remains enabled."
+fi

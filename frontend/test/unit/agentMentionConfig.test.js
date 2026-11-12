@@ -1,0 +1,141 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { ref } from 'vue'
+import { createTestServer } from '../helpers/createTestServer.js'
+
+test('文件 mention 来自附件元数据并按路径去重', async () => {
+  const server = await createTestServer({
+    server: { middlewareMode: true, hmr: false },
+    appType: 'custom'
+  })
+  try {
+    const { useAgentMentionConfig } = await server.ssrLoadModule(
+      '/src/modules/session/model/useAgentMentionConfig.js'
+    )
+    const attachments = ref([
+      {
+        path: '/home/user/workspace/projects/example/report.txt',
+        file_name: 'report.txt',
+        file_size: 42,
+        uploaded_at: '2026-09-30T00:00:00Z',
+        artifact_url: '/api/example/artifact',
+        status: 'ready'
+      },
+      { path: '/home/user/workspace/projects/example/report.txt', file_name: 'duplicate.txt' },
+      { file_name: 'missing-path.txt' }
+    ])
+    const { mentionConfig } = useAgentMentionConfig({
+      currentThreadAttachments: attachments,
+      configurableItems: ref({}),
+      agentConfig: ref({})
+    })
+
+    assert.deepEqual(mentionConfig.value.files, [
+      {
+        path: '/home/user/workspace/projects/example/report.txt',
+        file_name: 'report.txt',
+        size: 42,
+        modified_at: '2026-09-30T00:00:00Z',
+        artifact_url: '/api/example/artifact',
+        status: 'ready'
+      }
+    ])
+    attachments.value = []
+    assert.deepEqual(mentionConfig.value.files, [])
+  } finally {
+    await server.close()
+  }
+})
+
+test('资源 mention 按智能体选择生成，不把预加载 Skills 当成可提及资源', async () => {
+  const server = await createTestServer({
+    server: { middlewareMode: true, hmr: false },
+    appType: 'custom'
+  })
+  try {
+    const { useAgentMentionConfig } = await server.ssrLoadModule(
+      '/src/modules/session/model/useAgentMentionConfig.js'
+    )
+    const getMentionMcps = (agentConfig) => {
+      const { mentionConfig } = useAgentMentionConfig({
+        currentThreadAttachments: ref([]),
+        configurableItems: ref({
+          mcps: {
+            kind: 'mcps',
+            options: [
+              { key: 'mcp-a', name: 'MCP A' },
+              { key: 'mcp-b', name: 'MCP B' }
+            ]
+          }
+        }),
+        agentConfig: ref(agentConfig)
+      })
+      return mentionConfig.value.mcps
+    }
+
+    assert.deepEqual(getMentionMcps({}), [])
+    assert.deepEqual(getMentionMcps({ mcps: null }), [])
+    assert.deepEqual(getMentionMcps({ mcps: ['mcp-b'] }), [
+      { slug: 'mcp-b', name: 'MCP B', description: '' }
+    ])
+
+    const getMentionSkills = (agentConfig) => {
+      const options = [
+        { key: 'skill-a', name: 'Skill A' },
+        { key: 'skill-b', name: 'Skill B' }
+      ]
+      const { mentionConfig } = useAgentMentionConfig({
+        currentThreadAttachments: ref([]),
+        configurableItems: ref({
+          skills: { kind: 'skills', options, default: 'all', supports_all: true },
+          preload_skills: { kind: 'skills', options, default: 'all', supports_all: true }
+        }),
+        agentConfig: ref(agentConfig)
+      })
+      return mentionConfig.value.skills
+    }
+
+    assert.deepEqual(getMentionSkills({ skills: [], preload_skills: ['skill-a'] }), [])
+    assert.deepEqual(getMentionSkills({ skills: ['skill-b'], preload_skills: ['skill-a'] }), [
+      { slug: 'skill-b', name: 'Skill B', description: '' }
+    ])
+    assert.deepEqual(getMentionSkills({ skills: 'all', preload_skills: [] }), [
+      { slug: 'skill-a', name: 'Skill A', description: '' },
+      { slug: 'skill-b', name: 'Skill B', description: '' }
+    ])
+    assert.deepEqual(getMentionSkills({ preload_skills: [] }), [
+      { slug: 'skill-a', name: 'Skill A', description: '' },
+      { slug: 'skill-b', name: 'Skill B', description: '' }
+    ])
+  } finally {
+    await server.close()
+  }
+})
+
+test('智能体 mention 只包含可运行目录并响应目录更新', async () => {
+  const server = await createTestServer({
+    server: { middlewareMode: true, hmr: false },
+    appType: 'custom'
+  })
+  try {
+    const { useAgentMentionConfig } = await server.ssrLoadModule(
+      '/src/modules/session/model/useAgentMentionConfig.js'
+    )
+    const agents = ref([
+      { agent_id: 'researcher', name: '研究员', can_run: true },
+      { agent_id: 'private', name: '不可运行', can_run: false },
+      { name: '缺少标识', can_run: true }
+    ])
+    const { mentionConfig } = useAgentMentionConfig({
+      currentThreadAttachments: ref([]),
+      configurableItems: ref({}),
+      agentConfig: ref({}),
+      agents
+    })
+    assert.deepEqual(mentionConfig.value.agents, [agents.value[0]])
+    agents.value = []
+    assert.deepEqual(mentionConfig.value.agents, [])
+  } finally {
+    await server.close()
+  }
+})

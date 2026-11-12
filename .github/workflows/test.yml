@@ -3,35 +3,25 @@
 name: Backend Unit Tests
 
 on:
-  pull_request:
-    paths:
-      - '.env.template'
-      - 'backend/**'
-      - 'backend/pyproject.toml'
-      - 'docker/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.prod.yml'
-      - 'Makefile'
-      - 'scripts/init.sh'
-      - 'scripts/init.ps1'
-      - 'scripts/test_init_security.ps1'
-      - 'scripts/migrate-storage.sh'
-      - '.github/workflows/test.yml'
+  workflow_call:
+  workflow_dispatch:
   push:
     tags: ['v[0-9]*']
     branches:
       - main
+      - 'develop/**'
     paths:
       - '.env.template'
+      - '.dockerignore'
       - 'backend/**'
       - 'backend/pyproject.toml'
       - 'docker/**'
       - 'docker-compose.yml'
       - 'docker-compose.prod.yml'
       - 'scripts/init.sh'
-      - 'scripts/init.ps1'
-      - 'scripts/test_init_security.ps1'
-      - 'scripts/migrate-storage.sh'
+      - 'scripts/pull_image.sh'
+      - 'scripts/ci/test_docker_build_context.py'
+      - 'scripts/ci/test_container_permissions.py'
       - '.github/workflows/test.yml'
 
 permissions:
@@ -49,6 +39,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Verify private files stay outside the Docker build context
+        working-directory: .
+        run: python3 -m unittest scripts.ci.test_docker_build_context
+
+      - name: Verify image and storage permissions
+        working-directory: .
+        run: python3 -m unittest scripts.ci.test_container_permissions
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -60,19 +58,30 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: uv sync --group test
+        run: uv sync --locked --group test
+
+      - name: Verify test reports and failure propagation
+        working-directory: .
+        run: backend/.venv/bin/python -m unittest scripts.ci.test_reporting
 
       - name: Run complete unit inventory
-        run: uv run pytest test/unit -m 'not slow' -q
+        run: uv run pytest test/unit -m 'not slow' -q --junitxml=test/ci-reports/unit.xml --durations=20 --durations-min=1.0
 
-  powershell-security-contract:
-    name: PowerShell security environment contract
-    runs-on: windows-latest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-unit-junit
+          path: backend/test/ci-reports/*.xml
+          retention-days: 7
+          if-no-files-found: warn
 
+  result:
+    if: always()
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Run native PowerShell security negative controls
-        shell: pwsh
-        run: pwsh -NoProfile -File scripts/test_init_security.ps1
+      - uses: actions/checkout@v7
+      - name: Check all job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 scripts/ci/gate.py check-jobs

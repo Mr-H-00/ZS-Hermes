@@ -13,10 +13,12 @@ import httpx
 import pytest
 from langchain_core.messages import HumanMessage, ToolMessage
 
-from yuxi.models.chat import load_chat_model
-from yuxi.models.providers.cache import model_cache
+from yuxi.modules.models.chat import load_chat_model
+from yuxi.modules.models.providers.cache import model_cache
 
 MODEL_SPECS = [spec.strip() for spec in os.getenv("YUXI_REASONING_PROBE_MODELS", "").split(",") if spec.strip()]
+
+pytestmark = pytest.mark.integration
 
 
 @pytest.mark.parametrize("spec", MODEL_SPECS or [None])
@@ -50,9 +52,7 @@ async def test_live_reasoning_tool_roundtrip(spec):
     ]
     started = monotonic()
     async with httpx.AsyncClient(event_hooks={"request": [capture]}, timeout=120) as client:
-        model = load_chat_model(
-            spec, session_id=f"yuxi-provider-probe-{uuid4()}", http_async_client=client, max_retries=0, timeout=120
-        )
+        model = load_chat_model(spec, session_id=f"yuxi-provider-probe-{uuid4()}", http_async_client=client, max_retries=0, timeout=120)
         request_options = {}
         if enable_thinking:
             extra_body = dict(info.request_body_overrides)

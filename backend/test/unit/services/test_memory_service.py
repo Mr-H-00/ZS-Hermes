@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.services import memory_service
-from yuxi.workspace import paths as workspace_paths
-from yuxi.workspace.filesystem import Workspace
+import yuxi.modules.agents.services.memory as memory_service
+from yuxi.modules.workspace import paths as workspace_paths
+from yuxi.modules.workspace.filesystem import Workspace
 
 pytestmark = pytest.mark.unit
 
@@ -56,7 +56,7 @@ def test_replace_authorized_file_is_atomic_on_publish_failure(tmp_path, monkeypa
     def fail_rename(*_args, **_kwargs):
         raise OSError("publish failed")
 
-    monkeypatch.setattr("yuxi.workspace.filesystem.os.rename", fail_rename)
+    monkeypatch.setattr("yuxi.modules.workspace.filesystem.os.rename", fail_rename)
 
     with pytest.raises(OSError, match="publish failed"):
         workspace.replace_authorized_file(memory_service.MEMORY_PATH, b"new")
@@ -100,7 +100,6 @@ async def test_remember_memory_validates_run_and_publishes_append(
         uid="user-1",
         thread_id="thread-1",
         run_id="run-1",
-        request_id="request-1",
         worker_id="worker-1",
         content="请使用中文",
     )
@@ -145,7 +144,6 @@ async def test_remember_memory_fails_closed_when_config_disabled(tmp_path, monke
             uid="user-1",
             thread_id="thread-1",
             run_id="run-1",
-            request_id="request-1",
             worker_id="worker-1",
             content="不应写入",
         )
@@ -194,7 +192,6 @@ async def test_remember_memory_recreates_deleted_file(tmp_path, monkeypatch: pyt
         uid="user-1",
         thread_id="thread-1",
         run_id="run-1",
-        request_id="request-1",
         worker_id="worker-1",
         content="重建后的第一条记忆",
     )
@@ -204,7 +201,7 @@ async def test_remember_memory_recreates_deleted_file(tmp_path, monkeypatch: pyt
     assert memory_path.read_text(encoding="utf-8") == "重建后的第一条记忆\n"
 
 
-async def test_load_memory_prompt_returns_none_when_file_missing_or_empty(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_load_memory_prompt_returns_empty_when_enabled_and_file_missing_or_empty(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     memory_path = tmp_path / "threads" / "shared" / "user-1" / "workspace" / "agents" / "MEMORY.md"
@@ -220,10 +217,10 @@ async def test_load_memory_prompt_returns_none_when_file_missing_or_empty(tmp_pa
     monkeypatch.setattr(memory_service.UserConfig, "load", fake_load_config)
 
     memory_path.unlink()
-    assert await memory_service.load_memory_prompt("user-1") is None
+    assert await memory_service.load_memory_prompt("user-1") == ""
 
     memory_path.write_text("   \n", encoding="utf-8")
-    assert await memory_service.load_memory_prompt("user-1") is None
+    assert await memory_service.load_memory_prompt("user-1") == ""
 
 
 async def test_load_memory_prompt_respects_switch_and_budget(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -249,3 +246,62 @@ async def test_load_memory_prompt_respects_switch_and_budget(tmp_path, monkeypat
 
     enabled = False
     assert await memory_service.load_memory_prompt("user-1") is None
+
+
+@pytest.fixture
+def history_settings(monkeypatch: pytest.MonkeyPatch):
+    """用独立历史数据替换持久边界，验证开关控制查询能力。"""
+    settings = SimpleNamespace(enable_memory=False)
+    rows = [{"thread_id": "current-thread", "content": "needle current"}, {"thread_id": "other-thread", "content": "needle other"}]
+
+    @asynccontextmanager
+    async def database():
+        """历史用例不访问真实数据库。"""
+        yield object()
+
+    async def config(_db, _uid):
+        """每次读取当前开关值。"""
+        return SimpleNamespace(schema=settings)
+
+    class History:
+        """返回当前用户的独立固定历史数据。"""
+
+        def __init__(self, _db):
+            """只替换历史查询边界。"""
+            pass
+
+        async def search_memory_messages(self, *, uid, query, limit):
+            """启用后返回当前用户跨线程的搜索结果。"""
+            return {"items": rows}
+
+        async def read_memory_messages(self, *, uid, thread_id, **_kwargs):
+            """返回指定线程正文。"""
+            return {"messages": [row for row in rows if row["thread_id"] == thread_id]}
+
+    monkeypatch.setattr(memory_service.pg_manager, "get_async_session_context", database)
+    monkeypatch.setattr(memory_service.UserConfig, "load", config)
+    monkeypatch.setattr(memory_service, "MemoryHistoryService", History)
+    return settings
+
+
+async def test_disabled_memory_rejects_history_search(history_settings):
+    """关闭 Memory 后不能搜索历史。"""
+    with pytest.raises(ValueError, match="Memory 已关闭"):
+        await memory_service.search_thread_messages(uid="user-1", query="needle")
+
+
+@pytest.mark.parametrize("thread_id", ["current-thread", "other-thread"])
+async def test_disabled_memory_rejects_history_reads(history_settings, thread_id: str):
+    """关闭 Memory 后当前线程和其他线程都不能读取。"""
+    with pytest.raises(ValueError, match="Memory 已关闭"):
+        await memory_service.read_thread_messages(uid="user-1", thread_id=thread_id)
+
+
+async def test_enabled_memory_retains_cross_thread_search_and_read(history_settings):
+    """开启开关后沿用当前用户跨线程历史能力。"""
+    history_settings.enable_memory = True
+    search = await memory_service.search_thread_messages(uid="user-1", query="needle")
+    read = await memory_service.read_thread_messages(uid="user-1", thread_id="other-thread")
+
+    assert {row["thread_id"] for row in search["items"]} == {"current-thread", "other-thread"}
+    assert read["messages"] == [{"thread_id": "other-thread", "content": "needle other"}]

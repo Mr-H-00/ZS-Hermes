@@ -1,0 +1,1537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Reviewed subset of OpenAI Agents streaming events, 2026-09-30. Source: https://developers.openai.com/api/reference/resources/beta/subresources/agents/streaming-events . Independently maintained oracle; no generation from Yuxi implementation. Session created subset reviewed against official Session streaming reference on 2026-10-09.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.output_text.delta"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "output_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "delta": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "item_id",
+        "output_index",
+        "content_index",
+        "delta"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.output_text.done"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "output_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "item_id",
+        "output_index",
+        "content_index",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.content_part.added"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "output_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "part": {
+          "$ref": "#/$defs/output_text"
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "item_id",
+        "output_index",
+        "content_index",
+        "part"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.content_part.done"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "output_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "part": {
+          "$ref": "#/$defs/output_text"
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "item_id",
+        "output_index",
+        "content_index",
+        "part"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.item.added"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "output_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "item": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "message"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "turn_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yuxi": {
+                  "type": "object"
+                },
+                "role": {
+                  "enum": [
+                    "user",
+                    "assistant"
+                  ]
+                },
+                "content": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/input_text"
+                      },
+                      {
+                        "$ref": "#/$defs/output_text"
+                      },
+                      {
+                        "$ref": "#/$defs/input_image"
+                      }
+                    ]
+                  }
+                },
+                "phase": {
+                  "enum": [
+                    "commentary",
+                    "final_answer",
+                    null
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "in_progress",
+                    "completed",
+                    "incomplete"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "turn_id",
+                "yuxi",
+                "role",
+                "content",
+                "phase",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "function_call"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "turn_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yuxi": {
+                  "type": "object"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "arguments": {},
+                "call_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "in_progress",
+                    "completed",
+                    "failed",
+                    "incomplete"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "turn_id",
+                "yuxi",
+                "name",
+                "arguments",
+                "call_id",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "function_call_output"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "turn_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yuxi": {
+                  "type": "object"
+                },
+                "call_id": {
+                  "type": "string"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "array",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "in_progress",
+                    "completed",
+                    "failed",
+                    "incomplete"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "turn_id",
+                "yuxi",
+                "call_id",
+                "output",
+                "error",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "output_index",
+        "item"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.item.done"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "output_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "item": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "message"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "turn_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yuxi": {
+                  "type": "object"
+                },
+                "role": {
+                  "enum": [
+                    "user",
+                    "assistant"
+                  ]
+                },
+                "content": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/input_text"
+                      },
+                      {
+                        "$ref": "#/$defs/output_text"
+                      },
+                      {
+                        "$ref": "#/$defs/input_image"
+                      }
+                    ]
+                  }
+                },
+                "phase": {
+                  "enum": [
+                    "commentary",
+                    "final_answer",
+                    null
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "in_progress",
+                    "completed",
+                    "incomplete"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "turn_id",
+                "yuxi",
+                "role",
+                "content",
+                "phase",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "function_call"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "turn_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yuxi": {
+                  "type": "object"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "arguments": {},
+                "call_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "in_progress",
+                    "completed",
+                    "failed",
+                    "incomplete"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "turn_id",
+                "yuxi",
+                "name",
+                "arguments",
+                "call_id",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "function_call_output"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "turn_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "yuxi": {
+                  "type": "object"
+                },
+                "call_id": {
+                  "type": "string"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "array",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "in_progress",
+                    "completed",
+                    "failed",
+                    "incomplete"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "turn_id",
+                "yuxi",
+                "call_id",
+                "output",
+                "error",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "output_index",
+        "item"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.created"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "turn": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "object": {
+              "const": "agent.session.turn"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "subagent_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "in_progress",
+                "waiting",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "created_at": {
+              "type": "number"
+            },
+            "started_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completed_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "internal_error",
+                        "rate_limit_exceeded",
+                        "invalid_request",
+                        "context_length_exceeded",
+                        "model_error",
+                        "tool_error",
+                        "timeout"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "object",
+            "session_id",
+            "agent_id",
+            "subagent_id",
+            "status",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "error",
+            "usage"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "turn"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.in_progress"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "turn": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "object": {
+              "const": "agent.session.turn"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "subagent_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "in_progress",
+                "waiting",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "created_at": {
+              "type": "number"
+            },
+            "started_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completed_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "internal_error",
+                        "rate_limit_exceeded",
+                        "invalid_request",
+                        "context_length_exceeded",
+                        "model_error",
+                        "tool_error",
+                        "timeout"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "object",
+            "session_id",
+            "agent_id",
+            "subagent_id",
+            "status",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "error",
+            "usage"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "turn"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.completed"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "turn": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "object": {
+              "const": "agent.session.turn"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "subagent_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "in_progress",
+                "waiting",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "created_at": {
+              "type": "number"
+            },
+            "started_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completed_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "internal_error",
+                        "rate_limit_exceeded",
+                        "invalid_request",
+                        "context_length_exceeded",
+                        "model_error",
+                        "tool_error",
+                        "timeout"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "object",
+            "session_id",
+            "agent_id",
+            "subagent_id",
+            "status",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "error",
+            "usage"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "turn"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.failed"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "turn": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "object": {
+              "const": "agent.session.turn"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "subagent_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "in_progress",
+                "waiting",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "created_at": {
+              "type": "number"
+            },
+            "started_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completed_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "internal_error",
+                        "rate_limit_exceeded",
+                        "invalid_request",
+                        "context_length_exceeded",
+                        "model_error",
+                        "tool_error",
+                        "timeout"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "object",
+            "session_id",
+            "agent_id",
+            "subagent_id",
+            "status",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "error",
+            "usage"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "turn"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.turn.cancelled"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "yuxi": {
+          "type": "object"
+        },
+        "turn": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "object": {
+              "const": "agent.session.turn"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "subagent_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "in_progress",
+                "waiting",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "created_at": {
+              "type": "number"
+            },
+            "started_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completed_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "internal_error",
+                        "rate_limit_exceeded",
+                        "invalid_request",
+                        "context_length_exceeded",
+                        "model_error",
+                        "tool_error",
+                        "timeout"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "object",
+            "session_id",
+            "agent_id",
+            "subagent_id",
+            "status",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "error",
+            "usage"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session_id",
+        "turn_id",
+        "yuxi",
+        "turn"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.subagent.created"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "subagent": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "object": {
+              "const": "agent.session.subagent"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "instructions": {
+              "anyOf": [
+                {
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "parent_agent_id": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "closed"
+              ]
+            },
+            "opened_at": {
+              "type": "number"
+            },
+            "closed_at": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "object",
+            "session_id",
+            "name",
+            "instructions",
+            "parent_agent_id",
+            "status",
+            "opened_at",
+            "closed_at"
+          ],
+          "additionalProperties": false
+        },
+        "yuxi": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "subagent",
+        "yuxi"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent.session.created"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "object": {
+              "const": "agent.session"
+            },
+            "status": {
+              "enum": [
+                "idle",
+                "in_progress",
+                "requires_action",
+                "failed"
+              ]
+            },
+            "created_at": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "object",
+            "status",
+            "created_at"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "event_id",
+        "session"
+      ]
+    }
+  ],
+  "$defs": {
+    "input_text": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input_text"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "output_text": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "output_text"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "input_image": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input_image"
+        },
+        "image_url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "image_url"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

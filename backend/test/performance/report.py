@@ -116,8 +116,7 @@ def render_report(data):
                 group["phase_error"] = str(exc)
 
     rounds = "；".join(
-        f"Worker {group['workers']} / 并发 {group['concurrency']}：{group.get('rounds_per_thread', '未记录')} 轮"
-        for group in groups
+        f"Worker {group['workers']} / 并发 {group['concurrency']}：{group.get('rounds_per_thread', '未记录')} 轮" for group in groups
     )
     sections = [
         "# Alpha 连续并发报告",
@@ -128,8 +127,7 @@ def render_report(data):
         ),
         "## 主表：API 接入到首次模型 HTTP 提交",
         (
-            "起点为 ASGI 收到 POST、鉴权及正文解析之前；终点为 HTTPX.send 入口，尚未等待供应商首 token。"
-            "终点不代表网卡发包时间。样本包含各 Worker 冷启动；不将 Run 创建当作起点。"
+            "起点为 ASGI 收到 POST、鉴权及正文解析之前；终点为 HTTPX.send 入口，尚未等待供应商首 token。终点不代表网卡发包时间。样本包含各 Worker 冷启动；不将 Run 创建当作起点。"
         ),
         markdown_table(
             [
@@ -227,7 +225,6 @@ def render_report(data):
     for group in groups:
         if group.get("phase_error"):
             sections.append(
-                f"Worker {group['workers']} / 并发 {group['concurrency']} 阶段统计不可用：{group['phase_error']}。"
-                "该组保留全部请求和主指标有效计数，不用零填充缺失阶段。"
+                f"Worker {group['workers']} / 并发 {group['concurrency']} 阶段统计不可用：{group['phase_error']}。该组保留全部请求和主指标有效计数，不用零填充缺失阶段。"
             )
     return "\n\n".join(sections) + "\n"

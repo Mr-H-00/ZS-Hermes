@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.services.mention_search_service as mention_service
+import yuxi.modules.agents.services.mentions as mention_service
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ async def test_workspace_mention_search_ranks_directories_and_ignores_hidden_tre
     assert [item["name"] for item in results] == ["test", "test_auth.py", "conftest.py"]
     assert results[0] == {
         "name": "test",
-        "path": "/home/gem/user-data/test/",
+        "path": "/home/user/workspace/test/",
         "is_dir": True,
         "source": "workspace",
     }
@@ -79,7 +79,7 @@ async def test_search_mentions_uses_workdir_access_and_workspace_scan(monkeypatc
         def __init__(self, db):
             assert db == "db"
 
-        async def get_conversation_by_thread_id(self, thread_id):
+        async def get_session_by_thread_id(self, thread_id):
             assert thread_id == "thread-1"
             return SimpleNamespace(uid="user-1", status="active")
 
@@ -106,7 +106,7 @@ async def test_search_mentions_uses_workdir_access_and_workspace_scan(monkeypatc
         assert (uid, query) == ("user-1", "out")
         return []
 
-    monkeypatch.setattr(mention_service, "ConversationRepository", Repository)
+    monkeypatch.setattr(mention_service, "SessionRepository", Repository)
     monkeypatch.setattr(mention_service, "resolve_authorized_workdir", resolve)
     monkeypatch.setattr(mention_service, "_search_workspace", workspace_search)
 
@@ -121,9 +121,7 @@ async def test_search_mentions_uses_workdir_access_and_workspace_scan(monkeypatc
     assert result == [
         {
             "name": "outputs",
-            "path": (
-                "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111/outputs/"
-            ),
+            "path": ("/home/user/workspace/projects/11111111-1111-4111-8111-111111111111/outputs/"),
             "is_dir": True,
             "source": "thread",
         }

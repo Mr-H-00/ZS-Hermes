@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import pytest
+
+from test.support.sqlite import create_utc_sqlite_engine
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from server.routers.auth_router import auth
-from server.utils.auth_middleware import get_db, get_required_user
-from yuxi.storage.postgres.models_business import Base, Department, User
+from yuxi.api.routers.identity.auth import auth
+from yuxi.api.dependencies.auth import get_db, get_required_user
+from yuxi.infrastructure.postgres.base import Base
+from yuxi.modules.identity.models import Department, User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -20,7 +23,7 @@ def cli_auth_security_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest_asyncio.fixture()
 async def app_client():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    engine = create_utc_sqlite_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -60,9 +63,7 @@ async def test_auth_router_cli_auth_create_approve_and_exchange(app_client):
     session = create_response.json()
     assert session["verification_uri"] == "/auth/cli/authorize"
 
-    pending_response = await app_client.post(
-        "/api/auth/cli/sessions/token", json={"device_code": session["device_code"]}
-    )
+    pending_response = await app_client.post("/api/auth/cli/sessions/token", json={"device_code": session["device_code"]})
     assert pending_response.status_code == 400
     assert pending_response.json()["detail"]["error"] == "authorization_pending"
 

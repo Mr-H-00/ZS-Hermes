@@ -128,7 +128,7 @@ def measured(original, trace, *, name=None, greenlet=False):
 
 def emit_spans(probe, state):
     """请求结束后分块输出，避免大量序列化阻塞首次 HTTP 发送。"""
-    identity = {key: state[key] for key in ("request_id", "run_id") if key in state}
+    identity = {key: state[key] for key in ("event_key", "run_id") if key in state}
     for offset in range(0, len(state["spans"]), 30):
         probe.emit({"event": "stage_spans", **identity, "spans": state["spans"][offset : offset + 30]})
     probe.emit({"event": "stages_done", **identity})
@@ -141,25 +141,27 @@ def install(probe, app=None):
         return
     _installed = True
     modules = (
-        "yuxi.services.run_submission_service",
-        "yuxi.services.agent_request_queue_service",
-        "yuxi.services.agent_run_manifest_service",
-        "yuxi.services.workdir_service",
-        "yuxi.services.memory_service",
-        "yuxi.services.run_queue_service",
-        "yuxi.agents.context",
-        "yuxi.agents.skills.runtime",
-        "yuxi.agents.skills.service",
-        "yuxi.agents.backends.composite",
-        "yuxi.agents.buildin.chatbot.graph",
-        "server.utils.auth_middleware",
+        "yuxi.modules.agents.services.inputs",
+        "yuxi.modules.agents.services.scheduler",
+        "yuxi.modules.agents.services.turns",
+        "yuxi.modules.agents.services.runs",
+        "yuxi.modules.agents.services.preparation",
+        "yuxi.modules.workspace.services.bindings",
+        "yuxi.modules.agents.services.memory",
+        "yuxi.modules.agents.services.transport",
+        "yuxi.modules.agents.runtime.context",
+        "yuxi.modules.extensions.skills.runtime",
+        "yuxi.modules.extensions.skills.shared",
+        "yuxi.modules.agents.runtime.sandbox.backend",
+        "yuxi.modules.agents.runtime.agent_backends.chatbot.graph",
+        "yuxi.api.dependencies.auth",
     )
     for name in modules:
         importlib.import_module(name)
 
     replacements = {}
     for module_name, module in list(sys.modules.items()):
-        if module is None or not (module_name in modules or module_name.startswith("yuxi.repositories.")):
+        if module is None or not (module_name in modules or ".repositories." in module_name and module_name.startswith("yuxi.modules.")):
             continue
         for value in vars(module).copy().values():
             if inspect.isfunction(value) and value.__module__ == module_name:

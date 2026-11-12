@@ -1,88 +1,46 @@
-"""真实 PostgreSQL 上的 AgentRun lease ownership 与过期收敛测试。"""
+"""真实 PostgreSQL 上的 Run owner、lease 与审计因果边界。"""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import threading
 import uuid
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
-from langchain.messages import AIMessage
-from sqlalchemy import delete, select, text
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from agent_run_test_helpers import cleanup_agent_run_threads, create_agent_run
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 
-from yuxi.repositories.agent_run_repository import AgentRunRepository
-from yuxi.repositories.conversation_repository import ConversationRepository
-from yuxi.repositories.model_message_audit_repository import ModelMessageAuditRepository
-from yuxi.repositories.tool_message_audit_repository import ToolMessageAuditRepository
-from yuxi.services import chat_service, run_worker
-from yuxi.storage.postgres.manager import (
-    AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
-    AGENT_RUN_LEASE_SCHEMA_STATEMENTS,
-    MESSAGE_AUDIT_SCHEMA_STATEMENTS,
-    RUNTIME_SCOPE_SCHEMA_STATEMENTS,
-)
-from yuxi.storage.postgres.models_business import (
-    AgentRun,
-    Conversation,
-    Message,
-    Project,
-    SubagentThread,
-    ToolCall,
-    User,
-)
-from yuxi.utils.datetime_utils import utc_now_naive
+import yuxi.modules.agents.services.run_lifecycle as lifecycle
+import yuxi.modules.agents.services.leases as lease_worker
+import yuxi.modules.agents.services.runner as run_worker
+from yuxi.infrastructure.postgres.manager import pg_manager
+from yuxi.modules.agents.models.messages import Message
+from yuxi.modules.agents.models.runs import AgentRun
+from yuxi.modules.agents.models.sessions import Session
+from yuxi.modules.agents.models.turns import AgentTurn
+from yuxi.modules.agents.repositories.model_audit import ModelMessageAuditRepository
+from yuxi.modules.agents.repositories.runs import AgentRunRepository
+from yuxi.modules.agents.repositories.tool_audit import ToolMessageAuditRepository
+from yuxi.modules.agents.services.message_recorder import RunMessageRecorder
+from yuxi.modules.agents.services.openai_events import OpenAIEventAdapter
+from yuxi.shared.datetime import utc_now
 
-from agent_run_test_helpers import create_agent_run
-
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
-
-
-@pytest_asyncio.fixture()
-async def lease_database():
-    engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
-    async with engine.begin() as connection:
-        for _ in range(2):
-            for statement in (
-                *AGENT_RUN_LEASE_SCHEMA_STATEMENTS,
-                *AGENT_RUN_LANGFUSE_SCHEMA_STATEMENTS,
-                *MESSAGE_AUDIT_SCHEMA_STATEMENTS,
-            ):
-                await connection.execute(text(statement))
-        await connection.execute(text(RUNTIME_SCOPE_SCHEMA_STATEMENTS[-1]))
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
-        yield engine, session_factory
-    finally:
-        await engine.dispose()
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
 
 @asynccontextmanager
 async def _session_context(session_factory):
+    """模拟 worker 顶层拥有的短事务。"""
     async with session_factory() as db:
-        try:
+        async with db.begin():
             yield db
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            raise
 
 
-async def _create_run(
-    session_factory,
-    *,
-    status: str = "pending",
-    worker_id: str | None = None,
-    lease_expires_at=None,
-) -> tuple[str, str, int]:
+async def _create_run(session_factory, *, status="pending", worker_id=None, lease_expires_at=None):
+    """创建 Input、Turn、Run 闭合链路。"""
     return await create_agent_run(
         session_factory,
         prefix="lease",
@@ -94,1750 +52,562 @@ async def _create_run(
     )
 
 
-async def test_root_terminal_atomically_cancels_live_child_and_clears_lease(
-    lease_database,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """根 Run 终态提交不得留下仍占用共享 runtime 的子 Run。"""
-
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    parent_owner = "worker-tree-parent"
-    child_owner = "worker-tree-child"
-    parent_id, parent_thread_id, _ = await _create_run(session_factory)
-    child_thread_id = f"pytest-tree-child-{uuid.uuid4()}"
-
+async def test_owner_heartbeat_and_terminal_are_lease_fenced(postgres_sessions):
+    """旧 attempt 不能续租、写输出或覆盖新 owner 的终态。"""
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    now = utc_now()
     try:
-        async with session_factory() as db:
-            parent = await db.get(AgentRun, parent_id)
-            parent_conversation = await db.get(Conversation, parent.conversation_id)
-            assert parent_conversation is not None
-            child_conversation = Conversation(
-                thread_id=child_thread_id,
-                uid=parent.uid,
-                project_id=parent_conversation.project_id,
-                agent_id="worker",
-                status="subagent",
-            )
-            db.add(child_conversation)
-            await db.flush()
-            child_message = Message(
-                conversation_id=child_conversation.id,
-                role="user",
-                content="long-running child",
-                request_id=f"tree-child-{uuid.uuid4()}",
-                delivery_status="dispatched",
-            )
-            db.add(child_message)
-            await db.flush()
-            relation = SubagentThread(
-                uid=parent.uid,
-                parent_conversation_id=parent_conversation.id,
-                child_conversation_id=child_conversation.id,
-                child_thread_id=child_thread_id,
-                subagent_slug="worker",
-                created_by_run_id=parent.id,
-            )
-            db.add(relation)
-            await db.flush()
-            child = AgentRun(
-                id=str(uuid.uuid4()),
-                conversation_thread_id=child_thread_id,
-                runtime_scope_id=parent_thread_id,
-                agent_slug="worker",
-                uid=parent.uid,
-                request_id=child_message.request_id,
-                conversation_id=child_conversation.id,
-                created_by_run_id=parent.id,
-                subagent_thread_relation_id=relation.id,
-                run_type="subagent",
-                input_message_id=child_message.id,
-                input_payload={},
-                status="pending",
-            )
-            db.add(child)
-            await db.flush()
+        async with sessions() as db:
             repo = AgentRunRepository(db)
-            _, parent_acquired = await repo.mark_running(
-                parent.id,
-                worker_id=parent_owner,
-                lease_seconds=60,
-                now=now,
-            )
-            _, child_acquired = await repo.mark_running(
-                child.id,
-                worker_id=child_owner,
-                lease_seconds=60,
-                now=now,
-            )
-            child_id = child.id
-            child_message_id = child_message.id
-            await db.commit()
-
-        monkeypatch.setattr(
-            run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory)
-        )
-        publish_cancel = AsyncMock()
-        monkeypatch.setattr(run_worker, "publish_cancel_signals", publish_cancel)
-
-        transition = await run_worker.mark_run_terminal(
-            parent_id,
-            "failed",
-            error_type="parent_failed",
-            worker_id=parent_owner,
-        )
-
-        async with session_factory() as db:
-            parent = await db.get(AgentRun, parent_id)
-            child = await db.get(AgentRun, child_id)
-            child_message = await db.get(Message, child_message_id)
-
-        assert parent_acquired is True
-        assert child_acquired is True
-        assert transition.changed is True
-        assert parent.status == "failed"
-        assert child.status == "cancel_requested"
-        assert child.error_type == "execution_tree_closed"
-        assert child.worker_id == child_owner
-        assert child.lease_expires_at is not None
-        assert child_message.delivery_status == "dispatched"
-        publish_cancel.assert_awaited_once_with([child_id])
-    finally:
-        await _cleanup_runs(session_factory, [parent_thread_id, child_thread_id])
-
-
-async def _cleanup_runs(session_factory, thread_ids: list[str]) -> None:
-    async with session_factory() as db:
-        rows = (
-            await db.execute(
-                select(Conversation.project_id, Conversation.uid).where(Conversation.thread_id.in_(thread_ids))
-            )
-        ).all()
-        conversation_ids = list(
-            (await db.scalars(select(Conversation.id).where(Conversation.thread_id.in_(thread_ids)))).all()
-        )
-        if conversation_ids:
-            message_ids = select(Message.id).where(Message.conversation_id.in_(conversation_ids))
-            await db.execute(delete(ToolCall).where(ToolCall.message_id.in_(message_ids)))
-            await db.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
-        await db.execute(delete(AgentRun).where(AgentRun.conversation_thread_id.in_(thread_ids)))
-        await db.execute(delete(SubagentThread).where(SubagentThread.child_thread_id.in_(thread_ids)))
-        await db.execute(delete(Conversation).where(Conversation.thread_id.in_(thread_ids)))
-        await db.execute(delete(Project).where(Project.id.in_({row.project_id for row in rows})))
-        await db.execute(delete(User).where(User.uid.in_({row.uid for row in rows})))
-        await db.commit()
-
-
-@pytest.mark.parametrize("run_type", ["chat", "resume"])
-async def test_approval_flush_overlap_preserves_terminal_publication(lease_database, monkeypatch, run_type):
-    """本 attempt 已提交审批终态时，flush 与心跳重叠仍完成清理和发布。"""
-    _, session_factory = lease_database
-    run_id, thread_id, message_id = await _create_run(session_factory)
-    owner = "approval-flush:attempt-owner"
-    release_flush = threading.Event()
-    flush_finished = threading.Event()
-    flush_started = asyncio.Event()
-    heartbeat_finished = asyncio.Event()
-    contexts = []
-    published = []
-    loop = asyncio.get_running_loop()
-    monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory))
-    monkeypatch.setattr(run_worker, "_run_owner_token", lambda _ctx: owner)
-    monkeypatch.setattr(run_worker, "RUN_HEARTBEAT_SECONDS", 0)
-    monkeypatch.setattr(run_worker, "persist_run_manifest", AsyncMock(return_value={}))
-    monkeypatch.setattr(
-        run_worker,
-        "_validate_run_workdir_binding",
-        AsyncMock(return_value=SimpleNamespace(workdir_path="projects/test")),
-    )
-    monkeypatch.setattr(run_worker, "_read_run_token_usage_from_state", AsyncMock(return_value=None))
-
-    async def capture_context(context):
-        """只在审批落库后启动真实心跳，固定重叠时序。"""
-        contexts.append(context)
-
-    async def release_runtime(run):
-        """模拟 provisioner 释放后回写真实 cleanup fence，事件必须在它之后发布。"""
-        async with _session_context(session_factory) as db:
-            persisted = await db.get(AgentRun, run.id)
-            persisted.runtime_cleanup_pending = False
-
-    async def publish(_run_id, event_type, payload, **_kwargs):
-        """回读 durable cleanup 后保存实际协议结果。"""
-        if event_type in {"interrupt", "end"}:
-            async with session_factory() as db:
-                persisted = await db.get(AgentRun, run_id)
-                assert persisted.status == "interrupted"
-                assert persisted.runtime_cleanup_pending is False
-        published.append((event_type, payload))
-
-    def blocking_flush():
-        """让心跳确实发生在上报线程尚未退出时。"""
-        loop.call_soon_threadsafe(flush_started.set)
-        release_flush.wait(timeout=5)
-        flush_finished.set()
-
-    async def approval_stream(**_kwargs):
-        """保留真实 Worker、终态事务和事件映射，仅替代 Agent 与 exporter。"""
-        yield json.dumps({"status": "human_approval_required", "thread_id": thread_id, "questions": []}).encode()
-        async with _session_context(session_factory) as db:
-            _, changed = await AgentRunRepository(db).set_terminal_status(
-                run_id, status="interrupted", worker_id=owner, error_type="human_approval_required"
-            )
-            assert changed
-        await asyncio.to_thread(blocking_flush)
-
-    async def heartbeat_during_flush():
-        """由独立任务运行心跳，避免生成器自身模拟取消结果。"""
-        await asyncio.wait_for(flush_started.wait(), 5)
-        await contexts[0]._heartbeat_lease()
-        heartbeat_finished.set()
-
-    monkeypatch.setattr(run_worker.RunContext, "start", capture_context)
-    monkeypatch.setattr(run_worker, "_release_runtime_before_terminal_event", release_runtime)
-    monkeypatch.setattr(run_worker, "append_run_event", publish)
-    monkeypatch.setattr(run_worker, "stream_agent_chat", approval_stream)
-    monkeypatch.setattr(run_worker, "stream_agent_resume", approval_stream)
-    try:
-        async with _session_context(session_factory) as db:
-            run = await db.get(AgentRun, run_id)
-            run.run_type = run_type
-            if run_type == "resume":
-                run.created_by_run_id = str(uuid.uuid4())
-            message = await db.get(Message, message_id)
-            message.extra_metadata = {"resume": {"decisions": [{"type": "approve"}]}}
-    except Exception:
-        await _cleanup_runs(session_factory, [thread_id])
-        raise
-
-    execution = asyncio.create_task(run_worker.process_agent_run({}, run_id))
-    heartbeat = asyncio.create_task(heartbeat_during_flush())
-    try:
-        await asyncio.wait_for(heartbeat_finished.wait(), 5)
-        assert not contexts[0].lease_lost, "本 attempt 已提交终态，不应误判为失去 ownership"
-        assert not flush_finished.is_set()
-        release_flush.set()
-        await asyncio.wait_for(execution, 5)
-        assert [event for event, _payload in published if event in {"interrupt", "end"}] == ["interrupt", "end"]
-        async with session_factory() as db:
-            persisted = await db.get(AgentRun, run_id)
-            attempts = await AgentRunRepository(db).list_run_attempts(run_id)
-        assert persisted.status == "interrupted" and persisted.runtime_cleanup_pending is False
-        assert len(attempts) == 1 and attempts[0].worker_id == owner and attempts[0].outcome == "interrupted"
-    finally:
-        release_flush.set()
-        await asyncio.wait_for(asyncio.gather(execution, heartbeat, return_exceptions=True), 5)
-        if flush_started.is_set():
-            assert await asyncio.to_thread(flush_finished.wait, 5)
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_first_model_request_timing_survives_owner_cancellation(lease_database, monkeypatch):
-    """取消前已发生的模型调用仍归属原 Run，过期与其他 owner 不得补写。"""
-    from yuxi.agents.callbacks.model_request_timing import FirstModelRequestRecorder
-
-    _, session_factory = lease_database
-    owner = "timing-owner"
-    run_id, thread_id, _ = await _create_run(
-        session_factory,
-        status="running",
-        worker_id=owner,
-        lease_expires_at=utc_now_naive() + timedelta(minutes=1),
-    )
-    monkeypatch.setattr(chat_service.pg_manager, "get_async_session_context", lambda: _session_context(session_factory))
-    try:
-        recorder = FirstModelRequestRecorder()
-        await recorder.on_chat_model_start({}, [[]], run_id=uuid.uuid4())
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            await AgentRunRepository(db).request_cancel_execution_tree(
-                run_id=run_id,
-                uid=run.uid,
-                cascade_descendants=False,
-            )
-            await db.commit()
-
-        for worker_id, checked_at in (
-            ("stale-owner", utc_now_naive()),
-            (owner, utc_now_naive() + timedelta(minutes=2)),
-        ):
-            async with session_factory() as db:
-                with pytest.raises(ValueError, match="lease owner"):
-                    await AgentRunRepository(db).record_first_model_request(
-                        run_id,
-                        worker_id=worker_id,
-                        observed_at=recorder.first_model_request_at,
-                        checked_at=checked_at,
-                    )
-
-        await recorder.persist(run_id=run_id, worker_id=owner)
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            assert run.status == "cancel_requested"
-            assert run.first_model_request_at == recorder.first_model_request_at
-            with pytest.raises(ValueError, match="lease owner"):
-                await AgentRunRepository(db).lock_output_persistence(
-                    run_id=run_id,
-                    worker_id=owner,
-                    conversation_thread_id=thread_id,
-                    request_id=run.request_id,
-                )
-            await AgentRunRepository(db).set_terminal_status(run_id, status="cancelled", worker_id=owner)
-            await db.commit()
-
-        async with session_factory() as db:
-            persisted = await db.get(AgentRun, run_id)
-            assert persisted.status == "cancelled"
-            assert persisted.first_model_request_at == recorder.first_model_request_at
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-@pytest.mark.parametrize("case", ["other_owner", "expired", "reconciled", "missing", "old_attempt"])
-async def test_heartbeat_terminal_check_does_not_keep_lost_owner_alive(lease_database, monkeypatch, case):
-    """非终态、其他 owner 的终态与历史 attempt 均不得通过收尾例外。"""
-    _, session_factory = lease_database
-    run_id, thread_id, _ = await _create_run(session_factory)
-    owner = "heartbeat:current-attempt"
-    old_owner = "heartbeat:old-attempt"
-    monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory))
-    monkeypatch.setattr(run_worker, "RUN_HEARTBEAT_SECONDS", 0)
-    now = utc_now_naive()
-    try:
-        async with _session_context(session_factory) as db:
-            repo = AgentRunRepository(db)
-            if case == "old_attempt":
-                await repo.mark_running(run_id, worker_id=old_owner, lease_seconds=60, now=now)
-                assert await repo.release_lease_for_retry(run_id, worker_id=old_owner, now=now)
-                run = await db.get(AgentRun, run_id)
-                run.runtime_cleanup_pending = False
-            await repo.mark_running(
-                run_id,
-                worker_id=owner,
-                lease_seconds=60,
-                now=now - timedelta(seconds=120) if case in {"expired", "reconciled"} else now,
-            )
-            if case in {"other_owner", "old_attempt"}:
-                _, changed = await repo.set_terminal_status(run_id, status="interrupted", worker_id=owner, now=now)
-                assert changed
-            if case == "reconciled":
-                reconciled, _descendants = await repo.reconcile_expired_leases(now=now)
-                assert run_id in {run.id for run in reconciled}
-        if case == "reconciled":
-            async with session_factory() as db:
-                run = await db.get(AgentRun, run_id)
-                [attempt] = await AgentRunRepository(db).list_run_attempts(run_id)
-            assert run.status == "failed" and attempt.outcome == "lease_expired"
-            assert attempt.worker_id == owner and attempt.finished_at == run.finished_at
-        context = run_worker.RunContext(
-            run_id=str(uuid.uuid4()) if case == "missing" else run_id,
-            worker_id=owner if case in {"expired", "reconciled", "missing"} else old_owner,
-        )
-
-        await asyncio.wait_for(context._heartbeat_lease(), 5)
-
-        assert context.lease_lost and context.cancel_event.is_set()
-        async with session_factory() as db:
-            persisted = await db.get(AgentRun, run_id)
-        expected_status = "running"
-        if case in {"other_owner", "old_attempt"}:
-            expected_status = "interrupted"
-        elif case == "reconciled":
-            expected_status = "failed"
-        assert persisted.status == expected_status
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_cancelled_run_cleanup_keeps_real_lease_until_terminal(lease_database, monkeypatch):
-    """真实 PostgreSQL 中，Run 取消后的慢收尾仍续租到 cancelled 提交。"""
-
-    _, session_factory = lease_database
-    owner = "cancel-cleanup:attempt-owner"
-    run_id, thread_id, _ = await _create_run(session_factory)
-    monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory))
-    monkeypatch.setattr(run_worker, "RUN_HEARTBEAT_SECONDS", 0.02)
-    monkeypatch.setattr(run_worker, "RUN_LEASE_SECONDS", 0.08)
-
-    context = run_worker.RunContext(run_id=run_id, worker_id=owner)
-    try:
-        async with _session_context(session_factory) as db:
-            repo = AgentRunRepository(db)
-            run, acquired = await repo.mark_running(run_id, worker_id=owner, lease_seconds=0.08)
+            _, acquired = await repo.mark_running(run_id, worker_id="owner-a", lease_seconds=60, now=now)
             assert acquired is True
-            await repo.request_cancel_execution_tree(
-                run_id=run_id,
-                uid=run.uid,
-                cascade_descendants=False,
-            )
-
-        context.cancel_event.set()
-        context._heartbeat_task = asyncio.create_task(context._heartbeat_lease())
-        await asyncio.sleep(0.2)
-
-        async with _session_context(session_factory) as db:
-            reconciled, _descendants = await AgentRunRepository(db).reconcile_expired_leases()
-            persisted = await db.get(AgentRun, run_id)
-            assert run_id not in {item.id for item in reconciled}
-            assert persisted.status == "cancel_requested"
-            assert persisted.worker_id == owner
-
-            _run, changed = await AgentRunRepository(db).set_terminal_status(
-                run_id,
-                status="cancelled",
-                worker_id=owner,
-            )
+            assert await repo.renew_lease(run_id, worker_id="owner-b", lease_seconds=60, now=now) is False
+            with pytest.raises(ValueError, match="lease owner"):
+                await repo.lock_output_persistence(run_id, worker_id="owner-b", thread_id=thread_id, now=now)
+            _, changed = await repo.set_terminal_status(run_id, status="failed", worker_id="owner-b", now=now)
+            assert changed is False
+            assert await repo.renew_lease(run_id, worker_id="owner-a", lease_seconds=60, now=now) is True
+            _, changed = await repo.set_terminal_status(run_id, status="failed", worker_id="owner-a", now=now)
             assert changed is True
+            await db.commit()
 
-        await context.close()
-        async with session_factory() as db:
-            persisted = await db.get(AgentRun, run_id)
-            assert persisted.status == "cancelled"
-            assert persisted.worker_id is None
-    finally:
-        await context.close()
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_model_audit_lifecycle_is_idempotent_and_lease_fenced(lease_database):
-    """Model start/finish 只允许当前 owner，并保持同一来源键单行。"""
-    _engine, session_factory = lease_database
-    now = utc_now_naive()
-    owner = "model-audit-owner"
-    run_id, thread_id, _message_id = await _create_run(
-        session_factory,
-        status="running",
-        worker_id=owner,
-        lease_expires_at=now + timedelta(minutes=1),
-    )
-    try:
-        async with session_factory() as db:
+        async with sessions() as db:
             run = await db.get(AgentRun, run_id)
-            repo = ModelMessageAuditRepository(db)
-            message, created = await repo.start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                operation_id="model-operation-1",
-                sequence=7,
-                started_at=now,
-                metadata={"id": "model-operation-1"},
-            )
-            duplicate, duplicate_created = await repo.start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                operation_id="model-operation-1",
-                sequence=7,
-                started_at=now,
-            )
-            assert duplicate.id == message.id
-            assert created is True
-            assert duplicate_created is False
+            attempts = await AgentRunRepository(db).list_run_attempts(run_id)
+            assert run.status == "failed"
+            assert run.worker_id is None and run.lease_expires_at is None
+            assert [(item.worker_id, item.outcome) for item in attempts] == [("owner-a", "failed")]
+    finally:
+        await cleanup_agent_run_threads(sessions, [thread_id])
 
+
+async def test_cancel_requested_run_cannot_be_completed_by_owner(postgres_sessions):
+    """取消请求一旦持久化，后到的完成提交不能抢赢。"""
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    try:
+        async with sessions() as db:
+            repo = AgentRunRepository(db)
+            run = await db.get(AgentRun, run_id)
+            _, acquired = await repo.mark_running(run_id, worker_id="owner-a", lease_seconds=60)
+            assert acquired is True
+            cancelled, ids = await repo.request_cancel_run(run_id=run_id, uid=run.uid)
+            assert cancelled.status == "cancel_requested" and ids == [run_id]
+            _, changed = await repo.set_terminal_status(run_id, status="completed", worker_id="owner-a")
+            assert changed is False
+            _, changed = await repo.set_terminal_status(run_id, status="cancelled", worker_id="owner-a")
+            assert changed is True
+            await db.commit()
+
+        async with sessions() as db:
+            assert (await db.get(AgentRun, run_id)).status == "cancelled"
+            assert (await AgentRunRepository(db).list_run_attempts(run_id))[-1].outcome == "cancelled"
+    finally:
+        await cleanup_agent_run_threads(sessions, [thread_id])
+
+
+async def test_expired_lease_reconciliation_is_single_winner_and_closes_audit(postgres_sessions, monkeypatch):
+    """并发 reconciler 只能收敛一次，同事务关闭审计、Turn 与 lease。"""
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    now = utc_now()
+    try:
+        async with sessions() as db:
+            repo = AgentRunRepository(db)
+            _, acquired = await repo.mark_running(run_id, worker_id="lost-owner", lease_seconds=60, now=now)
+            assert acquired is True
+            await ModelMessageAuditRepository(db).start(
+                run_id=run_id,
+                thread_id=thread_id,
+                worker_id="lost-owner",
+                operation_id="lost-model",
+                sequence=1,
+                started_at=now,
+            )
+            await db.commit()
+        expired_at = now + timedelta(seconds=61)
+        monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", lambda: _session_context(sessions))
+        monkeypatch.setattr(lease_worker, "reconcile_pending_runtime_cleanups", AsyncMock(return_value=[]))
+        outcomes = await asyncio.gather(
+            lease_worker.reconcile_expired_run_leases(now=expired_at),
+            lease_worker.reconcile_expired_run_leases(now=expired_at),
+        )
+        assert sorted(len(item) for item in outcomes) == [0, 1]
+        assert [run_id] in outcomes
+        async with sessions() as db:
+            run = await db.get(AgentRun, run_id)
+            turn = await db.get(AgentTurn, run.turn_id)
+            agent_session = await db.get(Session, run.session_record_id)
+            [audit] = await ModelMessageAuditRepository(db).list_for_run(run_id)
+            [attempt] = await AgentRunRepository(db).list_run_attempts(run_id)
+            assert (run.status, run.error_type, run.worker_id) == ("failed", "worker_lease_expired", None)
+            assert turn.status == "failed" and agent_session.queue_paused is False
+            assert audit.execution_status == "abandoned"
+            assert attempt.outcome == "lease_expired"
+    finally:
+        await cleanup_agent_run_threads(sessions, [thread_id])
+
+
+async def test_model_audit_is_idempotent_and_keeps_turn_run_owner(postgres_sessions):
+    """同一模型操作只有一条审计事实，且旧 owner 不能改写。"""
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    now = utc_now()
+    try:
+        async with sessions() as db:
+            repo = AgentRunRepository(db)
+            _, acquired = await repo.mark_running(run_id, worker_id="model-owner", lease_seconds=60, now=now)
+            assert acquired is True
+            audit = ModelMessageAuditRepository(db)
+            first, created = await audit.start(
+                run_id=run_id,
+                thread_id=thread_id,
+                worker_id="model-owner",
+                operation_id="model-op",
+                sequence=1,
+                started_at=now,
+            )
+            duplicate, duplicate_created = await audit.start(
+                run_id=run_id,
+                thread_id=thread_id,
+                worker_id="model-owner",
+                operation_id="model-op",
+                sequence=1,
+                started_at=now,
+            )
+            assert created is True and duplicate_created is False and duplicate.id == first.id
             with pytest.raises(ValueError, match="sequence"):
-                await repo.start(
+                await audit.start(
                     run_id=run_id,
-                    request_id=run.request_id,
                     thread_id=thread_id,
-                    worker_id=owner,
-                    operation_id="model-operation-1",
-                    sequence=8,
+                    worker_id="model-owner",
+                    operation_id="model-op",
+                    sequence=2,
                     started_at=now,
                 )
-
-            completed = await repo.finish(
+            result = await audit.finish(
                 run_id=run_id,
-                request_id=run.request_id,
                 thread_id=thread_id,
-                worker_id=owner,
-                operation_id="model-operation-1",
+                worker_id="model-owner",
+                operation_id="model-op",
                 content="answer",
                 finished_at=now + timedelta(seconds=1),
-                duration_ms=321,
-                usage={"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
+                duration_ms=100,
+                usage={"input_tokens": 3, "output_tokens": 2},
             )
-            replayed = await repo.finish(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                operation_id="model-operation-1",
-                content="answer",
-                finished_at=now + timedelta(seconds=2),
-                duration_ms=999,
-                usage={"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
-            )
-            assert replayed.id == completed.id
-            assert completed.execution_status == "completed"
-            assert completed.duration_ms == 321
-            assert [item.id for item in await repo.list_for_run(run_id)] == [message.id]
-
+            assert result.id == first.id
             with pytest.raises(ValueError, match="不同结果覆盖"):
-                await repo.finish(
+                await audit.finish(
                     run_id=run_id,
-                    request_id=run.request_id,
                     thread_id=thread_id,
-                    worker_id=owner,
-                    operation_id="model-operation-1",
+                    worker_id="model-owner",
+                    operation_id="model-op",
                     content="different",
-                    finished_at=now + timedelta(seconds=3),
-                    duration_ms=400,
+                    finished_at=now + timedelta(seconds=2),
+                    duration_ms=200,
                     usage=None,
                 )
-            await db.commit()
-
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            with pytest.raises(ValueError, match="lease owner"):
-                await ModelMessageAuditRepository(db).start(
+            with pytest.raises(ValueError):
+                await audit.start(
                     run_id=run_id,
-                    request_id=run.request_id,
                     thread_id=thread_id,
                     worker_id="other-owner",
-                    operation_id="model-operation-2",
-                    sequence=8,
-                    started_at=now,
-                )
-            with pytest.raises(ValueError, match="同一 thread 和 request"):
-                await ModelMessageAuditRepository(db).start(
-                    run_id=run_id,
-                    request_id="other-request",
-                    thread_id=thread_id,
-                    worker_id=owner,
-                    operation_id="model-operation-2",
-                    sequence=8,
-                    started_at=now,
-                )
-            with pytest.raises(ValueError, match="同一 thread 和 request"):
-                await ModelMessageAuditRepository(db).start(
-                    run_id=run_id,
-                    request_id=run.request_id,
-                    thread_id="other-thread",
-                    worker_id=owner,
-                    operation_id="model-operation-2",
-                    sequence=8,
-                    started_at=now,
-                )
-
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            db.add(
-                Message(
-                    conversation_id=run.conversation_id,
-                    role="assistant",
-                    content="duplicate",
-                    message_type="model_audit",
-                    run_id=run_id,
-                    request_id=run.request_id,
-                    operation_id="model-operation-1",
-                    execution_status="completed",
-                )
-            )
-            with pytest.raises(IntegrityError):
-                await db.flush()
-            await db.rollback()
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_tool_audit_lifecycle_owns_compatibility_projection_and_is_lease_fenced(lease_database):
-    """ToolMessage 保存真实执行事实，ToolCall 只作为同源兼容投影。"""
-    _engine, session_factory = lease_database
-    now = utc_now_naive()
-    owner = "tool-audit-owner"
-    run_id, thread_id, _message_id = await _create_run(
-        session_factory,
-        status="running",
-        worker_id=owner,
-        lease_expires_at=now + timedelta(minutes=1),
-    )
-    try:
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            model_repo = ModelMessageAuditRepository(db)
-            model_message, _created = await model_repo.start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                operation_id="call-tool-1",
-                sequence=3,
-                started_at=now,
-                metadata={"tool_calls": [{"id": "call-tool-1", "name": "search", "args": {"q": "Yuxi"}}]},
-            )
-            await model_repo.finish(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                operation_id="call-tool-1",
-                content="",
-                finished_at=now + timedelta(milliseconds=50),
-                duration_ms=50,
-                usage={"input_tokens": 2, "output_tokens": 1},
-            )
-
-            repository = ToolMessageAuditRepository(db)
-            tool_message, created = await repository.start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                tool_call_id="call-tool-1",
-                tool_name="search",
-                tool_input={"q": "effective Yuxi"},
-                sequence=5,
-                started_at=now + timedelta(milliseconds=60),
-            )
-            duplicate, duplicate_created = await repository.start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                tool_call_id="call-tool-1",
-                tool_name="search",
-                tool_input={"q": "effective Yuxi"},
-                sequence=5,
-                started_at=now + timedelta(milliseconds=70),
-            )
-            completed = await repository.complete(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                tool_call_id="call-tool-1",
-                output={"id": None, "type": "tool", "content": "result", "status": "success"},
-                content="result",
-                finished_at=now + timedelta(milliseconds=160),
-                duration_ms=100,
-                finished_sequence=6,
-            )
-            replayed = await repository.complete(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                tool_call_id="call-tool-1",
-                output={
-                    "id": "state-id",
-                    "name": "search",
-                    "type": "tool",
-                    "content": "result",
-                    "status": "success",
-                },
-                content="result",
-                finished_at=now + timedelta(milliseconds=200),
-                duration_ms=140,
-                finished_sequence=7,
-            )
-            tool_call = (
-                await db.execute(
-                    select(ToolCall)
-                    .join(Message, ToolCall.message_id == Message.id)
-                    .where(
-                        Message.run_id == run_id,
-                        ToolCall.langgraph_tool_call_id == "call-tool-1",
-                    )
-                )
-            ).scalar_one()
-
-            assert created is True
-            assert duplicate_created is False
-            assert duplicate.id == tool_message.id == completed.id == replayed.id
-            assert completed.role == "tool"
-            assert completed.message_type == "tool_audit"
-            assert completed.execution_status == "completed"
-            assert completed.content == "result"
-            assert completed.duration_ms == 100
-            assert completed.extra_metadata["input"] == {"q": "effective Yuxi"}
-            assert completed.extra_metadata["source_model_operation_id"] == "call-tool-1"
-            persisted_model = await model_repo.get(run_id=run_id, operation_id="call-tool-1")
-            assert persisted_model.id == model_message.id
-            assert tool_call.message_id == model_message.id
-            assert tool_call.tool_input == {"q": "effective Yuxi"}
-            assert tool_call.tool_output == "result"
-            assert tool_call.status == "success"
-
-            with pytest.raises(ValueError, match="不同结果覆盖"):
-                await repository.complete(
-                    run_id=run_id,
-                    request_id=run.request_id,
-                    thread_id=thread_id,
-                    worker_id=owner,
-                    tool_call_id="call-tool-1",
-                    output={
-                        "id": "state-id",
-                        "type": "tool",
-                        "content": "result",
-                        "artifact": {"version": 2},
-                        "status": "success",
-                    },
-                    content="result",
-                    finished_at=now + timedelta(milliseconds=250),
-                    duration_ms=190,
-                    finished_sequence=8,
-                )
-
-            with pytest.raises(ValueError, match="无法关联"):
-                await repository.start(
-                    run_id=run_id,
-                    request_id=run.request_id,
-                    thread_id=thread_id,
-                    worker_id=owner,
-                    tool_call_id="call-without-model",
-                    tool_name="search",
-                    tool_input={},
-                    sequence=9,
-                    started_at=now,
-                )
-
-            with pytest.raises(ValueError, match="重复 Tool start"):
-                await repository.start(
-                    run_id=run_id,
-                    request_id=run.request_id,
-                    thread_id=thread_id,
-                    worker_id=owner,
-                    tool_call_id="call-tool-1",
-                    tool_name="search",
-                    tool_input={"q": "different"},
-                    sequence=5,
+                    operation_id="other-op",
+                    sequence=2,
                     started_at=now,
                 )
             await db.commit()
-
-        async with session_factory() as db:
+        async with sessions() as db:
             run = await db.get(AgentRun, run_id)
-            with pytest.raises(ValueError, match="lease owner"):
-                await ToolMessageAuditRepository(db).start(
-                    run_id=run_id,
-                    request_id=run.request_id,
-                    thread_id=thread_id,
-                    worker_id="other-owner",
-                    tool_call_id="call-tool-2",
-                    tool_name="search",
-                    tool_input={},
-                    sequence=8,
-                    started_at=now,
-                )
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_terminal_failure_closes_running_model_and_tool_audits(lease_database):
-    """Run 终态 owning transaction 不得留下 running Model/Tool 行。"""
-    _engine, session_factory = lease_database
-    now = utc_now_naive()
-    owner = "model-audit-terminal-owner"
-    run_id, thread_id, _message_id = await _create_run(
-        session_factory,
-        status="running",
-        worker_id=owner,
-        lease_expires_at=now + timedelta(minutes=1),
-    )
-    try:
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            model_audit, _created = await ModelMessageAuditRepository(db).start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                operation_id="model-operation-running",
-                sequence=11,
-                started_at=now,
-                metadata={"tool_calls": [{"id": "tool-operation-running", "name": "search", "args": {"q": "pending"}}]},
-            )
-            tool_audit, _created = await ToolMessageAuditRepository(db).start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                tool_call_id="tool-operation-running",
-                tool_name="search",
-                tool_input={"q": "pending"},
-                sequence=12,
-                started_at=now,
-            )
-            terminal_run, changed = await AgentRunRepository(db).set_terminal_status(
+            [audit] = await ModelMessageAuditRepository(db).list_for_run(run_id)
+            assert (audit.turn_id, audit.run_id, audit.usage) == (
+                run.turn_id,
                 run_id,
-                status="failed",
-                error_type="model_error",
-                error_message="provider failed",
-                worker_id=owner,
-                now=now + timedelta(seconds=1),
+                {"input_tokens": 3, "output_tokens": 2},
             )
-            await db.commit()
-            assert terminal_run is not None
-            assert changed is True
-            await db.refresh(model_audit)
-            await db.refresh(tool_audit)
-            tool_call = (
-                await db.execute(
-                    select(ToolCall)
-                    .join(Message, ToolCall.message_id == Message.id)
-                    .where(
-                        Message.run_id == run_id,
-                        ToolCall.langgraph_tool_call_id == "tool-operation-running",
-                    )
-                )
-            ).scalar_one()
-            assert model_audit.execution_status == "failed"
-            assert tool_audit.execution_status == "failed"
-            assert model_audit.finished_at == now + timedelta(seconds=1)
-            assert tool_audit.finished_at == now + timedelta(seconds=1)
-            assert tool_call.status == "error"
-            assert tool_call.error_message == "Tool 审计由 Run 终态收敛为 failed"
     finally:
-        await _cleanup_runs(session_factory, [thread_id])
+        await cleanup_agent_run_threads(sessions, [thread_id])
 
 
-async def test_interrupted_tool_keeps_pending_projection_for_resume(lease_database):
-    """裸 tool-error 随 Run interrupted 收敛后，同一 tool_call_id 可在 resume 继续。"""
-    _engine, session_factory = lease_database
-    now = utc_now_naive()
-    parent_owner = "tool-interrupt-parent"
-    resume_owner = "tool-interrupt-resume"
-    parent_id, thread_id, _message_id = await _create_run(
-        session_factory,
-        status="running",
-        worker_id=parent_owner,
-        lease_expires_at=now + timedelta(minutes=1),
-    )
+async def test_tool_execution_is_one_message_bound_to_model_declaration(postgres_sessions):
+    """工具执行须由同 Run 模型声明，并仅拥有一条持久消息。"""
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    now = utc_now()
     try:
-        async with session_factory() as db:
-            parent = await db.get(AgentRun, parent_id)
-            model_message, _created = await ModelMessageAuditRepository(db).start(
-                run_id=parent_id,
-                request_id=parent.request_id,
+        async with sessions() as db:
+            repo = AgentRunRepository(db)
+            _, acquired = await repo.mark_running(run_id, worker_id="tool-owner", lease_seconds=60, now=now)
+            assert acquired is True
+            model = ModelMessageAuditRepository(db)
+            await model.start(
+                run_id=run_id,
                 thread_id=thread_id,
-                worker_id=parent_owner,
-                operation_id="interrupt-model",
+                worker_id="tool-owner",
+                operation_id="model-op",
+                sequence=1,
+                started_at=now,
+                metadata={"tool_calls": [{"id": "call-1", "name": "test_tool", "args": {"x": 1}}]},
+            )
+            tool = ToolMessageAuditRepository(db)
+            with pytest.raises(ValueError, match="无法关联"):
+                await tool.start(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    worker_id="tool-owner",
+                    tool_call_id="unclaimed",
+                    tool_name="test_tool",
+                    tool_input={},
+                    sequence=2,
+                    started_at=now,
+                )
+            first, created = await tool.start(
+                run_id=run_id,
+                thread_id=thread_id,
+                worker_id="tool-owner",
+                tool_call_id="call-1",
+                tool_name="test_tool",
+                tool_input={"x": 1},
                 sequence=2,
                 started_at=now,
-                metadata={"tool_calls": [{"id": "interrupt-tool", "name": "ask_user_question", "args": {}}]},
             )
-            repository = ToolMessageAuditRepository(db)
-            parent_tool, _created = await repository.start(
-                run_id=parent_id,
-                request_id=parent.request_id,
+            duplicate, duplicate_created = await tool.start(
+                run_id=run_id,
                 thread_id=thread_id,
-                worker_id=parent_owner,
-                tool_call_id="interrupt-tool",
-                tool_name="ask_user_question",
-                tool_input={"questions": [{"question": "继续吗"}]},
-                sequence=4,
-                started_at=now + timedelta(milliseconds=10),
+                worker_id="tool-owner",
+                tool_call_id="call-1",
+                tool_name="test_tool",
+                tool_input={"x": 1},
+                sequence=2,
+                started_at=now,
             )
-            error_time = now + timedelta(milliseconds=20)
-            await repository.observe_error(
-                run_id=parent_id,
-                request_id=parent.request_id,
+            assert created is True and duplicate_created is False and first.id == duplicate.id
+            completed = await tool.complete(
+                run_id=run_id,
                 thread_id=thread_id,
-                worker_id=parent_owner,
-                tool_call_id="interrupt-tool",
-                error_message="Interrupt",
-                finished_at=error_time,
-                duration_ms=10,
-                finished_sequence=5,
+                worker_id="tool-owner",
+                tool_call_id="call-1",
+                output={"ok": True},
+                finished_at=now + timedelta(seconds=1),
+                duration_ms=20,
+                finished_sequence=3,
             )
-            _run, changed = await AgentRunRepository(db).set_terminal_status(
-                parent_id,
-                status="interrupted",
-                error_type="ask_user_question_required",
-                worker_id=parent_owner,
-                now=now + timedelta(seconds=1),
-            )
-            assert changed is True
+            assert completed.execution_status == "completed" and completed.content == ""
+            with pytest.raises(ValueError):
+                await tool.start(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    worker_id="other-owner",
+                    tool_call_id="call-1",
+                    tool_name="test_tool",
+                    tool_input={"x": 1},
+                    sequence=2,
+                    started_at=now,
+                )
             await db.commit()
+        async with sessions() as db:
+            [audit] = await ToolMessageAuditRepository(db).list_for_run(run_id)
+            assert "compatibility_tool_call_id" not in audit.extra_metadata
+            assert audit.turn_id == (await db.get(AgentRun, run_id)).turn_id
+            assert audit.execution_status == "completed" and audit.content == ""
+            assert audit.extra_metadata["input"] == {"x": 1}
+            assert audit.extra_metadata["output"] == {"ok": True}
+            from sqlalchemy.exc import IntegrityError
 
-            await db.refresh(parent_tool)
-            parent_tool_call = await db.get(
-                ToolCall,
-                parent_tool.extra_metadata["compatibility_tool_call_id"],
-            )
-            assert parent_tool.execution_status == "interrupted"
-            assert parent_tool.finished_at == error_time
-            assert parent_tool.duration_ms == 10
-            assert parent_tool_call.status == "pending"
-            assert parent_tool_call.message_id == model_message.id
-            parent_tool_call_id = parent_tool_call.id
+            with pytest.raises(IntegrityError, match="ck_messages_tool_result_single_representation"):
+                async with db.begin_nested():
+                    audit.content = "第二份结果不得保存"
+                    await db.flush()
+    finally:
+        await cleanup_agent_run_threads(sessions, [thread_id])
 
-        resume_id = str(uuid.uuid4())
-        resume_request_id = f"resume-{uuid.uuid4()}"
-        async with session_factory() as db:
+
+async def test_message_recorder_commits_facts_before_public_projection(postgres_sessions, monkeypatch):
+    """同一记录器写入真实 PG，公开投影失败保留已提交结果且错误 owner 不能覆盖。"""
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    owner = "recorder-owner"
+    try:
+        async with sessions() as db:
+            run, acquired = await AgentRunRepository(db).mark_running(run_id, worker_id=owner, lease_seconds=60)
+            assert acquired is True
+            turn_id = run.turn_id
+            await db.commit()
+        monkeypatch.setattr(pg_manager, "get_async_session_context", lambda: _session_context(sessions))
+        recorder = RunMessageRecorder(run_id=run_id, thread_id=thread_id, worker_id=owner)
+        adapter = OpenAIEventAdapter(run_id=run_id, turn_id=turn_id, thread_id=thread_id, worker_id=owner)
+
+        def event(seq, data, method="messages"):
+            """使用固定原生来源，不从 mapper 生成预期值。"""
+            return {
+                "method": method,
+                "seq": seq,
+                "params": {
+                    "timestamp": 1_777_000_123_456 + seq,
+                    "namespace": [],
+                    "data": (data, {"run_id": "model", "thread_id": thread_id}) if method == "messages" else data,
+                },
+            }
+
+        start = event(0, {"event": "message-start", "id": "model"})
+        tool_start = event(
+            3,
+            {"event": "tool-started", "tool_call_id": "call", "tool_name": "search", "input": {"q": "actual"}},
+            "tools",
+        )
+        for raw in [
+            start,
+            start,
+            event(
+                1,
+                {
+                    "event": "content-block-finish",
+                    "index": 0,
+                    "content": {"type": "tool_call", "id": "call", "name": "search", "args": {"q": "actual"}},
+                },
+            ),
+            event(2, {"event": "message-finish", "usage": {"input_tokens": 5}}),
+            tool_start,
+            tool_start,
+        ]:
+            await adapter.consume(await recorder.consume(raw))
+
+        command = Command(
+            update={
+                "messages": [
+                    ToolMessage(content="other", tool_call_id="other"),
+                    ToolMessage(content="result", tool_call_id="call"),
+                ],
+            }
+        )
+        raw = event(4, {"event": "tool-finished", "tool_call_id": "call", "output": command}, "tools")
+        normalized = await recorder.consume(raw)
+        assert raw["params"]["data"]["output"] is command
+        save = adapter._save
+
+        async def reject_projection(*args, **kwargs):
+            """公开投影拒绝不应回滚独立消息事实。"""
+            raise ValueError("projection rejected")
+
+        monkeypatch.setattr(adapter, "_save", reject_projection)
+        with pytest.raises(ValueError, match="projection rejected"):
+            await adapter.consume(normalized)
+        async with sessions() as db:
+            [model] = await ModelMessageAuditRepository(db).list_for_run(run_id)
+            [tool] = await ToolMessageAuditRepository(db).list_for_run(run_id)
+            assert model.execution_status == tool.execution_status == "completed"
+            assert model.usage == {"input_tokens": 5}
+            assert tool.content == "" and tool.extra_metadata["output"]["tool_call_id"] == "call"
+            assert tool.extra_metadata["source_model_message_id"] == model.id
+            assert tool.extra_metadata["public_items"]["output"]["status"] == "in_progress"
+            assert tool.duration_ms is not None and tool.duration_ms >= 0
+            assert "compatibility_tool_call_id" not in tool.extra_metadata
+            assert tool.operation_id == "call"
+
+        wrong_owner = RunMessageRecorder(run_id=run_id, thread_id=thread_id, worker_id="other-owner")
+        with pytest.raises(ValueError):
+            await wrong_owner.consume(raw)
+        monkeypatch.setattr(adapter, "_save", save)
+        public = await adapter.consume(normalized)
+        assert public[-1]["item"]["output"] == "result" and public[-1]["item"]["call_id"] == "call"
+        async with sessions() as db:
+            [tool] = await ToolMessageAuditRepository(db).list_for_run(run_id)
+            assert tool.content == "" and tool.execution_status == "completed"
+            assert tool.extra_metadata["public_items"]["output"]["status"] == "completed"
+            assert tool.extra_metadata["public_items"]["output"]["id"] == public[-1]["item"]["id"]
+    finally:
+        await cleanup_agent_run_threads(sessions, [thread_id])
+
+
+async def test_langfuse_identity_is_write_once_by_live_owner(postgres_sessions):
+    """Trace 与 Run observation 只能由当前 lease owner 固化并幂等重放。"""
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    try:
+        async with sessions() as db:
+            repo = AgentRunRepository(db)
+            _, acquired = await repo.mark_running(run_id, worker_id="trace-owner", lease_seconds=60)
+            assert acquired is True
+            assert await repo.set_langfuse_trace_id(run_id, "trace-1", worker_id="trace-owner")
+            assert await repo.set_langfuse_trace_id(run_id, "trace-1", worker_id="trace-owner")
+            with pytest.raises(ValueError, match="不同"):
+                await repo.set_langfuse_trace_id(run_id, "trace-2", worker_id="trace-owner")
+            with pytest.raises(ValueError):
+                await repo.set_langfuse_trace_id(run_id, "trace-1", worker_id="old-owner")
+            assert await repo.set_langfuse_observation_id(run_id, "0123456789abcdef", worker_id="trace-owner")
+            with pytest.raises(ValueError, match="不同"):
+                await repo.set_langfuse_observation_id(run_id, "fedcba9876543210", worker_id="trace-owner")
+            await db.commit()
+        async with sessions() as db:
+            run = await db.get(AgentRun, run_id)
+            assert (run.langfuse_trace_id, run.langfuse_observation_id) == ("trace-1", "0123456789abcdef")
+    finally:
+        await cleanup_agent_run_threads(sessions, [thread_id])
+
+
+async def test_root_failure_preserves_independent_child_turn(postgres_sessions, monkeypatch):
+    """父 Run 失败不取消拥有独立 Turn 和 runtime 的子任务。"""
+    sessions = postgres_sessions
+    parent_id, parent_thread_id, _ = await _create_run(sessions)
+    child_thread_id = f"pytest-child-{uuid.uuid4()}"
+    child_id = str(uuid.uuid4())
+    try:
+        async with sessions() as db:
             parent = await db.get(AgentRun, parent_id)
-            input_message = Message(
-                conversation_id=parent.conversation_id,
-                role="user",
-                content="继续",
-                request_id=resume_request_id,
-                delivery_status="dispatched",
+            parent_thread = await db.get(Session, parent.session_record_id)
+            child_thread = Session(
+                thread_id=child_thread_id,
+                uid=parent.uid,
+                project_id=parent_thread.project_id,
+                agent_id="worker",
+                tree_root_thread_id=parent_thread_id,
+                parent_thread_id=parent_thread_id,
+                cooperation_name="worker",
+                cooperation_path="/root/worker",
+                status="active",
             )
-            db.add(input_message)
+            db.add(child_thread)
+            await db.flush()
+            message = Message(session_record_id=child_thread.id, role="user", content="child input", delivery_status="dispatched")
+            db.add(message)
+            await db.flush()
+            child_turn = AgentTurn(
+                id=f"child-turn-{uuid.uuid4()}",
+                thread_id=child_thread_id,
+                uid=parent.uid,
+                status="running",
+                current_run_id=child_id,
+            )
+            db.add(child_turn)
             await db.flush()
             db.add(
                 AgentRun(
-                    id=resume_id,
-                    conversation_thread_id=thread_id,
-                    runtime_scope_id=thread_id,
-                    agent_slug=parent.agent_slug,
+                    id=child_id,
+                    thread_id=child_thread_id,
+                    runtime_scope_id=parent_thread_id,
+                    agent_slug="worker",
                     uid=parent.uid,
-                    request_id=resume_request_id,
-                    conversation_id=parent.conversation_id,
-                    input_message_id=input_message.id,
-                    input_payload={},
-                    status="running",
-                    run_type="resume",
+                    app_id=None,
+                    turn_id=child_turn.id,
+                    session_record_id=child_thread.id,
                     created_by_run_id=parent_id,
-                    worker_id=resume_owner,
-                    heartbeat_at=now,
-                    lease_expires_at=now + timedelta(minutes=1),
+                    run_type="chat",
+                    input_message_id=message.id,
+                    input_payload={},
+                    status="pending",
                 )
             )
+            message.run_id = child_id
+            message.turn_id = child_turn.id
             await db.flush()
-            repository = ToolMessageAuditRepository(db)
-            resumed_tool, _created = await repository.start(
-                run_id=resume_id,
-                request_id=resume_request_id,
-                thread_id=thread_id,
-                worker_id=resume_owner,
-                tool_call_id="interrupt-tool",
-                tool_name="ask_user_question",
-                tool_input={"questions": [{"question": "继续吗"}]},
-                sequence=2,
-                started_at=now + timedelta(seconds=2),
-            )
-            await repository.complete(
-                run_id=resume_id,
-                request_id=resume_request_id,
-                thread_id=thread_id,
-                worker_id=resume_owner,
-                tool_call_id="interrupt-tool",
-                output={"type": "tool", "content": "已继续", "status": "success"},
-                content="已继续",
-                finished_at=now + timedelta(seconds=3),
-                duration_ms=1000,
-                finished_sequence=3,
-            )
+            repo = AgentRunRepository(db)
+            assert (await repo.mark_running(parent_id, worker_id="parent-owner", lease_seconds=60))[1]
+            assert (await repo.mark_running(child_id, worker_id="child-owner", lease_seconds=60))[1]
             await db.commit()
 
-            resumed_tool_call = await db.get(
-                ToolCall,
-                resumed_tool.extra_metadata["compatibility_tool_call_id"],
-            )
-            assert resumed_tool.execution_status == "completed"
-            assert resumed_tool_call.id == parent_tool_call_id
-            assert resumed_tool_call.status == "success"
-            assert resumed_tool_call.tool_output == "已继续"
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def _create_live_child(
-    session_factory,
-    *,
-    parent_id: str,
-    runtime_scope_id: str,
-    owner: str,
-    now,
-    lease_seconds: float,
-) -> tuple[str, str, int]:
-    child_thread_id = f"pytest-tree-child-{uuid.uuid4()}"
-    async with session_factory() as db:
-        parent = await db.get(AgentRun, parent_id)
-        parent_conversation = await db.get(Conversation, parent.conversation_id)
-        assert parent_conversation is not None
-        child_conversation = Conversation(
-            thread_id=child_thread_id,
-            uid=parent.uid,
-            project_id=parent_conversation.project_id,
-            agent_id="worker",
-            status="subagent",
-        )
-        db.add(child_conversation)
-        await db.flush()
-        child_message = Message(
-            conversation_id=child_conversation.id,
-            role="user",
-            content="long-running child",
-            request_id=f"tree-child-{uuid.uuid4()}",
-            delivery_status="dispatched",
-        )
-        db.add(child_message)
-        await db.flush()
-        relation = SubagentThread(
-            uid=parent.uid,
-            parent_conversation_id=parent.conversation_id,
-            child_conversation_id=child_conversation.id,
-            child_thread_id=child_thread_id,
-            subagent_slug="worker",
-            created_by_run_id=parent.id,
-        )
-        db.add(relation)
-        await db.flush()
-        child = AgentRun(
-            id=str(uuid.uuid4()),
-            conversation_thread_id=child_thread_id,
-            runtime_scope_id=runtime_scope_id,
-            agent_slug="worker",
-            uid=parent.uid,
-            request_id=child_message.request_id,
-            conversation_id=child_conversation.id,
-            created_by_run_id=parent.id,
-            subagent_thread_relation_id=relation.id,
-            run_type="subagent",
-            input_message_id=child_message.id,
-            input_payload={},
-            status="pending",
-        )
-        db.add(child)
-        await db.flush()
-        _, acquired = await AgentRunRepository(db).mark_running(
-            child.id,
-            worker_id=owner,
-            lease_seconds=lease_seconds,
-            now=now,
-        )
-        assert acquired is True
-        child_id = child.id
-        child_message_id = child_message.id
-        await db.commit()
-    return child_id, child_thread_id, child_message_id
-
-
-async def test_expired_root_reconciliation_cancels_live_child_before_runtime_release(
-    lease_database,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """失联根 Run 必须先持久收敛执行树，再释放共享 runtime。"""
-
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    parent_id, parent_thread_id, _ = await _create_run(session_factory)
-    child_thread_id = ""
-    try:
-        async with session_factory() as db:
-            _, acquired = await AgentRunRepository(db).mark_running(
-                parent_id,
-                worker_id="worker-expired-tree-parent",
-                lease_seconds=10,
-                now=now,
-            )
-            await db.commit()
-        assert acquired is True
-        child_id, child_thread_id, child_message_id = await _create_live_child(
-            session_factory,
-            parent_id=parent_id,
-            runtime_scope_id=parent_thread_id,
-            owner="worker-live-tree-child",
-            now=now,
-            lease_seconds=120,
-        )
-
-        monkeypatch.setattr(
-            run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory)
-        )
-        publish_cancel = AsyncMock()
-        release_runtime = AsyncMock(return_value=False)
-        monkeypatch.setattr(run_worker, "publish_cancel_signals", publish_cancel)
-        monkeypatch.setattr(run_worker, "_release_runtime_if_idle", release_runtime)
-
-        reconciled_ids = await run_worker.reconcile_expired_run_leases(now=now + timedelta(seconds=11))
-
-        async with session_factory() as db:
+        monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", lambda: _session_context(sessions))
+        transition = await run_worker.mark_run_terminal(parent_id, "failed", error_type="parent_failed", worker_id="parent-owner")
+        assert transition.changed is True
+        async with sessions() as db:
             parent = await db.get(AgentRun, parent_id)
             child = await db.get(AgentRun, child_id)
-            child_message = await db.get(Message, child_message_id)
-
-        assert reconciled_ids == [parent_id]
-        assert parent.status == "failed"
-        assert child.status == "cancel_requested"
-        assert child.worker_id == "worker-live-tree-child"
-        assert child.lease_expires_at is not None
-        assert child_message.delivery_status == "dispatched"
-        publish_cancel.assert_awaited_once_with([child_id])
-        release_runtime.assert_awaited_once()
-        assert release_runtime.await_args.args[0].id == parent_id
+            assert parent.status == "failed"
+            assert child.status == "running" and child.error_type is None
+            assert child.worker_id == "child-owner"
+            assert (await db.get(AgentTurn, child.turn_id)).status == "running"
+            assert (await db.get(AgentTurn, parent.turn_id)).status == "failed"
     finally:
-        await _cleanup_runs(session_factory, [parent_thread_id, child_thread_id])
+        await cleanup_agent_run_threads(sessions, [parent_thread_id, child_thread_id])
 
 
-async def test_agent_run_lease_schema_evolution_is_idempotent(lease_database):
-    engine, _ = lease_database
-    async with engine.connect() as connection:
-        columns = set(
-            (
-                await connection.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_name = 'agent_runs' "
-                        "AND column_name IN ('worker_id', 'heartbeat_at', 'lease_expires_at')"
-                    )
-                )
-            ).scalars()
+async def test_cancelling_recovery_isolates_bad_checkpoint(postgres_sessions, monkeypatch):
+    """首条 checkpoint 清理失败仍收敛后续 Turn，同时拒绝报告整轮成功。"""
+    sessions = postgres_sessions
+    bad_id, bad_thread, _ = await _create_run(sessions, status="interrupted")
+    good_id, good_thread, _ = await _create_run(sessions, status="cancelled")
+    monkeypatch.setattr(lifecycle.pg_manager, "get_async_session_context", lambda: _session_context(sessions))
+    monkeypatch.setattr(lifecycle, "_clear_waitpoint_checkpoint", AsyncMock(side_effect=RuntimeError("broken checkpoint")))
+    monkeypatch.setattr(lifecycle, "finish_turn_observation_if_terminal", AsyncMock())
+    try:
+        async with sessions() as db:
+            for run_id in [bad_id, good_id]:
+                run = await db.get(AgentRun, run_id)
+                run.runtime_cleanup_pending = False
+                turn = await db.get(AgentTurn, run.turn_id)
+                turn.status = "cancelling"
+                if run_id == bad_id:
+                    turn.waitpoint = {"kind": "answer", "id": "broken", "run_id": bad_id}
+            await db.commit()
+        with pytest.raises(RuntimeError, match="cancelling Turn recovery failed"):
+            await lifecycle.reconcile_cancelling_turns()
+        async with sessions() as db:
+            bad = await db.get(AgentRun, bad_id)
+            good = await db.get(AgentRun, good_id)
+            assert (await db.get(AgentTurn, bad.turn_id)).status == "cancelling"
+            assert (await db.get(AgentTurn, good.turn_id)).status == "cancelled"
+    finally:
+        await cleanup_agent_run_threads(sessions, [bad_thread, good_thread])
+
+
+async def test_cancelled_cleanup_holds_run_lock_until_external_command_finishes(postgres_sessions, monkeypatch, tmp_path):
+    """取消清理协程不能提前释放 Run 锁，也不能误清已领取的新 attempt。"""
+    import threading
+
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    sessions = postgres_sessions
+    run_id, thread_id, _ = await _create_run(sessions)
+    started, finish = threading.Event(), threading.Event()
+    command = tmp_path / "command"
+    command.write_text("old attempt")
+
+    def cancel_commands(*_):
+        """模拟仍在运行的外部清理，以文件作为命令存活证据。"""
+        started.set()
+        if not finish.wait(10):
+            raise TimeoutError("test cleanup was not released")
+        command.unlink(missing_ok=True)
+
+    task = None
+    try:
+        async with sessions() as db:
+            stale = await db.get(AgentRun, run_id)
+            stale.runtime_cleanup_pending = True
+            await db.commit()
+        monkeypatch.setattr(lease_worker.pg_manager, "get_async_session_context", lambda: _session_context(sessions))
+        monkeypatch.setattr(
+            lifecycle, "get_sandbox_provider", lambda: type("Provider", (), {"cleanup_run": staticmethod(cancel_commands)})()
         )
-        index_exists = await connection.scalar(
-            text(
-                "SELECT EXISTS (SELECT 1 FROM pg_indexes "
-                "WHERE tablename = 'agent_runs' AND indexname = 'ix_agent_runs_status_lease_expires')"
-            )
-        )
-
-    assert columns == {"worker_id", "heartbeat_at", "lease_expires_at"}
-    assert index_exists is True
-
-
-async def test_langfuse_trace_is_idempotent_and_lease_fenced(lease_database):
-    """Trace 只能由当前 attempt 固化，且重复事件不能改写既有绑定。"""
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    owner = "worker-trace:attempt-owner"
-    run_id, thread_id, _ = await _create_run(session_factory)
-
-    try:
-        async with session_factory() as db:
-            run, acquired = await AgentRunRepository(db).mark_running(
-                run_id,
-                worker_id=owner,
-                lease_seconds=60,
-                now=now,
-            )
-            assert acquired is True
+        task = asyncio.create_task(lease_worker.complete_run_runtime_cleanup(stale))
+        assert await asyncio.to_thread(started.wait, 5)
+        task.cancel()
+        await asyncio.sleep(0)
+        async with sessions() as db:
+            with pytest.raises(DBAPIError) as error:
+                await db.execute(text("SELECT id FROM agent_runs WHERE id=:id FOR NO KEY UPDATE NOWAIT"), {"id": run_id})
+            assert error.value.orig.sqlstate == "55P03"
+        assert command.read_text() == "old attempt"
+        finish.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        async with sessions() as db:
+            assert (await db.get(AgentRun, run_id)).runtime_cleanup_pending is True
+        assert await lease_worker.complete_run_runtime_cleanup(stale)
+        async with sessions() as db:
+            run, acquired = await AgentRunRepository(db).mark_running(run_id, worker_id="new-attempt", lease_seconds=60)
+            assert acquired
             await db.commit()
-
-        async with session_factory() as db:
-            repository = AgentRunRepository(db)
-            await repository.set_langfuse_trace_id(
-                run_id,
-                "trace-1",
-                worker_id=owner,
-                now=now + timedelta(seconds=1),
-            )
-            await repository.set_langfuse_trace_id(
-                run_id,
-                "trace-1",
-                worker_id=owner,
-                now=now + timedelta(seconds=2),
-            )
-            await db.commit()
-
-        async with session_factory() as db:
-            with pytest.raises(ValueError, match="当前有效 AgentRun lease owner"):
-                await AgentRunRepository(db).set_langfuse_trace_id(
-                    run_id,
-                    "trace-1",
-                    worker_id="worker-trace:stale-attempt",
-                    now=now + timedelta(seconds=3),
-                )
-            await db.rollback()
-
-        async with session_factory() as db:
-            with pytest.raises(ValueError, match="已绑定不同"):
-                await AgentRunRepository(db).set_langfuse_trace_id(
-                    run_id,
-                    "trace-2",
-                    worker_id=owner,
-                    now=now + timedelta(seconds=4),
-                )
-            await db.rollback()
-
-        async with session_factory() as db:
-            persisted = await db.get(AgentRun, run_id)
-            columns = {
-                row.column_name
-                for row in (
-                    await db.execute(
-                        text(
-                            "SELECT column_name FROM information_schema.columns "
-                            "WHERE table_name = 'agent_runs' AND column_name = 'langfuse_trace_id'"
-                        )
-                    )
-                )
-            }
-
-        assert persisted.langfuse_trace_id == "trace-1"
-        assert columns == {"langfuse_trace_id"}
+        command.write_text("new attempt")
+        assert await lease_worker.complete_run_runtime_cleanup(stale)
+        assert command.read_text() == "new attempt"
+        async with sessions() as db:
+            current = await db.get(AgentRun, run_id)
+            assert current.status == "running" and current.worker_id == "new-attempt"
+            assert current.runtime_cleanup_pending is False
     finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_heartbeat_and_terminal_transition_require_exact_attempt_owner(
-    lease_database,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    owner = "worker-stable:attempt-owner"
-    other_owner = "worker-stable:attempt-other"
-    run_id, thread_id, message_id = await _create_run(session_factory)
-    monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory))
-
-    try:
-        async with session_factory() as db:
-            run, acquired = await AgentRunRepository(db).mark_running(
-                run_id,
-                worker_id=owner,
-                lease_seconds=60,
-                now=now,
-            )
-            await db.commit()
-        assert acquired is True
-        assert run.worker_id == owner
-
-        async with session_factory() as db:
-            other_renewed = await AgentRunRepository(db).renew_lease(
-                run_id,
-                worker_id=other_owner,
-                lease_seconds=60,
-                now=now + timedelta(seconds=10),
-            )
-            await db.commit()
-        async with session_factory() as db:
-            owner_renewed = await AgentRunRepository(db).renew_lease(
-                run_id,
-                worker_id=owner,
-                lease_seconds=60,
-                now=now + timedelta(seconds=10),
-            )
-            await db.commit()
-
-        async with session_factory() as db:
-            persisted_before_completion = await db.get(AgentRun, run_id)
-            wrong_output = Message(
-                conversation_id=persisted_before_completion.conversation_id,
-                run_id=run_id,
-                request_id=f"wrong-{persisted_before_completion.request_id}",
-                role="assistant",
-                content="wrong request output",
-            )
-            exact_output = Message(
-                conversation_id=persisted_before_completion.conversation_id,
-                run_id=run_id,
-                request_id=persisted_before_completion.request_id,
-                role="assistant",
-                content="exact run output",
-            )
-            db.add_all([wrong_output, exact_output])
-            await db.flush()
-            repository = AgentRunRepository(db)
-            with pytest.raises(ValueError, match="同一 conversation"):
-                await repository.set_output_message(
-                    run_id,
-                    wrong_output.id,
-                    worker_id=owner,
-                    now=now + timedelta(seconds=11),
-                )
-            assert persisted_before_completion.output_message_id is None
-            await repository.set_output_message(
-                run_id,
-                exact_output.id,
-                worker_id=owner,
-                now=now + timedelta(seconds=11),
-            )
-            exact_output_id = exact_output.id
-            await db.commit()
-
-        missing_owner = await run_worker.mark_run_terminal(run_id, "failed")
-        other_owner_result = await run_worker.mark_run_terminal(run_id, "failed", worker_id=other_owner)
-        owner_result = await run_worker.mark_run_terminal(run_id, "completed", worker_id=owner)
-
-        async with session_factory() as db:
-            persisted_run = await db.get(AgentRun, run_id)
-            persisted_message = await db.get(Message, message_id)
-
-        assert other_renewed is False
-        assert owner_renewed is True
-        assert missing_owner.changed is False
-        assert other_owner_result.changed is False
-        assert owner_result.changed is True
-        assert persisted_run.status == "completed"
-        assert persisted_run.output_message_id == exact_output_id
-        assert persisted_run.worker_id is None
-        assert persisted_run.heartbeat_at is None
-        assert persisted_run.lease_expires_at is None
-        assert persisted_message.delivery_status == "complete"
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-@pytest.mark.parametrize(
-    ("run_status", "lease_offset"),
-    [("running", -1), ("cancel_requested", 60)],
-)
-async def test_invalid_attempt_cannot_leave_assistant_message(
-    lease_database,
-    run_status: str,
-    lease_offset: int,
-):
-    """过期或已取消 attempt 必须在任何 assistant Message 写入前被拒绝。"""
-
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    owner = f"worker-invalid:{run_status}"
-    run_id, thread_id, _ = await _create_run(
-        session_factory,
-        status=run_status,
-        worker_id=owner,
-        lease_expires_at=now + timedelta(seconds=lease_offset),
-    )
-
-    class FakeGraph:
-        async def aget_state(self, _config):
-            return SimpleNamespace(values={"messages": [AIMessage(id=f"output-{run_id}", content="must rollback")]})
-
-    try:
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            with pytest.raises(ValueError, match="有效 AgentRun lease owner"):
-                await chat_service.save_messages_from_langgraph_state(
-                    state=await FakeGraph().aget_state({}),
-                    thread_id=thread_id,
-                    conv_repo=ConversationRepository(db),
-                    run_id=run_id,
-                    request_id=run.request_id,
-                    worker_id=owner,
-                    complete_run=True,
-                )
-
-        async with session_factory() as db:
-            persisted_run = await db.get(AgentRun, run_id)
-            assistant_messages = list(
-                (await db.scalars(select(Message).where(Message.run_id == run_id, Message.role == "assistant"))).all()
-            )
-
-        assert persisted_run.output_message_id is None
-        assert persisted_run.status == run_status
-        assert assistant_messages == []
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_interrupt_message_and_run_terminal_commit_together(lease_database):
-    """真实事务中断点必须同时推进 Message 与 Run 终态。"""
-    _, session_factory = lease_database
-    owner = "worker-interrupt:attempt-owner"
-    run_id, thread_id, _ = await _create_run(session_factory)
-
-    class FakeGraph:
-        async def aget_state(self, _config):
-            return SimpleNamespace(values={"messages": [AIMessage(id=f"output-{run_id}", content="waiting")]})
-
-    try:
-        async with session_factory() as db:
-            run, acquired = await AgentRunRepository(db).mark_running(
-                run_id,
-                worker_id=owner,
-                lease_seconds=60,
-            )
-            await db.commit()
-            request_id = run.request_id
-        assert acquired is True
-
-        async with session_factory() as db:
-            committed = await chat_service.save_messages_from_langgraph_state(
-                state=await FakeGraph().aget_state({}),
-                thread_id=thread_id,
-                conv_repo=ConversationRepository(db),
-                run_id=run_id,
-                request_id=request_id,
-                worker_id=owner,
-                interrupt_run=True,
-                interrupt_error_type="ask_user_question_required",
-                interrupt_error_message="请选择",
-            )
-        assert committed is True
-
-        async with session_factory() as db:
-            run = await db.get(AgentRun, run_id)
-            output_message = await db.get(Message, run.output_message_id)
-
-        assert run.status == "interrupted"
-        assert run.error_type == "ask_user_question_required"
-        assert output_message.content == "waiting"
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_expired_owner_cannot_finish_or_publish_retry_before_reconciliation(lease_database):
-    """真实行锁下，过期 attempt 不能抢在 reconciler 前改写结局。"""
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    owner = "worker-expired:attempt-owner"
-    run_id, thread_id, message_id = await _create_run(session_factory)
-
-    try:
-        async with session_factory() as db:
-            run, acquired = await AgentRunRepository(db).mark_running(
-                run_id,
-                worker_id=owner,
-                lease_seconds=10,
-                now=now,
-            )
-            audit, _created = await ModelMessageAuditRepository(db).start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                operation_id="expired-model-operation",
-                sequence=3,
-                started_at=now,
-                metadata={"tool_calls": [{"id": "expired-tool-operation", "name": "search", "args": {"q": "unknown"}}]},
-            )
-            audit_id = audit.id
-            tool_audit, _created = await ToolMessageAuditRepository(db).start(
-                run_id=run_id,
-                request_id=run.request_id,
-                thread_id=thread_id,
-                worker_id=owner,
-                tool_call_id="expired-tool-operation",
-                tool_name="search",
-                tool_input={"q": "unknown"},
-                sequence=4,
-                started_at=now,
-            )
-            tool_audit_id = tool_audit.id
-            await db.commit()
-
-        async with session_factory() as db:
-            released = await AgentRunRepository(db).release_lease_for_retry(
-                run_id,
-                worker_id=owner,
-                now=now + timedelta(seconds=11),
-            )
-            await db.commit()
-        async with session_factory() as db:
-            _, completed = await AgentRunRepository(db).set_terminal_status(
-                run_id,
-                status="completed",
-                worker_id=owner,
-                now=now + timedelta(seconds=11),
-            )
-            await db.commit()
-        async with session_factory() as db:
-            reconciled, cancelled_descendants = await AgentRunRepository(db).reconcile_expired_leases(
-                now=now + timedelta(seconds=11)
-            )
-            await db.commit()
-
-        async with session_factory() as db:
-            persisted_run = await db.get(AgentRun, run_id)
-            persisted_message = await db.get(Message, message_id)
-            persisted_audit = await db.get(Message, audit_id)
-            persisted_tool_audit = await db.get(Message, tool_audit_id)
-            persisted_tool_call = await db.get(
-                ToolCall,
-                persisted_tool_audit.extra_metadata["compatibility_tool_call_id"],
-            )
-
-        assert acquired is True
-        assert released is False
-        assert completed is False
-        assert [run.id for run in reconciled] == [run_id]
-        assert cancelled_descendants == []
-        assert persisted_run.status == "failed"
-        assert persisted_run.error_type == "worker_lease_expired"
-        assert persisted_message.delivery_status == "failed"
-        assert persisted_audit.execution_status == "abandoned"
-        assert persisted_tool_audit.execution_status == "abandoned"
-        assert persisted_tool_call.status == "error"
-    finally:
-        await _cleanup_runs(session_factory, [thread_id])
-
-
-async def test_pending_cancel_is_terminal_and_durable_cancel_wins_completion_race(lease_database):
-    """未执行取消直接完成；已执行取消在终态行锁竞争中优先于 completed。"""
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    pending_run_id, pending_thread_id, pending_message_id = await _create_run(session_factory)
-    running_run_id, running_thread_id, running_message_id = await _create_run(session_factory)
-    owner = "worker-cancel:attempt-owner"
-
-    try:
-        async with session_factory() as db:
-            pending_uid = (await db.get(AgentRun, pending_run_id)).uid
-            pending, pending_cancelled_ids = await AgentRunRepository(db).request_cancel_execution_tree(
-                run_id=pending_run_id,
-                uid=pending_uid,
-                cascade_descendants=False,
-            )
-            await db.commit()
-        async with session_factory() as db:
-            pending_reconciled, cancelled_descendants = await AgentRunRepository(db).reconcile_expired_leases(
-                now=now + timedelta(minutes=5)
-            )
-            await db.commit()
-
-        async with session_factory() as db:
-            running_run, acquired = await AgentRunRepository(db).mark_running(
-                running_run_id,
-                worker_id=owner,
-                lease_seconds=60,
-                now=now,
-            )
-            await ModelMessageAuditRepository(db).start(
-                run_id=running_run_id,
-                request_id=running_run.request_id,
-                thread_id=running_thread_id,
-                worker_id=owner,
-                operation_id="cancelled-model-operation",
-                sequence=2,
-                started_at=now,
-                metadata={
-                    "tool_calls": [{"id": "cancelled-tool-operation", "name": "search", "args": {"q": "cancel"}}]
-                },
-            )
-            running_tool_audit, _created = await ToolMessageAuditRepository(db).start(
-                run_id=running_run_id,
-                request_id=running_run.request_id,
-                thread_id=running_thread_id,
-                worker_id=owner,
-                tool_call_id="cancelled-tool-operation",
-                tool_name="search",
-                tool_input={"q": "cancel"},
-                sequence=3,
-                started_at=now,
-            )
-            running_tool_audit_id = running_tool_audit.id
-            await db.commit()
-        async with session_factory() as db:
-            running_uid = (await db.get(AgentRun, running_run_id)).uid
-            requested, running_cancelled_ids = await AgentRunRepository(db).request_cancel_execution_tree(
-                run_id=running_run_id,
-                uid=running_uid,
-                cascade_descendants=False,
-            )
-            await db.commit()
-        async with session_factory() as db:
-            _, completed = await AgentRunRepository(db).set_terminal_status(
-                running_run_id,
-                status="completed",
-                worker_id=owner,
-                now=now + timedelta(seconds=1),
-            )
-            await db.commit()
-        async with session_factory() as db:
-            _, cancelled = await AgentRunRepository(db).set_terminal_status(
-                running_run_id,
-                status="cancelled",
-                error_type="cancelled",
-                worker_id=owner,
-                now=now + timedelta(seconds=1),
-            )
-            await db.commit()
-
-        async with session_factory() as db:
-            pending_persisted = await db.get(AgentRun, pending_run_id)
-            pending_message = await db.get(Message, pending_message_id)
-            running_persisted = await db.get(AgentRun, running_run_id)
-            running_message = await db.get(Message, running_message_id)
-            running_tool_audit = await db.get(Message, running_tool_audit_id)
-            running_tool_call = await db.get(
-                ToolCall,
-                running_tool_audit.extra_metadata["compatibility_tool_call_id"],
-            )
-
-        assert pending.status == "cancelled"
-        assert pending_cancelled_ids == [pending_run_id]
-        assert pending_reconciled == []
-        assert cancelled_descendants == []
-        assert pending_persisted.status == "cancelled"
-        assert pending_message.delivery_status == "cancelled"
-        assert acquired is True
-        assert requested.status == "cancel_requested"
-        assert running_cancelled_ids == [running_run_id]
-        assert completed is False
-        assert cancelled is True
-        assert running_persisted.status == "cancelled"
-        assert running_message.delivery_status == "cancelled"
-        assert running_tool_audit.execution_status == "interrupted"
-        assert running_tool_call.status == "error"
-    finally:
-        await _cleanup_runs(session_factory, [pending_thread_id, running_thread_id])
-
-
-async def test_concurrent_reconciliation_fails_each_expired_lease_once_and_projects_message_failure(
-    lease_database,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    _, session_factory = lease_database
-    now = utc_now_naive()
-    live = await _create_run(
-        session_factory,
-        status="running",
-        worker_id="worker-live:attempt",
-        lease_expires_at=now + timedelta(minutes=5),
-    )
-    expired_running = await _create_run(
-        session_factory,
-        status="running",
-        worker_id="worker-dead:running",
-        lease_expires_at=now - timedelta(seconds=1),
-    )
-    expired_cancel = await _create_run(
-        session_factory,
-        status="cancel_requested",
-        worker_id="worker-dead:cancel",
-        lease_expires_at=now - timedelta(seconds=1),
-    )
-    all_runs = [live, expired_running, expired_cancel]
-    monkeypatch.setattr(run_worker.pg_manager, "get_async_session_context", lambda: _session_context(session_factory))
-
-    try:
-        results = await asyncio.gather(
-            run_worker.reconcile_expired_run_leases(now=now),
-            run_worker.reconcile_expired_run_leases(now=now),
-        )
-        repeated = await run_worker.reconcile_expired_run_leases(now=now)
-        reconciled_ids = [run_id for result in results for run_id in result]
-
-        async with session_factory() as db:
-            persisted_runs = {
-                run.id: run
-                for run in (
-                    await db.scalars(select(AgentRun).where(AgentRun.id.in_([item[0] for item in all_runs])))
-                ).all()
-            }
-            persisted_messages = {
-                message.id: message
-                for message in (
-                    await db.scalars(select(Message).where(Message.id.in_([item[2] for item in all_runs])))
-                ).all()
-            }
-
-        assert sorted(reconciled_ids) == sorted([expired_running[0], expired_cancel[0]])
-        assert repeated == []
-        assert persisted_runs[live[0]].status == "running"
-        assert persisted_runs[live[0]].worker_id == "worker-live:attempt"
-        for run_id, _, message_id in (expired_running, expired_cancel):
-            run = persisted_runs[run_id]
-            assert run.status == "failed"
-            assert run.error_type == "worker_lease_expired"
-            assert "at-least-once" in run.error_message
-            assert run.worker_id is None
-            assert run.heartbeat_at is None
-            assert run.lease_expires_at is None
-            assert persisted_messages[message_id].delivery_status == "failed"
-    finally:
-        await _cleanup_runs(session_factory, [item[1] for item in all_runs])
-
-
-async def test_nonterminal_run_shape_constraint_preserves_terminal_legacy_rows(lease_database):
-    """数据库允许历史终态形状，但拒绝新的非法非终态写入。"""
-    _, session_factory = lease_database
-    suffix = uuid.uuid4().hex
-    legacy_id = f"shape-legacy-{suffix}"
-    async with session_factory() as db:
-        legacy = AgentRun(
-            id=legacy_id,
-            conversation_thread_id=f"legacy-thread-{suffix}",
-            runtime_scope_id=f"foreign-scope-{suffix}",
-            agent_slug="main",
-            uid=f"shape-user-{suffix}",
-            status="completed",
-            request_id=f"shape-legacy-request-{suffix}",
-            run_type="subagent",
-            input_payload={},
-        )
-        db.add(legacy)
-        await db.commit()
-
-        db.add(
-            AgentRun(
-                id=f"shape-invalid-{suffix}",
-                conversation_thread_id=f"invalid-thread-{suffix}",
-                runtime_scope_id=f"foreign-scope-{suffix}",
-                agent_slug="main",
-                uid=f"shape-user-{suffix}",
-                status="pending",
-                request_id=f"shape-invalid-request-{suffix}",
-                run_type="chat",
-                input_payload={},
-            )
-        )
-        with pytest.raises(IntegrityError):
-            await db.flush()
-        await db.rollback()
-
-        persisted = await db.get(AgentRun, legacy_id)
-        assert persisted is not None
-        await db.delete(persisted)
-        await db.commit()
-
-
-async def test_cancel_execution_tree_locks_root_before_descendants(lease_database):
-    """取消执行树等待 root 时不能提前持有 child 行锁。"""
-    _, session_factory = lease_database
-    suffix = uuid.uuid4().hex
-    application_name = f"yuxi-lock-order-{suffix}"
-    now = utc_now_naive()
-    root_id, root_thread, _ = await _create_run(session_factory)
-    async with session_factory() as db:
-        uid = (await db.get(AgentRun, root_id)).uid
-    child_id, child_thread, _ = await _create_live_child(
-        session_factory,
-        parent_id=root_id,
-        runtime_scope_id=root_thread,
-        owner="worker-lock-child",
-        now=now,
-        lease_seconds=60,
-    )
-
-    cancel_started = asyncio.Event()
-
-    async def cancel_tree():
-        async with session_factory() as db:
-            await db.execute(
-                text("SELECT set_config('application_name', :name, true)"),
-                {"name": application_name},
-            )
-            cancel_started.set()
-            _run, cancelled_ids = await AgentRunRepository(db).request_cancel_execution_tree(
-                run_id=root_id,
-                uid=uid,
-                cascade_descendants=True,
-            )
-            await db.commit()
-            return cancelled_ids
-
-    cancel_task = None
-    try:
-        async with session_factory() as root_locker:
-            await root_locker.execute(select(AgentRun).where(AgentRun.id == root_id).with_for_update())
-            cancel_task = asyncio.create_task(cancel_tree())
-            await asyncio.wait_for(cancel_started.wait(), timeout=2)
-
-            async with session_factory() as observer:
-                for _ in range(100):
-                    wait_event = await observer.scalar(
-                        text("SELECT wait_event_type FROM pg_stat_activity WHERE application_name = :name"),
-                        {"name": application_name},
-                    )
-                    if wait_event == "Lock":
-                        break
-                    await asyncio.sleep(0.02)
-                else:
-                    pytest.fail("取消事务没有在 root 行锁上等待")
-
-            async with session_factory() as child_probe:
-                assert await child_probe.scalar(
-                    select(AgentRun).where(AgentRun.id == child_id).with_for_update(nowait=True)
-                )
-                await child_probe.rollback()
-            await root_locker.rollback()
-
-        assert await asyncio.wait_for(cancel_task, timeout=5) == [root_id, child_id]
-        async with session_factory() as db:
-            statuses = dict(
-                (
-                    await db.execute(select(AgentRun.id, AgentRun.status).where(AgentRun.id.in_([root_id, child_id])))
-                ).all()
-            )
-        assert statuses == {root_id: "cancelled", child_id: "cancel_requested"}
-    finally:
-        if cancel_task is not None and not cancel_task.done():
-            cancel_task.cancel()
-            await asyncio.gather(cancel_task, return_exceptions=True)
-        await _cleanup_runs(session_factory, [root_thread, child_thread])
+        finish.set()
+        if task is not None and not task.done():
+            await asyncio.gather(task, return_exceptions=True)
+        await cleanup_agent_run_threads(sessions, [thread_id])

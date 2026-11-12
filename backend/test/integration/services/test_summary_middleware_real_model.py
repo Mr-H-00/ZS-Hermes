@@ -7,15 +7,14 @@ from typing import Any
 import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, get_buffer_string
-
-from yuxi.models.chat import load_chat_model
-from yuxi.agents.middlewares.summary import YuxiSummarizationMiddleware
-from yuxi.models.providers.cache import ModelInfo
-from yuxi.models.providers.builtin import BUILTIN_PROVIDERS
-from yuxi.agents.backends.paths import workdir_runtime_paths
+from yuxi.modules.agents.runtime.middlewares.summary import YuxiSummarizationMiddleware
+from yuxi.modules.models.chat import load_chat_model
+from yuxi.modules.models.providers.builtin import BUILTIN_PROVIDERS
+from yuxi.modules.models.providers.cache import ModelInfo
+from yuxi.modules.workspace.runtime_paths import workdir_runtime_paths
 
 VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_CONVERSATION_HISTORY = workdir_runtime_paths(
-    "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
+    "/home/user/workspace/projects/11111111-1111-4111-8111-111111111111"
 )
 
 pytestmark = [
@@ -111,7 +110,7 @@ async def test_compacted_messages_call_real_chat_model(monkeypatch: pytest.Monke
     def get_model_info(current: str):
         return info if current == model_spec else None
 
-    monkeypatch.setattr("yuxi.models.chat.model_cache.get_model_info", get_model_info)
+    monkeypatch.setattr("yuxi.modules.models.chat.model_cache.get_model_info", get_model_info)
 
     model_params = (model_config.get("extra") or {}).get("parameters") or {}
     real_model = load_chat_model(model_spec, **model_params)
@@ -129,7 +128,6 @@ async def test_compacted_messages_call_real_chat_model(monkeypatch: pytest.Monke
         trigger=("tokens", 2000),
         keep=("messages", 2),
         token_counter=_content_char_counter,
-        trim_tokens_to_summarize=None,
     )
     middleware._history_path_prefix = VIRTUAL_PATH_CONVERSATION_HISTORY
     middleware._large_tool_results_prefix = VIRTUAL_PATH_LARGE_TOOL_RESULTS
@@ -158,6 +156,4 @@ async def test_compacted_messages_call_real_chat_model(monkeypatch: pytest.Monke
     assert "[Tool result saved]" in formatted
     assert "END" not in formatted
     assert messages[2].content == large_result
-    assert any(
-        path.startswith(VIRTUAL_PATH_LARGE_TOOL_RESULTS) and content == large_result for path, content in backend.writes
-    )
+    assert any(path.startswith(VIRTUAL_PATH_LARGE_TOOL_RESULTS) and content == large_result for path, content in backend.writes)

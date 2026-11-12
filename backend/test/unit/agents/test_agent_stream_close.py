@@ -6,8 +6,9 @@ import pytest
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, MessagesState, StateGraph
 
-from yuxi.agents.base import BaseAgent
-from yuxi.services.run_worker import RunContext, _consume_stream_with_cancel
+from yuxi.modules.agents.runtime.base import BaseAgent
+from yuxi.modules.agents.runtime.context import BaseContext
+from yuxi.modules.agents.services.runner import RunContext, _consume_stream_with_cancel
 from contextlib import aclosing
 
 
@@ -43,19 +44,22 @@ async def test_consumer_body_cancel_stops_real_graph_node(monkeypatch):
 
     monkeypatch.setattr(graph, "astream_events", track_run)
 
+    execution_context = BaseContext(thread_id="prepared-thread", uid="prepared-user")
+
     class Agent(BaseAgent):
         """执行真实图，不使用模型或数据库。"""
 
         async def get_graph(self, **kwargs):
             """返回本测试执行图。"""
+            assert kwargs["context"] is execution_context
             return graph
 
     async def consume():
         """将取消落在处理事件的消费者，而非图的迭代调用中。"""
-        stream = Agent().stream_messages_with_state(["hello"])
+        stream = Agent().stream_messages_with_state(["hello"], context=execution_context)
         async with aclosing(_consume_stream_with_cancel(stream, RunContext("run", "owner"))) as chunks:
-            async for mode, _ in chunks:
-                if mode == "custom":
+            async for event in chunks:
+                if isinstance(event, dict) and event["method"] == "custom":
                     consuming.set()
                     await asyncio.Event().wait()
 

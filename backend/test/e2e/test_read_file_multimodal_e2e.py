@@ -10,7 +10,8 @@ import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from e2e_helpers import delete_agent
-from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
+from test.e2e.e2e_helpers import create_public_thread
+from test.e2e.e2e_helpers import output_text
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
@@ -33,6 +34,7 @@ async def _create_agent(
             "name": f"E2E read_file {slug[-8:]}",
             "slug": slug,
             "backend_id": "ChatbotAgent",
+            "visibility": "shared",
             "description": "read_file 多模态真实链路测试智能体",
             "config_json": {
                 "context": {
@@ -45,7 +47,6 @@ async def _create_agent(
                     "knowledges": [],
                     "mcps": [],
                     "skills": [],
-                    "subagents": [],
                     "model_retry_times": 0,
                 }
             },
@@ -61,21 +62,6 @@ async def _create_agent(
     return slug
 
 
-async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], agent_slug: str) -> str:
-    response = await client.post(
-        "/api/chat/thread",
-        json={
-            "agent_id": agent_slug,
-            "title": make_test_conversation_title("read-file-e2e"),
-            "metadata": make_test_conversation_metadata("read-file-e2e", e2e=True),
-        },
-        headers=headers,
-    )
-    assert response.status_code == 200, response.text
-    payload = response.json()
-    return str(payload.get("thread_id") or payload["id"])
-
-
 async def _upload(
     client: httpx.AsyncClient,
     headers: dict[str, str],
@@ -85,67 +71,79 @@ async def _upload(
 ) -> str:
     with file_path.open("rb") as handle:
         upload_response = await client.post(
-            "/api/chat/attachments/tmp",
+            "/api/v1/agents/files",
             files={"file": (file_path.name, handle)},
             headers=headers,
         )
-    assert upload_response.status_code == 200, upload_response.text
+    assert upload_response.status_code == 201, upload_response.text
     uploaded = upload_response.json()
-
-    confirm_response = await client.post(
-        f"/api/chat/thread/{thread_id}/attachments/confirm",
-        json={
-            "attachments": [
-                {
-                    "file_type": uploaded.get("file_type"),
-                    "object_name": uploaded["object_name"],
-                }
-            ]
-        },
-        headers=headers,
-    )
-    assert confirm_response.status_code == 200, confirm_response.text
-    attachment = confirm_response.json()["attachments"][0]
-    assert attachment["original_path"].endswith(file_path.name), attachment
-    return str(attachment["file_id"])
+    assert uploaded["filename"] == file_path.name
+    return str(uploaded["id"])
 
 
 async def _run(
     client: httpx.AsyncClient,
     headers: dict[str, str],
     *,
-    agent_slug: str,
     thread_id: str,
     query: str,
     attachment_file_id: str,
 ) -> str:
+    """将带附件的消息投递到 Public Thread 并读取本 Turn 结果。"""
     response = await client.post(
-        "/api/agent/runs",
+        f"/api/v1/agents/sessions/{thread_id}/events",
         json={
-            "query": query,
-            "agent_slug": agent_slug,
-            "thread_id": thread_id,
-            "meta": {
-                "request_id": f"read-file-e2e-{uuid.uuid4()}",
-                "attachment_file_ids": [attachment_file_id],
-            },
+            "events": [
+                {
+                    "type": "agent.session.input.message",
+                    "input": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": query}],
+                        }
+                    ],
+                    "yuxi": {"mode": "follow_up", "attachment_file_ids": [attachment_file_id]},
+                }
+            ],
         },
-        headers=headers,
+        headers={**headers, "Idempotency-Key": f"read-file-input-{uuid.uuid4().hex}"},
     )
-    assert response.status_code == 200, response.text
-    run_id = str(response.json()["run_id"])
+    assert response.status_code == 202, response.text
+    from test.e2e.e2e_helpers import wait_for_consumed_input
+
+    accepted = await wait_for_consumed_input(client, headers, response.json())
+    turn_id = str(accepted["turn_id"])
+    run_id = str(accepted["run_id"])
 
     deadline = asyncio.get_running_loop().time() + RUN_TIMEOUT_SECONDS
-    while asyncio.get_running_loop().time() < deadline:
-        result = await client.get(f"/api/agent/runs/{run_id}/result", headers=headers)
-        assert result.status_code == 200, result.text
-        payload = result.json()
-        status = str(payload.get("status") or "")
-        if status in {"completed", "failed", "cancelled", "interrupted"}:
-            assert status == "completed", payload
-            return str(payload.get("output") or "")
-        await asyncio.sleep(2)
-    pytest.fail(f"read_file E2E run timed out: {run_id}")
+    completed = False
+    try:
+        while asyncio.get_running_loop().time() < deadline:
+            result = await client.get(f"/api/v1/agents/sessions/{thread_id}/turns/{turn_id}", headers=headers)
+            assert result.status_code == 200, result.text
+            turn = result.json()
+            if turn["status"] in {"completed", "failed", "cancelled"}:
+                completed = True
+                assert turn["status"] == "completed", turn
+                assert turn["yuxi"]["result_run_id"] == run_id, turn
+                assert turn["yuxi"]["output"] is not None, turn
+                return str(output_text(turn["yuxi"]["output"]))
+            await asyncio.sleep(2)
+        pytest.fail(f"read_file E2E Turn timed out: {turn_id}")
+    finally:
+        if not completed:
+            cancel = await client.post(
+                f"/api/v1/agents/sessions/{thread_id}/events",
+                json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id}}]},
+                headers={**headers, "Idempotency-Key": f"read-file-cancel-{turn_id}"},
+            )
+            assert cancel.status_code in {202, 409}, cancel.text
+            for _ in range(60):
+                settled = await client.get(f"/api/v1/agents/sessions/{thread_id}/turns/{turn_id}", headers=headers)
+                assert settled.status_code == 200, settled.text
+                if settled.json()["status"] in {"completed", "failed", "cancelled"}:
+                    break
+                await asyncio.sleep(1)
 
 
 def _write_test_image(path: Path) -> None:
@@ -176,15 +174,16 @@ async def test_read_file_image_and_document_real_agent_runs(
         uid=e2e_agent_context["uid"],
         model=VISION_MODEL,
     )
+    thread_ids: list[str] = []
     try:
         image_path = tmp_path / "shape.png"
         _write_test_image(image_path)
-        image_thread = await _create_thread(e2e_client, e2e_headers, slug)
+        image_thread = await create_public_thread(e2e_client, e2e_headers, slug, tag="read-file-e2e")
+        thread_ids.append(image_thread)
         image_file_id = await _upload(e2e_client, e2e_headers, thread_id=image_thread, file_path=image_path)
         image_output = await _run(
             e2e_client,
             e2e_headers,
-            agent_slug=slug,
             thread_id=image_thread,
             query="调用 read_file 检查 shape.png。中心方块是什么颜色？只回答英文颜色单词。",
             attachment_file_id=image_file_id,
@@ -193,7 +192,8 @@ async def test_read_file_image_and_document_real_agent_runs(
 
         document_path = tmp_path / "sample.pdf"
         document_path.write_bytes(b"%PDF-1.4\n% read_file boundary test\n")
-        document_thread = await _create_thread(e2e_client, e2e_headers, slug)
+        document_thread = await create_public_thread(e2e_client, e2e_headers, slug, tag="read-file-e2e")
+        thread_ids.append(document_thread)
         document_file_id = await _upload(
             e2e_client,
             e2e_headers,
@@ -203,13 +203,15 @@ async def test_read_file_image_and_document_real_agent_runs(
         document_output = await _run(
             e2e_client,
             e2e_headers,
-            agent_slug=slug,
             thread_id=document_thread,
             query="只调用 read_file 读取 sample.pdf，不要调用其他工具。简短复述工具返回的处理建议。",
             attachment_file_id=document_file_id,
         )
         assert "ocr_parse_file" in document_output, document_output
     finally:
+        for thread_id in thread_ids:
+            archive = await e2e_client.post(f"/api/v1/agents/sessions/{thread_id}/archive", headers=e2e_headers)
+            assert archive.status_code == 200, archive.text
         await delete_agent(e2e_client, e2e_headers, slug)
 
 
@@ -228,19 +230,22 @@ async def test_non_vision_model_uses_ocr_fallback(
         uid=e2e_agent_context["uid"],
         model=NON_VISION_MODEL,
     )
+    thread_id = None
     try:
         image_path = tmp_path / "ocr-text.png"
         _write_ocr_test_image(image_path)
-        thread_id = await _create_thread(e2e_client, e2e_headers, slug)
+        thread_id = await create_public_thread(e2e_client, e2e_headers, slug, tag="read-file-e2e")
         image_file_id = await _upload(e2e_client, e2e_headers, thread_id=thread_id, file_path=image_path)
         output = await _run(
             e2e_client,
             e2e_headers,
-            agent_slug=slug,
             thread_id=thread_id,
             query="调用 read_file 读取 ocr-text.png 中的文字，只回答图片中的英文文字。",
             attachment_file_id=image_file_id,
         )
         assert "OCR FALLBACK OK" in " ".join(output.upper().split()), output
     finally:
+        if thread_id:
+            archive = await e2e_client.post(f"/api/v1/agents/sessions/{thread_id}/archive", headers=e2e_headers)
+            assert archive.status_code == 200, archive.text
         await delete_agent(e2e_client, e2e_headers, slug)

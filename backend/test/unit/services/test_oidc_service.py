@@ -1,103 +1,77 @@
-from __future__ import annotations
-
-import os
-from urllib.parse import unquote
+"""OIDC 配置的生产边界；签名与状态在真实协议 integration 中验证。"""
 
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-os.environ.setdefault("OPENAI_API_KEY", "dummy")
-
-from yuxi.services import oidc_service
-from yuxi.storage.postgres.models_business import User
+from yuxi.modules.identity.oidc import OIDCConfig
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com",
+        "https://user:pass@example.com",
+        "https://example.com/#token",
+        "javascript:alert(1)",
+        "https://example.com/\nheader",
+    ],
+)
+def test_production_urls_reject_plaintext_credentials_and_ambiguous_urls(monkeypatch, url):
+    """生产信任根和发现端点不得携带明文、凭据或歧义控制字符。"""
+    monkeypatch.setenv("YUXI_ENV", "production")
+    with pytest.raises(ValueError):
+        OIDCConfig.validate_url(url)
 
 
-@pytest_asyncio.fixture
-async def oidc_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(User.__table__.create)
-
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-
-    await engine.dispose()
+def test_development_http_is_explicit_and_disabled_config_needs_no_secrets(monkeypatch):
+    """开发联调允许 HTTP，关闭 OIDC 的部署不需要配置。"""
+    monkeypatch.setenv("YUXI_ENV", "development")
+    OIDCConfig.validate_url("http://localhost:39090/realms/test")
+    monkeypatch.setenv("OIDC_ENABLED", "false")
+    assert not OIDCConfig.from_env().enabled
 
 
-async def _create_user(session, uid: str = "alice") -> User:
-    user = User(username="alice", uid=uid, password_hash="x", role="user", is_deleted=0)
-    session.add(user)
-    await session.commit()
-    await session.refresh(user)
-    return user
-
-
-async def test_find_user_by_oidc_sub_resolves_placeholder_when_sub_contains_colon(oidc_session):
-    user = await _create_user(oidc_session)
-
-    await oidc_service._create_oidc_binding_placeholder(oidc_session, "tenant:user", user)
-
-    resolved = await oidc_service.find_user_by_oidc_sub(oidc_session, "tenant:user")
-
-    assert resolved is not None
-    assert resolved.id == user.id
-    assert resolved.uid == user.uid
-    assert resolved.is_deleted == 0
-
-
-async def test_find_deleted_oidc_user_by_sub_resolves_deleted_target_when_sub_contains_colon(oidc_session):
-    user = await _create_user(oidc_session)
-    user.is_deleted = 1
-    await oidc_session.commit()
-
-    await oidc_service._create_oidc_binding_placeholder(oidc_session, "tenant:user", user)
-
-    resolved = await oidc_service.find_deleted_oidc_user_by_sub(oidc_session, "tenant:user")
-
-    assert resolved is not None
-    assert resolved.id == user.id
-    assert resolved.uid == user.uid
-    assert resolved.is_deleted == 1
-
-
-async def test_oidc_callback_allows_existing_binding_when_sub_contains_colon(oidc_session, monkeypatch):
-    user = await _create_user(oidc_session)
-    await oidc_service._create_oidc_binding_placeholder(oidc_session, "tenant:user", user)
-
-    monkeypatch.setattr(oidc_service.oidc_config, "enabled", True)
-    monkeypatch.setattr(oidc_service.oidc_config, "client_id", "cid")
-    monkeypatch.setattr(oidc_service.oidc_config, "client_secret", "secret")
-    monkeypatch.setattr(oidc_service.oidc_config, "token_endpoint", "https://example/token")
-    monkeypatch.setattr(oidc_service.oidc_config, "authorization_endpoint", "https://example/auth")
-    monkeypatch.setattr(oidc_service.oidc_config, "userinfo_endpoint", "https://example/userinfo")
-    monkeypatch.setattr(oidc_service.oidc_config, "use_raw_username", True)
-    monkeypatch.setattr(oidc_service.oidc_config, "auto_create_user", False)
-
-    monkeypatch.setattr(
-        oidc_service.OIDCUtils,
-        "verify_state",
-        classmethod(lambda cls, state: {"redirect_path": "/"}),
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"issuer_url": ""},
+        {"redirect_uri": "https://yuxi.example/auth/callback"},
+        {"scopes": "profile"},
+        {"issuer_url": "https://idp.example?tenant=other"},
+    ],
+)
+def test_incomplete_login_configuration_fails(overrides):
+    """启用后必须具备完整信任根、准确回调与 openid scope。"""
+    config = OIDCConfig(
+        **(
+            {
+                "enabled": True,
+                "issuer_url": "https://idp.example",
+                "client_id": "fixture",
+                "client_secret": "secret",
+                "redirect_uri": "https://yuxi.example/api/auth/oidc/callback",
+            }
+            | overrides
+        )
     )
+    with pytest.raises(ValueError):
+        config.validate_configuration()
 
-    async def fake_exchange(cls, code):
-        return {"access_token": "token"}
 
-    async def fake_userinfo(cls, access_token):
-        return {"sub": "tenant:user", "preferred_username": "alice"}
+def test_automatic_username_binding_is_not_a_configuration_bypass(monkeypatch):
+    """旧同名关联开关明确拒绝，不能静默保留不安全分支。"""
+    monkeypatch.setenv("OIDC_ENABLED", "true")
+    monkeypatch.setenv("OIDC_USE_RAW_USERNAME", "true")
+    with pytest.raises(ValueError, match="已退役"):
+        OIDCConfig.from_env()
 
-    async def fake_log_operation(db, user_id, operation, request=None):
-        return None
 
-    monkeypatch.setattr(oidc_service.OIDCUtils, "exchange_code_for_token", classmethod(fake_exchange))
-    monkeypatch.setattr(oidc_service.OIDCUtils, "get_userinfo", classmethod(fake_userinfo))
-    monkeypatch.setattr(oidc_service, "log_operation", fake_log_operation)
+def test_oidc_configuration_is_read_at_consumer_boundary(monkeypatch):
+    """模块导入后的配置读取仍校验当前环境，不沿用旧单例。"""
+    from yuxi.modules.identity.oidc import get_oidc_config
 
-    response = await oidc_service.oidc_callback_handler("dummy-code", "dummy-state", oidc_session)
-
-    assert response.status_code == 302
-    assert unquote(response.headers["location"]).startswith("/auth/oidc/callback?code=")
+    monkeypatch.setenv("OIDC_ENABLED", "false")
+    assert get_oidc_config().enabled is False
+    monkeypatch.setenv("OIDC_ENABLED", "true")
+    monkeypatch.setenv("OIDC_ISSUER_URL", "")
+    with pytest.raises(ValueError, match="完整"):
+        get_oidc_config()

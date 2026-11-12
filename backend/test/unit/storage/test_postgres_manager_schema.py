@@ -1,378 +1,68 @@
-from __future__ import annotations
+"""当前业务与知识 Schema 的只读契约。"""
 
-from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.storage.postgres.manager import (
-    BUSINESS_SCHEMA_VERSION,
-    KNOWLEDGE_SCHEMA_VERSION,
-    BusinessBase,
-    KnowledgeBase,
-    PostgresManager,
-)
-from yuxi.storage.postgres.models_business import AgentRun
+from yuxi.infrastructure.postgres.models import load_models
+from yuxi.infrastructure.postgres.base import BusinessBase, KnowledgeBase
+from yuxi.infrastructure.postgres import schema as schema_versions
+from yuxi.modules.agents.models.runs import AgentRun
 
 
 def test_business_and_knowledge_metadata_are_disjoint():
-    """业务与知识域 metadata 保持独立，迁移器分别创建两个域。"""
+    """Schema 初始化分别创建业务与知识域 metadata。"""
+    load_models()
 
     assert BusinessBase is not KnowledgeBase
-    assert "users" in BusinessBase.metadata.tables
+    assert {"users", "projects", "agent_runs"} <= set(BusinessBase.metadata.tables)
+    assert {"knowledge_bases", "evaluation_runs"} <= set(KnowledgeBase.metadata.tables)
     assert "knowledge_bases" not in BusinessBase.metadata.tables
-    assert "evaluation_runs" not in BusinessBase.metadata.tables
-    assert "knowledge_bases" in KnowledgeBase.metadata.tables
-    assert "evaluation_runs" in KnowledgeBase.metadata.tables
     assert "users" not in KnowledgeBase.metadata.tables
 
 
-def test_parent_child_tables_and_active_version_index_are_in_fresh_schema():
-    """Fresh schema 必须包含父子块表，并只限制同一文件的 active 版本。"""
-    versions = KnowledgeBase.metadata.tables["knowledge_document_versions"]
-    parents = KnowledgeBase.metadata.tables["knowledge_parent_chunks"]
-    children = KnowledgeBase.metadata.tables["knowledge_child_chunks"]
-
-    assert versions.c.version_id.primary_key is True
-    assert versions.c.processing_params.nullable is False
-    assert "uq_knowledge_document_versions_active_file" in {index.name for index in versions.indexes}
-    assert parents.c.metadata.nullable is False
-    assert children.c.spans.nullable is False
-    assert next(iter(children.c.parent_id.foreign_keys)).target_fullname == "knowledge_parent_chunks.parent_id"
-    assert "knowledge_chunks" in KnowledgeBase.metadata.tables
-
-
-@pytest.mark.asyncio
-async def test_require_current_schema_rejects_missing_or_incompatible_domains(monkeypatch):
-    manager = PostgresManager()
-
-    monkeypatch.setattr(manager, "get_schema_versions", lambda: _async_value({}))
-    with pytest.raises(RuntimeError, match=r"business=missing .*knowledge=missing"):
-        await manager.require_current_schema(include_knowledge=True)
-
-    monkeypatch.setattr(manager, "get_schema_versions", lambda: _async_value({"business": 99}))
-    with pytest.raises(RuntimeError, match=r"business=99"):
-        await manager.require_current_schema(include_knowledge=False)
-
-    monkeypatch.setattr(
-        manager,
-        "get_schema_versions",
-        lambda: _async_value({"business": BUSINESS_SCHEMA_VERSION}),
-    )
-    await manager.require_current_schema(include_knowledge=False)
-
-    monkeypatch.setattr(
-        manager,
-        "get_schema_versions",
-        lambda: _async_value({"business": BUSINESS_SCHEMA_VERSION, "knowledge": KNOWLEDGE_SCHEMA_VERSION}),
-    )
-    await manager.require_current_schema(include_knowledge=True)
-
-
-async def _async_value(value):
-    return value
-
-
-def test_project_uid_foreign_key_has_schema_convergence_name():
-    """ORM fresh schema 必须与后续收敛 SQL 使用同一 FK 名称。"""
+def test_current_project_and_run_shape_is_declared_in_metadata():
+    """新库建表所需的项目与 Run 字段由业务 ORM 拥有。"""
+    load_models()
     projects = BusinessBase.metadata.tables["projects"]
-
-    assert [constraint.name for constraint in projects.foreign_key_constraints] == ["fk_projects_uid_users"]
-
-
-def test_project_lifecycle_columns_and_constraint_are_in_fresh_schema():
-    """Fresh schema 与升级收敛必须共享 Project 软删除契约。"""
-    projects = BusinessBase.metadata.tables["projects"]
+    runs = BusinessBase.metadata.tables["agent_runs"]
 
     assert projects.c.status.nullable is False
     assert "deleted_at" in projects.c
     assert "ck_projects_status" in {constraint.name for constraint in projects.constraints}
-
-
-def test_agent_run_serialization_does_not_project_removed_redis_cursor():
-    """AgentRun 序列化不再暴露已删除的 Redis 游标字段。"""
-    run = AgentRun(
-        id="run-1",
-        conversation_thread_id="thread-1",
-        runtime_scope_id="thread-1",
-        agent_slug="main",
-        uid="user-1",
-        request_id="request-1",
-        input_payload={},
-    )
-
+    assert "fk_projects_uid_users" in {constraint.name for constraint in projects.foreign_key_constraints}
+    assert {"turn_id", "runtime_scope_id", "execution_seq"} <= set(runs.c.keys())
     assert "last_event_id" not in AgentRun.__table__.c
-    assert "last_event_id" not in run.to_dict()
-
-
-class _RecordingConnection:
-    def __init__(self):
-        self.statements: list[str] = []
-
-    async def execute(self, statement, params=None):
-        self.statements.append(str(statement))
-
-
-class _RecordingBegin:
-    def __init__(self, connection: _RecordingConnection):
-        self.connection = connection
-
-    async def __aenter__(self):
-        return self.connection
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-
-class _RecordingEngine:
-    def __init__(self, connection: _RecordingConnection):
-        self.connection = connection
-
-    def begin(self):
-        return _RecordingBegin(self.connection)
-
-
-@asynccontextmanager
-async def _recording_manager():
-    manager = PostgresManager()
-    original_initialized = manager._initialized
-    original_engine = manager.async_engine
-    connection = _RecordingConnection()
-
-    manager._initialized = True
-    manager.async_engine = _RecordingEngine(connection)
-    try:
-        yield manager, connection
-    finally:
-        manager._initialized = original_initialized
-        manager.async_engine = original_engine
 
 
 @pytest.mark.asyncio
-async def test_ensure_business_schema_backfills_subagent_thread_columns_before_dropping_legacy_columns():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
+async def test_runtime_rejects_missing_or_incompatible_schema_versions(monkeypatch):
+    """运行进程只接受两个域均精确匹配当前版本。"""
+    versions = AsyncMock(return_value={})
+    monkeypatch.setattr(schema_versions, "get_schema_versions", versions)
+    manager = object()
 
-    statements = "\n".join(connection.statements)
+    with pytest.raises(RuntimeError, match=r"business=missing .*knowledge=missing"):
+        await schema_versions.require_current_schema(manager)
 
-    assert "SET agent_slug = agent_id" in statements
-    assert "SET conversation_thread_id = thread_id" in statements
-    assert "SET created_by_run_id = COALESCE(parent_agent_run_id, parent_run_id)" in statements
-    assert "SET subagent_slug = c.agent_id" in statements
-    assert "SET created_by_run_id = created_by_parent_run_id::VARCHAR" in statements
-    assert "ALTER COLUMN subagent_slug SET NOT NULL" in statements
-    assert "ALTER COLUMN created_by_run_id SET NOT NULL" in statements
-    assert statements.index("SET agent_slug = agent_id") < statements.index("DROP COLUMN IF EXISTS agent_id")
-    assert statements.index("SET conversation_thread_id = thread_id") < statements.index(
-        "DROP COLUMN IF EXISTS thread_id"
-    )
-    assert statements.index("COALESCE(parent_agent_run_id, parent_run_id)") < statements.index(
-        "DROP COLUMN IF EXISTS parent_agent_run_id"
-    )
-    assert statements.index("created_by_parent_run_id") < statements.index(
-        "DROP COLUMN IF EXISTS created_by_parent_run_id"
-    )
-    assert "ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'" in statements
-    assert "ADD COLUMN IF NOT EXISTS deleted_at" in statements
-    assert "ADD CONSTRAINT ck_projects_status" in statements
+    versions.return_value = {"business": 99, "knowledge": schema_versions.KNOWLEDGE_SCHEMA_VERSION}
+    with pytest.raises(RuntimeError, match="business=99"):
+        await schema_versions.require_current_schema(manager)
+
+    versions.return_value = {
+        "business": schema_versions.BUSINESS_SCHEMA_VERSION,
+        "knowledge": schema_versions.KNOWLEDGE_SCHEMA_VERSION,
+    }
+    await schema_versions.require_current_schema(manager)
 
 
-@pytest.mark.asyncio
-async def test_release_upgrade_converges_run_timing_and_removes_cursor():
-    """发布版升级使用同一套完整 DDL，包含全部模型前时间且删除旧游标。"""
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    for column in ("prepared_at", "first_output_at", "first_model_request_at"):
-        assert (
-            f"ALTER TABLE IF EXISTS agent_runs ADD COLUMN IF NOT EXISTS {column} TIMESTAMP WITHOUT TIME ZONE"
-            in connection.statements
-        )
-    assert "ALTER TABLE IF EXISTS agent_runs DROP COLUMN IF EXISTS last_event_id" in connection.statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_cleans_duplicate_active_agent_runs_before_unique_index():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-
-    assert "WITH duplicated_active_runs AS" in statements
-    assert "active_run_migration_conflict" in statements
-    assert "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_runs_one_active_per_thread" in statements
-    assert statements.index("WITH duplicated_active_runs AS") < statements.index(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_runs_one_active_per_thread"
-    )
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_backfills_unviewed_marker_for_no_run_threads():
-    """没有 chat/resume Run 的历史会话要写入未读哨兵，确保回填探测条件收敛为 false。"""
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-
-    assert "SELECT EXISTS (SELECT 1 FROM conversations WHERE last_viewed_run_id IS NULL)" in statements
-    assert "SET last_viewed_run_id = r.run_id" in statements
-    assert "SET last_viewed_run_id = :marker WHERE last_viewed_run_id IS NULL" in statements
-    assert statements.index("SET last_viewed_run_id = r.run_id") < statements.index(
-        "SET last_viewed_run_id = :marker WHERE last_viewed_run_id IS NULL"
-    )
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_creates_user_config_table():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-
-    assert "CREATE TABLE IF NOT EXISTS user_config" in statements
-    assert "enable_memory BOOLEAN NOT NULL DEFAULT FALSE" in statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_creates_generic_config_options_table():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-
-    assert "CREATE TABLE IF NOT EXISTS config_options" in statements
-    assert "params JSONB NOT NULL" in statements
-    assert "value JSONB NOT NULL" in statements
-    assert "CREATE UNIQUE INDEX IF NOT EXISTS ix_config_options_key" in statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_adds_run_origin_snapshot_columns():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-    assert "agent_runs ADD COLUMN IF NOT EXISTS source VARCHAR(32)" in statements
-    assert "agent_runs ADD COLUMN IF NOT EXISTS channel VARCHAR(32)" in statements
-    assert "agent_runs ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)" in statements
-    assert "agent_runs ADD COLUMN IF NOT EXISTS origin_metadata JSONB" in statements
-    assert "agent_run_requests ADD COLUMN IF NOT EXISTS channel VARCHAR(32)" in statements
-    assert "agent_run_requests ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)" in statements
-    assert "agent_run_requests ADD COLUMN IF NOT EXISTS origin_metadata JSONB" in statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_adds_idempotent_agent_run_lease_columns_and_index():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-    assert "agent_runs ADD COLUMN IF NOT EXISTS worker_id VARCHAR(128)" in statements
-    assert "agent_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP WITHOUT TIME ZONE" in statements
-    assert "agent_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP WITHOUT TIME ZONE" in statements
-    assert "CREATE INDEX IF NOT EXISTS ix_agent_runs_status_lease_expires" in statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_adds_nonterminal_run_shape_constraint_without_scanning_history():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-    assert "ck_agent_runs_nonterminal_shape" in statements
-    assert "run_type = 'resume'" in statements
-    assert "run_type = 'subagent'" in statements
-    assert "NOT VALID" in statements
-    assert "EXCEPTION WHEN duplicate_object" in statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_business_schema_removes_unbound_api_keys_before_requiring_user_id():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-
-    statements = "\n".join(connection.statements)
-
-    assert "UPDATE cli_auth_sessions" in statements
-    assert "DELETE FROM api_keys WHERE user_id IS NULL" in statements
-    assert "ALTER TABLE IF EXISTS api_keys ALTER COLUMN user_id SET NOT NULL" in statements
-    assert statements.index("UPDATE cli_auth_sessions") < statements.index("DELETE FROM api_keys WHERE user_id IS NULL")
-    assert statements.index("DELETE FROM api_keys WHERE user_id IS NULL") < statements.index(
-        "ALTER TABLE IF EXISTS api_keys ALTER COLUMN user_id SET NOT NULL"
-    )
-    assert "ALTER TABLE IF EXISTS api_keys ADD COLUMN IF NOT EXISTS request_id VARCHAR(64)" in statements
-    assert "ALTER TABLE IF EXISTS api_keys ADD COLUMN IF NOT EXISTS intent_hash VARCHAR(64)" in statements
-    assert (
-        "ALTER TABLE IF EXISTS api_keys ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMP WITHOUT TIME ZONE" in statements
-    )
-    assert "users.is_deleted <> 0" in statements
-    assert "COALESCE(api_key.revoked_at, users.deleted_at, CURRENT_TIMESTAMP)" in statements
-    assert statements.index("ADD COLUMN IF NOT EXISTS revoked_at") < statements.index("users.is_deleted <> 0")
-    assert statements.index("users.is_deleted <> 0") < statements.index(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ix_api_keys_request_id"
-    )
-    assert "CREATE UNIQUE INDEX IF NOT EXISTS ix_api_keys_request_id" in statements
-    assert "CREATE INDEX IF NOT EXISTS ix_api_keys_revoked_at" in statements
-
-
-@pytest.mark.asyncio
-async def test_share_config_migration_wraps_legacy_scopes_as_read_only():
-    """Agent/skill 迁移只把旧 scope 写入 read_scope，manage_scope 置空，避免把历史只读/使用权限追溯升级为 MANAGE。"""
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_business_schema()
-        await manager.ensure_knowledge_schema()
-
-    statements = "\n".join(connection.statements)
-    assert "UPDATE agents SET share_config = jsonb_build_object" in statements
-    assert "UPDATE skills SET share_config = jsonb_build_object" in statements
-    assert "UPDATE knowledge_bases SET share_config = jsonb_build_object" in statements
-    assert "'read_scope'" in statements
-    assert "'manage_scope', NULL" in statements
-    assert "ALTER TABLE IF EXISTS agents ALTER COLUMN share_config TYPE JSONB USING share_config::jsonb" in statements
-    assert "ALTER TABLE IF EXISTS skills ALTER COLUMN share_config TYPE JSONB USING share_config::jsonb" in statements
-    assert statements.index(
-        "ALTER TABLE IF EXISTS agents ALTER COLUMN share_config TYPE JSONB USING share_config::jsonb"
-    ) < statements.index("UPDATE agents SET share_config = jsonb_build_object")
-    assert statements.index(
-        "ALTER TABLE IF EXISTS skills ALTER COLUMN share_config TYPE JSONB USING share_config::jsonb"
-    ) < statements.index("UPDATE skills SET share_config = jsonb_build_object")
-    assert "ALTER TABLE IF EXISTS agents ALTER COLUMN share_config DROP DEFAULT" in statements
-    assert "ALTER TABLE IF EXISTS skills ALTER COLUMN share_config DROP DEFAULT" in statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_knowledge_schema_rebuilds_vectors_for_incomplete_legacy_chunks():
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_knowledge_schema()
-
-    statements = "\n".join(connection.statements)
-
-    assert (
-        "UPDATE knowledge_chunks SET graph_structure_indexed = TRUE "
-        "WHERE graph_indexed IS TRUE AND graph_structure_indexed IS NOT TRUE"
-    ) in statements
-    assert "mention.entity_id = entity.entity_id AND chunk.graph_indexed IS NOT TRUE" in statements
-    assert "mention.triple_id = triple.triple_id AND chunk.graph_indexed IS NOT TRUE" in statements
-    assert "THEN 'pending' ELSE 'indexed'" in statements
-
-
-@pytest.mark.asyncio
-async def test_ensure_knowledge_schema_creates_parent_child_tables_before_indexes():
-    """升级 SQL 必须按版本、父块、子块顺序建表，再创建 active 与定位索引。"""
-    async with _recording_manager() as (manager, connection):
-        await manager.ensure_knowledge_schema()
-
-    statements = "\n".join(connection.statements)
-    assert "CREATE TABLE IF NOT EXISTS knowledge_document_versions" in statements
-    assert "CREATE TABLE IF NOT EXISTS knowledge_parent_chunks" in statements
-    assert "CREATE TABLE IF NOT EXISTS knowledge_child_chunks" in statements
-    assert "WHERE status = 'active'" in statements
-    assert "ix_knowledge_child_chunks_parent_id" in statements
-    assert statements.index("CREATE TABLE IF NOT EXISTS knowledge_document_versions") < statements.index(
-        "CREATE TABLE IF NOT EXISTS knowledge_parent_chunks"
-    )
-    assert statements.index("CREATE TABLE IF NOT EXISTS knowledge_parent_chunks") < statements.index(
-        "CREATE TABLE IF NOT EXISTS knowledge_child_chunks"
-    )
-    assert statements.index("CREATE TABLE IF NOT EXISTS knowledge_child_chunks") < statements.index(
-        "uq_knowledge_document_versions_active_file"
-    )
+def test_ownership_columns_can_store_enterprise_identity_without_truncation():
+    """所有 UID 与归属快照列须容纳真实 OIDC 身份及外部用户标识。"""
+    load_models()
+    required = max(len("oidc:" + "a" * 64), len("endusr_" + "a" * 64))
+    for base in (BusinessBase, KnowledgeBase):
+        for table in base.metadata.tables.values():
+            for column in table.columns:
+                if column.name in {"uid", "created_by", "updated_by"}:
+                    length = getattr(column.type, "length", None)
+                    assert length is None or length >= required, f"{table.name}.{column.name} truncates generated identity"

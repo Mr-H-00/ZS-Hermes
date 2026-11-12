@@ -11,30 +11,12 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.agents.skills import service as skill_service
-from yuxi.storage.postgres.models_business import Skill
-from test.live_api_cleanup import make_test_conversation_metadata, make_test_conversation_title
+from test.integration.api.helpers import create_default_agent_thread
+from yuxi.modules.extensions.skills import shared as skill_service
+from yuxi.modules.extensions.skills import projection as projection_service
+from yuxi.modules.extensions.skills.models import Skill
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
-
-
-async def _create_thread(test_client, headers: dict[str, str], title: str) -> str:
-    agent_response = await test_client.get("/api/agent/default", headers=headers)
-    assert agent_response.status_code == 200, agent_response.text
-    agent = agent_response.json()["agent"]
-    agent_id = agent.get("slug") or agent.get("agent_id") or agent.get("id")
-    assert agent_id
-    response = await test_client.post(
-        "/api/chat/thread",
-        json={
-            "agent_id": agent_id,
-            "title": make_test_conversation_title(title),
-            "metadata": make_test_conversation_metadata("skill-artifact"),
-        },
-        headers=headers,
-    )
-    assert response.status_code == 200, response.text
-    return response.json().get("thread_id") or response.json()["id"]
 
 
 async def test_skill_artifact_rechecks_authorization_after_share_revoke(
@@ -58,7 +40,7 @@ async def test_skill_artifact_rechecks_authorization_after_share_revoke(
     engine = create_async_engine(os.environ["POSTGRES_URL"], pool_pre_ping=True)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     skill_id: int | None = None
-    projection_paths = [skill_service.get_user_skills_root_dir(uid) / slug for uid in (admin_uid, user_uid)]
+    projection_paths = [projection_service.get_user_skills_root_dir(uid) / slug for uid in (admin_uid, user_uid)]
     try:
         async with session_factory() as db:
             skill = Skill(
@@ -87,13 +69,17 @@ async def test_skill_artifact_rechecks_authorization_after_share_revoke(
             skill_id = skill.id
 
         for uid in (admin_uid, user_uid):
-            skill_service.sync_user_accessible_skills(uid, {slug: source_dir})
+            projection_service.sync_user_accessible_skills(uid, {slug: source_dir})
 
-        admin_thread = await _create_thread(test_client, admin_headers, f"skill-artifact-admin-{suffix[:8]}")
-        user_thread = await _create_thread(test_client, user_headers, f"skill-artifact-user-{suffix[:8]}")
-        artifact_path = f"home/gem/skills/{slug}/SKILL.md"
-        admin_url = f"/api/chat/thread/{admin_thread}/artifacts/{artifact_path}"
-        user_url = f"/api/chat/thread/{user_thread}/artifacts/{artifact_path}"
+        admin_thread = await create_default_agent_thread(
+            test_client, admin_headers, title_prefix=f"skill-artifact-admin-{suffix[:8]}"
+        )
+        user_thread = await create_default_agent_thread(
+            test_client, user_headers, title_prefix=f"skill-artifact-user-{suffix[:8]}"
+        )
+        artifact_path = f"home/user/skills/{slug}/SKILL.md"
+        admin_url = f"/api/v1/agents/sessions/{admin_thread}/artifacts/{artifact_path}"
+        user_url = f"/api/v1/agents/sessions/{user_thread}/artifacts/{artifact_path}"
 
         admin_before = await test_client.get(admin_url, headers=admin_headers)
         user_before = await test_client.get(user_url, headers=user_headers)

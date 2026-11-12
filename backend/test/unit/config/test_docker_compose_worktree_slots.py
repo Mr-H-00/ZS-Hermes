@@ -1,60 +1,42 @@
 from copy import deepcopy
 import os
-from pathlib import Path
+import shlex
+import subprocess
 
 import pytest
-import yaml
+
+from test.unit.config._shared import load_compose, project_root
 
 
 STATE_ROOT = "${YUXI_STATE_DIR:-./docker/volumes}"
 IMAGE_PREFIX = "${COMPOSE_PROJECT_NAME:-yuxi}"
 PORT_MARKERS = {
     "api": {"${YUXI_API_PORT:-5050}:5050"},
-    "web": {"${YUXI_WEB_PORT:-5173}:5173"},
-    "sandbox-provisioner": {"127.0.0.1:${YUXI_SANDBOX_PORT:-8002}:8002"},
+    "frontend": {"${YUXI_FRONTEND_PORT:-5173}:5173"},
     "graph": {
         "127.0.0.1:${YUXI_NEO4J_HTTP_PORT:-7474}:7474",
         "127.0.0.1:${YUXI_NEO4J_BOLT_PORT:-7687}:7687",
     },
     "minio": {
-        "127.0.0.1:${YUXI_MINIO_API_PORT:-19000}:9000",
-        "127.0.0.1:${YUXI_MINIO_CONSOLE_PORT:-19001}:9001",
+        "127.0.0.1:${YUXI_MINIO_API_PORT:-9000}:9000",
+        "127.0.0.1:${YUXI_MINIO_CONSOLE_PORT:-9001}:9001",
     },
     "milvus": {
         "127.0.0.1:${YUXI_MILVUS_PORT:-19530}:19530",
         "127.0.0.1:${YUXI_MILVUS_HEALTH_PORT:-9091}:9091",
     },
     "postgres": {"127.0.0.1:${YUXI_POSTGRES_PORT:-5432}:5432"},
-    "redis": {"127.0.0.1:${YUXI_REDIS_PORT:-16379}:6379"},
+    "redis": {"127.0.0.1:${YUXI_REDIS_PORT:-6379}:6379"},
     "mineru-api": {"127.0.0.1:${YUXI_MINERU_PORT:-30001}:30001"},
-    "paddlex": {"127.0.0.1:${YUXI_PADDLEX_PORT:-8080}:8080"},
 }
 LOCAL_IMAGE_SUFFIXES = {
+    "storage-init": "-storage-init:",
     "api": "-api:",
     "worker": "-api:",
-    "storage-migrator": "-api:",
-    "sandbox-provisioner": "-sandbox-provisioner:",
-    "web": "-web:",
+    "app-init": "-api:",
+    "frontend": "-frontend:",
     "mineru-api": "-mineru:",
-    "paddlex": "-paddlex:",
 }
-
-
-def _project_root() -> Path:
-    """定位包含 Compose 文件的仓库根目录。"""
-    configured = os.environ.get("YUXI_PROJECT_ROOT")
-    if configured:
-        return Path(configured)
-
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "docker-compose.yml").exists():
-            return parent
-    pytest.skip("当前测试环境未挂载仓库根目录")
-
-
-def _load_compose(filename: str = "docker-compose.yml") -> dict:
-    """读取未插值的 Compose 契约。"""
-    return yaml.safe_load((_project_root() / filename).read_text())
 
 
 def _slot_isolation_violations(compose: dict) -> set[str]:
@@ -86,20 +68,12 @@ def _slot_isolation_violations(compose: dict) -> set[str]:
         if not image.startswith(f"{IMAGE_PREFIX}{suffix}"):
             violations.add(f"image:{service_name}")
 
-    provisioner_env = set(services["sandbox-provisioner"]["environment"])
-    expected_prefix = "${SANDBOX_DOCKER_NETWORK_PREFIX:-${COMPOSE_PROJECT_NAME:-yuxi}-sandbox}"
-    if f"DOCKER_NETWORK_PREFIX={expected_prefix}" not in provisioner_env:
-        violations.add("sandbox:network-prefix")
-    expected_container = "${SANDBOX_DOCKER_SANDBOX_PREFIX:-${COMPOSE_PROJECT_NAME:-yuxi}-sandbox}"
-    if f"DOCKER_SANDBOX_PREFIX={expected_container}" not in provisioner_env:
-        violations.add("sandbox:container-prefix")
-
     return violations
 
 
 def test_development_compose_is_parameterized_for_parallel_worktree_slots() -> None:
     """开发 Compose 的宿主资源必须由项目名、状态根和端口共同隔离。"""
-    compose = _load_compose()
+    compose = load_compose()
 
     assert _slot_isolation_violations(compose) == set()
 
@@ -118,7 +92,7 @@ def test_development_compose_is_parameterized_for_parallel_worktree_slots() -> N
 
 def test_slot_isolation_guard_rejects_fixed_host_resources() -> None:
     """负控证明固定容器、网络、端口、镜像或状态路径会被拒绝。"""
-    compose = deepcopy(_load_compose())
+    compose = deepcopy(load_compose())
     compose["services"]["api"]["container_name"] = "api-dev"
     compose["services"]["api"]["ports"] = ["5050:5050"]
     compose["services"]["api"]["image"] = "yuxi-api:latest"
@@ -134,18 +108,68 @@ def test_slot_isolation_guard_rejects_fixed_host_resources() -> None:
     } <= _slot_isolation_violations(compose)
 
 
-def test_production_compose_keeps_existing_deployment_image_identity() -> None:
-    """开发槽位参数化不得改变生产 Compose 的镜像身份。"""
-    compose = _load_compose("docker-compose.prod.yml")
+def test_production_compose_scopes_images_by_project_with_legacy_default() -> None:
+    """生产镜像按项目隔离，未配置项目名时仍使用 yuxi 前缀。"""
+    compose = load_compose("docker-compose.prod.yml")
 
-    assert compose["services"]["api"]["image"].startswith("yuxi-api:${YUXI_VERSION:-")
-    assert compose["services"]["web"]["image"].startswith("yuxi-web:${YUXI_VERSION:-")
-    assert "COMPOSE_PROJECT_NAME" not in compose["services"]["api"]["image"]
+    assert compose["services"]["api"]["image"].startswith("${COMPOSE_PROJECT_NAME:-yuxi}-api:${YUXI_VERSION:-")
+    assert compose["services"]["frontend"]["image"].startswith("${COMPOSE_PROJECT_NAME:-yuxi}-frontend:${YUXI_VERSION:-")
 
 
-def test_host_test_runner_probes_current_compose_slot() -> None:
-    """测试运行器必须通过 Compose service 探测当前槽位的 readiness。"""
-    source = (_project_root() / "backend/test/run_tests.sh").read_text()
+@pytest.mark.parametrize("base_url,ready", [(None, True), ("http://slot-api:25050", True), ("http://slot-api:25050", False)])
+def test_host_test_runner_probes_current_compose_slot(tmp_path, monkeypatch, base_url, ready) -> None:
+    """真实 shell 入口探测目标槽位，未就绪不能执行任何测试批次。"""
+    commands_file = tmp_path / "commands"
+    docker = tmp_path / "docker"
+    docker.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_ARGS_LOG"\n'
+        'if [ "$5" = curl ]; then exit "$PROBE_EXIT_CODE"; fi\n'
+    )
+    docker.chmod(0o700)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("DOCKER_ARGS_LOG", str(commands_file))
+    monkeypatch.setenv("PROBE_EXIT_CODE", "0" if ready else "7")
+    if base_url:
+        monkeypatch.setenv("TEST_BASE_URL", base_url)
+    else:
+        monkeypatch.delenv("TEST_BASE_URL", raising=False)
 
-    assert "docker compose exec -T api curl -fsS http://localhost:5050/api/system/ready" in source
-    assert "docker compose exec -T api curl -fsS http://localhost:5050/api/system/health" not in source
+    result = subprocess.run(["bash", str(project_root() / "backend/test/run_tests.sh"), "integration"], capture_output=True, text=True)
+
+    commands = [shlex.split(line) for line in commands_file.read_text().splitlines()]
+    assert commands[0] == ["compose", "exec", "-T", "api", "curl", "-fsS", f"{base_url or 'http://localhost:5050'}/api/system/ready"]
+    assert len([command for command in commands if "pytest" in command]) == (2 if ready else 0)
+    for command in commands:
+        if "pytest" in command:
+            assert command[command.index("uv"):command.index("pytest") + 1] == ["uv", "run", "--no-sync", "--no-dev", "pytest"]
+    assert result.returncode == (0 if ready else 1)
+
+
+@pytest.mark.parametrize("pytest_exit", [0, 23])
+def test_cube_worker_runner_uses_installed_dependencies_and_restores_worker(tmp_path, monkeypatch, pytest_exit):
+    """真实 shell 入口不重装只读项目，失败仍恢复被暂停的 worker。"""
+    commands_file = tmp_path / "commands"
+    docker = tmp_path / "docker"
+    docker.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_ARGS_LOG"\n'
+        'case " $* " in *" pytest "*) exit "$PYTEST_EXIT_CODE";; esac\n'
+    )
+    docker.chmod(0o700)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("DOCKER_ARGS_LOG", str(commands_file))
+    monkeypatch.setenv("PYTEST_EXIT_CODE", str(pytest_exit))
+    monkeypatch.setenv("CUBE_TEST_ISOLATED_TOPOLOGY", "1")
+    result = subprocess.run(
+        ["bash", str(project_root() / "scripts/ci/test_cube_worker_recovery.sh")], capture_output=True, text=True,
+    )
+    commands = [shlex.split(line) for line in commands_file.read_text().splitlines()]
+    [command] = [command for command in commands if "pytest" in command]
+    assert command[command.index("uv"):command.index("pytest") + 1] == ["uv", "run", "--no-sync", "--no-dev", "pytest"]
+    assert commands[-1] == ["compose", "unpause", "worker"]
+    assert result.returncode == pytest_exit
+
+
+def test_production_api_only_publishes_on_loopback() -> None:
+    """生产 API 经 Web 代理接入，宿主默认只允许回环直连。"""
+    compose = load_compose("docker-compose.prod.yml")
+    assert compose["services"]["api"]["ports"] == ["127.0.0.1:${YUXI_API_PORT:-6050}:5050"]

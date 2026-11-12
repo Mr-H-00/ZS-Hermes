@@ -17,15 +17,19 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from server.routers.cloud_drive_router import cloud_drive
-from server.utils.auth_middleware import get_db
-from yuxi.services.cloud_drive_service import CloudDriveService
-from yuxi.services.wps_development_tunnel import wps_development_tunnel
-from yuxi.storage.postgres.models_business import Base, Department, User, WPSCloudConfig, WPSConnection
-from yuxi.utils.auth_utils import AuthUtils
-from yuxi.utils.datetime_utils import utc_now_naive
+from yuxi.api.dependencies.auth import get_db
+from yuxi.api.errors import domain_error_handler
+from yuxi.api.routers.identity.cloud_drive_router import cloud_drive
+from yuxi.infrastructure.postgres.base import BusinessBase as Base
+from yuxi.infrastructure.postgres.models import load_models
+from yuxi.modules.identity.models import Department, RevokedAccessToken, User, WPSCloudConfig, WPSConnection
+from yuxi.modules.identity.security import AuthUtils
+from yuxi.modules.identity.services.cloud_drive_service import CloudDriveService
+from yuxi.modules.identity.services.wps_development_tunnel import wps_development_tunnel
+from yuxi.shared.datetime import utc_now
+from yuxi.shared.errors import DomainError
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 BASE_URL = "/api/cloud-drive/wps"
 CONFIG = {
     "enabled": True,
@@ -33,26 +37,6 @@ CONFIG = {
     "app_secret": "example-app-secret",
     "redirect_uri": "https://example.com/auth/wps/callback",
 }
-
-
-# 隔离 Schema 测试不访问共享 API，不需要其启动预检。
-@pytest.fixture(scope="session", autouse=True)
-def ensure_live_api_schema():
-    """使用本文件的独立 HTTP 实例。"""
-
-
-# 此测试没有创建共享知识资源，无需执行全局清理。
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_test_knowledge_resources():
-    """知识资源清理由其 owning 测试执行。"""
-    yield
-
-
-# 此测试没有沙盒副作用，无需执行全局清理。
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_test_sandboxes():
-    """不触碰其他测试的 Sandbox。"""
-    yield
 
 
 class WPSReplay:
@@ -118,11 +102,7 @@ class WPSReplay:
                 200,
                 json={
                     "code": 0,
-                    "data": {
-                        "items": [
-                            {"file": {"id": "file-a", "name": "example.docx", "drive_id": "drive-a", "type": "file"}}
-                        ]
-                    },
+                    "data": {"items": [{"file": {"id": "file-a", "name": "example.docx", "drive_id": "drive-a", "type": "file"}}]},
                 },
             )
         if request.url.path.endswith("/children"):
@@ -151,6 +131,7 @@ class WPSReplay:
 @pytest_asyncio.fixture
 async def cloud_env(monkeypatch, tmp_path):
     """测试结束销毁自身 Schema，不改动共享 WPS 配置和用户。"""
+    load_models()
     schema = f"pytest_wps_{uuid.uuid4().hex[:16]}"
     config_file = tmp_path / "config.yml"
     credentials_file = tmp_path / "zs-dev.json"
@@ -158,6 +139,9 @@ async def cloud_env(monkeypatch, tmp_path):
     credentials_file.write_text("{}\n", encoding="utf-8")
     monkeypatch.setenv("YUXI_ENV", "development")
     monkeypatch.setenv("RUNNING_IN_DOCKER", "true")
+    monkeypatch.setenv("API_KEY_DERIVATION_SECRET", "wps-integration-test-derivation-key-at-least-32-characters")
+    monkeypatch.setenv("JWT_SECRET_KEY", "wps-integration-test-jwt-key-at-least-32-characters")
+    monkeypatch.setenv("YUXI_INSTANCE_ID", "wps-integration-test")
     monkeypatch.setenv("WPS_DEVELOPMENT_TUNNEL_CONFIG", str(config_file))
     monkeypatch.setenv("WPS_DEVELOPMENT_TUNNEL_CREDENTIALS", str(credentials_file))
     admin_engine = create_async_engine(os.environ["POSTGRES_URL"])
@@ -168,7 +152,14 @@ async def cloud_env(monkeypatch, tmp_path):
     async with engine.begin() as connection:
         await connection.run_sync(
             lambda conn: Base.metadata.create_all(
-                conn, tables=[Department.__table__, User.__table__, WPSCloudConfig.__table__, WPSConnection.__table__]
+                conn,
+                tables=[
+                    Department.__table__,
+                    User.__table__,
+                    RevokedAccessToken.__table__,
+                    WPSCloudConfig.__table__,
+                    WPSConnection.__table__,
+                ],
             )
         )
     async with factory() as db:
@@ -188,7 +179,7 @@ async def cloud_env(monkeypatch, tmp_path):
         db.add_all([*users, WPSCloudConfig(id=1)])
         await db.commit()
         headers = {
-            user.uid: {"Authorization": f"Bearer {AuthUtils.create_access_token({'sub': str(user.id)})}"}
+            user.uid: {"Authorization": f"Bearer {AuthUtils.create_access_token({'sub': str(user.id), 'auth_method': 'password'})}"}
             for user in users
         }
 
@@ -208,9 +199,10 @@ async def cloud_env(monkeypatch, tmp_path):
 
     monkeypatch.setattr(CloudDriveService, "__init__", replay_init)
     app = FastAPI()
+    app.add_exception_handler(DomainError, domain_error_handler)
     app.include_router(cloud_drive, prefix="/api")
     app.dependency_overrides[get_db] = isolated_db
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="critical", lifespan="off")
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error", lifespan="off")
     listener = config.bind_socket()
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve(sockets=[listener]))
@@ -238,7 +230,7 @@ async def cloud_env(monkeypatch, tmp_path):
 async def configure(env):
     """应用配置成功后用户仍未授权。"""
     response = await env["client"].put(f"{BASE_URL}/config", headers=env["headers"]["admin"], json=CONFIG)
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json()["secret_configured"] is True
     return response.json()
 
@@ -246,9 +238,7 @@ async def configure(env):
 # 为指定测试用户发起授权，返回 URL 中的一次性 state。
 async def authorize(env, uid="alice"):
     """state 只保存在 URL 和测试内存，数据库保存哈希。"""
-    response = await env["client"].post(
-        f"{BASE_URL}/authorize", headers={**env["headers"][uid], "Origin": "https://example.com"}
-    )
+    response = await env["client"].post(f"{BASE_URL}/authorize", headers={**env["headers"][uid], "Origin": "https://example.com"})
     assert response.status_code == 200
     url = httpx.URL(response.json()["authorization_url"])
     assert url.host == "openapi.wps.cn"
@@ -269,7 +259,8 @@ async def test_authorization_rejects_local_callback_and_different_browser_origin
         assert response.status_code == 409
         assert "已登记" in response.json()["detail"]
     invalid_save = await env["client"].put(
-        f"{BASE_URL}/config", headers=env["headers"]["admin"],
+        f"{BASE_URL}/config",
+        headers=env["headers"]["admin"],
         json={**CONFIG, "redirect_uri": "http://localhost:5173/auth/wps/callback"},
     )
     assert invalid_save.status_code == 422
@@ -282,9 +273,7 @@ async def test_authorization_rejects_local_callback_and_different_browser_origin
     status = (await env["client"].get(f"{BASE_URL}/connection", headers=env["headers"]["alice"])).json()
     assert status["state"] == "invalid_callback" and status["configured"] is False
     assert status["authorization_origin"] is None
-    response = await env["client"].post(
-        f"{BASE_URL}/authorize", headers={**env["headers"]["alice"], "Origin": "http://localhost:5173"}
-    )
+    response = await env["client"].post(f"{BASE_URL}/authorize", headers={**env["headers"]["alice"], "Origin": "http://localhost:5173"})
     assert response.status_code == 409 and "公网 HTTPS" in response.json()["detail"]
     async with env["db"]() as db:
         assert await db.get(WPSConnection, "alice") is None
@@ -320,9 +309,7 @@ async def test_development_tunnel_callback_is_separate_and_stale_state_fails(clo
         wps_development_tunnel._state = "stopped"
         wps_development_tunnel._public_url = ""
         wps_development_tunnel._nonce = ""
-        response = await env["client"].post(
-            f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state}
-        )
+        response = await env["client"].post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state})
         assert response.status_code == 409
         assert env["replay"].requests == []
     finally:
@@ -333,9 +320,7 @@ async def test_development_tunnel_callback_is_separate_and_stale_state_fails(clo
 async def connect(env, uid="alice"):
     """通过 HTTP 交换和数据库提交确认连接成功。"""
     state = await authorize(env, uid)
-    response = await env["client"].post(
-        f"{BASE_URL}/exchange", headers=env["headers"][uid], json={"code": uid, "state": state}
-    )
+    response = await env["client"].post(f"{BASE_URL}/exchange", headers=env["headers"][uid], json={"code": uid, "state": state})
     assert response.status_code == 200
     assert response.json()["connected"] is True
     return response.json()
@@ -368,13 +353,9 @@ async def test_config_permissions_round_trip_and_secret_recovery(cloud_env):
         config.app_secret_encrypted = "damaged-cipher"
         await db.commit()
     await configure(env)
-    conflicting = await client.put(
-        f"{BASE_URL}/config", headers=headers["admin"], json={**CONFIG, "clear_secret": True}
-    )
+    conflicting = await client.put(f"{BASE_URL}/config", headers=headers["admin"], json={**CONFIG, "clear_secret": True})
     assert conflicting.status_code == 400
-    incomplete = await client.put(
-        f"{BASE_URL}/config", headers=headers["admin"], json={**CONFIG, "app_secret": "", "clear_secret": True}
-    )
+    incomplete = await client.put(f"{BASE_URL}/config", headers=headers["admin"], json={**CONFIG, "app_secret": "", "clear_secret": True})
     assert incomplete.status_code == 400
     response = await client.put(
         f"{BASE_URL}/config",
@@ -398,32 +379,22 @@ async def test_oauth_state_is_user_bound_one_time_and_expiring(cloud_env):
         assert row.access_token_encrypted is None
     client = env["client"]
     for uid, invalid_state in (("bob", state), ("alice", "x" * 32)):
-        response = await client.post(
-            f"{BASE_URL}/exchange", headers=env["headers"][uid], json={"code": "alice", "state": invalid_state}
-        )
+        response = await client.post(f"{BASE_URL}/exchange", headers=env["headers"][uid], json={"code": "alice", "state": invalid_state})
         assert response.status_code == 400
     assert env["replay"].requests == []
     async with env["db"]() as db:
         row = await db.get(WPSConnection, "alice")
-        row.oauth_expires_at = utc_now_naive() - timedelta(seconds=1)
+        row.oauth_expires_at = utc_now() - timedelta(seconds=1)
         await db.commit()
-    response = await client.post(
-        f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state}
-    )
+    response = await client.post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state})
     assert response.status_code == 400
     old_state = await authorize(env)
     new_state = await authorize(env)
-    response = await client.post(
-        f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": old_state}
-    )
+    response = await client.post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": old_state})
     assert response.status_code == 400
-    response = await client.post(
-        f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": new_state}
-    )
+    response = await client.post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": new_state})
     assert response.json()["user"]["id"] == "alice"
-    replay = await client.post(
-        f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": new_state}
-    )
+    replay = await client.post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": new_state})
     assert replay.status_code == 400
     async with env["db"]() as db:
         row = await db.get(WPSConnection, "alice")
@@ -439,13 +410,9 @@ async def test_failed_exchange_never_publishes_connection_or_allows_replay(cloud
     await configure(env)
     state = await authorize(env)
     setattr(env["replay"], failure, True)
-    response = await env["client"].post(
-        f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state}
-    )
+    response = await env["client"].post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state})
     assert response.status_code == 502
-    response = await env["client"].post(
-        f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state}
-    )
+    response = await env["client"].post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state})
     assert response.status_code == 400
     async with env["db"]() as db:
         row = await db.get(WPSConnection, "alice")
@@ -460,9 +427,7 @@ async def test_disconnect_during_exchange_cannot_restore_connection(cloud_env):
     state = await authorize(env)
     env["replay"].token_release = asyncio.Event()
     pending = asyncio.create_task(
-        env["client"].post(
-            f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state}
-        )
+        env["client"].post(f"{BASE_URL}/exchange", headers=env["headers"]["alice"], json={"code": "alice", "state": state})
     )
     await asyncio.wait_for(env["replay"].token_started.wait(), 5)
     response = await env["client"].delete(f"{BASE_URL}/connection", headers=env["headers"]["alice"])
@@ -518,7 +483,7 @@ async def test_refreshed_tokens_survive_following_provider_failure(cloud_env, en
     await connect(env)
     async with env["db"]() as db:
         row = await db.get(WPSConnection, "alice")
-        row.expires_at = utc_now_naive() - timedelta(seconds=1)
+        row.expires_at = utc_now() - timedelta(seconds=1)
         await db.commit()
     env["replay"].user_error = True
     env["replay"].files_error = True
@@ -532,4 +497,4 @@ async def test_refreshed_tokens_survive_following_provider_failure(cloud_env, en
     async with env["db"]() as db:
         row = await db.get(WPSConnection, "alice")
         assert CloudDriveService._decrypt(row.refresh_token_encrypted) == "refresh-rotated"
-        assert row.expires_at > utc_now_naive()
+        assert row.expires_at > utc_now()

@@ -8,12 +8,9 @@ from typing import TypedDict
 from dotenv import load_dotenv
 from sqlalchemy import func, select
 
-
 APP_ROOT = Path(__file__).resolve().parents[1]
-for import_path in (APP_ROOT, APP_ROOT / "package"):
-    import_path_str = str(import_path)
-    if import_path_str not in sys.path:
-        sys.path.insert(0, import_path_str)
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
 
 SUPERADMIN_UID = "zwj"
 SUPERADMIN_NAME = "张文杰"
@@ -47,7 +44,7 @@ def load_project_env() -> None:
 
 
 async def ensure_uninitialized(session) -> None:
-    from yuxi.storage.postgres.models_business import User
+    from yuxi.modules.identity.models import User
 
     user_count = await session.scalar(select(func.count(User.id)))
     if user_count:
@@ -59,15 +56,20 @@ async def ensure_uninitialized(session) -> None:
 
 
 async def seed_initial_users() -> None:
-    from yuxi.utils.auth_utils import AuthUtils
-    from yuxi.storage.postgres.manager import pg_manager
-    from yuxi.storage.postgres.models_business import Department, User
-    from yuxi.utils.datetime_utils import utc_now_naive
+    """注册完整模型并向尚未初始化的当前 Schema 写入种子用户。"""
+    from yuxi.infrastructure.postgres.manager import pg_manager
+    from yuxi.infrastructure.postgres.models import load_models
+    from yuxi.modules.identity.models import Department, User
+    from yuxi.modules.identity.security import AuthUtils
+    from yuxi.shared.datetime import utc_now
 
     try:
+        load_models()
         pg_manager.initialize()
-        await pg_manager.create_business_tables()
-        await pg_manager.ensure_business_schema()
+        # Schema 由 Compose 中的 app-init 独占创建，这里只校验版本后写入种子数据。
+        from yuxi.infrastructure.postgres.schema import require_current_schema
+
+        await require_current_schema(pg_manager)
 
         async with pg_manager.get_async_session_context() as session:
             await ensure_uninitialized(session)
@@ -91,7 +93,7 @@ async def seed_initial_users() -> None:
                     password_hash=AuthUtils.hash_password(SUPERADMIN_PASSWORD),
                     role="superadmin",
                     department_id=departments["dev"].id,
-                    last_login=utc_now_naive(),
+                    last_login=utc_now(),
                 )
             ]
 
@@ -134,10 +136,7 @@ def main() -> int:
         print(f"初始化种子用户失败：{exc}", file=sys.stderr)
         return 1
 
-    print(
-        f"初始化完成：已创建超级管理员 {SUPERADMIN_NAME}（{SUPERADMIN_UID}）、"
-        "3 个部门、6 个部门管理员和 14 个普通用户。"
-    )
+    print(f"初始化完成：已创建超级管理员 {SUPERADMIN_NAME}（{SUPERADMIN_UID}）、3 个部门、6 个部门管理员和 14 个普通用户。")
     print("超级管理员密码：zwj12138")
     print("部门管理员和普通用户默认密码：yuxi123456")
     return 0

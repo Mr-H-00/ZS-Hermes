@@ -5,9 +5,8 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-import yuxi.repositories.knowledge_base_repository as repository_module
-from yuxi.knowledge.config_normalization import normalize_query_params
-from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
+import yuxi.modules.knowledge.repositories.bases as repository_module
+from yuxi.modules.knowledge.repositories.bases import KnowledgeBaseRepository
 
 pytestmark = pytest.mark.unit
 
@@ -60,7 +59,7 @@ def _patch_cache_lock(monkeypatch, events: list[str]):
 
 
 @pytest.mark.asyncio
-async def test_update_invalidates_cache_before_database_commit(monkeypatch):
+async def test_update_invalidates_cache_before_knowledge_base_commit(monkeypatch):
     events = []
     row = SimpleNamespace(kb_id="kb_1", name="Old")
     session = _FakeSession(row, events)
@@ -86,7 +85,7 @@ async def test_update_invalidates_cache_before_database_commit(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cache_invalidation_failure_aborts_before_database_update(monkeypatch):
+async def test_cache_invalidation_failure_aborts_before_knowledge_base_update(monkeypatch):
     events = []
     row = SimpleNamespace(kb_id="kb_1", name="Old")
     session = _FakeSession(row, events)
@@ -106,7 +105,7 @@ async def test_cache_invalidation_failure_aborts_before_database_update(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_delete_holds_cache_lock_through_database_commit(monkeypatch):
+async def test_purge_holds_cache_lock_through_knowledge_base_commit(monkeypatch):
     events = []
     row = SimpleNamespace(kb_id="kb_1")
     session = _FakeSession(row, events)
@@ -118,7 +117,7 @@ async def test_delete_holds_cache_lock_through_database_commit(monkeypatch):
 
     monkeypatch.setattr(repository_module, "delete_cached_kb_config", fake_delete_cached)
 
-    await KnowledgeBaseRepository().delete("kb_1")
+    await KnowledgeBaseRepository().purge("kb_1")
 
     assert session.deleted == [row]
     assert events == [
@@ -165,45 +164,7 @@ async def test_merge_query_params_options_preserves_concurrent_partial_updates(m
 
 
 @pytest.mark.asyncio
-async def test_merge_query_params_options_rejects_invalid_final_combination(monkeypatch):
-    """验证最终组合校验发生在行锁内且不会写入非法父子数量。"""
-    row = SimpleNamespace(
-        kb_id="kb_1",
-        query_params={"options": {"top_k_child": 30, "top_k_parent": 10}},
-        additional_params={
-            "embedding_features": {"bge_m3_sparse_enabled": False},
-            "parent_child": {"enabled": True},
-        },
-    )
-    session = _FakeSession(row)
-    _patch_session(monkeypatch, session)
-    _patch_cache_lock(monkeypatch, [])
-
-    async def fake_delete_cached(_kb_id: str) -> None:
-        """隔离本单元测试不关心的 Redis 缓存副作用。"""
-
-    monkeypatch.setattr(repository_module, "delete_cached_kb_config", fake_delete_cached)
-
-    await KnowledgeBaseRepository().merge_query_params_options(
-        "kb_1",
-        {"top_k_child": 15},
-        normalizer=normalize_query_params,
-    )
-
-    with pytest.raises(ValueError, match="top_k_child"):
-        await KnowledgeBaseRepository().merge_query_params_options(
-            "kb_1",
-            {"top_k_parent": 20},
-            normalizer=normalize_query_params,
-        )
-
-    assert row.query_params["options"]["top_k_child"] == 15
-    assert row.query_params["options"]["top_k_parent"] == 10
-
-
-@pytest.mark.asyncio
 async def test_refresh_stats_preserves_concurrent_additional_params(monkeypatch):
-    """验证统计刷新在行锁内聚合且保留并发写入的附加参数。"""
     row = SimpleNamespace(kb_id="kb_1", additional_params={"graph_build_config": {"locked": True}})
     session = _FakeSession(row)
     _patch_session(monkeypatch, session)
@@ -212,7 +173,7 @@ async def test_refresh_stats_preserves_concurrent_additional_params(monkeypatch)
     from unittest.mock import AsyncMock
 
     monkeypatch.setattr(
-        "yuxi.repositories.knowledge_file_repository.KnowledgeFileRepository.query_kb_file_stats",
+        "yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository.query_kb_file_stats",
         AsyncMock(return_value={"file_count": 3}),
     )
     result = await KnowledgeBaseRepository().refresh_stats("kb_1")

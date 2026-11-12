@@ -1,15 +1,20 @@
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
-from server.routers import knowledge_router
-from server.utils.knowledge_response import serialize_knowledge_base
-from yuxi.knowledge.read_models import KnowledgeBaseSummary
+import yuxi.api.dependencies.knowledge as knowledge_permissions
+import yuxi.api.routers.knowledge.evaluation as knowledge_eval_router
+import yuxi.api.routers.knowledge.management as knowledge_router
+from yuxi.api.dependencies.auth import get_required_user
+from yuxi.api.responses.knowledge import serialize_knowledge_base
+from yuxi.modules.knowledge.read_models import KnowledgeBaseSummary
+from yuxi.modules.identity.permissions import ResourcePermission
 
 
 def test_serialize_knowledge_base_redacts_credentials_from_compatibility_fields():
-    database = KnowledgeBaseSummary(
+    knowledge_base = KnowledgeBaseSummary(
         kb_id="kb-1",
         name="知识库",
         description=None,
@@ -23,7 +28,7 @@ def test_serialize_knowledge_base_redacts_credentials_from_compatibility_fields(
         created_at=None,
     )
 
-    response = serialize_knowledge_base(database, redact_secrets=True)
+    response = serialize_knowledge_base(knowledge_base, redact_secrets=True)
 
     assert response["additional_params"]["chunk_size"] == 100
     assert response["metadata"]["chunk_size"] == 100
@@ -34,7 +39,7 @@ def test_serialize_knowledge_base_redacts_credentials_from_compatibility_fields(
 @pytest.mark.parametrize(("uid", "role", "can_read"), [("admin-1", "admin", True), ("other-user", "user", False)])
 @pytest.mark.asyncio
 async def test_non_manager_cannot_manage_global_read_knowledge_base(monkeypatch, uid, role, can_read):
-    database = {
+    knowledge_base = {
         "created_by": "owner",
         "share_config": {
             "version": 2,
@@ -43,10 +48,10 @@ async def test_non_manager_cannot_manage_global_read_knowledge_base(monkeypatch,
         },
     }
 
-    async def fake_get_database_info(_kb_id):
-        return database
+    async def fake_get_knowledge_base_info(_kb_id):
+        return knowledge_base
 
-    monkeypatch.setattr(knowledge_router.knowledge_base, "get_database_info", fake_get_database_info)
+    monkeypatch.setattr(knowledge_router.knowledge_base_manager, "get_knowledge_base_info", fake_get_knowledge_base_info)
     user = SimpleNamespace(uid=uid, role=role, department_id=2)
 
     if can_read:
@@ -59,7 +64,7 @@ async def test_non_manager_cannot_manage_global_read_knowledge_base(monkeypatch,
 
 @pytest.mark.asyncio
 async def test_query_parameter_routes_apply_knowledge_base_acl(monkeypatch):
-    database = {
+    knowledge_base = {
         "created_by": "owner",
         "share_config": {
             "version": 2,
@@ -68,16 +73,75 @@ async def test_query_parameter_routes_apply_knowledge_base_acl(monkeypatch):
         },
     }
 
-    async def fake_get_database_info(_kb_id):
-        return database
+    async def fake_get_knowledge_base_info(_kb_id):
+        return knowledge_base
 
-    monkeypatch.setattr(knowledge_router.knowledge_base, "get_database_info", fake_get_database_info)
+    monkeypatch.setattr(knowledge_router.knowledge_base_manager, "get_knowledge_base_info", fake_get_knowledge_base_info)
     readonly_admin = SimpleNamespace(uid="admin-1", role="admin", department_id=2)
 
     assert await knowledge_router.require_knowledge_base_read("kb-1", readonly_admin) is readonly_admin
 
     with pytest.raises(HTTPException) as exc_info:
-        await knowledge_router.require_knowledge_base_read(
-            "kb-1", SimpleNamespace(uid="admin-2", role="admin", department_id=2)
-        )
+        await knowledge_router.require_knowledge_base_read("kb-1", SimpleNamespace(uid="admin-2", role="admin", department_id=2))
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_dataset_only_manage_route_checks_the_dataset_knowledge_base(monkeypatch):
+    calls = []
+
+    async def fake_get_dataset(_service, _dataset_id):
+        return SimpleNamespace(kb_id="kb-1")
+
+    async def fake_ensure_permission(kb_id, current_user, required):
+        calls.append((kb_id, current_user, required))
+        return {}
+
+    monkeypatch.setattr(knowledge_eval_router.EvaluationService, "get_dataset", fake_get_dataset)
+    monkeypatch.setattr(knowledge_eval_router, "ensure_knowledge_base_permission", fake_ensure_permission)
+    admin = SimpleNamespace(uid="admin-1", role="admin", department_id=1)
+
+    result = await knowledge_eval_router.require_evaluation_dataset_manage("dataset-1", admin)
+
+    assert result is admin
+    assert calls == [("kb-1", admin, ResourcePermission.MANAGE)]
+
+
+@pytest.mark.asyncio
+async def test_dataset_manage_route_rejects_admin_without_manage_permission(monkeypatch):
+    async def fake_get_dataset(_service, _dataset_id):
+        return SimpleNamespace(kb_id="kb-1")
+
+    async def fake_get_knowledge_base_info(_kb_id):
+        return {
+            "created_by": "owner",
+            "share_config": {
+                "version": 2,
+                "read_scope": {"access_level": "global"},
+                "manage_scope": None,
+            },
+        }
+
+    monkeypatch.setattr(knowledge_eval_router.EvaluationService, "get_dataset", fake_get_dataset)
+    monkeypatch.setattr(knowledge_permissions.knowledge_base, "get_knowledge_base_info", fake_get_knowledge_base_info)
+    admin = SimpleNamespace(uid="other-admin", role="admin", department_id=1)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await knowledge_eval_router.require_evaluation_dataset_manage("dataset-1", admin)
+
+    assert exc_info.value.status_code == 403
+
+
+def test_evaluation_routes_require_admin_role():
+    app = FastAPI()
+    app.include_router(knowledge_eval_router.evaluation)
+
+    async def fake_required_user():
+        return SimpleNamespace(uid="user-1", role="user", department_id=1)
+
+    app.dependency_overrides[get_required_user] = fake_required_user
+
+    response = TestClient(app).get("/evaluation/knowledge-bases/kb-1/datasets")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "需要管理员权限"

@@ -4,8 +4,10 @@ allowBuilds:
   esbuild: true
 
 overrides:
+  vue: 3.5.42
+  source-map-js: 1.2.2
   esbuild: 0.28.2
   nanoid: 3.3.18
   postcss: 8.5.26
   vitepress>@vitejs/plugin-vue: 6.0.6
-  vitepress>vite: 7.3.6
+  vitepress>vite: 7.3.7

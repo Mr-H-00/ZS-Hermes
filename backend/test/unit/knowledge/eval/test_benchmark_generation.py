@@ -1,15 +1,12 @@
 import asyncio
-import os
 from types import SimpleNamespace
 
 import pytest
 
 from conftest import FakeGenerationKnowledgeBase, NoQueryKnowledgeBase, TrackingLlm, make_chunk
 
-os.environ.setdefault("OPENAI_API_KEY", "test-key")
-
-from yuxi.knowledge.eval import benchmark_generation
-from yuxi.knowledge.eval.benchmark_generation import (
+from yuxi.modules.knowledge.evaluation import benchmark_generation
+from yuxi.modules.knowledge.evaluation.benchmark_generation import (
     build_benchmark_generation_prompt,
     clamp_neighbors_count,
     collect_kb_chunks,
@@ -19,6 +16,8 @@ from yuxi.knowledge.eval.benchmark_generation import (
     select_neighbor_chunks_by_kb_query,
 )
 
+pytestmark = pytest.mark.usefixtures("fake_chunk_repository")
+
 
 class FakeLlm:
     def __init__(self, gold_chunk_id="anchor_chunk"):
@@ -27,28 +26,11 @@ class FakeLlm:
 
     async def call(self, prompt, stream):
         self.prompts.append(prompt)
-        return SimpleNamespace(
-            content=('{"query":"问题","gold_answer":"答案","gold_chunk_ids":["' + self.gold_chunk_id + '"]}')
-        )
+        return SimpleNamespace(content=('{"query":"问题","gold_answer":"答案","gold_chunk_ids":["' + self.gold_chunk_id + '"]}'))
 
 
 class FakeGraphGenerationKnowledgeBase(FakeGenerationKnowledgeBase):
     pass
-
-
-@pytest.fixture(autouse=True)
-def fake_chunk_repository(monkeypatch):
-    class FakeChunkRepository:
-        chunks = [make_chunk("anchor_chunk")]
-
-        async def list_by_kb_id(self, kb_id):
-            return [chunk for chunk in self.chunks if chunk.kb_id == kb_id]
-
-    monkeypatch.setattr(
-        "yuxi.repositories.knowledge_chunk_repository.KnowledgeChunkRepository",
-        FakeChunkRepository,
-    )
-    return FakeChunkRepository
 
 
 def test_clamp_neighbors_count():
@@ -161,7 +143,7 @@ async def test_select_graph_enhanced_chunks_expands_by_ppr_with_anchor_bias(monk
         return [("anchor", 0.9), ("neighbor_1", 0.8), ("neighbor_2", 0.7)]
 
     monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService.query_and_rank_chunks_by_ppr",
+        "yuxi.modules.knowledge.graphs.service.KnowledgeGraphService.query_and_rank_chunks_by_ppr",
         fake_rank,
     )
     chunks_by_id = {
@@ -217,7 +199,7 @@ async def test_iter_generated_benchmark_items_graph_mode_uses_graph_indexed_anch
     fake_llm = FakeLlm(gold_chunk_id="graph_neighbor")
     monkeypatch.setattr(benchmark_generation, "select_model", lambda model_spec: fake_llm)
     monkeypatch.setattr(
-        "yuxi.knowledge.graphs.milvus_graph_service.MilvusGraphService.query_and_rank_chunks_by_ppr",
+        "yuxi.modules.knowledge.graphs.service.KnowledgeGraphService.query_and_rank_chunks_by_ppr",
         fake_rank,
     )
     kb = FakeGraphGenerationKnowledgeBase()
@@ -366,14 +348,10 @@ async def test_iter_generated_benchmark_items_yields_before_all_workers_finish(m
         async def call(self, prompt, stream):
             self.calls += 1
             if self.calls == 1:
-                return SimpleNamespace(
-                    content='{"query":"问题一","gold_answer":"答案一","gold_chunk_ids":["anchor_chunk"]}'
-                )
+                return SimpleNamespace(content='{"query":"问题一","gold_answer":"答案一","gold_chunk_ids":["anchor_chunk"]}')
             second_call_entered.set()
             await release_second_call.wait()
-            return SimpleNamespace(
-                content='{"query":"问题二","gold_answer":"答案二","gold_chunk_ids":["anchor_chunk"]}'
-            )
+            return SimpleNamespace(content='{"query":"问题二","gold_answer":"答案二","gold_chunk_ids":["anchor_chunk"]}')
 
     fake_llm = BlockingLlm()
     monkeypatch.setattr(benchmark_generation, "select_model", lambda model_spec: fake_llm)

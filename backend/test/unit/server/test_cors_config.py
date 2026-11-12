@@ -2,12 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
-from server.main import _build_cors_options, _parse_cors_origins
+from yuxi.api.main import build_cors_options, parse_cors_origins
 
 
 def _client_for_origins(origins: list[str]) -> TestClient:
     app = FastAPI()
-    app.add_middleware(CORSMiddleware, **_build_cors_options(origins))
+    app.add_middleware(CORSMiddleware, **build_cors_options(origins))
 
     @app.get("/ping")
     async def ping():
@@ -31,14 +31,14 @@ def test_default_development_cors_origins(monkeypatch):
     monkeypatch.delenv("YUXI_CORS_ORIGINS", raising=False)
     monkeypatch.setenv("YUXI_ENV", "development")
 
-    assert _parse_cors_origins() == ["http://localhost:5173", "http://127.0.0.1:5173"]
+    assert parse_cors_origins() == ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 def test_production_does_not_default_to_wildcard(monkeypatch):
     monkeypatch.delenv("YUXI_CORS_ORIGINS", raising=False)
     monkeypatch.setenv("YUXI_ENV", "production")
 
-    assert _parse_cors_origins() == []
+    assert parse_cors_origins() == []
 
 
 def test_cors_allows_configured_origin_with_credentials():

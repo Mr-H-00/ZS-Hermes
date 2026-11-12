@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-import yuxi.knowledge.cache as cache_module
+import yuxi.modules.knowledge.cache as cache_module
 
 pytestmark = pytest.mark.unit
 

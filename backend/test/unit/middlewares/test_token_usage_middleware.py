@@ -6,7 +6,7 @@ import pytest
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from yuxi.agents.middlewares.token_usage import TokenUsageMiddleware
+from yuxi.modules.agents.runtime.middlewares.token_usage import TokenUsageMiddleware
 
 
 def _request(*, run_id: str, model_spec: str, state: dict | None = None, model_name: str = "model-a"):

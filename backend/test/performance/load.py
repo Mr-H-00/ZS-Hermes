@@ -24,7 +24,7 @@ import httpx
 FINAL_MARKER = "LOAD_TEST_OK"
 TOOL_MARKER = "LOAD_TEST_TOOL_OK"
 CHAT_MIN_OUTPUT_CHARS = 500
-TERMINAL_STATUSES = {"completed", "failed", "cancelled", "interrupted"}
+TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
 class LoadTestError(RuntimeError):
@@ -47,6 +47,7 @@ class ToolEvidence:
     execute_started: bool = False
     execute_finished: bool = False
     output_marker_seen: bool = False
+    call_ids: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -55,8 +56,10 @@ class TaskResult:
 
     level: int
     task_index: int
-    request_id: str
+    event_key: str
     thread_id: str | None = None
+    input_id: str | None = None
+    turn_id: str | None = None
     run_id: str | None = None
     status: str = "client_failed"
     success: bool = False
@@ -85,20 +88,14 @@ class ResourceSample:
     captured_at: str
     api_memory_mb: float | None = None
     worker_memory_mb: float | None = None
-    provisioner_memory_mb: float | None = None
-    sandbox_memory_mb: float | None = None
     total_memory_mb: float | None = None
     api_cpu_percent: float | None = None
     worker_cpu_percent: float | None = None
-    provisioner_cpu_percent: float | None = None
-    sandbox_cpu_percent: float | None = None
     total_cpu_percent: float | None = None
     redis_clients: int | None = None
     redis_pubsub_clients: int | None = None
     postgres_connections: int | None = None
     postgres_active_connections: int | None = None
-    sandbox_containers: int | None = None
-    sandbox_networks: int | None = None
     host_available_memory_mb: float | None = None
     host_load1: float | None = None
     error: str | None = None
@@ -173,46 +170,26 @@ def _build_sse_event(name: str, event_id: str | None, data_lines: Sequence[str])
     return SseEvent(name=name, data=payload, event_id=event_id)
 
 
-def observe_tool_evidence(value: object, evidence: ToolEvidence) -> None:
-    """递归读取精简 Run 事件中的 execute 生命周期证据。"""
-
-    if isinstance(value, dict):
-        if value.get("tool_name") == "execute":
-            event_name = value.get("event")
-            evidence.execute_started |= event_name == "tool-started"
-            evidence.execute_finished |= event_name == "tool-finished"
-            if event_name == "tool-finished" and TOOL_MARKER in str(value.get("output") or ""):
-                evidence.output_marker_seen = True
-        if value.get("type") == "tool" and TOOL_MARKER in str(value.get("content") or ""):
-            # verbose=false 会把完成事件投影为 ToolMessage；唯一标记证明受控命令已经返回。
-            evidence.execute_finished = True
-            evidence.output_marker_seen = True
-        for child in value.values():
-            observe_tool_evidence(child, evidence)
-    elif isinstance(value, list):
-        for child in value:
-            observe_tool_evidence(child, evidence)
+def observe_tool_evidence(event: dict, evidence: ToolEvidence) -> None:
+    """通过实际 function_call 与 call_id 关联 execute 的公开执行结果。"""
+    item = event.get("item") or {}
+    if event.get("type") == "agent.session.turn.item.added" and item.get("type") == "function_call" and item.get("name") == "execute":
+        evidence.execute_started = True
+        evidence.call_ids.add(item["call_id"])
+    if (
+        event.get("type") == "agent.session.turn.item.done"
+        and item.get("type") == "function_call_output"
+        and item.get("call_id") in evidence.call_ids
+    ):
+        evidence.execute_finished |= item.get("status") == "completed"
+        evidence.output_marker_seen |= TOOL_MARKER in str(item.get("output") or "")
 
 
-def contains_model_output(value: object) -> bool:
-    """识别模型产生的首个文本或工具调用增量。"""
-
-    if isinstance(value, dict):
-        event_type = value.get("type")
-        if event_type == "message_delta" and any(
-            isinstance(value.get(key), str) and bool(value[key])
-            for key in ("content", "reasoning_content", "additional_reasoning_content")
-        ):
-            return True
-        if event_type in {"tool_call", "tool_call_delta"} and any(
-            value.get(key) is not None and value.get(key) != "" and value.get(key) != {}
-            for key in ("name", "args", "args_delta")
-        ):
-            return True
-        return any(contains_model_output(child) for child in value.values())
-    if isinstance(value, list):
-        return any(contains_model_output(child) for child in value)
-    return False
+def contains_model_output(event: dict) -> bool:
+    """首输出是公开文本、原始推理增量或完整函数参数。"""
+    return bool(event.get("delta")) or (
+        event.get("type") == "agent.session.turn.item.added" and event.get("item", {}).get("type") == "function_call"
+    )
 
 
 _MEMORY_UNITS = {
@@ -256,15 +233,9 @@ def _run_local_command(command: Sequence[str], *, allow_partial: bool = False) -
 class LocalResourceSampler:
     """按 Compose project 采样本机容器和服务资源。"""
 
-    def __init__(
-        self,
-        compose_project: str,
-        sandbox_container_prefix: str,
-        sandbox_network_prefix: str,
-    ):
+    def __init__(self, compose_project: str):
+        """本机采样范围只包含当前 Compose 服务。"""
         self.compose_project = compose_project
-        self.sandbox_container_prefix = sandbox_container_prefix
-        self.sandbox_network_prefix = sandbox_network_prefix
 
     def collect(self, level: int, level_started: float) -> ResourceSample:
         """采集一次不会修改运行状态的资源快照。"""
@@ -276,25 +247,15 @@ class LocalResourceSampler:
         )
         try:
             compose_containers = self._compose_containers()
-            sandbox_containers = [
-                container_id for container_id in self._sandbox_containers() if container_id not in compose_containers
-            ]
             service_by_id = {container_id: service for container_id, service in compose_containers.items()}
-            service_by_id.update({container_id: "sandbox" for container_id in sandbox_containers})
             memory, cpu = self._container_stats(service_by_id)
 
             sample.api_memory_mb = memory.get("api", 0.0)
             sample.worker_memory_mb = memory.get("worker", 0.0)
-            sample.provisioner_memory_mb = memory.get("sandbox-provisioner", 0.0)
-            sample.sandbox_memory_mb = memory.get("sandbox", 0.0)
             sample.total_memory_mb = round(sum(memory.values()), 2)
             sample.api_cpu_percent = cpu.get("api", 0.0)
             sample.worker_cpu_percent = cpu.get("worker", 0.0)
-            sample.provisioner_cpu_percent = cpu.get("sandbox-provisioner", 0.0)
-            sample.sandbox_cpu_percent = cpu.get("sandbox", 0.0)
             sample.total_cpu_percent = round(sum(cpu.values()), 2)
-            sample.sandbox_containers = len(sandbox_containers)
-            sample.sandbox_networks = self._sandbox_network_count()
             sample.redis_clients, sample.redis_pubsub_clients = self._redis_client_metrics(compose_containers)
             (
                 sample.postgres_connections,
@@ -317,31 +278,7 @@ class LocalResourceSampler:
                 '{{.ID}}\t{{.Label "com.docker.compose.service"}}',
             ]
         )
-        return {
-            container_id: service
-            for line in output.splitlines()
-            if line.strip()
-            for container_id, service in [line.split("\t", 1)]
-        }
-
-    def _sandbox_containers(self) -> list[str]:
-        output = _run_local_command(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                f"name={self.sandbox_container_prefix}",
-                "--format",
-                "{{.ID}}\t{{.Names}}",
-            ]
-        )
-        return [
-            container_id
-            for line in output.splitlines()
-            if line.strip()
-            for container_id, name in [line.split("\t", 1)]
-            if name.startswith(self.sandbox_container_prefix)
-        ]
+        return {container_id: service for line in output.splitlines() if line.strip() for container_id, service in [line.split("\t", 1)]}
 
     def _container_stats(self, service_by_id: dict[str, str]) -> tuple[dict[str, float], dict[str, float]]:
         memory: dict[str, float] = {}
@@ -356,15 +293,9 @@ class LocalResourceSampler:
             row = json.loads(line)
             container_id = str(row.get("ID") or "")
             service = next(
-                (
-                    value
-                    for key, value in service_by_id.items()
-                    if key.startswith(container_id) or container_id.startswith(key)
-                ),
+                (value for key, value in service_by_id.items() if key.startswith(container_id) or container_id.startswith(key)),
                 None,
             )
-            if service is None and str(row.get("Name") or "").startswith(self.sandbox_container_prefix):
-                service = "sandbox"
             if service is None:
                 continue
             used_memory = str(row.get("MemUsage") or "").split("/", 1)[0]
@@ -401,28 +332,13 @@ class LocalResourceSampler:
                 "sh",
                 "-c",
                 (
-                    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc '
-                    '"SELECT count(*), count(*) FILTER '
-                    "(WHERE state = 'active') FROM pg_stat_activity\""
+                    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*), '
+                    "count(*) FILTER (WHERE state = 'active') FROM pg_stat_activity\""
                 ),
             ]
         )
         total, active = output.strip().split("|", 1)
         return int(total), int(active)
-
-    def _sandbox_network_count(self) -> int:
-        output = _run_local_command(
-            [
-                "docker",
-                "network",
-                "ls",
-                "--filter",
-                f"name={self.sandbox_network_prefix}",
-                "--format",
-                "{{.Name}}",
-            ]
-        )
-        return sum(name.startswith(self.sandbox_network_prefix) for name in output.splitlines())
 
     @staticmethod
     def _host_available_memory_mb() -> float:
@@ -453,18 +369,35 @@ def evaluate_result(
     *,
     scenario: str,
     payload: dict[str, Any],
-    request_id: str,
+    input_id: str,
+    turn_id: str,
     run_id: str,
+    turn_payload: dict[str, Any],
     evidence: ToolEvidence,
 ) -> tuple[bool, str | None, int]:
-    """按同一 Request/Run 因果关系与场景标记判定最终结果。"""
+    """按 Input、Turn、Run 和输出消息的明确关系判定结果。"""
 
     status = str(payload.get("status") or "")
     output = payload.get("output")
-    output_text = output if isinstance(output, str) else ""
+    output_text = "".join(
+        part["text"]
+        for item in output or []
+        if item["type"] == "message" and item["role"] == "assistant"
+        for part in item["content"]
+        if part["type"] == "output_text"
+    )
     checks = [
-        (payload.get("request_id") == request_id, "结果 request_id 与提交请求不一致"),
-        (payload.get("agent_run_id") == run_id, "结果 agent_run_id 与 SSE Run 不一致"),
+        (payload.get("id") == run_id, "Run 结果与 SSE Run 不一致"),
+        (payload.get("input_id") == input_id, "Run 未绑定提交的 Input"),
+        (payload.get("turn_id") == turn_id, "Run 未绑定目标 Turn"),
+        (turn_payload["yuxi"]["result_run_id"] == run_id, "Turn 结果与 Run 不一致"),
+        (turn_payload.get("status") == "completed", "Turn 尚未完成"),
+        (
+            isinstance(output, list)
+            and bool(output)
+            and all(item["yuxi"]["run_id"] == run_id and item["turn_id"] == turn_id for item in output),
+            "输出消息没有绑定目标 Turn/Run",
+        ),
         (status == "completed", f"Run 终态不是 completed：{status or 'missing'}"),
         (FINAL_MARKER in output_text, "最终输出缺少 LOAD_TEST_OK"),
     ]
@@ -544,18 +477,16 @@ class AgentLoadClient:
         self.headers = headers
         self.timeout_seconds = timeout_seconds
 
-    async def create_thread(self, agent_slug: str, request_id: str) -> str:
+    async def create_thread(self, agent_slug: str, event_key: str) -> str:
         """创建一个独立压测 Thread。"""
 
         response = await self.client.post(
-            "/api/chat/thread",
+            "/api/v1/agents/sessions",
             json={
-                "request_id": f"thread-{request_id}"[:64],
-                "title": f"Load test {request_id[-12:]}",
                 "agent_id": agent_slug,
-                "metadata": {"source": "agent_load_test"},
+                "title": f"Load test {event_key[-12:]}",
             },
-            headers=self.headers,
+            headers={**self.headers, "Idempotency-Key": f"thread-{event_key}"[:64]},
         )
         _raise_for_status(response, "创建 Thread")
         thread_id = str(response.json().get("id") or "")
@@ -563,59 +494,61 @@ class AgentLoadClient:
             raise LoadTestError("创建 Thread 响应缺少 id")
         return thread_id
 
-    async def submit_run(
+    async def submit_input(
         self,
         *,
-        agent_slug: str,
         thread_id: str,
-        request_id: str,
+        event_key: str,
         prompt: str,
     ) -> tuple[dict[str, Any], float]:
-        """提交普通 Chat Request 并返回协议响应与请求耗时。"""
+        """向现有 Thread 提交一批 follow-up 输入。"""
 
         started = time.perf_counter()
         response = await self.client.post(
-            "/api/agent/runs",
+            f"/api/v1/agents/sessions/{thread_id}/events",
             json={
-                "query": prompt,
-                "agent_slug": agent_slug,
-                "thread_id": thread_id,
-                "meta": {"request_id": request_id, "source": "agent_load_test"},
-                "tool_approval_mode": "always_trust",
-                "queue_policy": "enqueue",
+                "events": [
+                    {
+                        "type": "agent.session.input.message",
+                        "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+                        "yuxi": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
+                    }
+                ],
             },
-            headers=self.headers,
+            headers={**self.headers, "Idempotency-Key": event_key},
         )
         elapsed_ms = (time.perf_counter() - started) * 1000
-        _raise_for_status(response, "提交 Agent Run")
+        _raise_for_status(response, "提交 Agent Input")
         payload = response.json()
-        if payload.get("request_id") != request_id:
-            raise LoadTestError("提交响应 request_id 与请求不一致")
+        if payload.get("thread_id") != thread_id or not payload.get("input_id"):
+            raise LoadTestError("提交响应缺少目标 Thread/Input")
         return payload, elapsed_ms
 
-    async def wait_for_run_id(self, request_id: str, events_url: str) -> str:
-        """消费 Request SSE，直到排队请求创建其自身 Run。"""
+    async def wait_for_run_id(self, thread_id: str, input_id: str) -> tuple[str, str]:
+        """消费 Thread SSE，直到目标 Input 固定 Turn 和 Run。"""
 
-        async with self.client.stream("GET", events_url, headers=self.headers) as response:
-            await _raise_for_stream_status(response, "读取 Request SSE")
+        async with self.client.stream("GET", f"/api/v1/agents/sessions/{thread_id}/events", headers=self.headers) as response:
+            await _raise_for_stream_status(response, "读取 Thread SSE")
             async for event in iter_sse(response.aiter_lines()):
-                if event.data.get("request_id") not in {None, request_id}:
-                    raise LoadTestError("Request SSE 包含其他 request_id")
-                if event.name == "run_created":
-                    run_id = str(event.data.get("run_id") or "")
-                    if not run_id:
-                        raise LoadTestError("run_created 事件缺少 run_id")
-                    return run_id
-                if event.name in {"error", "cancelled", "superseded"}:
-                    raise LoadTestError(f"Request SSE 以 {event.name} 结束")
-        raise LoadTestError("Request SSE 结束但没有 run_created")
+                if event.data.get("session_id") != thread_id:
+                    raise LoadTestError("Thread SSE 串入其他 Thread")
+                if event.data.get("input_id") != input_id:
+                    continue
+                if event.name == "yuxi.session.run.created":
+                    run_id = str(event.data.get("yuxi", {}).get("run_id") or "")
+                    turn_id = str(event.data.get("turn_id") or "")
+                    if not run_id or not turn_id:
+                        raise LoadTestError("Input 消费事件缺少 Turn/Run")
+                    return run_id, turn_id
+        raise LoadTestError("Thread SSE 结束但目标 Input 尚未消费")
 
     async def consume_run_events(
         self,
+        thread_id: str,
         run_id: str,
         submit_started: float,
     ) -> tuple[dict[str, int], ToolEvidence, float | None, float | None, float]:
-        """消费 Run SSE 到 end，并返回准备、首输出与工具证据。"""
+        """消费 Thread SSE 到目标 Run 与 Turn 终态。"""
 
         counts: dict[str, int] = {}
         evidence = ToolEvidence()
@@ -624,22 +557,26 @@ class AgentLoadClient:
         stream_started = time.perf_counter()
         async with self.client.stream(
             "GET",
-            f"/api/agent/runs/{run_id}/events?verbose=false",
+            f"/api/v1/agents/sessions/{thread_id}/events",
             headers=self.headers,
         ) as response:
             await _raise_for_stream_status(response, "读取 Run SSE")
             async for event in iter_sse(response.aiter_lines()):
+                if event.data.get("session_id") != thread_id:
+                    raise LoadTestError("Thread SSE 串入其他 Thread")
+                if event.data.get("yuxi", {}).get("run_id") != run_id:
+                    continue
                 if first_event_ms is None:
                     first_event_ms = (time.perf_counter() - submit_started) * 1000
-                if event.data.get("run_id") not in {None, run_id}:
-                    raise LoadTestError("Run SSE 包含其他 run_id")
                 counts[event.name] = counts.get(event.name, 0) + 1
                 observe_tool_evidence(event.data, evidence)
                 if first_token_ms is None and contains_model_output(event.data):
                     first_token_ms = (time.perf_counter() - submit_started) * 1000
-                if event.name == "error":
-                    raise LoadTestError("Run SSE 收到 error 事件")
-                if event.name == "end":
+                if event.name in {
+                    "agent.session.turn.completed",
+                    "agent.session.turn.failed",
+                    "agent.session.turn.cancelled",
+                }:
                     return (
                         counts,
                         evidence,
@@ -647,34 +584,49 @@ class AgentLoadClient:
                         first_token_ms,
                         (time.perf_counter() - stream_started) * 1000,
                     )
-        raise LoadTestError("Run SSE 结束但没有 end 事件")
+        raise LoadTestError("Thread SSE 结束但目标 Turn 尚未结束")
 
-    async def get_run_result(self, run_id: str) -> dict[str, Any]:
+    async def get_run_result(self, thread_id: str, run_id: str) -> dict[str, Any]:
         """从同一 Run 的结果接口回读最终业务事实。"""
 
-        response = await self.client.get(f"/api/agent/runs/{run_id}/result", headers=self.headers)
+        response = await self.client.get(f"/api/v1/agents/sessions/{thread_id}/runs/{run_id}", headers=self.headers)
         _raise_for_status(response, "读取 Run 结果")
         payload = response.json()
         if not isinstance(payload, dict):
             raise LoadTestError("Run 结果必须是对象")
         return payload
 
-    async def cancel_request(self, request_id: str) -> None:
-        """尽力取消尚未派发的精确 Request。"""
+    async def get_turn_result(self, thread_id: str, turn_id: str) -> dict[str, Any]:
+        """回读目标 Turn 的最终归属。"""
+        response = await self.client.get(f"/api/v1/agents/sessions/{thread_id}/turns/{turn_id}", headers=self.headers)
+        _raise_for_status(response, "读取 Turn 结果")
+        return response.json()
 
-        await self.client.post(f"/api/agent/requests/{request_id}/cancel", headers=self.headers)
+    async def cancel_input(self, thread_id: str, input_id: str, event_key: str) -> None:
+        """尽力取消尚未领取的目标 Input。"""
 
-    async def cancel_run(self, run_id: str) -> None:
-        """尽力取消尚未终结的精确 Run。"""
+        response = await self.client.post(
+            f"/api/v1/agents/sessions/{thread_id}/events",
+            headers={**self.headers, "Idempotency-Key": f"cancel:{event_key}"},
+            json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": input_id}]},
+        )
+        _raise_for_status(response, "取消 Input")
 
-        await self.client.post(f"/api/agent/runs/{run_id}/cancel", headers=self.headers)
+    async def cancel_turn(self, thread_id: str, turn_id: str, event_key: str, run_id: str | None = None) -> None:
+        """尽力取消目标 Turn 和其当前执行段。"""
 
-    async def delete_thread(self, thread_id: str) -> None:
-        """删除本任务创建的精确 Thread。"""
+        response = await self.client.post(
+            f"/api/v1/agents/sessions/{thread_id}/events",
+            headers={**self.headers, "Idempotency-Key": f"cancel:{event_key}"},
+            json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id, "expected_run_id": run_id}}]},
+        )
+        _raise_for_status(response, "取消 Turn")
 
-        response = await self.client.delete(f"/api/chat/thread/{thread_id}", headers=self.headers)
-        if response.status_code not in {200, 404}:
-            _raise_for_status(response, "删除 Thread")
+    async def archive_thread(self, thread_id: str) -> None:
+        """通过 Public API 归档本任务创建的精确 Thread。"""
+
+        response = await self.client.post(f"/api/v1/agents/sessions/{thread_id}/archive", headers=self.headers)
+        _raise_for_status(response, "归档 Thread")
 
 
 async def run_one(
@@ -688,35 +640,35 @@ async def run_one(
     session_id: str,
     keep_threads: bool,
 ) -> TaskResult:
-    """执行一个虚拟用户的完整 Thread → Request → Run → Result 链路。"""
+    """执行一个虚拟用户的 Thread → Input → Turn → Run 链路。"""
 
-    request_id = f"load-{session_id}-{level}-{task_index}-{uuid.uuid4().hex[:8]}"
-    result = TaskResult(level=level, task_index=task_index, request_id=request_id)
+    event_key = f"load-{session_id}-{level}-{task_index}-{uuid.uuid4().hex[:8]}"
+    result = TaskResult(level=level, task_index=task_index, event_key=event_key)
     task_started = time.perf_counter()
     submit_started: float | None = None
     submit_started_at: datetime | None = None
     terminal = False
     try:
         async with asyncio.timeout(load_client.timeout_seconds):
-            result.thread_id = await load_client.create_thread(agent_slug, request_id)
+            result.thread_id = await load_client.create_thread(agent_slug, event_key)
             result.thread_create_ms = (time.perf_counter() - task_started) * 1000
             submit_started = time.perf_counter()
             submit_started_at = datetime.now(UTC)
-            payload, result.submit_ms = await load_client.submit_run(
-                agent_slug=agent_slug,
+            payload, result.submit_ms = await load_client.submit_input(
                 thread_id=result.thread_id,
-                request_id=request_id,
-                prompt=build_prompt(scenario, task_seconds, request_id),
+                event_key=event_key,
+                prompt=build_prompt(scenario, task_seconds, event_key),
             )
+            result.input_id = str(payload["input_id"])
             result.run_id = str(payload.get("run_id") or "") or None
+            result.turn_id = str(payload.get("turn_id") or "") or None
             if result.run_id:
+                if result.turn_id is None:
+                    raise LoadTestError("消费响应缺少 turn_id")
                 result.request_queue_ms = 0.0
             else:
-                events_url = str(payload.get("request_events_url") or "")
-                if not events_url:
-                    raise LoadTestError("排队响应同时缺少 run_id 与 request_events_url")
                 queue_started = time.perf_counter()
-                result.run_id = await load_client.wait_for_run_id(request_id, events_url)
+                result.run_id, result.turn_id = await load_client.wait_for_run_id(result.thread_id, result.input_id)
                 result.request_queue_ms = (time.perf_counter() - queue_started) * 1000
 
             (
@@ -725,9 +677,10 @@ async def run_one(
                 result.first_run_event_ms,
                 result.first_token_ms,
                 result.run_sse_ms,
-            ) = await load_client.consume_run_events(result.run_id, submit_started)
+            ) = await load_client.consume_run_events(result.thread_id, result.run_id, submit_started)
             result.preparation_ms = result.first_run_event_ms
-            final_payload = await load_client.get_run_result(result.run_id)
+            final_payload = await load_client.get_run_result(result.thread_id, result.run_id)
+            turn_payload = await load_client.get_turn_result(result.thread_id, result.turn_id)
             result.status = str(final_payload.get("status") or "missing")
             if submit_started_at is not None:
                 record_run_timing(result, submit_started_at, final_payload)
@@ -735,8 +688,10 @@ async def run_one(
             result.success, result.error, result.output_chars = evaluate_result(
                 scenario=scenario,
                 payload=final_payload,
-                request_id=request_id,
+                input_id=result.input_id,
+                turn_id=result.turn_id,
                 run_id=result.run_id,
+                turn_payload=turn_payload,
                 evidence=evidence,
             )
     except TimeoutError:
@@ -748,15 +703,15 @@ async def run_one(
             result.total_ms = (time.perf_counter() - submit_started) * 1000
         if not terminal:
             try:
-                if result.run_id:
-                    await load_client.cancel_run(result.run_id)
-                else:
-                    await load_client.cancel_request(request_id)
-            except httpx.HTTPError:
+                if result.thread_id and result.turn_id:
+                    await load_client.cancel_turn(result.thread_id, result.turn_id, event_key, result.run_id)
+                elif result.thread_id and result.input_id:
+                    await load_client.cancel_input(result.thread_id, result.input_id, event_key)
+            except (httpx.HTTPError, LoadTestError):
                 pass
         if result.thread_id and not keep_threads:
             try:
-                await load_client.delete_thread(result.thread_id)
+                await load_client.archive_thread(result.thread_id)
             except (httpx.HTTPError, LoadTestError) as exc:
                 cleanup_error = f"清理 Thread 失败：{_safe_error(exc)}"
                 result.error = f"{result.error}; {cleanup_error}" if result.error else cleanup_error
@@ -787,12 +742,8 @@ def summarize(
             "preparation_p95_ms": _percentile([item.preparation_ms for item in items], 0.95),
             "first_model_request_p50_ms": _percentile([item.first_model_request_ms for item in items], 0.50),
             "first_model_request_p95_ms": _percentile([item.first_model_request_ms for item in items], 0.95),
-            "created_to_first_model_request_p50_ms": _percentile(
-                [item.created_to_first_model_request_ms for item in items], 0.50
-            ),
-            "created_to_first_model_request_p95_ms": _percentile(
-                [item.created_to_first_model_request_ms for item in items], 0.95
-            ),
+            "created_to_first_model_request_p50_ms": _percentile([item.created_to_first_model_request_ms for item in items], 0.50),
+            "created_to_first_model_request_p95_ms": _percentile([item.created_to_first_model_request_ms for item in items], 0.95),
             "missing_model_request_timing": sum(item.created_to_first_model_request_ms is None for item in items),
             "first_token_p50_ms": _percentile([item.first_token_ms for item in items], 0.50),
             "first_token_p95_ms": _percentile([item.first_token_ms for item in items], 0.95),
@@ -821,38 +772,28 @@ def _summarize_resources(samples: Sequence[ResourceSample]) -> dict[str, Any]:
     peak_fields = (
         "api_memory_mb",
         "worker_memory_mb",
-        "provisioner_memory_mb",
-        "sandbox_memory_mb",
         "total_memory_mb",
         "api_cpu_percent",
         "worker_cpu_percent",
-        "provisioner_cpu_percent",
-        "sandbox_cpu_percent",
         "total_cpu_percent",
         "redis_clients",
         "redis_pubsub_clients",
         "postgres_connections",
         "postgres_active_connections",
-        "sandbox_containers",
-        "sandbox_networks",
         "host_load1",
     )
     for field_name in peak_fields:
         values = [value for sample in valid_samples if (value := getattr(sample, field_name)) is not None]
         summary[f"{field_name}_peak"] = round(max(values), 2) if values else None
 
-    available_memory = [
-        sample.host_available_memory_mb for sample in valid_samples if sample.host_available_memory_mb is not None
-    ]
+    available_memory = [sample.host_available_memory_mb for sample in valid_samples if sample.host_available_memory_mb is not None]
     summary["host_available_memory_mb_min"] = round(min(available_memory), 2) if available_memory else None
     baseline = valid_samples[0]
-    for field_name in ("worker_memory_mb", "sandbox_memory_mb", "total_memory_mb"):
+    for field_name in ("worker_memory_mb", "total_memory_mb"):
         peak = summary.get(f"{field_name}_peak")
         baseline_value = getattr(baseline, field_name)
         summary[f"{field_name}_baseline"] = baseline_value
-        summary[f"{field_name}_increase"] = (
-            round(peak - baseline_value, 2) if peak is not None and baseline_value is not None else None
-        )
+        summary[f"{field_name}_increase"] = round(peak - baseline_value, 2) if peak is not None and baseline_value is not None else None
     return summary
 
 
@@ -1034,15 +975,7 @@ async def async_main(args: argparse.Namespace) -> int:
         session_id = uuid.uuid4().hex[:8]
         results: list[TaskResult] = []
         resource_samples: list[ResourceSample] = []
-        resource_sampler = (
-            LocalResourceSampler(
-                args.compose_project,
-                args.sandbox_container_prefix,
-                args.sandbox_network_prefix,
-            )
-            if args.collect_local_resources
-            else None
-        )
+        resource_sampler = LocalResourceSampler(args.compose_project) if args.collect_local_resources else None
 
         print(f"场景={args.scenario} Agent={agent_slug} 并发阶梯={args.concurrency}")
         for level in args.concurrency:
@@ -1098,9 +1031,8 @@ async def async_main(args: argparse.Namespace) -> int:
         "timeout_seconds": args.timeout_seconds,
         "keep_threads": args.keep_threads,
         "collect_local_resources": args.collect_local_resources,
+        "resource_scope": "local_compose_services_and_host; Cube VM resources are not measured",
         "compose_project": args.compose_project if args.collect_local_resources else None,
-        "sandbox_container_prefix": args.sandbox_container_prefix if args.collect_local_resources else None,
-        "sandbox_network_prefix": args.sandbox_network_prefix if args.collect_local_resources else None,
         "resource_interval_seconds": args.resource_interval_seconds if args.collect_local_resources else None,
         "timing_metric": "created_to_first_model_request_ms",
         "timing_metric_definition": (
@@ -1147,16 +1079,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--compose-project",
         default=os.getenv("COMPOSE_PROJECT_NAME", "yuxi"),
         help="资源采样使用的 Compose project，默认 %(default)s",
-    )
-    parser.add_argument(
-        "--sandbox-container-prefix",
-        default=os.getenv("SANDBOX_DOCKER_SANDBOX_PREFIX") or f"{os.getenv('COMPOSE_PROJECT_NAME', 'yuxi')}-sandbox",
-        help="动态 Sandbox 容器名称前缀",
-    )
-    parser.add_argument(
-        "--sandbox-network-prefix",
-        default=os.getenv("SANDBOX_DOCKER_NETWORK_PREFIX") or f"{os.getenv('COMPOSE_PROJECT_NAME', 'yuxi')}-sandbox",
-        help="动态 Sandbox 网络名称前缀",
     )
     parser.add_argument("--resource-interval-seconds", type=float, default=2.0)
 

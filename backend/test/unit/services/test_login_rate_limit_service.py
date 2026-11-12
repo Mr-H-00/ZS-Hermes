@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-import yuxi.services.login_rate_limit_service as limiter
+import yuxi.modules.identity.services.login_limits as limiter
 
 WINDOW = limiter.LOGIN_FAILURE_WINDOW_SECONDS
 

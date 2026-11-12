@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from yuxi.knowledge.implementations.notion import NOTION_DEFAULT_VERSION, NotionAPIError, NotionKB
-from yuxi.knowledge.read_models import KnowledgeBaseConfig
+from yuxi.modules.knowledge.implementations.notion import NOTION_DEFAULT_VERSION, NotionAPIError, NotionKB
+from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
 
 
 PAGE_ID = "page-1"
@@ -64,10 +64,6 @@ class _FakeNotionClient:
         assert data_source_id == DATA_SOURCE_ID
         return [PAGE]
 
-    async def retrieve_page(self, page_id: str) -> dict:
-        assert page_id == PAGE_ID
-        return PAGE
-
     async def retrieve_block_children(self, block_id: str, limit: int) -> list[dict]:
         del limit
         return BLOCKS.get(block_id, [])
@@ -77,12 +73,6 @@ class _FailingNotionClient(_FakeNotionClient):
     async def search_pages(self, query_text: str, limit: int) -> list[dict]:
         del query_text, limit
         raise NotionAPIError("boom")
-
-
-class _UnknownParentNotionClient(_FakeNotionClient):
-    async def retrieve_page(self, page_id: str) -> dict:
-        page = await super().retrieve_page(page_id)
-        return {**page, "parent": {"type": "page_id", "page_id": "other-page"}}
 
 
 @pytest.fixture
@@ -146,7 +136,7 @@ def test_notion_validation_rejects_missing_params(monkeypatch):
 @pytest.mark.asyncio
 async def test_notion_kb_aquery_maps_pages(monkeypatch, notion_kb):
     kb, config = notion_kb
-    monkeypatch.setattr("yuxi.knowledge.implementations.notion._NotionClient", _FakeNotionClient)
+    monkeypatch.setattr("yuxi.modules.knowledge.implementations.notion._NotionClient", _FakeNotionClient)
 
     result = await kb.aquery(
         "reasoning",
@@ -164,61 +154,13 @@ async def test_notion_kb_aquery_maps_pages(monkeypatch, notion_kb):
 
 
 @pytest.mark.asyncio
-async def test_notion_open_file_content_uses_page_markdown(monkeypatch, notion_kb):
+async def test_notion_kb_aquery_error_is_explicit(monkeypatch, notion_kb):
     kb, config = notion_kb
-    monkeypatch.setattr("yuxi.knowledge.implementations.notion._NotionClient", _FakeNotionClient)
+    monkeypatch.setattr("yuxi.modules.knowledge.implementations.notion._NotionClient", _FailingNotionClient)
 
-    result = await kb.open_file_content(
-        "kb_notion",
-        PAGE_ID,
-        offset=0,
-        limit=3,
-        additional_params=config.additional_params,
-    )
-
-    assert result["start_line"] == 1
-    assert result["end_line"] == 3
-    assert result["has_more_after"] is True
-    assert "Reasoning Paper" in result["content"]
-
-
-@pytest.mark.asyncio
-async def test_notion_find_file_content_uses_page_markdown(monkeypatch, notion_kb):
-    kb, config = notion_kb
-    monkeypatch.setattr("yuxi.knowledge.implementations.notion._NotionClient", _FakeNotionClient)
-
-    result = await kb.find_file_content(
-        "kb_notion",
-        PAGE_ID,
-        ["models"],
-        window_size=4,
-        additional_params=config.additional_params,
-    )
-
-    assert result["match_mode"] == "keyword"
-    assert result["total_matches"] == 1
-    assert result["windows"]
-    assert "reasoning models" in result["windows"][0]["content"]
-
-
-@pytest.mark.asyncio
-async def test_notion_open_file_content_rejects_unknown_parent(monkeypatch, notion_kb):
-    kb, config = notion_kb
-    monkeypatch.setattr("yuxi.knowledge.implementations.notion._NotionClient", _UnknownParentNotionClient)
-
-    with pytest.raises(ValueError, match="不属于当前 Data Source"):
-        await kb.open_file_content("kb_notion", PAGE_ID, additional_params=config.additional_params)
-
-
-@pytest.mark.asyncio
-async def test_notion_kb_aquery_error_returns_empty(monkeypatch, notion_kb):
-    kb, config = notion_kb
-    monkeypatch.setattr("yuxi.knowledge.implementations.notion._NotionClient", _FailingNotionClient)
-
-    result = await kb.aquery(
-        "reasoning",
-        "kb_notion",
-        config=config,
-    )
-
-    assert result == []
+    with pytest.raises(RuntimeError, match="Notion query failed"):
+        await kb.aquery(
+            "reasoning",
+            "kb_notion",
+            config=config,
+        )

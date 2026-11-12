@@ -1,0 +1,552 @@
+"""Define the configurable parameters for the agent."""
+
+import asyncio
+import uuid
+from dataclasses import MISSING, dataclass, field, fields
+from typing import Any, Literal, get_origin, get_type_hints
+
+from yuxi.infrastructure.observability.logging import logger
+from yuxi.modules.agents.runtime.tool_approval import DEFAULT_TOOL_APPROVAL_MODE
+from yuxi.modules.extensions.skills.resolved import SkillRuntimeSnapshot
+from yuxi.modules.system.options import system_options
+from yuxi.modules.workspace.filesystem import Workspace
+
+type ResourceSelection = Literal["all"] | list[str]
+
+WORKSPACE_AGENTS_PROMPT_MAX_BYTES = 64 * 1024
+WORKSPACE_BASE_CONTEXT_FILES = ("AGENTS.md", "USER.md")
+DEFAULT_SUMMARY_THRESHOLD_K = 256  # 262144 tokens（256 × 1024）
+DEFAULT_SUMMARY_KEEP_MESSAGES = 10
+DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT = 300
+DEFAULT_MAX_EXECUTION_STEPS = 2000
+DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS = 3
+DEFAULT_YUXI_SUMMARY_PROMPT = """你是对话上下文压缩助手。
+你的任务是把下面的对话历史压缩成后续智能体继续工作所需的高价值上下文。
+
+请特别保留并清晰记录：
+
+## SESSION INTENT
+用户当前的主要目标、任务范围和最终交付物。
+
+## USER REQUIREMENTS AND PREFERENCES
+用户明确提出的要求、偏好、禁忌、输出格式、语言风格、技术约束、验收标准，以及对实现方式的取舍意见。只记录仍然可能影响后续回答或执行的内容。
+
+## PROGRESS AND DECISIONS
+已经完成的步骤、关键结论、已确认的方案、被否定的方案及原因。
+
+## ARTIFACTS AND REFERENCES
+已经创建、修改、读取或需要继续关注的文件、路径、工具输出路径、线程或运行标识。保留具体路径和关键标识符。
+
+## NEXT STEPS
+为了完成用户目标，后续最应该继续做的具体步骤。没有待办时写 None。
+
+要求：
+- 不要逐字复述冗长工具输出；保留结论、路径和必要证据。
+- 不要编造没有出现在对话中的事实。
+- 如果存在未解决的问题或风险，明确记录。
+- 使用与用户主要对话一致的语言。
+
+<messages>
+{messages}
+</messages>
+
+只输出压缩后的上下文，不要添加额外说明。"""
+
+
+def _role_can_modify(auth: str | None, role: str | None) -> bool:
+    """判断角色能否修改字段；auth 不限制读取与运行。"""
+    if not auth:
+        return True
+    if auth == "admin":
+        return role in {"admin", "superadmin"}
+    if auth == "superadmin":
+        return role == "superadmin"
+    return False
+
+
+def _load_workspace_agent_context(uid: str) -> str:
+    sections: list[str] = []
+    filesystem = Workspace(uid)
+    for filename in WORKSPACE_BASE_CONTEXT_FILES:
+        try:
+            content, truncated = filesystem.read_authorized_file_prefix(
+                f"/agents/{filename}",
+                WORKSPACE_AGENTS_PROMPT_MAX_BYTES,
+            )
+        except FileNotFoundError:
+            continue
+        except IsADirectoryError:
+            logger.warning(f"读取工作区 {filename} 失败: 路径是目录")
+            continue
+        except OSError as exc:
+            logger.warning(f"读取工作区 {filename} 失败: {exc}")
+            continue
+
+        prompt = content[:WORKSPACE_AGENTS_PROMPT_MAX_BYTES].decode("utf-8", errors="replace").strip()
+        if not prompt:
+            continue
+        if truncated:
+            prompt = f"{prompt}\n\n[{filename} 内容已截断]"
+        sections.append(f"用户工作区 agents/{filename} 内容：\n{prompt}")
+    return "\n\n".join(sections)
+
+
+async def _append_workspace_agent_prompt(context: "BaseContext") -> None:
+    """在实际生效的系统提示词后追加工作区基础说明。"""
+    workspace_prompt = await asyncio.to_thread(_load_workspace_agent_context, context.uid)
+    if workspace_prompt:
+        base_prompt = str(context.system_prompt or "").rstrip()
+        context.system_prompt = f"{base_prompt}\n\n{workspace_prompt}" if base_prompt else workspace_prompt
+
+
+def filter_declared_config(
+    config_json: dict,
+    context_schema: type["BaseContext"] | None = None,
+) -> dict:
+    """读取持久配置时仅保留 Schema 可配置字段，不按角色修改权限裁剪。"""
+    if not isinstance(config_json, dict):
+        return {}
+    declared_fields = {item.name for item in fields(context_schema or BaseContext) if item.metadata.get("configurable", True)}
+    filtered = dict(config_json)
+    context = filtered.get("context")
+    if isinstance(context, dict):
+        filtered["context"] = {key: value for key, value in context.items() if key in declared_fields}
+    return filtered
+
+
+def filter_config_by_role(
+    config_json: dict,
+    role: str | None,
+    context_schema: type["BaseContext"] | None = None,
+) -> dict:
+    """仅用于写入：按 Context 字段 metadata.auth 过滤可修改配置。"""
+    filtered = filter_declared_config(config_json, context_schema)
+    schema = context_schema or BaseContext
+    schema_fields = fields(schema)
+    restricted_fields = {item.name for item in schema_fields if not _role_can_modify(item.metadata.get("auth"), role)}
+
+    context = filtered.get("context")
+    if isinstance(context, dict):
+        filtered["context"] = {key: value for key, value in context.items() if key not in restricted_fields}
+    return filtered
+
+
+@dataclass(kw_only=True)
+class BaseContext:
+    """
+    定义一个基础 Context 供 各类 graph 继承
+
+    配置优先级:
+    1. 运行时配置(RunnableConfig)：最高优先级，直接从函数参数传入
+    2. 类默认配置：最低优先级，类中定义的默认值
+    """
+
+    def update_config(self, data: dict):
+        """仅装载允许用户配置的声明字段，运行身份由执行入口注入。"""
+        config = filter_declared_config({"context": data}, type(self))["context"]
+        for name in self.get_resource_fields().keys() & config.keys():
+            config[name] = validate_resource_selection(name, config[name])
+        self.update(config)
+
+    def update(self, data: dict):
+        """用运行时输入更新已声明的配置字段。"""
+        declared_fields = {item.name for item in fields(self)}
+        for key, value in data.items():
+            if key in declared_fields:
+                setattr(self, key, value)
+
+    thread_id: str = field(
+        default_factory=lambda: str(uuid.uuid4()),
+        metadata={"name": "线程ID", "configurable": False, "description": "用来唯一标识一个对话线程"},
+    )
+
+    uid: str = field(
+        default_factory=lambda: str(uuid.uuid4()),
+        metadata={"name": "UID", "configurable": False, "description": "用来唯一标识一个用户"},
+    )
+
+    run_id: str | None = field(
+        default=None,
+        metadata={"name": "运行 ID", "configurable": False, "hide": True},
+    )
+
+    steer_before_model: bool = field(
+        default=False,
+        metadata={"name": "模型前安全让位", "configurable": False, "hide": True},
+    )
+
+    worker_id: str | None = field(
+        default=None,
+        metadata={"name": "Worker Attempt Owner", "configurable": False, "hide": True},
+    )
+
+    runtime_scope_id: str | None = field(
+        default=None,
+        metadata={"name": "Cooperation Tree Scope", "configurable": False, "hide": True},
+    )
+
+    workdir_relative_path: str | None = field(
+        default=None,
+        metadata={"name": "Workdir Relative Path", "configurable": False, "hide": True},
+    )
+
+    workdir_path: str | None = field(
+        default=None,
+        metadata={"name": "Workdir Virtual Path", "configurable": False, "hide": True},
+    )
+
+    agent_slug: str | None = field(default=None, metadata={"configurable": False, "hide": True})
+
+    tool_approval_mode: str = field(
+        default=DEFAULT_TOOL_APPROVAL_MODE,
+        metadata={"name": "工具审批模式", "configurable": False, "hide": True},
+    )
+
+    skill_runtime_snapshot: SkillRuntimeSnapshot | None = field(default=None, repr=False, metadata={"configurable": False, "hide": True})
+    mcp_tool_servers: dict[str, str] | None = field(default=None, repr=False, metadata={"configurable": False, "hide": True})
+    registered_builtin_tool_names: set[str] | None = field(default=None, repr=False, metadata={"configurable": False, "hide": True})
+    middleware_tool_names: set[str] = field(default_factory=set, repr=False, metadata={"configurable": False, "hide": True})
+    mcp_tools: dict[str, list[Any]] = field(default_factory=dict, repr=False, metadata={"configurable": False, "hide": True})
+    _runtime_prepared: bool = field(default=False, repr=False, metadata={"configurable": False, "hide": True})
+    _resource_selections: dict[str, ResourceSelection] | None = field(
+        default=None, repr=False, metadata={"configurable": False, "hide": True}
+    )
+    mcp_unavailable: dict[str, str] = field(default_factory=dict, repr=False, metadata={"configurable": False, "hide": True})
+    _capability_limited: bool = field(default=False, repr=False, metadata={"configurable": False, "hide": True})
+    _cooperation_config_snapshot: dict[str, Any] | None = field(default=None, repr=False, metadata={"configurable": False, "hide": True})
+
+    system_prompt: str = field(
+        default="You are a helpful assistant.",
+        metadata={"name": "系统提示词", "description": "用来描述智能体的角色和行为", "kind": "prompt"},
+    )
+
+    model: str = field(
+        default="",
+        metadata={
+            "name": "智能体模型",
+            "options": [],
+            "description": "智能体的驱动模型，留空时使用系统默认模型。",
+            "kind": "llm",
+        },
+    )
+
+    tools: ResourceSelection = field(
+        default="all",
+        metadata={
+            "name": "工具",
+            "description": "内置的工具。默认选择当前用户可用的全部工具。",
+            "type": "list",
+            "kind": "tools",
+        },
+    )
+
+    knowledges: ResourceSelection = field(
+        default="all",
+        metadata={
+            "name": "知识库",
+            "description": "知识库列表，可以在左侧知识库页面中创建知识库。默认选择当前用户可访问的全部知识库。",
+            "type": "list",
+            "kind": "knowledges",
+        },
+    )
+
+    mcps: ResourceSelection = field(
+        default_factory=list,
+        metadata={
+            "name": "MCP服务器",
+            "options": [],
+            "description": "选择智能体直接使用的 MCP 服务，默认不直接加载；Skill 的依赖在激活时加载。",
+            "type": "list",
+            "kind": "mcps",
+        },
+    )
+
+    skills: ResourceSelection = field(
+        default="all",
+        metadata={
+            "name": "Skills",
+            "options": [],
+            "description": ("选择共享和内置 Skill；个人 Skill 始终可用。本地工具和 MCP 依赖在激活后开放，预加载从首轮开放。"),
+            "type": "list",
+            "kind": "skills",
+        },
+    )
+
+    preload_skills: ResourceSelection = field(
+        default_factory=list,
+        metadata={
+            "name": "预加载 Skills",
+            "options": [],
+            "description": "创建 Agent Graph 时加载完整 Skill 说明，并从首轮开放其依赖工具。"
+            "默认不预加载；选择全部时预加载当前已选的共享 Skill。",
+            "type": "list",
+            "kind": "skills",
+        },
+    )
+
+    summary_threshold: int = field(
+        default=DEFAULT_SUMMARY_THRESHOLD_K,
+        metadata={
+            "name": "上下文摘要触发阈值 (K)",
+            "description": (f"当上下文大小超过该值时，启用摘要功能以优化上下文使用。单位为 K，默认值为 {DEFAULT_SUMMARY_THRESHOLD_K}K。"),
+            "type": "number",
+            "auth": "admin",
+        },
+    )
+
+    summary_keep_messages: int = field(
+        default=DEFAULT_SUMMARY_KEEP_MESSAGES,
+        metadata={
+            "name": "摘要后保留消息数",
+            "description": (f"上下文摘要触发后，除摘要消息外保留最近的消息数量，默认 {DEFAULT_SUMMARY_KEEP_MESSAGES} 条。"),
+            "type": "number",
+            "auth": "admin",
+        },
+    )
+
+    summary_prompt: str = field(
+        default=DEFAULT_YUXI_SUMMARY_PROMPT,
+        metadata={
+            "name": "上下文摘要提示词",
+            "description": "触发上下文摘要时使用的提示词，必须能接收 {messages} 作为待摘要消息占位符。",
+            "type": "string",
+            "kind": "prompt",
+            "auth": "admin",
+        },
+    )
+
+    summary_tool_result_token_limit: int = field(
+        default=DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT,
+        metadata={
+            "name": "摘要工具结果 token 上限",
+            "description": (
+                "确定性压缩历史工具结果时，超过该 token 数的 ToolMessage 会写入 outputs，"
+                "并在上下文中保留不超过该 token 数的预览；未超过则保持原样。默认 "
+                f"{DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT}。"
+            ),
+            "type": "number",
+            "auth": "admin",
+        },
+    )
+
+    max_execution_steps: int = field(
+        default=DEFAULT_MAX_EXECUTION_STEPS,
+        metadata={
+            "name": "最大执行步数",
+            "description": (f"单次 Agent 运行允许的最大 LangGraph 执行步数，对应 recursion_limit，默认 {DEFAULT_MAX_EXECUTION_STEPS}。"),
+            "type": "number",
+            "auth": "admin",
+        },
+    )
+
+    model_retry_times: int = field(
+        default=2,
+        metadata={
+            "name": "模型重试次数",
+            "description": "模型调用失败时的最大重试次数，默认值为 2。",
+            "type": "number",
+            "auth": "admin",
+        },
+    )
+
+    @classmethod
+    def get_resource_fields(cls) -> dict[str, str]:
+        """从字段类型识别资源选择，并读取声明的候选资源种类。"""
+        types = get_type_hints(cls)
+        return {
+            item.name: item.metadata.get("kind", item.name)
+            for item in fields(cls)
+            if types[item.name] is ResourceSelection and item.metadata.get("configurable", True)
+        }
+
+    @classmethod
+    def get_configurable_items(cls, user_role: str | None = None):
+        """实现一个可配置的参数列表，在 UI 上配置时使用"""
+        configurable_items = {}
+        resource_fields = cls.get_resource_fields()
+        for f in fields(cls):
+            if f.init and not f.metadata.get("hide", False):
+                if user_role is not None and not _role_can_modify(f.metadata.get("auth"), user_role):
+                    continue
+                if f.metadata.get("configurable", True):
+                    type_name = cls._get_type_name(f.type)
+
+                    options = f.metadata.get("options", [])
+                    if callable(options):
+                        options = options()
+
+                    configurable_items[f.name] = {
+                        "type": f.metadata.get("type", type_name),
+                        "name": f.metadata.get("name", f.name),
+                        "options": options,
+                        "default": f.default
+                        if f.default is not MISSING
+                        else f.default_factory()
+                        if f.default_factory is not MISSING
+                        else None,
+                        "description": f.metadata.get("description", ""),
+                        "kind": f.metadata.get("kind", ""),
+                        "supports_all": f.name in resource_fields,
+                    }
+
+        return configurable_items
+
+    @classmethod
+    def _get_type_name(cls, field_type) -> str:
+        """获取类型名称"""
+        origin = get_origin(field_type)
+        if origin is not None:
+            if hasattr(origin, "__name__"):
+                return origin.__name__
+            return str(origin)
+        elif hasattr(field_type, "__name__"):
+            return field_type.__name__
+        else:
+            return str(field_type)
+
+
+def _resource_option(key: Any, name: Any = None, description: Any = None) -> dict[str, str]:
+    key_value = str(key)
+    return {
+        "key": key_value,
+        "name": str(name or key_value),
+        "description": str(description or ""),
+    }
+
+
+async def resolve_agent_resource_options(
+    resource_fields: set[str],
+    *,
+    db,
+    user,
+) -> dict[str, list[dict[str, str]]]:
+    fields_to_load = resource_fields
+    if not fields_to_load:
+        return {}
+
+    options: dict[str, list[dict[str, str]]] = {}
+
+    if "tools" in fields_to_load:
+        from yuxi.modules.extensions.tools.catalog import get_tool_metadata
+
+        options["tools"] = [
+            _resource_option(tool["slug"], tool.get("name"), tool.get("description"))
+            for tool in get_tool_metadata(category="builtin")
+            if tool.get("slug")
+        ]
+    if "knowledges" in fields_to_load:
+        from yuxi.modules.knowledge.mcp.client import knowledge_resource_options
+
+        options["knowledges"] = await knowledge_resource_options(user.uid)
+    if "mcps" in fields_to_load:
+        from yuxi.modules.extensions.mcp.service import get_enabled_mcp_servers
+
+        servers = await get_enabled_mcp_servers(db=db)
+        options["mcps"] = [_resource_option(server.slug, server.name, server.description) for server in servers]
+    if "skills" in fields_to_load:
+        from yuxi.modules.extensions.skills.repository import SkillRepository
+
+        skills = await SkillRepository(db).list_enabled_readable(user)
+        options["skills"] = [_resource_option(skill.slug, skill.name, skill.description) for skill in skills if skill.slug]
+
+    return options
+
+
+async def normalize_agent_context_config(
+    context: dict | None,
+    *,
+    db,
+    user,
+    context_schema: type[BaseContext] | None = None,
+) -> dict:
+    """按字段默认值展开资源选择，返回当前用户可用的运行列表。"""
+    schema = context_schema or BaseContext
+    raw_context = dict(context) if isinstance(context, dict) else {}
+    filtered = filter_declared_config({"context": raw_context}, schema)
+    defaults = schema()
+    normalized = dict(filtered.get("context") or {})
+    resource_fields = schema.get_resource_fields()
+    for field_name in resource_fields:
+        normalized[field_name] = validate_resource_selection(field_name, normalized.get(field_name, getattr(defaults, field_name)))
+    # Knowledge 的当前权限由 MCP 执行；服务关闭不能抹掉原会话选择。
+    excluded_fields = {"preload_skills", "knowledges"}
+    fields_to_load = {kind for name, kind in resource_fields.items() if name not in excluded_fields and normalized[name]}
+    if fields_to_load:
+        resource_options = await resolve_agent_resource_options(fields_to_load, db=db, user=user)
+        for name, kind in resource_fields.items():
+            if name not in excluded_fields and normalized[name]:
+                normalized[name] = _resolve_resource_selection(normalized[name], [option["key"] for option in resource_options[kind]])
+
+    if "preload_skills" in resource_fields:
+        normalized["preload_skills"] = _resolve_resource_selection(normalized["preload_skills"], normalized.get("skills", []))
+
+    return normalized
+
+
+async def prepare_agent_runtime_context(
+    context: BaseContext,
+) -> BaseContext:
+    """为单次运行解析资源与 Skill；同一对象再次构图时复用准备结果。"""
+    if getattr(context, "_runtime_prepared", False):
+        return context
+    uid = str(getattr(context, "uid", "") or "").strip()
+    if not uid:
+        return context
+
+    from yuxi.infrastructure.postgres.manager import pg_manager
+    from yuxi.modules.identity.repositories.users import UserRepository
+
+    await _append_workspace_agent_prompt(context)
+
+    async with pg_manager.get_async_session_context() as db:
+        if not str(getattr(context, "model", "") or "").strip():
+            setattr(context, "model", (await system_options.get(db))["default_model"])
+        user = await UserRepository().get_by_uid_with_db(db, uid)
+        if user is None or user.is_deleted:
+            raise PermissionError("执行账号已失效")
+
+        await refresh_agent_context_resources(context, db=db, user=user)
+
+    context._runtime_prepared = True
+
+    return context
+
+
+async def refresh_agent_context_resources(context: BaseContext, *, db, user, agent=None) -> None:
+    """共用当前资源解析，保留原始资源选择。"""
+    from yuxi.modules.extensions.skills.runtime import resolve_runtime_skills_for_context
+
+    resource_fields = type(context).get_resource_fields()
+    selections = getattr(context, "_resource_selections", None)
+    if selections is None:
+        selections = {name: getattr(context, name) for name in resource_fields}
+        context._resource_selections = selections
+    normalized = await normalize_agent_context_config(selections, db=db, user=user, context_schema=type(context))
+    for name in resource_fields:
+        setattr(context, name, normalized[name])
+
+    current = await resolve_runtime_skills_for_context(context, db=db, user=user, agent=agent)
+    context.skill_runtime_snapshot = current
+    context.skills = current["context_skills"]
+    context.preload_skills = current["context_preload_skills"]
+    context._capability_limited = (
+        any(isinstance(selections[name], list) and set(selections[name]) - set(normalized[name]) for name in resource_fields)
+        or current["capability_limited"]
+    )
+
+
+def validate_resource_selection(field_name: str, value: Any) -> ResourceSelection:
+    """统一校验全部或显式列表的资源选择协议。"""
+    if value == "all":
+        return "all"
+    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+        raise ValueError(f'智能体资源字段 {field_name} 必须是"all" 或非空字符串组成的列表')
+    return list(dict.fromkeys(item.strip() for item in value))
+
+
+def _resolve_resource_selection(selection: ResourceSelection, available: list[str]) -> list[str]:
+    """从调用方提供的候选范围解析全部或指定选择。"""
+    if selection == "all":
+        return list(available)
+    allowed = set(available)
+    return [key for key in selection if key in allowed]

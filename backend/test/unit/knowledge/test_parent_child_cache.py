@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from yuxi.knowledge import parent_child_cache as cache
+from yuxi.modules.knowledge import parent_child_cache as cache
 
 
 class _Redis:

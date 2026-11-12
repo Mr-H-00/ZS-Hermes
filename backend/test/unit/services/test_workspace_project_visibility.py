@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.services import workspace_service as svc
+import yuxi.modules.workspace.services.files as svc
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -59,11 +59,14 @@ async def test_selected_projects_root_exposes_its_complete_subtree(monkeypatch):
         {"path": "/projects/anonymous/report.txt", "is_dir": False},
     ]
 
-    assert await svc._filter_project_tree_entries(
-        entries,
-        uid="user-1",
-        db=SimpleNamespace(),
-    ) == entries
+    assert (
+        await svc._filter_project_tree_entries(
+            entries,
+            uid="user-1",
+            db=SimpleNamespace(),
+        )
+        == entries
+    )
 
 
 async def test_tree_without_projects_descendants_does_not_query_projects(monkeypatch):
@@ -74,11 +77,14 @@ async def test_tree_without_projects_descendants_does_not_query_projects(monkeyp
     monkeypatch.setattr(svc, "ProjectRepository", _UnexpectedRepository)
     entries = [{"path": "/notes/readme.md", "is_dir": False}]
 
-    assert await svc._filter_project_tree_entries(
-        entries,
-        uid="user-1",
-        db=SimpleNamespace(),
-    ) == entries
+    assert (
+        await svc._filter_project_tree_entries(
+            entries,
+            uid="user-1",
+            db=SimpleNamespace(),
+        )
+        == entries
+    )
 
 
 async def test_project_picker_tree_keeps_unbound_project_directories(monkeypatch):

@@ -1,0 +1,304 @@
+from __future__ import annotations
+
+import contextlib
+import errno
+import hashlib
+import os
+import re
+import uuid
+from collections.abc import Collection, Iterator
+from datetime import datetime
+from pathlib import Path, PurePosixPath
+
+from yuxi.infrastructure.filesystem import open_directory_fd
+from yuxi.infrastructure.observability.logging import logger
+from yuxi.infrastructure.runtime_settings import get_user_data_dir
+from yuxi.shared.datetime import ensure_shanghai, shanghai_now
+
+WORKSPACE_DIR_NAME = "workspace"
+WORKSPACE_AGENTS_DIR_NAME = "agents"
+WORKSPACE_AGENT_CONTEXT_FILES = {
+    "AGENTS.md": "# AGENTS\n\n以下是约束 Agent 行为的一些要求\n",
+    "USER.md": "# USER\n\n以下是有关用户的一些信息\n",
+    "MEMORY.md": "# MEMORY\n\n以下是 Agent 需要记住的一些信息\n",
+}
+WORKDIR_PROJECTS_DIR_NAME = "projects"
+
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+# managed Workdir 同时接受当前与历史两种 canonical 名称形态。
+_MANAGED_WORKDIR_NAME_RE = re.compile(r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})_[0-9a-f]{8}(?:-[1-9]\d*)?$")
+_MANAGED_WORKDIR_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
+_MANAGED_WORKDIR_DATE_RE = re.compile(r"[0-9]{8}")
+_MANAGED_WORKDIR_PROJECT_NAME_RE = re.compile(r"[0-9a-f]{6}(?:-[1-9][0-9]*)?")
+_MANAGED_WORKDIR_DATE_FORMAT = "%Y%m%d"
+
+
+# 不可信路径的校验与规范化：纯字符串判定，不访问文件系统。
+
+
+def normalize_workspace_scope(path: str) -> str:
+    """规范化用户文件 scope，拒绝跳转、URL、反斜杠与 NUL。"""
+    raw = str(path or "").strip()
+    pure = PurePosixPath(raw)
+    if not raw or not pure.is_absolute() or ".." in pure.parts or "\\" in raw or "://" in raw or "\0" in raw:
+        raise ValueError("invalid Workspace scope path")
+    return pure.as_posix()
+
+
+def validate_directory_name(name: str) -> str:
+    """目录创建只接受单个普通 POSIX 组件。"""
+    if not name or name in {".", ".."} or any(char in name for char in ("/", "\\", "\0")):
+        raise ValueError("directory name must be one path component")
+    return name
+
+
+def validate_thread_id(thread_id: str) -> str:
+    """thread_id 只接受非空且仅含安全字符的标识。"""
+    value = str(thread_id or "").strip()
+    if not value:
+        raise ValueError("thread_id is required")
+    if not _SAFE_ID_RE.match(value):
+        raise ValueError("thread_id contains invalid characters")
+    return value
+
+
+def normalize_workdir_path(workdir_path: str) -> str:
+    """规范化数据库中的 UserWorkspace 相对 Workdir 路径。"""
+    raw = str(workdir_path or "").strip()
+    pure = PurePosixPath(raw)
+    if not raw or pure.is_absolute() or "\\" in raw or "://" in raw:
+        raise ValueError("workdir_path must be a relative POSIX path")
+    if any(part in {"", ".", ".."} for part in raw.split("/")):
+        raise ValueError("workdir_path contains invalid path components")
+    return pure.as_posix()
+
+
+def normalize_managed_workdir_path(workdir_path: str) -> str:
+    """规范化服务端管理的 Workdir 路径。
+
+    只接受 projects/<日期>/<项目标识> 与历史 projects/<时间戳>_<实例标识> 两种
+    canonical 形态，并要求日期真实存在，保证数据库绑定始终能够落盘。
+    """
+    try:
+        pure = PurePosixPath(normalize_workdir_path(workdir_path))
+        date, date_format = _managed_workdir_date_and_format(pure)
+        datetime.strptime(date, date_format)
+    except ValueError:
+        raise ValueError("managed workdir_path must use a supported projects/<managed-id>") from None
+    return pure.as_posix()
+
+
+def _managed_workdir_date_and_format(pure: PurePosixPath) -> tuple[str, str]:
+    """提取 managed Workdir 名称中的日期与对应格式，形态不符时抛出 ValueError。"""
+    if len(pure.parts) == 3 and pure.parts[0] == WORKDIR_PROJECTS_DIR_NAME:
+        date, name = pure.parts[1:]
+        if _MANAGED_WORKDIR_DATE_RE.fullmatch(date) and _MANAGED_WORKDIR_PROJECT_NAME_RE.fullmatch(name):
+            return date, _MANAGED_WORKDIR_DATE_FORMAT
+    elif len(pure.parts) == 2 and pure.parts[0] == WORKDIR_PROJECTS_DIR_NAME:
+        match = _MANAGED_WORKDIR_NAME_RE.fullmatch(pure.parts[1])
+        if match is not None:
+            return match.group("timestamp"), _MANAGED_WORKDIR_TIMESTAMP_FORMAT
+    raise ValueError("unsupported managed workdir layout")
+
+
+# 逻辑 UID 到宿主目录名的映射与用户路径解析。
+
+
+def workspace_uid_dirname(uid: str) -> str:
+    """Return a path-safe, stable workspace directory name for a logical UID.
+
+    Database and OIDC subject identifiers may contain characters such as ``:``
+    that are valid identity data but unsafe in filesystem path components.
+    Identity-safe UIDs keep a readable directory name; all other values use a
+    namespaced SHA-256 digest at the filesystem boundary only.
+    """
+    value = str(uid or "").strip()
+    if not value:
+        raise ValueError("uid is required")
+    if _SAFE_ID_RE.fullmatch(value):
+        return value
+    return f"uid-{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def global_user_data_dir(uid: str) -> Path:
+    """Return the shared host-side directory used for one user's workspace files."""
+    safe_uid = workspace_uid_dirname(uid)
+    return get_user_data_dir() / "shared" / safe_uid
+
+
+def user_workspace_dir(uid: str) -> Path:
+    """返回用户级实时 Workspace 根。"""
+    return global_user_data_dir(uid) / WORKSPACE_DIR_NAME
+
+
+def user_workdir_host_dir(uid: str, workdir_path: str) -> Path:
+    """解析当前用户 Workdir，拒绝任意 symlink 路径组件。"""
+    parts = PurePosixPath(normalize_workdir_path(workdir_path)).parts
+    _open_workspace_directory(uid, parts)
+    target = user_workspace_dir(uid).joinpath(*parts)
+    if not target.is_dir():
+        raise ValueError("workdir_path does not reference an existing directory")
+    return target
+
+
+# Workspace 生命周期：创建默认结构、分配 Workdir 名称、物化数据库绑定。
+
+
+def ensure_user_workspace(uid: str) -> None:
+    """创建用户级 Workspace 与默认 Agent 上下文文件。"""
+    workspace_fd = _open_user_workspace_fd(uid, create=True)
+    try:
+        _ensure_workspace_default_files_fd(workspace_fd)
+    finally:
+        os.close(workspace_fd)
+
+
+def allocate_default_user_workdir_path(
+    uid: str,
+    project_id: str,
+    *,
+    allocated_at: datetime | None = None,
+    reserved_paths: Collection[str] = (),
+) -> str:
+    """按上海日期与六位 Project 标识分配未占用的 managed Workdir 路径。"""
+    canonical_project_id = str(uuid.UUID(str(project_id)))
+    date = ensure_shanghai(allocated_at or shanghai_now()).strftime("%Y%m%d")
+    base_name = canonical_project_id[:6]
+    suffix = 0
+    while True:
+        name = base_name if suffix == 0 else f"{base_name}-{suffix}"
+        relative_path = f"{WORKDIR_PROJECTS_DIR_NAME}/{date}/{name}"
+        if relative_path not in reserved_paths and not _user_workspace_entry_exists(uid, relative_path):
+            return relative_path
+        suffix += 1
+
+
+def _user_workspace_entry_exists(uid: str, workdir_path: str) -> bool:
+    """以 no-follow 方式判断 managed Workdir 名称是否已被占用。"""
+    try:
+        workspace_fd = _open_user_workspace_fd(uid)
+    except FileNotFoundError:
+        return False
+
+    parts = PurePosixPath(workdir_path).parts
+    parent_fd = None
+    try:
+        try:
+            parent_fd = _open_workspace_child_fd(workspace_fd, parts[:-1])
+        except FileNotFoundError:
+            return False
+        try:
+            os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        return True
+    finally:
+        if parent_fd is not None:
+            os.close(parent_fd)
+        os.close(workspace_fd)
+
+
+def ensure_bound_user_workdir(uid: str, workdir_path: str) -> None:
+    """物化已提交数据库绑定的 canonical Workdir。"""
+    normalized = normalize_managed_workdir_path(workdir_path)
+    parts = PurePosixPath(normalized).parts
+    try:
+        _open_workspace_directory(uid, parts)
+        return
+    except FileNotFoundError:
+        pass
+    ensure_user_workspace(uid)
+    workspace_fd = _open_user_workspace_fd(uid)
+    try:
+        directory_fd = _open_workspace_child_fd(workspace_fd, parts, create=True)
+        os.close(directory_fd)
+    finally:
+        os.close(workspace_fd)
+
+
+# fd 边界实现：目录访问均经 O_NOFOLLOW 逐层打开，symlink 与非目录组件统一翻译为 ValueError。
+
+
+@contextlib.contextmanager
+def _workspace_fd_boundary() -> Iterator[None]:
+    """把打开 Workspace 目录时的 symlink/非目录边界错误统一翻译为 ValueError。"""
+    try:
+        yield
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise ValueError("UserWorkspace 路径包含符号链接或非目录组件") from exc
+        raise
+
+
+def _open_user_workspace_fd(uid: str, *, create: bool = False) -> int:
+    """从配置根逐层打开 uid 的 Workspace，拒绝中间 symlink。"""
+    root = get_user_data_dir()
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
+    with _workspace_fd_boundary():
+        return open_directory_fd(
+            root,
+            ("shared", workspace_uid_dirname(uid), WORKSPACE_DIR_NAME),
+            create=create,
+        )
+
+
+def _open_workspace_child_fd(directory_fd: int, parts: tuple[str, ...], *, create: bool = False) -> int:
+    """从已固定的 UserWorkspace fd 打开子目录并翻译边界错误。"""
+    with _workspace_fd_boundary():
+        return open_directory_fd(directory_fd, parts, create=create)
+
+
+def _open_workspace_directory(uid: str, parts: tuple[str, ...]) -> None:
+    """逐层以 O_NOFOLLOW 打开 UserWorkspace 目录。"""
+    directory_fd = _open_user_workspace_fd(uid)
+    try:
+        child_fd = _open_workspace_child_fd(directory_fd, parts)
+        os.close(child_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _ensure_workspace_default_files_fd(workspace_fd: int) -> None:
+    """通过已校验的 Workspace fd 初始化默认 Agent 上下文文件。
+
+    初始化是尽力而为：Agents 目录或单个文件失败只记录告警，不阻塞 Workspace 创建；
+    写入中途失败则关闭 fd、删除半成品文件后原样抛出。
+    """
+    try:
+        agents_fd = open_directory_fd(workspace_fd, (WORKSPACE_AGENTS_DIR_NAME,), create=True)
+    except OSError as exc:
+        logger.warning(f"工作区默认 Agents 目录初始化失败: {exc}")
+        return
+    try:
+        for filename, default_content in WORKSPACE_AGENT_CONTEXT_FILES.items():
+            _write_default_agent_context_file(agents_fd, filename, default_content)
+    finally:
+        os.close(agents_fd)
+
+
+def _write_default_agent_context_file(agents_fd: int, filename: str, content: str) -> None:
+    """以 O_EXCL|O_NOFOLLOW 幂等写入单个默认上下文文件，已存在即跳过。"""
+    try:
+        file_fd = os.open(
+            filename,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=agents_fd,
+        )
+    except FileExistsError:
+        return
+    except OSError as exc:
+        logger.warning(f"工作区默认 {filename} 初始化失败: {exc}")
+        return
+    try:
+        encoded = content.encode("utf-8")
+        offset = 0
+        while offset < len(encoded):
+            offset += os.write(file_fd, encoded[offset:])
+    except BaseException:
+        os.close(file_fd)
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(filename, dir_fd=agents_fd)
+        raise
+    os.close(file_fd)

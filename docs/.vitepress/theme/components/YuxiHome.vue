@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 
 const GITHUB = 'https://github.com/xerrors/Yuxi'
@@ -10,7 +10,7 @@ const MASCOT_IMAGE = `${OSS_ASSET_BASE}/yuxi-mascot-cutout.png`
 const docPaths = [
   {
     title: '第一次部署 Yuxi',
-    desc: '准备 Docker 与模型 API，启动完整服务并完成第一次登录。',
+    desc: '准备 Docker、Cube 执行节点与模型 API，启动服务并完成首次登录。',
     link: '/intro/quick-start',
     action: '打开快速开始',
     character: `${OSS_ASSET_BASE}/characters/deploy-run.png`,
@@ -31,7 +31,7 @@ const docPaths = [
   },
   {
     title: '编排 Agent 能力',
-    desc: '组合模型、Skills、MCP、Tools 与 SubAgents。',
+    desc: '配置模型、Skills、MCP、工具与协作会话。',
     link: '/agents/agents-config',
     action: '进入智能体开发',
     character: `${OSS_ASSET_BASE}/characters/agent-confident.png`,
@@ -55,7 +55,7 @@ const productScenes = [
   {
     key: 'workbench',
     title: '统一智能体工作台',
-    desc: '在同一条任务链中查看知识引用、执行状态、上下文用量、子智能体和交付文件。',
+    desc: '在会话中查看知识引用、执行状态、上下文用量、协作成员和交付文件。',
     image: `${OSS_ASSET_BASE}/screenshots/workbench.webp`
   },
   {
@@ -67,7 +67,7 @@ const productScenes = [
   {
     key: 'multiagent',
     title: '多智能体与扩展能力',
-    desc: '配置主智能体与 SubAgents，并按任务加载 Skills、MCP 和工具。',
+    desc: '配置智能体与协作成员，并按任务使用 Skills、MCP 和工具。',
     image: `${OSS_ASSET_BASE}/screenshots/multiagent.webp`
   },
   {
@@ -79,20 +79,22 @@ const productScenes = [
 ]
 
 const activeScene = ref(0)
-const currentScene = computed(() => productScenes[activeScene.value])
+const scenePanels = []
+const sceneVisible = new Set()
+let sceneObserver = null
 
 const workflow = [
   { title: '接入知识', desc: '文档、向量检索与知识图谱保持可追溯来源。' },
-  { title: '组合能力', desc: '模型、Skills、MCP、Tools 与 SubAgents 按需装配。' },
+  { title: '组合能力', desc: '模型、Skills、MCP、工具与协作能力按需装配。' },
   { title: '执行任务', desc: 'LangGraph 与异步 Worker 承载长任务和人工审批。' },
-  { title: '交付结果', desc: '回答、引用与文件产物绑定同一次 Request 和 Run。' }
+  { title: '交付结果', desc: '回答、引用与文件产物绑定明确的 Turn 和 Run。' }
 ]
 
 const capabilityGroups = [
   { label: '知识', value: 'RAG、知识图谱、评估' },
   { label: '执行', value: 'LangGraph、ARQ、Sandbox' },
-  { label: '扩展', value: 'Skills、MCP、SubAgents' },
-  { label: '治理', value: '多租户、部门权限、API Key' }
+  { label: '扩展', value: 'Skills、MCP、会话协作' },
+  { label: '治理', value: '用户、部门共享与 API Key' }
 ]
 
 const providers = [
@@ -113,30 +115,45 @@ const providersBottom = [...providers.slice(5), ...providers.slice(0, 5)]
 const providerRows = [providers, providersBottom]
 const providerSummary = `支持的模型供应商：${providers.map((provider) => provider.name).join('、')}`
 
-/** 按水平 tablist 约定处理方向键、Home 和 End。 */
-function handleTabKey(event, index) {
-  let next = index
+/** 收集右侧面板的 DOM 引用，供滚动定位和可见性观察使用。 */
+function registerScenePanel(element, index) {
+  if (element) scenePanels[index] = element
+  else delete scenePanels[index]
+}
 
-  switch (event.key) {
-    case 'ArrowRight':
-      next = (index + 1) % productScenes.length
-      break
-    case 'ArrowLeft':
-      next = (index - 1 + productScenes.length) % productScenes.length
-      break
-    case 'Home':
-      next = 0
-      break
-    case 'End':
-      next = productScenes.length - 1
-      break
-    default:
-      return
-  }
+/** 点击步骤时把对应面板滚到视口中央；高亮仍由滚动位置决定。 */
+function scrollToScene(index) {
+  const panel = scenePanels[index]
+  if (!panel) return
 
-  event.preventDefault()
-  activeScene.value = next
-  event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[next]?.focus()
+  // 平滑滚动途中会依次掠过后面的面板，若在此提前置为当前步骤，高亮会先跳过去再跳回来。
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  panel.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+}
+
+// 面板进入视口中部判定带时接管当前步骤；当前步骤离开后交给带内仍可见的面板，避免高亮滞留在已滚出中线的截图上。
+function observeScenePanels() {
+  sceneObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const index = Number(entry.target.dataset.sceneIndex)
+      if (Number.isNaN(index)) continue
+
+      if (!entry.isIntersecting) {
+        sceneVisible.delete(index)
+        continue
+      }
+
+      sceneVisible.add(index)
+      activeScene.value = index
+    }
+
+    if (sceneVisible.has(activeScene.value)) return
+
+    const [fallback] = [...sceneVisible].sort((a, b) => a - b)
+    if (fallback !== undefined) activeScene.value = fallback
+  }, { rootMargin: '-42% 0px -42% 0px' })
+
+  scenePanels.forEach((panel) => sceneObserver.observe(panel))
 }
 
 const revealObservers = new WeakMap()
@@ -443,6 +460,8 @@ function handleVisibilityChange() {
 }
 
 onMounted(() => {
+  observeScenePanels()
+
   const canvas = canvasRef.value
   if (!canvas) return
 
@@ -459,6 +478,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.cancelAnimationFrame(animationFrame)
+  sceneObserver?.disconnect()
+  sceneObserver = null
   motionQuery?.removeEventListener('change', restartRendering)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   themeObserver?.disconnect()
@@ -557,48 +578,45 @@ onBeforeUnmount(() => {
           </header>
 
           <div v-reveal class="yx-tour__layout">
-            <div class="yx-tabs" role="tablist" aria-label="产品界面">
+            <div class="yx-tour__steps" role="group" aria-label="产品界面">
               <button
                 v-for="(scene, index) in productScenes"
-                :id="`yx-tab-${scene.key}`"
+                :id="`yx-step-${scene.key}`"
                 :key="scene.key"
-                class="yx-tab"
-                :class="{ 'yx-tab--active': activeScene === index }"
+                class="yx-tour__step"
+                :class="{ 'yx-tour__step--active': activeScene === index }"
                 type="button"
-                role="tab"
-                :aria-selected="activeScene === index"
-                aria-controls="yx-product-panel"
-                :tabindex="activeScene === index ? 0 : -1"
-                @click="activeScene = index"
-                @keydown="handleTabKey($event, index)"
+                :aria-current="activeScene === index ? 'step' : undefined"
+                @click="scrollToScene(index)"
               >
                 <strong>{{ scene.title }}</strong>
                 <span>{{ scene.desc }}</span>
               </button>
             </div>
 
-            <div
-              id="yx-product-panel"
-              class="yx-screen"
-              role="tabpanel"
-              :aria-labelledby="`yx-tab-${currentScene.key}`"
-              tabindex="0"
-            >
-              <div class="yx-screen__backdrop">
-                <Transition name="yx-screen-swap" mode="out-in">
+            <div class="yx-tour__panels">
+              <figure
+                v-for="(scene, index) in productScenes"
+                :id="`yx-panel-${scene.key}`"
+                :key="scene.key"
+                :ref="(element) => registerScenePanel(element, index)"
+                class="yx-screen"
+                :class="{ 'yx-screen--active': activeScene === index }"
+                :data-scene-index="index"
+              >
+                <div class="yx-screen__backdrop">
                   <img
-                    :key="currentScene.key"
                     class="yx-screen__visual"
-                    :src="currentScene.image"
-                    :alt="`${currentScene.title}界面截图`"
+                    :src="scene.image"
+                    :alt="`${scene.title}界面截图`"
                     width="2940"
                     height="1670"
                     loading="lazy"
                     decoding="async"
                   >
-                </Transition>
-              </div>
-              <p class="yx-screen__caption">{{ currentScene.title }}</p>
+                </div>
+                <figcaption class="yx-screen__caption">{{ scene.title }}</figcaption>
+              </figure>
             </div>
           </div>
         </div>
@@ -676,9 +694,11 @@ onBeforeUnmount(() => {
           <div v-reveal class="yx-quickstart__copy">
             <p class="yx-kicker">快速开始</p>
             <h2>用 Docker Compose 启动完整拓扑</h2>
-            <p>准备 Docker 与模型 API。初始化脚本生成本地配置，Compose 启动知识库、图谱、API 与 Worker。</p>
+            <p>准备 Docker 和模型 API，默认使用 Container 沙盒，无需额外执行节点。0.8 使用独立数据目录全新部署。</p>
             <div class="yx-inline-links">
               <a :href="withBase('/intro/quick-start')">阅读完整教程</a>
+              <a :href="withBase('/advanced/container-sandbox')">了解 Container 沙盒</a>
+              <a :href="withBase('/develop-guides/releases/0.8.0')">0.8.0 更新说明</a>
               <a :href="withBase('/advanced/deployment')">生产部署与升级</a>
             </div>
           </div>
@@ -688,14 +708,16 @@ onBeforeUnmount(() => {
               <span>Terminal</span>
               <span>Docker Compose</span>
             </div>
-            <pre><code><span># 获取当前发布版本</span>
-git clone --branch v0.7.3 --depth 1 \
+            <pre><code><span># 获取 0.8.0 源码</span>
+git clone --branch v0.8.0 --depth 1 \
   https://github.com/xerrors/Yuxi.git
 cd Yuxi
 
-<span># 初始化并启动</span>
+<span># 初始化配置</span>
 ./scripts/init.sh
-docker compose up --build -d</code></pre>
+<span># 默认 Container 沙盒</span>
+docker compose --profile container config --quiet
+docker compose --profile container up --build -d</code></pre>
           </div>
         </div>
       </section>
@@ -720,6 +742,7 @@ docker compose up --build -d</code></pre>
               width="812"
               height="268"
               loading="lazy"
+              decoding="async"
             >
           </a>
 
@@ -918,8 +941,7 @@ docker compose up --build -d</code></pre>
 
 .yx-button:focus-visible,
 .yx-path:focus-visible,
-.yx-tab:focus-visible,
-.yx-screen:focus-visible,
+.yx-tour__step:focus-visible,
 .yx-inline-links a:focus-visible,
 .yx-capabilities a:focus-visible {
   outline: 3px solid var(--yx-focus);
@@ -1145,16 +1167,20 @@ docker compose up --build -d</code></pre>
   display: grid;
   grid-template-columns: minmax(260px, .35fr) minmax(0, 1fr);
   gap: 24px;
-  align-items: stretch;
+  align-items: start;
 }
 
-.yx-tabs {
+/* 左侧步骤在整段阅读中保持固定，右侧面板滚动时推进当前步骤。 */
+.yx-tour__steps {
+  position: sticky;
+  top: calc(var(--vp-nav-height, 64px) + 40px);
   display: grid;
   align-content: start;
   gap: 8px;
 }
 
-.yx-tab {
+.yx-tour__step {
+  position: relative;
   width: 100%;
   display: grid;
   gap: 6px;
@@ -1166,33 +1192,67 @@ docker compose up --build -d</code></pre>
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color .2s ease, color .2s ease, background-color .2s ease, transform .2s ease;
+  transition: border-color .25s ease, color .25s ease, background-color .25s ease, transform .25s ease;
 }
 
-.yx-tab:hover {
+.yx-tour__step::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--yx-amber);
+  opacity: 0;
+  transform: scaleY(.35);
+  transition: opacity .3s ease, transform .3s cubic-bezier(.2, .7, .2, 1);
+}
+
+.yx-tour__step:hover {
   color: var(--yx-ink);
   transform: translateX(3px);
 }
 
-.yx-tab--active {
+.yx-tour__step--active {
   border-color: var(--yx-line);
   color: var(--yx-ink);
   background: var(--yx-surface);
 }
 
-.yx-tab strong {
+.yx-tour__step--active::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.yx-tour__step strong {
   font-size: 17px;
 }
 
-.yx-tab span {
+.yx-tour__step span {
   font-size: 13.5px;
   line-height: 1.55;
 }
 
+.yx-tour__panels {
+  display: grid;
+  gap: clamp(28px, 7vh, 64px);
+}
+
 .yx-screen {
   min-width: 0;
+  min-height: min(76vh, 660px);
   margin: 0;
-  align-self: center;
+  display: grid;
+  align-content: center;
+  opacity: .55;
+  transform: scale(.98);
+  transition: opacity .45s ease, transform .45s cubic-bezier(.2, .7, .2, 1);
+}
+
+.yx-screen--active {
+  opacity: 1;
+  transform: none;
 }
 
 .yx-screen__backdrop {
@@ -1219,23 +1279,9 @@ docker compose up --build -d</code></pre>
 .yx-screen__caption {
   margin-top: 12px;
   margin-bottom: 0;
+  padding-inline: clamp(18px, 3vw, 34px);
   color: var(--yx-ink-soft);
   font-size: 13px;
-}
-
-.yx-screen-swap-enter-active,
-.yx-screen-swap-leave-active {
-  transition: opacity .18s ease, transform .18s ease;
-}
-
-.yx-screen-swap-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-.yx-screen-swap-leave-to {
-  opacity: 0;
-  transform: translateY(-5px);
 }
 
 .yx-providers {
@@ -1597,12 +1643,20 @@ docker compose up --build -d</code></pre>
     grid-template-columns: 1fr;
   }
 
-  .yx-tabs {
+  /* 单列布局里左侧不再固定，步骤改为两列概览。 */
+  .yx-tour__steps {
+    position: static;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .yx-tab:hover {
+  .yx-tour__step:hover {
     transform: translateY(-2px);
+  }
+
+  .yx-screen {
+    min-height: 0;
+    opacity: 1;
+    transform: none;
   }
 
   .yx-workflow {
@@ -1663,7 +1717,7 @@ docker compose up --build -d</code></pre>
   }
 
   .yx-paths,
-  .yx-tabs,
+  .yx-tour__steps,
   .yx-workflow,
   .yx-capabilities,
   .yx-capabilities dl {
@@ -1695,11 +1749,11 @@ docker compose up --build -d</code></pre>
     max-width: calc(100% - 82px);
   }
 
-  .yx-tab {
+  .yx-tour__step {
     min-height: 84px;
   }
 
-  .yx-tab span {
+  .yx-tour__step span {
     display: none;
   }
 
@@ -1746,6 +1800,18 @@ docker compose up --build -d</code></pre>
 
   .yx-community__actions {
     justify-content: flex-start;
+  }
+}
+
+/* 视口较矮时收紧步骤内边距与间距，让固定的步骤列整体留在视口内。
+   步骤描述在某些宽度下折成两行、列更高，阈值按折行后的最坏情况留余量。 */
+@media (min-width: 901px) and (max-height: 660px) {
+  .yx-tour__steps {
+    gap: 4px;
+  }
+
+  .yx-tour__step {
+    padding: 8px 18px;
   }
 }
 
@@ -1809,6 +1875,10 @@ html.dark .yx-path--featured .yx-path__action {
 
 html.dark .yx-path--featured .yx-path__body > span {
   color: #c3c8c2;
+}
+
+html.dark .yx-screen__backdrop {
+  border-color: var(--yx-line);
 }
 
 html.dark .yx-lockup__light {

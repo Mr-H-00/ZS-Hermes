@@ -101,15 +101,11 @@ function Ensure-SecuritySecret($Name, [string[]]$OtherNames = @()) {
 function Assert-SecuritySecrets {
     $jwtSecret = Get-EnvValue "JWT_SECRET_KEY"
     $apiKeySecret = Get-EnvValue "API_KEY_DERIVATION_SECRET"
-    $sandboxSecret = Get-EnvValue "SANDBOX_PROVISIONER_TOKEN"
     if (-not (Test-SecuritySecretValue $jwtSecret)) {
         throw "JWT_SECRET_KEY must contain at least 32 non-whitespace characters."
     }
     if (-not (Test-SecuritySecretValue $apiKeySecret @($jwtSecret))) {
         throw "API_KEY_DERIVATION_SECRET must be at least 32 characters and independent from JWT_SECRET_KEY."
-    }
-    if (-not (Test-SecuritySecretValue $sandboxSecret @($jwtSecret, $apiKeySecret))) {
-        throw "SANDBOX_PROVISIONER_TOKEN must be at least 32 characters and independent from other security secrets."
     }
 }
 
@@ -144,9 +140,6 @@ function Ensure-JwtEnv {
     }
 }
 
-function Ensure-SandboxEnv {
-    Ensure-SecuritySecret "SANDBOX_PROVISIONER_TOKEN" @("JWT_SECRET_KEY", "API_KEY_DERIVATION_SECRET")
-}
 
 if ($ValidateSecurityEnv) {
     if (-not (Test-Path ".env")) {
@@ -174,7 +167,6 @@ if (Test-Path ".env") {
     Write-Host "✅ .env file already exists. Checking required settings." -ForegroundColor Green
     Ensure-RequiredApiEnv
     Ensure-JwtEnv
-    Ensure-SandboxEnv
     Assert-SecuritySecrets
 } else {
     Write-Host "📝 .env file not found. Let's set up your environment variables." -ForegroundColor Yellow
@@ -193,29 +185,6 @@ if (Test-Path ".env") {
         }
     } while ([string]::IsNullOrEmpty($apiKey))
 
-    # Get Web Search Provider and API Key (optional)
-    Write-Host ""
-    Write-Host "🔍 Web Search Provider (optional)" -ForegroundColor Yellow
-    Write-Host "1) doubao (Doubao Custom Search)" -ForegroundColor Blue
-    Write-Host "2) tavily (Tavily Search)" -ForegroundColor Blue
-
-    $SEARCH_CHOICE = Read-Host "Please select web search provider (1 for doubao, 2 for tavily, press Enter to skip)"
-
-    $WEB_SEARCH_PROVIDER = ""
-    $DOUBAO_SEARCH_API_KEY = ""
-    $TAVILY_API_KEY = ""
-
-    if ($SEARCH_CHOICE -eq "1" -or $SEARCH_CHOICE -eq "doubao") {
-        $WEB_SEARCH_PROVIDER = "doubao"
-        Write-Host "Get your Doubao API Key from Volcengine Console" -ForegroundColor Blue
-        $DOUBAO_SEARCH_API_KEY = Read-Host "Please enter your DOUBAO_SEARCH_API_KEY"
-    } elseif ($SEARCH_CHOICE -eq "2" -or $SEARCH_CHOICE -eq "tavily") {
-        $WEB_SEARCH_PROVIDER = "tavily"
-        Write-Host "Get your Tavily API key from: https://app.tavily.com/" -ForegroundColor Blue
-        $TAVILY_API_KEY = Read-Host "Please enter your TAVILY_API_KEY"
-    }
-
-    Write-Host ""
     Write-Host "JWT security settings" -ForegroundColor Yellow
     $JWT_SECRET_KEY = Read-SecuritySecret "JWT_SECRET_KEY"
     $API_KEY_DERIVATION_SECRET = Read-SecuritySecret "API_KEY_DERIVATION_SECRET" @($JWT_SECRET_KEY)
@@ -226,10 +195,6 @@ if (Test-Path ".env") {
         Write-Host "Generated YUXI_INSTANCE_ID and saved it to .env." -ForegroundColor Green
     }
 
-    $SANDBOX_PROVISIONER_TOKEN = Read-SecuritySecret "SANDBOX_PROVISIONER_TOKEN" @(
-        $JWT_SECRET_KEY,
-        $API_KEY_DERIVATION_SECRET
-    )
 
     # Create .env file
     $envContent = @"
@@ -239,14 +204,13 @@ SILICONFLOW_API_KEY=$apiKey
 # Web Search Provider settings
 "@
 
-    if (-not [string]::IsNullOrEmpty($WEB_SEARCH_PROVIDER)) {
-        $envContent += "`nWEB_SEARCH_PROVIDER=$WEB_SEARCH_PROVIDER"
-    }
-    if (-not [string]::IsNullOrEmpty($DOUBAO_SEARCH_API_KEY)) {
-        $envContent += "`nDOUBAO_SEARCH_API_KEY=$DOUBAO_SEARCH_API_KEY"
-    }
-    if (-not [string]::IsNullOrEmpty($TAVILY_API_KEY)) {
-        $envContent += "`nTAVILY_API_KEY=$TAVILY_API_KEY"
+    foreach ($searchName in @("WEB_SEARCH_PROVIDER", "DOUBAO_SEARCH_API_KEY", "TAVILY_API_KEY", "DEEPSEEK_API_KEY")) {
+        $searchValue = [Environment]::GetEnvironmentVariable($searchName)
+        if (-not [string]::IsNullOrEmpty($searchValue)) {
+            # 单引号 dotenv 值保留美元符号，避免 Compose 插值。
+            if ($searchValue -match "['\r\n]") { throw "$searchName contains unsupported characters" }
+            $envContent += "`n${searchName}='$searchValue'"
+        }
     }
 
     $envContent += @"
@@ -255,7 +219,6 @@ SILICONFLOW_API_KEY=$apiKey
 JWT_SECRET_KEY=$JWT_SECRET_KEY
 API_KEY_DERIVATION_SECRET=$API_KEY_DERIVATION_SECRET
 YUXI_INSTANCE_ID=$YUXI_INSTANCE_ID
-SANDBOX_PROVISIONER_TOKEN=$SANDBOX_PROVISIONER_TOKEN
 "@
 
     $envContent | Out-File -FilePath ".env" -Encoding UTF8
@@ -264,30 +227,46 @@ SANDBOX_PROVISIONER_TOKEN=$SANDBOX_PROVISIONER_TOKEN
 
     # Clear the variables from memory
     Remove-Variable -Name "apiKey" -ErrorAction SilentlyContinue
-    Remove-Variable -Name "WEB_SEARCH_PROVIDER" -ErrorAction SilentlyContinue
-    Remove-Variable -Name "DOUBAO_SEARCH_API_KEY" -ErrorAction SilentlyContinue
-    Remove-Variable -Name "TAVILY_API_KEY" -ErrorAction SilentlyContinue
     Remove-Variable -Name "JWT_SECRET_KEY" -ErrorAction SilentlyContinue
     Remove-Variable -Name "API_KEY_DERIVATION_SECRET" -ErrorAction SilentlyContinue
     Remove-Variable -Name "YUXI_INSTANCE_ID" -ErrorAction SilentlyContinue
-    Remove-Variable -Name "SANDBOX_PROVISIONER_TOKEN" -ErrorAction SilentlyContinue
+}
+
+# 默认 container；已有显式后端和 runner 凭据保持不变。
+$sandboxBackend = Get-EnvValue "SANDBOX_BACKEND"
+if ([string]::IsNullOrWhiteSpace($sandboxBackend)) {
+    $sandboxBackend = "container"
+    Set-EnvValue "SANDBOX_BACKEND" $sandboxBackend
+}
+if ($sandboxBackend -notin @("container", "cube")) {
+    throw "SANDBOX_BACKEND must be cube or container."
+}
+if ($sandboxBackend -eq "container") {
+    $runnerToken = Get-EnvValue "SANDBOX_RUNNER_TOKEN"
+    if ([string]::IsNullOrEmpty($runnerToken)) {
+        Set-EnvValue "SANDBOX_RUNNER_TOKEN" (New-RandomHex 32)
+    } elseif (-not (Test-SecuritySecretValue $runnerToken)) {
+        throw "SANDBOX_RUNNER_TOKEN must be at least 32 characters without surrounding whitespace or quotes."
+    }
+    Remove-Variable runnerToken
 }
 
 Write-Host ""
+Write-Host "Configure Search and Fetch after login in Settings -> 网络搜索." -ForegroundColor Blue
 Write-Host "📦 Pulling Docker images..." -ForegroundColor Cyan
 Write-Host "=========================" -ForegroundColor Cyan
 
 # List of Docker images to pull
 $images = @(
+    "alpine:3.20",
     "python:3.13-slim",
     "node:24-slim",
-    "node:24-alpine",
-    "milvusdb/milvus:v2.5.6",
+    "node:22-alpine",
+    "milvusdb/milvus:v3.0.2",
     "neo4j:5.26.29",
-    "minio/minio:RELEASE.2023-03-20T20-16-18Z",
     "ghcr.io/astral-sh/uv:0.12.6",
     "nginx:alpine",
-    "quay.io/coreos/etcd:v3.5.5",
+    "quay.io/coreos/etcd:v3.5.25",
     "postgres:16",
     "redis:7.4.10-alpine"
 )
@@ -313,20 +292,21 @@ foreach ($image in $images) {
     }
 }
 
-$sandboxImage = "enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:1.11.0"
-if (-not (Test-SkipExistingImage $sandboxImage)) {
-    Write-Host "🔄 Pulling ${sandboxImage}..." -ForegroundColor Yellow
-    docker pull $sandboxImage
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅ Successfully pulled ${sandboxImage}" -ForegroundColor Green
-    } else {
-        Write-Host "❌ Failed to pull ${sandboxImage}" -ForegroundColor Red
-        exit 1
-    }
+# MinIO 官方镜像已全面下架，改为从仓库内 Dockerfile 构建
+Write-Host "🔄 Building minio and storage-init images..." -ForegroundColor Yellow
+docker compose build minio storage-init
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ Failed to build minio or storage-init image" -ForegroundColor Red
+    exit 1
 }
+
 
 Write-Host ""
 Write-Host "🎉 Initialization complete!" -ForegroundColor Green
 Write-Host "==========================" -ForegroundColor Green
-Write-Host "You can now run: docker compose up -d --build" -ForegroundColor Cyan
-Write-Host "This will start all services in development mode with hot-reload enabled." -ForegroundColor Cyan
+if ($sandboxBackend -eq "container") {
+    Write-Host "You can now run: docker compose --profile container up -d --build" -ForegroundColor Cyan
+} else {
+    Write-Host "You can now run: docker compose up -d --build" -ForegroundColor Cyan
+}
+Write-Host "Backend code changes require an explicit service restart; frontend hot-reload remains enabled." -ForegroundColor Cyan

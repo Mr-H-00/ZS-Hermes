@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from yuxi.modules.agents.runtime.context import BaseContext
+
 import asyncio
 from contextlib import aclosing
 
@@ -7,7 +9,8 @@ import pytest
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from langgraph.types import Command
 
-from yuxi.agents.base import BaseAgent, _json_safe, _normalize_tool_event_data
+from yuxi.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
+from yuxi.modules.agents.services.message_recorder import tool_event_output
 
 
 @pytest.mark.asyncio
@@ -49,31 +52,27 @@ async def test_final_checkpoint_belongs_to_each_executed_graph():
         """耗尽后保留唯一的最终 checkpoint。"""
         return [
             event
-            async for event in agent.stream_messages_with_state(
-                [uid], input_context={"uid": uid, "thread_id": uid + "-thread"}
-            )
+            async for event in agent.stream_messages_with_state([uid], context=BaseContext(**{"uid": uid, "thread_id": uid + "-thread"}))
         ]
 
     results = await asyncio.gather(run("a"), run("b"))
     for uid, events in zip(("a", "b"), results, strict=True):
-        assert events == [("checkpoint", ({"uid": uid, "thread_id": uid + "-thread"}, [uid]))]
+        assert events == [GraphExecutionResult(checkpoint=({"uid": uid, "thread_id": uid + "-thread"}, [uid]))]
 
 
 def _command_tool_finished(tool_call_id: str) -> dict:
-    """模拟 write_todos / task 这类返回 Command 的工具的 tool-finished 事件。"""
+    """模拟交付物工具返回 Command 的 tool-finished 事件。"""
     tool_message = ToolMessage(
-        content="Updated todo list to [{'content': '步骤一', 'status': 'in_progress'}]",
+        content="已生成步骤一的交付物 result.txt",
         tool_call_id=tool_call_id,
     )
-    command = Command(update={"todos": [{"content": "步骤一", "status": "in_progress"}], "messages": [tool_message]})
+    command = Command(update={"artifacts": ["result.txt"], "messages": [tool_message]})
     return {"event": "tool-finished", "tool_call_id": tool_call_id, "output": command}
 
 
 def test_command_tool_finished_extracts_tool_message_for_frontend_association():
     tool_call_id = "call_abc"
-    data = _normalize_tool_event_data(_command_tool_finished(tool_call_id))
-    safe = _json_safe(data)
-    output = safe["output"]
+    output = tool_event_output(_command_tool_finished(tool_call_id))
 
     # 前端按 tool_call_id 关联结果，并要求 output 是对象（dict），否则会被丢弃。
     assert isinstance(output, dict)
@@ -91,26 +90,20 @@ def test_command_tool_finished_prefers_message_matching_tool_call_id():
         "output": Command(update={"messages": [other, target]}),
     }
 
-    output = _normalize_tool_event_data(data)["output"]
-    assert isinstance(output, ToolMessage)
-    assert output.tool_call_id == "call_target"
-    assert output.content == "目标结果"
+    output = tool_event_output(data)
+    assert output["tool_call_id"] == "call_target"
+    assert output["content"] == "目标结果"
 
 
-@pytest.mark.parametrize(
-    "data",
-    [
-        {"event": "tool-finished", "tool_call_id": "call_x", "output": {"content": "plain", "type": "tool"}},
-        {"event": "tool-started", "tool_call_id": "call_x", "output": None},
-        {
-            "event": "tool-finished",
-            "tool_call_id": "call_x",
-            "output": Command(update={"todos": [{"content": "无消息", "status": "pending"}]}),
-        },
-    ],
-)
-def test_untouched_tool_event_data_is_returned_as_is(data):
-    assert _normalize_tool_event_data(data) is data
+def test_command_result_without_matching_call_fails():
+    """Command 不能把相邻工具的结果绑定给当前调用。"""
+    with pytest.raises(ValueError, match="ToolMessage"):
+        tool_event_output(
+            {
+                "tool_call_id": "target",
+                "output": Command(update={"messages": [ToolMessage(content="other", tool_call_id="other")]}),
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -142,6 +135,36 @@ async def test_stream_with_state_preserves_protocol_sequence_and_timestamp():
                         "data": {"event": "tool-started", "tool_call_id": "call-1"},
                     },
                 }
+                yield {
+                    "seq": 9,
+                    "method": "custom",
+                    "params": {
+                        "timestamp": 1_777_000_123_790,
+                        "namespace": ["tools:abc"],
+                        "data": {
+                            "type": "yuxi.tool_lifecycle",
+                            "data": {"event": "tool-finished", "tool_call_id": "call-1", "output": "result"},
+                        },
+                    },
+                }
+                yield {
+                    "seq": 10,
+                    "method": "tools",
+                    "params": {
+                        "timestamp": 1_777_000_123_791,
+                        "namespace": ["tools:abc"],
+                        "data": {"event": "tool-error", "tool_call_id": "call-1", "message": "inner error"},
+                    },
+                }
+                yield {
+                    "seq": 11,
+                    "method": "tools",
+                    "params": {
+                        "timestamp": 1_777_000_123_792,
+                        "namespace": ["tools:abc"],
+                        "data": {"event": "tool-output-delta", "tool_call_id": "call-1", "delta": "progress"},
+                    },
+                }
 
             return aclosing(events())
 
@@ -154,26 +177,27 @@ async def test_stream_with_state_preserves_protocol_sequence_and_timestamp():
         event
         async for event in FakeAgent().stream_messages_with_state(
             ["hello"],
-            input_context={"thread_id": "thread-1", "uid": "user-1"},
+            context=BaseContext(**{"thread_id": "thread-1", "uid": "user-1"}),
         )
     ]
 
-    mode, (_message, metadata) = events[0]
-    assert events[-1] == ("checkpoint", {"checkpoint": {"thread_id": "thread-1", "uid": "user-1"}})
-    assert mode == "messages"
-    assert metadata["stream_event"] == {
-        "method": "messages",
-        "namespace": ["model:abc"],
-        "seq": 7,
-        "timestamp": 1_777_000_123_456,
-    }
-    assert events[1] == (
-        "stream_event",
-        {
-            "method": "tools",
-            "namespace": ["tools:abc"],
-            "seq": 8,
+    assert events[-1] == GraphExecutionResult(checkpoint={"checkpoint": {"thread_id": "thread-1", "uid": "user-1"}})
+    assert events[0]["method"] == "messages"
+    assert events[0]["seq"] == 7
+    assert events[0]["params"]["namespace"] == ["model:abc"]
+    assert events[0]["params"]["timestamp"] == 1_777_000_123_456
+    assert isinstance(events[0]["params"]["data"][0], AIMessageChunk)
+    assert events[1] == {
+        "seq": 8,
+        "method": "tools",
+        "params": {
             "timestamp": 1_777_000_123_789,
+            "namespace": ["tools:abc"],
             "data": {"event": "tool-started", "tool_call_id": "call-1"},
         },
-    )
+    }
+    assert events[2]["params"]["data"] == {"event": "tool-finished", "tool_call_id": "call-1", "output": "result"}
+    assert events[2]["seq"] == 9
+    assert events[3]["params"]["data"] == {"event": "tool-output-delta", "tool_call_id": "call-1", "delta": "progress"}
+    assert events[3]["seq"] == 11
+    assert len(events) == 5

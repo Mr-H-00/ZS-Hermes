@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
-import yuxi.storage.redis.manager as redis_manager
-from yuxi.storage.redis import RedisConfig
+
+import yuxi.infrastructure.redis.manager as redis_manager
+from yuxi.infrastructure.redis import RedisConfig
 
 pytestmark = pytest.mark.unit
 
@@ -52,6 +53,29 @@ def test_redis_config_rejects_invalid_connection_capacity(
 
     with pytest.raises(RuntimeError, match="REDIS_MAX_CONNECTIONS"):
         RedisConfig.from_env()
+
+
+def test_redis_config_validates_capacity_before_timeouts(monkeypatch: pytest.MonkeyPatch):
+    """多个配置同时非法时，容量错误仍先于超时解析错误。"""
+    monkeypatch.setenv("REDIS_MAX_CONNECTIONS", "invalid")
+    monkeypatch.setenv("REDIS_SOCKET_TIMEOUT", "invalid")
+
+    with pytest.raises(RuntimeError, match="REDIS_MAX_CONNECTIONS"):
+        RedisConfig.from_env()
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("redis://:secret@redis:6379/0", "redis://:***@redis:6379/0"),
+        ("redis://user:secret@redis:6379/0", "redis://user:***@redis:6379/0"),
+        ("redis://user:pa%40ss@redis:6379/0", "redis://user:***@redis:6379/0"),
+        ("redis://redis:6379/0", "redis://redis:6379/0"),
+    ],
+)
+def test_redact_redis_url_hides_password_and_preserves_username(url: str, expected: str):
+    """日志地址只替换密码，保留用户名便于排障。"""
+    assert redis_manager.redact_redis_url(url) == expected
 
 
 def test_create_sync_redis_client_uses_config_and_pings(monkeypatch: pytest.MonkeyPatch):

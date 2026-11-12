@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from yuxi.agents.toolkits import service as tool_service
+from yuxi.modules.extensions.tools import catalog as tool_service
 
 
 def test_get_tool_metadata_includes_config_guide(monkeypatch):
-    tool_service._metadata_cache.clear()
 
     fake_tool = SimpleNamespace(
         name="demo_tool",
@@ -15,18 +14,18 @@ def test_get_tool_metadata_includes_config_guide(monkeypatch):
         args_schema=None,
     )
     fake_extra = SimpleNamespace(
-        category="buildin",
+        category="builtin",
         tags=["demo"],
         display_name="演示工具",
         config_guide="请先配置 DEMO_API_KEY",
     )
 
     monkeypatch.setattr(
-        "yuxi.agents.toolkits.registry.get_all_tool_instances",
+        "yuxi.modules.extensions.tools.registry.get_all_tool_instances",
         lambda: [fake_tool],
     )
     monkeypatch.setattr(
-        "yuxi.agents.toolkits.registry.get_all_extra_metadata",
+        "yuxi.modules.extensions.tools.registry.get_all_extra_metadata",
         lambda: {"demo_tool": fake_extra},
     )
 
@@ -39,10 +38,8 @@ def test_get_tool_metadata_includes_config_guide(monkeypatch):
             "description": "demo description",
             "metadata": {},
             "args": [],
-            "category": "buildin",
+            "category": "builtin",
             "tags": ["demo"],
             "config_guide": "请先配置 DEMO_API_KEY",
         }
     ]
-
-    tool_service._metadata_cache.clear()

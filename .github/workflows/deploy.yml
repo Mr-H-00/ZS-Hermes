@@ -10,13 +10,7 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/deploy.yml'
-
-  # 在面向 main 的 PR 中提前验证 docs 构建
-  pull_request:
-    branches: [main]
-    paths:
-      - 'docs/**'
-      - '.github/workflows/deploy.yml'
+      - '.github/workflows/docs-check.yml'
 
   # 允许你从 Actions 选项卡手动运行此工作流程
   workflow_dispatch:
@@ -34,34 +28,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # 构建工作
   build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # 如果未启用 lastUpdated，则不需要
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.24.0
-      - name: Setup Pages
-        uses: actions/configure-pages@v6
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: docs
-      - name: Build with VitePress
-        run: pnpm run build
-        working-directory: docs
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: docs/.vitepress/dist
+    uses: ./.github/workflows/docs-check.yml
+    permissions:
+      contents: read
 
   # 部署工作
   deploy:

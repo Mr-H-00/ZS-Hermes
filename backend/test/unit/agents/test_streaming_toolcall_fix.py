@@ -16,7 +16,7 @@ from langchain_core.outputs import ChatGenerationChunk
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphRecursionError
-from yuxi.models.chat import normalize_tool_call_chunks
+from yuxi.modules.models.chat import normalize_tool_call_chunks
 
 
 @tool

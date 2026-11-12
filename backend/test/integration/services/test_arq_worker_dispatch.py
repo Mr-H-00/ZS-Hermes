@@ -8,8 +8,8 @@ import pytest_asyncio
 from arq import create_pool
 from arq.constants import in_progress_key_prefix
 from arq.worker import Retry, Worker
-from yuxi.services.arq_worker import YuxiWorker
-from yuxi.storage.redis import get_arq_redis_settings
+from yuxi.workers.arq import YuxiWorker
+from yuxi.infrastructure.redis import get_arq_redis_settings
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

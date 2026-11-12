@@ -1,0 +1,298 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { setImmediate } from 'node:timers'
+import test, { before, after } from 'node:test'
+import { createRenderer, nextTick, proxyRefs, ssrContextKey } from 'vue'
+import { createPinia, setActivePinia, disposePinia } from 'pinia'
+import { message, Modal } from 'ant-design-vue'
+import { createTestServer } from '../helpers/createTestServer.js'
+
+const source = readFileSync(new URL('../../src/modules/settings/ui/ModelProviderManagePanel.vue', import.meta.url), 'utf8')
+const requests = [], remoteRequests = [], confirmations = [], notices = []
+let updateProvider = async () => ({})
+let fetchRemoteModels = async () => ({ data: [] })
+let server, ProviderPanel, configStore
+const pinia = createPinia()
+const oldMessage = { success: message.success, error: message.error, warning: message.warning }
+const oldConfirm = Modal.confirm
+before(async () => {
+  setActivePinia(pinia)
+  Object.assign(message, {
+    success: (value) => notices.push(['success', value]),
+    error: (value) => notices.push(['error', value]),
+    warning: (value) => notices.push(['warning', value])
+  })
+  Modal.confirm = (options) => confirmations.push(options)
+  globalThis.__providerTestApi = {
+    getProviders: async () => ({ data: [provider] }),
+    fetchRemoteModels: (id) => { remoteRequests.push(id); return fetchRemoteModels(id) },
+    updateProvider: (id, payload) => { requests.push([id, payload]); return updateProvider(id, payload) }
+  }
+  server = await createTestServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom',
+    plugins: [{ name: 'provider-api-boundary', enforce: 'pre', load(id) {
+      if (id.endsWith('/src/apis/system_api.js')) return 'export const modelProviderApi = globalThis.__providerTestApi; export const configApi = {}'
+    } }]
+  })
+  const { loadModelMetadataCatalog } = await server.ssrLoadModule('/src/modules/settings/model/modelMetadata.js')
+  await loadModelMetadataCatalog()
+  const { useConfigStore } = await server.ssrLoadModule('/src/modules/settings/model/config.js')
+  configStore = useConfigStore(pinia)
+  ;({ default: ProviderPanel } = await server.ssrLoadModule('/src/modules/settings/ui/ModelProviderManagePanel.vue'))
+})
+after(async () => {
+  await server?.close()
+  disposePinia(pinia)
+  Object.assign(message, oldMessage)
+  Modal.confirm = oldConfirm
+  delete globalThis.__providerTestApi
+})
+
+const makeNode = (type) => ({ type, children: [], props: {}, parent: null, text: '' })
+const renderer = createRenderer({
+  createElement: makeNode,
+  createText: (value) => ({ ...makeNode('text'), text: value }),
+  createComment: (value) => ({ ...makeNode('comment'), text: value }),
+  insert(child, parent) {
+    child.parent = parent
+    parent.children.push(child)
+  },
+  remove(child) {
+    const index = child.parent?.children.indexOf(child) ?? -1
+    if (index >= 0) child.parent.children.splice(index, 1)
+  },
+  setText(node, value) {
+    node.text = value
+  },
+  setElementText(node, value) {
+    node.text = value
+    node.children = []
+  },
+  parentNode: (node) => node.parent,
+  nextSibling: () => null,
+  patchProp(node, key, _previous, value) {
+    node.props[key] = value
+  }
+})
+
+function mountPanel() {
+  requests.length = 0
+  remoteRequests.length = 0
+  fetchRemoteModels = async () => ({ data: [] })
+  confirmations.length = 0
+  notices.length = 0
+  updateProvider = async () => ({})
+  configStore.config.default_model = 'other:model'
+  let panel
+  const app = renderer.createApp({ setup() {
+    panel = proxyRefs(ProviderPanel.setup({}, { expose() {}, emit() {} }))
+    return () => null
+  } })
+  app.use(pinia)
+  app.provide(ssrContextKey, {})
+  app.mount(makeNode('root'))
+  return { panel, unmount: () => app.unmount() }
+}
+
+const provider = { provider_id: 'sample', display_name: 'Sample', is_enabled: true }
+const flushAsync = () => new Promise((resolve) => setImmediate(resolve))
+
+test('供应商弹窗以标题栏开关替代关闭叉号和保存并启用', () => {
+  const modal = source.slice(
+    source.indexOf('<!-- Provider Edit Modal -->'),
+    source.indexOf('</a-modal>', source.indexOf('<!-- Provider Edit Modal -->'))
+  )
+  const title = modal.slice(modal.indexOf('<template #title>'), modal.indexOf('</template>'))
+  const footerActions = modal.slice(
+    modal.indexOf('<div class="provider-modal-footer-actions">'),
+    modal.indexOf('</div>', modal.indexOf('<div class="provider-modal-footer-actions">'))
+  )
+
+  assert.match(modal, /:closable="false"/)
+  assert.match(title, /<a-switch[\s\S]*@change="toggleProviderEnabled"/)
+  assert.match(modal, /class="modal-form"[^>]*:inert="saving"/)
+  assert.match(modal, /:disabled="saving"[^>]*@click="deleteProviderFromEdit"/)
+  assert.doesNotMatch(modal, /<span>状态<\/span>|仅保存|保存并启用/)
+  assert.equal((footerActions.match(/<a-button/g) || []).length, 2)
+})
+
+test('停用只提交启用状态，成功关闭；启用成功保持打开', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    panel.openEditProviderModal(provider)
+    panel.toggleProviderEnabled(false)
+    await flushAsync()
+    assert.deepEqual(requests, [['sample', { is_enabled: false }]])
+    assert.equal(panel.showProviderModal, false)
+    assert.equal(panel.originalProviderEnabled, false)
+
+    panel.openEditProviderModal({ ...provider, is_enabled: false })
+    panel.toggleProviderEnabled(true)
+    await flushAsync()
+    assert.deepEqual(requests[1], ['sample', { is_enabled: true }])
+    assert.equal(panel.showProviderModal, true)
+    assert.equal(panel.originalProviderEnabled, true)
+  } finally {
+    unmount()
+  }
+})
+
+test('状态更新失败时保留弹窗和原启用状态', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    updateProvider = async () => {
+      throw new Error('网络失败')
+    }
+    panel.openEditProviderModal(provider)
+    panel.toggleProviderEnabled(false)
+    await nextTick()
+    await nextTick()
+    assert.deepEqual(requests, [['sample', { is_enabled: false }]])
+    assert.equal(panel.showProviderModal, true)
+    assert.equal(panel.originalProviderEnabled, true)
+    assert.deepEqual(notices.at(-1), ['error', '网络失败'])
+  } finally {
+    unmount()
+  }
+})
+
+test('有未保存字段时先确认，取消不提交，确认后仅停用', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    panel.openEditProviderModal(provider)
+    panel.providerForm.display_name = '未保存的新名称'
+    panel.toggleProviderEnabled(false)
+    assert.equal(confirmations.length, 1)
+    assert.deepEqual(requests, [])
+    assert.equal(panel.showProviderModal, true)
+    assert.equal(panel.providerForm.display_name, '未保存的新名称')
+
+    confirmations.pop() // 关闭确认框，相当于点击“继续编辑”。
+    assert.deepEqual(requests, [])
+    assert.equal(panel.showProviderModal, true)
+    assert.equal(panel.providerForm.display_name, '未保存的新名称')
+
+    panel.toggleProviderEnabled(false)
+    await confirmations[0].onOk()
+    assert.deepEqual(requests, [['sample', { is_enabled: false }]])
+    assert.equal(panel.showProviderModal, false)
+  } finally {
+    unmount()
+  }
+})
+
+test('默认模型供应商不能停用，新建时切换只改变待提交状态', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    configStore.config.default_model = 'sample:model'
+    panel.openEditProviderModal(provider)
+    panel.toggleProviderEnabled(false)
+    assert.deepEqual(requests, [])
+    assert.equal(panel.showProviderModal, true)
+    assert.equal(panel.originalProviderEnabled, true)
+    assert.equal(notices.at(-1)?.[0], 'warning')
+
+    panel.openCreateProviderModal()
+    panel.toggleProviderEnabled(false)
+    await nextTick()
+    assert.equal(panel.providerForm.is_enabled, false)
+    assert.deepEqual(requests, [])
+  } finally {
+    unmount()
+  }
+})
+
+test('停用请求尚未完成时保持弹窗并锁定表单', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    await flushAsync()
+    let finish
+    updateProvider = () => new Promise((resolve) => (finish = resolve))
+    panel.openEditProviderModal(provider)
+    panel.toggleProviderEnabled(false)
+    assert.equal(panel.saving, true)
+    assert.equal(panel.showProviderModal, true)
+    assert.equal(requests.length, 1)
+    panel.deleteProviderFromEdit()
+    assert.deepEqual(confirmations, [])
+    finish({})
+    await nextTick()
+    await nextTick()
+    assert.equal(panel.showProviderModal, false)
+  } finally {
+    unmount()
+  }
+})
+
+
+test('每次打开模型弹窗自动加载，刷新完成后以远端结果替换列表', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    fetchRemoteModels = async () => ({ data: [{ id: 'first' }] })
+    panel.openModelsModal(provider)
+    assert.equal(panel.showModelsModal, true)
+    assert.equal(panel.remoteLoading, true)
+    await flushAsync()
+    assert.deepEqual(panel.remoteModelsMap.sample, [{ id: 'first' }])
+    assert.equal(panel.remoteLoading, false)
+    assert.equal(panel.remoteModelsLoaded.sample, true)
+    assert.equal(panel.remoteError, '')
+
+    fetchRemoteModels = async () => ({ data: [{ id: 'updated' }] })
+    await panel.fetchRemoteModels('sample')
+    assert.deepEqual(panel.remoteModelsMap.sample, [{ id: 'updated' }])
+    panel.openModelsModal(provider)
+    await flushAsync()
+    assert.deepEqual(remoteRequests, ['sample', 'sample', 'sample'])
+    assert.deepEqual(notices, [])
+  } finally {
+    unmount()
+  }
+})
+
+test('供应商切换时各自显示加载状态，重复打开不叠加在途请求', async () => {
+  const { panel, unmount } = mountPanel()
+  const finishes = {}
+  try {
+    fetchRemoteModels = (id) => new Promise(resolve => { finishes[id] = resolve })
+    panel.openModelsModal(provider)
+    panel.openModelsModal(provider)
+    assert.deepEqual(remoteRequests, ['sample'])
+    panel.openModelsModal({ ...provider, provider_id: 'other' })
+    assert.equal(panel.remoteLoading, true)
+    finishes.sample({ data: [{ id: 'sample-model' }] })
+    await flushAsync()
+    assert.equal(panel.remoteLoading, true)
+    assert.deepEqual(panel.remoteModelsMap.sample, [{ id: 'sample-model' }])
+    finishes.other({ data: [{ id: 'other-model' }] })
+    await flushAsync()
+    assert.equal(panel.remoteLoading, false)
+    assert.deepEqual(panel.remoteModelsMap.other, [{ id: 'other-model' }])
+  } finally {
+    unmount()
+  }
+})
+
+test('远端加载失败显示错误并解除加载，重试失败保留旧列表，成功后清除错误', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    fetchRemoteModels = async () => { throw new Error('远端不可用') }
+    panel.openModelsModal(provider)
+    await flushAsync()
+    assert.equal(panel.remoteLoading, false)
+    assert.equal(panel.remoteError, '远端不可用')
+    assert.equal(panel.remoteModelsLoaded.sample, undefined)
+    fetchRemoteModels = async () => ({ data: [{ id: 'cached' }] })
+    await panel.fetchRemoteModels('sample')
+    assert.equal(panel.remoteError, '')
+    fetchRemoteModels = async () => { throw new Error('刷新失败') }
+    await panel.fetchRemoteModels('sample')
+    assert.equal(panel.remoteError, '刷新失败')
+    assert.deepEqual(panel.remoteModelsMap.sample, [{ id: 'cached' }])
+    fetchRemoteModels = async () => ({ data: [] })
+    await panel.fetchRemoteModels('sample')
+    assert.deepEqual(panel.remoteModelsMap.sample, [])
+    assert.equal(panel.remoteError, '')
+  } finally {
+    unmount()
+  }
+})

@@ -2,10 +2,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.agents.buildin.chatbot import graph as chatbot_graph
-from yuxi.agents.tool_approval import create_tool_approval_middleware, normalize_tool_approval_mode
+from yuxi.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
+from yuxi.modules.agents.runtime.tool_approval import create_tool_approval_middleware, normalize_tool_approval_mode
 
-PROJECT_ROOT = "/home/gem/user-data/projects/11111111-1111-4111-8111-111111111111"
+PROJECT_ROOT = "/home/user/workspace/projects/11111111-1111-4111-8111-111111111111"
 
 
 def _requires_approval(middleware, tool_name: str, file_path: object = None) -> bool:
@@ -28,7 +28,7 @@ def test_default_mode_auto_approves_writes_inside_current_project():
 def test_default_mode_keeps_project_external_writes_and_execute_behind_approval():
     middleware = create_tool_approval_middleware("default", current_project_path=PROJECT_ROOT)
 
-    assert _requires_approval(middleware, "write_file", "/home/gem/user-data/projects/other/report.md") is True
+    assert _requires_approval(middleware, "write_file", "/home/user/workspace/projects/other/report.md") is True
     assert _requires_approval(middleware, "edit_file", f"{PROJECT_ROOT}-other/report.md") is True
     assert _requires_approval(middleware, "execute") is True
 
@@ -68,7 +68,7 @@ async def test_chatbot_graph_assembles_approval_with_current_project(monkeypatch
         return None
 
     monkeypatch.setattr(chatbot_graph, "create_memory_middleware", no_optional_middleware)
-    monkeypatch.setattr(chatbot_graph, "create_subagent_task_middleware", no_optional_middleware)
+    monkeypatch.setattr(chatbot_graph, "create_cooperation_middleware", lambda context: None)
     context = SimpleNamespace(
         model="test-provider:test-model",
         tool_approval_mode="default",
@@ -79,7 +79,7 @@ async def test_chatbot_graph_assembles_approval_with_current_project(monkeypatch
     approval = next(middleware for middleware in middlewares if hasattr(middleware, "interrupt_on"))
 
     assert _requires_approval(approval, "write_file", f"{PROJECT_ROOT}/report.md") is False
-    assert _requires_approval(approval, "write_file", "/home/gem/user-data/projects/other/report.md") is True
+    assert _requires_approval(approval, "write_file", "/home/user/workspace/projects/other/report.md") is True
     assert _requires_approval(approval, "execute") is True
 
 

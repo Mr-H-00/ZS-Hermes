@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/package/yuxi/knowledge/chunking/ragflow_like/nlp.py
+Owner：backend/yuxi/modules/knowledge/chunking/ragflow_like/nlp.py
 
 ## 问题
 

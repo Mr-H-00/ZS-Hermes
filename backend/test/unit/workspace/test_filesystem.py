@@ -1,12 +1,76 @@
 from __future__ import annotations
 
 import os
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 
-from yuxi.workspace import filesystem as workspace_filesystem_module
-from yuxi.workspace.filesystem import Workspace
+from yuxi.modules.workspace import filesystem as workspace_filesystem_module
+from yuxi.modules.workspace.filesystem import Workspace
+from yuxi.modules.workspace.errors import FileTransferLimitError
+
+
+@pytest.mark.parametrize("failure", ["oversize", "read_error"])
+def test_upload_stream_failure_preserves_target_and_removes_staging(tmp_path, monkeypatch, failure):
+    """累计超限或中途读取失败都不发布半成品，也不关闭借用的输入。"""
+    monkeypatch.setattr(workspace_filesystem_module, "user_workspace_dir", lambda _uid: tmp_path)
+    target = tmp_path / "file.txt"
+    target.write_bytes(b"original")
+
+    class ChunkedSource(BytesIO):
+        """限制每次读取长度，并按需注入中途失败。"""
+
+        def read(self, size=-1):
+            """真实消费者必须分块读取；失败发生在写过首块之后。"""
+            assert 0 < size <= 1024 * 1024
+            if failure == "read_error" and self.tell() >= 3:
+                raise OSError("source failed")
+            return super().read(min(size, 3))
+
+    source = ChunkedSource(b"123456")
+    expected = FileTransferLimitError if failure == "oversize" else OSError
+    with pytest.raises(expected):
+        Workspace("user-1").upload_authorized_file_from_stream("/file.txt", source, max_bytes=5)
+    assert target.read_bytes() == b"original"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["file.txt"]
+    assert not source.closed
+
+
+@pytest.mark.parametrize("existing_kind", ["file", "symlink"])
+def test_upload_stream_no_clobber_and_limit(tmp_path, monkeypatch, existing_kind):
+    """流入口也在最终发布处拒绝覆盖文件及 symlink。"""
+    monkeypatch.setattr(workspace_filesystem_module, "user_workspace_dir", lambda _uid: tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"original")
+    target = tmp_path / "file.txt"
+    if existing_kind == "symlink":
+        target.symlink_to(outside)
+    else:
+        target.write_bytes(b"original")
+    with pytest.raises(FileExistsError):
+        Workspace("user-1").upload_authorized_file_from_stream("/file.txt", BytesIO(b"12345"), max_bytes=5, overwrite=False)
+    assert target.read_bytes() == b"original"
+    assert outside.read_bytes() == b"original"
+    assert not list(tmp_path.glob(".yuxi-write-*"))
+
+    result = Workspace("user-1").upload_authorized_file_from_stream("/new.txt", BytesIO(b"12345"), max_bytes=5, overwrite=False)
+    assert result["size"] == 5
+    assert (tmp_path / "new.txt").read_bytes() == b"12345"
+    assert (tmp_path / "new.txt").stat().st_mode & 0o777 == 0o600
+
+
+def test_upload_stream_rejects_symlink_parent(tmp_path, monkeypatch):
+    """直接调用流写入也无法沿目录链接越过 workspace 边界。"""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(workspace_filesystem_module, "user_workspace_dir", lambda _uid: root)
+    with pytest.raises(PermissionError):
+        Workspace("user-1").upload_authorized_file_from_stream("/linked/file.txt", BytesIO(b"content"), max_bytes=10)
+    assert list(outside.iterdir()) == []
 
 
 def test_upload_authorized_file_uses_owner_only_mode(
@@ -154,6 +218,48 @@ def test_workspace_boundary_rejects_deleting_its_root(tmp_path: Path, monkeypatc
         Workspace("user-1").delete_authorized_path("/", root="/")
 
 
+@pytest.mark.parametrize("recursive", [False, True])
+@pytest.mark.parametrize("link_kind", ["file", "directory", "dangling"])
+def test_delete_unlinks_symlinks_without_touching_targets(tmp_path, monkeypatch, recursive, link_kind):
+    """直接删除与递归清理都只移除链接，外部目标保持原样。"""
+    root = tmp_path / "workspace"
+    cleanup = root / "cleanup"
+    cleanup.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "keep.txt"
+    marker.write_bytes(b"keep")
+    target = {"file": marker, "directory": outside, "dangling": outside / "missing"}[link_kind]
+    link = cleanup / "link"
+    link.symlink_to(target, target_is_directory=link_kind == "directory")
+    monkeypatch.setattr(workspace_filesystem_module, "user_workspace_dir", lambda _uid: root)
+
+    Workspace("user-1").delete_authorized_path("/cleanup" if recursive else "/cleanup/link", root="/")
+
+    assert not link.is_symlink()
+    assert cleanup.exists() is not recursive
+    assert marker.read_bytes() == b"keep"
+    assert sorted(item.name for item in outside.iterdir()) == ["keep.txt"]
+
+
+def test_delete_rejects_symlink_parent_without_touching_target(tmp_path, monkeypatch):
+    """删除不能沿中间目录链接越过 Workspace。"""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "keep.txt"
+    marker.write_bytes(b"keep")
+    (root / "link").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(workspace_filesystem_module, "user_workspace_dir", lambda _uid: root)
+
+    with pytest.raises(PermissionError):
+        Workspace("user-1").delete_authorized_path("/link/keep.txt", root="/")
+
+    assert marker.read_bytes() == b"keep"
+    assert (root / "link").is_symlink()
+
+
 def test_search_tree_prunes_hidden_excluded_and_overdeep_directories(tmp_path: Path, monkeypatch) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -242,3 +348,24 @@ def test_search_tree_entry_budget_limits_actual_directory_iteration(tmp_path: Pa
     )
 
     assert examined == 7
+
+
+def test_read_rejects_directory_swapped_to_external_symlink(tmp_path, monkeypatch):
+    """元数据检查后替换祖先目录，实际读取仍不得跟随链接。"""
+    workspace_root = tmp_path / "workspace"
+    pivot = workspace_root / "pivot"
+    pivot.mkdir(parents=True)
+    (pivot / "note.txt").write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "note.txt").write_text("outside-canary", encoding="utf-8")
+    monkeypatch.setattr(workspace_filesystem_module, "user_workspace_dir", lambda _uid: workspace_root)
+    workspace = Workspace("user-1")
+    assert workspace.stat_authorized_path("/pivot/note.txt", root="/")["is_dir"] is False
+
+    pivot.rename(workspace_root / "before-swap")
+    pivot.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises((PermissionError, NotADirectoryError)):
+        workspace.read_authorized_file("/pivot/note.txt", 1024)
+    assert (outside / "note.txt").read_text(encoding="utf-8") == "outside-canary"

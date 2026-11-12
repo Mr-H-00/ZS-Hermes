@@ -5,7 +5,7 @@ import pytest
 from minio.error import S3Error
 from urllib3 import HTTPResponse
 
-from yuxi.storage.minio.client import MinIOClient, normalize_public_minio_url
+from yuxi.infrastructure.minio.client import MinIOClient, normalize_public_minio_url
 
 
 class FakeMinio:
@@ -57,84 +57,6 @@ def test_legacy_public_minio_url_is_normalized(monkeypatch, url, expected):
     monkeypatch.setenv("MINIO_PUBLIC_URL", "/minio")
 
     assert normalize_public_minio_url(url) == expected
-
-
-@pytest.mark.asyncio
-async def test_delete_objects_by_prefix_treats_missing_bucket_as_empty():
-    """删除不存在的 bucket 前缀时应按幂等清理处理。"""
-
-    class FakeMinio:
-        def list_objects(self, *_args, **_kwargs):
-            response = HTTPResponse(BytesIO(b""), status=404)
-            raise S3Error(response, "NoSuchBucket", "Not found", "resource", "request_id", "host_id")
-
-    client = MinIOClient()
-    client._client = FakeMinio()
-
-    assert await client.adelete_objects_by_prefix("kb-images", "kb-1/") == 0
-
-
-@pytest.mark.parametrize("read_error", [False, True])
-def test_download_file_always_releases_response(read_error):
-    class Response:
-        closed = False
-        released = False
-
-        def read(self):
-            if read_error:
-                raise RuntimeError("read failed")
-            return b"content"
-
-        def close(self):
-            self.closed = True
-
-        def release_conn(self):
-            self.released = True
-
-    response = Response()
-    client = MinIOClient()
-    client._client = type("FakeClient", (), {"get_object": lambda _self, **_kwargs: response})()
-
-    if read_error:
-        with pytest.raises(RuntimeError, match="read failed"):
-            client.download_file("bucket", "object")
-    else:
-        assert client.download_file("bucket", "object") == b"content"
-
-    assert response.closed is True
-    assert response.released is True
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("read_error", [False, True])
-async def test_async_download_file_always_releases_response(read_error):
-    class Response:
-        closed = False
-        released = False
-
-        def read(self):
-            if read_error:
-                raise RuntimeError("read failed")
-            return b"content"
-
-        def close(self):
-            self.closed = True
-
-        def release_conn(self):
-            self.released = True
-
-    response = Response()
-    client = MinIOClient()
-    client._client = type("FakeClient", (), {"get_object": lambda _self, **_kwargs: response})()
-
-    if read_error:
-        with pytest.raises(RuntimeError, match="read failed"):
-            await client.adownload_file("bucket", "object")
-    else:
-        assert await client.adownload_file("bucket", "object") == b"content"
-
-    assert response.closed is True
-    assert response.released is True
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.agents.middlewares import memory as memory_middleware
+from yuxi.modules.agents.runtime.middlewares import memory as memory_middleware
 
 pytestmark = pytest.mark.unit
 
@@ -20,16 +20,17 @@ async def test_create_memory_middleware_hides_all_tools_when_disabled(monkeypatc
     assert middleware is None
 
 
-async def test_create_memory_middleware_registers_fixed_tool_schema(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("content", ["", "偏好中文"])
+async def test_create_memory_middleware_registers_fixed_tool_schema(monkeypatch: pytest.MonkeyPatch, content: str):
     async def fake_load(_uid: str):
-        return "偏好中文"
+        return content
 
     monkeypatch.setattr(memory_middleware, "load_memory_prompt", fake_load)
 
     middleware = await memory_middleware.create_memory_middleware(SimpleNamespace(uid="user-1"))
 
     assert middleware is not None
-    assert "偏好中文" in middleware.system_prompt
+    assert f"<memory_data>\n{content}\n</memory_data>" in middleware.system_prompt
     assert [tool.name for tool in middleware.tools] == [
         "remember_memory",
         "search_thread_messages",

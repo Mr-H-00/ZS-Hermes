@@ -1,10 +1,10 @@
 name: Engineering Trust Contracts
 
 on:
-  pull_request:
+  workflow_call:
   push:
     tags: ['v[0-9]*']
-    branches: [main]
+    branches: [main, 'develop/**']
   workflow_dispatch:
 
 permissions:
@@ -21,12 +21,19 @@ jobs:
         with:
           python-version: "3.12"
       - name: Verify owner-local engineering contracts
-        run: python3 scripts/verify_engineering_contracts.py
+        run: python3 scripts/ci/verify_engineering_contracts.py
       - name: Exercise verifier negative controls
-        run: python3 -m unittest scripts.test_verify_engineering_contracts
+        run: python3 -m unittest scripts.ci.test_verify_engineering_contracts
       - name: Verify dependency update policy
-        run: python3 -m unittest scripts.test_dependency_update_policy
+        run: python3 -m unittest scripts.ci.test_dependency_update_policy
       - name: Verify release version synchronization
-        run: python3 -m unittest scripts.test_bump_version
+        run: python3 -m unittest scripts.ci.test_bump_version
       - name: Verify release workflow boundaries
-        run: python3 -m unittest scripts.test_release_workflows
+        run: python3 -m unittest scripts.ci.test_release_workflows
+      - name: Verify CI resource boundaries
+        run: python3 -m unittest scripts.ci.test_resource_boundaries
+      - name: Verify CI selection and results
+        run: python3 -m unittest scripts.ci.test_gate
+      - name: Run native PowerShell security negative controls
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/ci/test_init_security.ps1

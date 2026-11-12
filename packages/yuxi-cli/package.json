@@ -1,0 +1,22 @@
+{
+  "name": "@xerrors/yuxi",
+  "version": "0.1.0",
+  "description": "Yuxi command line client for Public v1 APIs",
+  "type": "module",
+  "bin": { "yuxi": "./dist/cli.js" },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.js",
+    "pack:check": "npm pack --dry-run"
+  },
+  "dependencies": { "commander": "^14.0.0" },
+  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.9.0" },
+  "publishConfig": { "access": "public" },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/xerrors/Yuxi.git", "directory": "packages/yuxi-cli" },
+  "bugs": { "url": "https://github.com/xerrors/Yuxi/issues" }
+}

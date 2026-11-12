@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      selected: ${{ steps.select.outputs.selected }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ci/gate.py select
+
+  trust:
+    needs: changes
+    uses: ./.github/workflows/trust.yml
+
+  backend:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.selected).backend }}
+    uses: ./.github/workflows/test.yml
+
+  ruff:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.selected).ruff }}
+    uses: ./.github/workflows/ruff.yml
+
+  frontend:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.selected).frontend }}
+    uses: ./.github/workflows/frontend.yml
+
+  service:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.selected).service }}
+    uses: ./.github/workflows/service-integration.yml
+
+  system:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.selected).system }}
+    uses: ./.github/workflows/system-tests.yml
+
+  docs:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.selected).docs }}
+    uses: ./.github/workflows/docs-check.yml
+
+  dependencies:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.selected).dependencies }}
+    uses: ./.github/workflows/dependency-audit.yml
+
+  required:
+    name: CI required
+    if: always()
+    needs: [changes, trust, backend, ruff, frontend, service, system, docs, dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check required results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 scripts/ci/gate.py check

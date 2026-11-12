@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from yuxi.config import get_legacy_storage_dir, get_runtime_dir
+from yuxi.infrastructure.runtime_settings import get_runtime_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -29,9 +28,7 @@ async def test_office_preview_cache_is_written_only_to_api_runtime(test_client, 
     filename = f"pytest-runtime-cache-{uuid4().hex}.docx"
     workspace_path = f"/{filename}"
     runtime_cache = get_runtime_dir() / "cache" / "office-previews"
-    legacy_cache_dirs = set(get_legacy_storage_dir().rglob(".office_preview_cache"))
     runtime_before = _file_snapshot([runtime_cache])
-    legacy_before = _file_snapshot(list(legacy_cache_dirs))
 
     try:
         with fixture.open("rb") as source:
@@ -59,13 +56,8 @@ async def test_office_preview_cache_is_written_only_to_api_runtime(test_client, 
         assert second.content == first.content
 
         runtime_after = _file_snapshot([runtime_cache])
-        legacy_cache_dirs_after = set(get_legacy_storage_dir().rglob(".office_preview_cache"))
         assert set(runtime_after) - set(runtime_before)
-        assert legacy_cache_dirs_after == legacy_cache_dirs
-        assert _file_snapshot(list(legacy_cache_dirs_after)) == legacy_before
     finally:
         await test_client.delete("/api/workspace/file", params={"path": workspace_path}, headers=admin_headers)
         for cache_path in set(_file_snapshot([runtime_cache])) - set(runtime_before):
             cache_path.unlink(missing_ok=True)
-        for legacy_cache_dir in set(get_legacy_storage_dir().rglob(".office_preview_cache")) - legacy_cache_dirs:
-            shutil.rmtree(legacy_cache_dir, ignore_errors=True)

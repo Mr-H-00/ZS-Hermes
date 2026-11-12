@@ -13,8 +13,9 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
-from yuxi.agents.middlewares.steer import SteerMiddleware
-from yuxi.services import agent_request_queue_service
+from test.support.agent_stream_fixtures import FinalAnswerModel
+from yuxi.modules.agents.runtime.middlewares.steer import SteerMiddleware
+import yuxi.modules.agents.services.runs as runs
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -46,20 +47,6 @@ class _ParallelToolModel(BaseChatModel):
                 )
             ]
         )
-
-
-class _FinalAnswerModel(BaseChatModel):
-    """只返回最终文本，模拟 Steer 到达最后一次模型检查后的窗口。"""
-
-    call_count: int = 0
-
-    @property
-    def _llm_type(self) -> str:
-        return "steer-final-answer"
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ARG002
-        self.call_count += 1
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="旧 Run 已完成当前回答"))])
 
 
 @dataclass
@@ -134,15 +121,11 @@ async def test_parallel_tools_finish_before_steer_ends_graph_and_checkpoint_is_c
     await asyncio.wait_for(graph_task, timeout=5)
 
     safe_point_results = {
-        message.tool_call_id: message.content
-        for message in middleware.messages_at_safe_point
-        if isinstance(message, ToolMessage)
+        message.tool_call_id: message.content for message in middleware.messages_at_safe_point if isinstance(message, ToolMessage)
     }
     persisted_state = await agent.aget_state(config)
     checkpoint_results = {
-        message.tool_call_id: message.content
-        for message in persisted_state.values["messages"]
-        if isinstance(message, ToolMessage)
+        message.tool_call_id: message.content for message in persisted_state.values["messages"] if isinstance(message, ToolMessage)
     }
 
     assert model.call_count == 1
@@ -160,8 +143,8 @@ async def test_tool_free_model_turn_keeps_steer_intent_for_handoff(monkeypatch: 
         checks += 1
         return checks >= 2
 
-    monkeypatch.setattr(agent_request_queue_service, "should_end_run_for_steer", should_end)
-    model = _FinalAnswerModel()
+    monkeypatch.setattr(runs, "should_yield_for_steer", should_end)
+    model = FinalAnswerModel()
     checkpointer = InMemorySaver()
     agent = create_agent(
         model=model,

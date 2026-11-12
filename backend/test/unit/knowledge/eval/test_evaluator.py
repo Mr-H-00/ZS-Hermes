@@ -1,11 +1,8 @@
-import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-os.environ.setdefault("OPENAI_API_KEY", "test-key")
-
-from yuxi.knowledge.eval import evaluator
-from yuxi.knowledge.eval.evaluator import (
+from yuxi.modules.knowledge.evaluation import evaluator
+from yuxi.modules.knowledge.evaluation.evaluator import (
     aggregate_metrics,
     build_answer_prompt,
     evaluate_question,
@@ -32,6 +29,8 @@ def test_build_answer_prompt_uses_first_five_non_empty_chunks():
     assert "内容0" in prompt
     assert "内容4" in prompt
     assert "内容5" not in prompt
+    assert "内容0\n\n文档 2" in prompt
+    assert "\\n\\n" not in prompt
 
 
 async def test_evaluate_question_uses_runtime_kb_manager(monkeypatch):

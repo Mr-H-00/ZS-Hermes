@@ -9,6 +9,7 @@ import os
 import resource
 import sys
 import time
+from dataclasses import replace
 
 import httpx
 
@@ -28,15 +29,20 @@ class ApiProbe:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        """只测量明确携带实验标记的 Run 提交请求。"""
+        """只测量明确携带实验标记的 Public Input 提交。"""
         received_ns = time.time_ns()
         state = None
-        if scope["type"] == "http" and scope.get("method") == "POST" and scope.get("path") == "/api/agent/runs":
+        if (
+            scope["type"] == "http"
+            and scope.get("method") == "POST"
+            and scope.get("path", "").startswith("/api/v1/agents/sessions/")
+            and scope.get("path", "").endswith("/events")
+        ):
             marker = dict(scope["headers"]).get(b"x-load-test-id", b"").decode("ascii", errors="ignore")
             if marker.startswith("matrix-") and len(marker) <= 64:
-                emit({"event": "api_received", "request_id": marker, "time_ns": received_ns})
+                emit({"event": "api_received", "event_key": marker, "time_ns": received_ns})
                 if FINE:
-                    state = {"request_id": marker, "start_ns": received_ns, "spans": [], "sent": False}
+                    state = {"event_key": marker, "start_ns": received_ns, "spans": [], "sent": False}
         token = trace.set(state)
         try:
             await self.app(scope, receive, send)
@@ -51,7 +57,7 @@ class ApiProbe:
 
 def create_app():
     """包裹实际 FastAPI 应用，不改变其依赖和路由。"""
-    from server.main import app
+    from yuxi.api.main import app
 
     if FINE:
         from .stage_probe import install
@@ -111,11 +117,13 @@ def wrap(owner, name):
 
 def run():
     """使用实际 ARQ worker，仅在进程入口安装诊断包装。"""
-    from yuxi.services.arq_worker import run_worker
-    from yuxi.agents import BaseAgent
-    from yuxi.agents.buildin.chatbot import graph
-    from yuxi.agents.skills import service
-    from yuxi.services import chat_service, run_worker as worker
+    from yuxi.workers.arq import run_worker
+    from yuxi.workers.settings import WorkerSettings
+    from yuxi.modules.agents.runtime.agent_backends.chatbot import graph
+    from yuxi.modules.extensions.skills import projection as service
+    import yuxi.modules.agents.services.runner as worker
+    import yuxi.modules.agents.services.execution as execution
+    import yuxi.modules.agents.services.preparation as preparation
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
     if FINE:
@@ -126,27 +134,27 @@ def run():
     for name in (
         "_get_run",
         "mark_run_running",
-        "_load_input_message",
+        "_load_run_input_messages",
         "_load_user",
         "_validate_run_workdir_binding",
-        "persist_run_manifest",
-        "_append_run_event_best_effort",
+        "prepare_and_record_run_execution",
+        "append_run_event_best_effort",
     ):
         wrap(worker, name)
-    for name in ("_resolve_agent_runtime", "build_agent_input_context", "_persist_agent_run_langfuse_trace"):
-        wrap(chat_service, name)
+    for name in ("_resolve_agent_runtime", "_persist_agent_run_langfuse_trace"):
+        wrap(execution, name)
+    wrap(preparation, "prepare_run_execution")
     for name in (
-        "prepare_agent_runtime_context",
         "sync_agent_context_skills",
         "load_chat_model",
         "resolve_configured_runtime_tools",
         "_build_middlewares",
         "create_agent",
         "create_memory_middleware",
-        "create_subagent_task_middleware",
+        "create_cooperation_middleware",
     ):
         wrap(graph, name)
-    wrap(BaseAgent, "_get_checkpointer")
+    wrap(graph, "get_langgraph_checkpointer")
     wrap(graph.ChatbotAgent, "get_graph")
     wrap(AsyncPostgresSaver, "aget_tuple")
     wrap(service, "sync_user_accessible_skills")
@@ -185,7 +193,7 @@ def run():
             emit({"event": "model_send", **state, "spans": [] if FINE else state["spans"], "time_ns": observed_ns})
         return await original_send(self, request, *args, **kwargs)
 
-    original_startup = worker.WorkerSettings.on_startup
+    original_startup = WorkerSettings.on_startup
 
     async def monitor():
         """采样循环迟到量和进程 CPU；CPU 百分比以一个核心为 100%。"""
@@ -215,9 +223,9 @@ def run():
         emit({"event": "worker_ready", "time_ns": time.time_ns()})
 
     httpx.AsyncClient.send = send
-    worker.WorkerSettings.functions = [process, *worker.WorkerSettings.functions[1:]]
-    worker.WorkerSettings.on_startup = startup
-    run_worker(worker.WorkerSettings)
+    WorkerSettings.functions = [replace(WorkerSettings.functions[0], coroutine=process), *WorkerSettings.functions[1:]]
+    WorkerSettings.on_startup = startup
+    run_worker(WorkerSettings)
 
 
 if __name__ == "__main__":

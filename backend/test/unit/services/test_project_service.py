@@ -4,10 +4,10 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from fastapi import HTTPException
 
-from yuxi.services import project_service as svc
-from yuxi.workspace.paths import ensure_user_workspace, user_workspace_dir
+import yuxi.modules.workspace.services.projects as svc
+from yuxi.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
+from yuxi.shared.errors import DomainError, InvalidInputError, InvalidOperationError, ResourceNotFoundError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -35,9 +35,13 @@ class _Db:
     async def scalar(self, _statement):
         return None
 
+    async def scalars(self, _statement):
+        """返回已登记的目录绑定。"""
+        return SimpleNamespace(all=lambda: [item.workdir_path for item in self.items])
+
 
 async def test_linked_project_accepts_existing_nested_directory(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     target = user_workspace_dir("user-1") / "client" / "demo"
     target.mkdir(parents=True)
@@ -61,7 +65,7 @@ async def test_linked_project_accepts_existing_nested_directory(monkeypatch, tmp
 
 
 async def test_linked_project_accepts_directory_below_projects(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     (user_workspace_dir("user-1") / "projects" / "manual").mkdir(parents=True)
 
@@ -80,7 +84,7 @@ async def test_linked_project_accepts_directory_below_projects(monkeypatch, tmp_
 
 @pytest.mark.parametrize("path", ["agents", "agents/skills", "projects"])
 async def test_linked_project_accepts_any_existing_non_root_directory(monkeypatch, tmp_path: Path, path: str):
-    monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     (user_workspace_dir("user-1") / path).mkdir(parents=True, exist_ok=True)
 
@@ -97,7 +101,7 @@ async def test_linked_project_accepts_any_existing_non_root_directory(monkeypatc
 
 
 async def test_multiple_projects_can_share_one_existing_directory(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     target = user_workspace_dir("user-1") / "shared"
     target.mkdir()
@@ -124,10 +128,10 @@ async def test_multiple_projects_can_share_one_existing_directory(monkeypatch, t
     assert first["workdir_path"] == second["workdir_path"] == "shared"
 
 
-async def test_implicit_project_uses_timestamped_managed_workdir(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
+async def test_implicit_project_uses_date_grouped_managed_workdir(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     monkeypatch.setattr(
-        "yuxi.workspace.paths.shanghai_now",
+        "yuxi.modules.workspace.paths.shanghai_now",
         lambda: datetime.fromisoformat("2026-09-02T14:35:08+08:00"),
     )
     monkeypatch.setattr(svc.uuid, "uuid4", lambda: UUID("a1b2c3d4-e5f6-4789-8123-456789abcdef"))
@@ -135,7 +139,7 @@ async def test_implicit_project_uses_timestamped_managed_workdir(monkeypatch, tm
     project = await svc.create_implicit_project(uid="user-1", db=_Db())
 
     assert project.id == "a1b2c3d4-e5f6-4789-8123-456789abcdef"
-    assert project.workdir_path == "projects/2026-09-02_14-35-08_a1b2c3d4"
+    assert project.workdir_path == "projects/20260902/a1b2c3"
     assert not (user_workspace_dir("user-1") / project.workdir_path).exists()
 
 
@@ -144,7 +148,7 @@ async def test_implicit_project_uses_timestamped_managed_workdir(monkeypatch, tm
     [("managed", None), ("managed", "clients/acme"), ("linked", None), ("linked", "")],
 )
 async def test_manual_project_requires_selected_directory(directory_mode: str, workdir_path: str | None):
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await svc.create_project_view(
             uid="user-1",
             request_id="request-manual-without-directory",
@@ -154,16 +158,16 @@ async def test_manual_project_requires_selected_directory(directory_mode: str, w
             db=_Db(),
         )
 
-    assert exc.value.status_code == 422
-    assert exc.value.detail == "手动创建项目必须选择目录"
+    assert isinstance(exc.value, InvalidInputError)
+    assert exc.value.message == "手动创建项目必须选择目录"
 
 
 @pytest.mark.parametrize("path", ["/", "../outside", "/tmp/host"])
 async def test_linked_project_rejects_root_or_outside_paths(monkeypatch, tmp_path: Path, path: str):
-    monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await svc.create_project_view(
             uid="user-1",
             request_id=f"request-{path}",
@@ -173,11 +177,11 @@ async def test_linked_project_rejects_root_or_outside_paths(monkeypatch, tmp_pat
             db=_Db(),
         )
 
-    assert exc.value.status_code == 400
+    assert isinstance(exc.value, InvalidOperationError)
 
 
 async def test_linked_project_rejects_file_and_symlink(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     workspace = user_workspace_dir("user-1")
     (workspace / "file.txt").write_text("x", encoding="utf-8")
@@ -186,7 +190,7 @@ async def test_linked_project_rejects_file_and_symlink(monkeypatch, tmp_path: Pa
     (workspace / "link").symlink_to(outside, target_is_directory=True)
 
     for path in ("file.txt", "link"):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.create_project_view(
                 uid="user-1",
                 request_id=f"request-{path}",
@@ -195,7 +199,7 @@ async def test_linked_project_rejects_file_and_symlink(monkeypatch, tmp_path: Pa
                 workdir_path=path,
                 db=_Db(),
             )
-        assert exc.value.status_code == 400
+        assert isinstance(exc.value, InvalidOperationError)
 
 
 async def test_history_candidates_only_expose_resolved_directory_shortcuts(monkeypatch):
@@ -297,20 +301,20 @@ async def test_rename_project_rejects_missing_or_deleted_project(monkeypatch):
 
     monkeypatch.setattr(svc, "ProjectRepository", _ProjectRepository)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await svc.rename_project_view(uid="user-1", project_id="missing", name="New", db=_Db())
 
-    assert exc.value.status_code == 404
+    assert isinstance(exc.value, ResourceNotFoundError)
 
 
 async def test_rename_project_rejects_blank_name_before_write():
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await svc.rename_project_view(uid="user-1", project_id="project-1", name="   ", db=_Db())
 
-    assert exc.value.status_code == 422
+    assert isinstance(exc.value, InvalidInputError)
 
 
-async def test_delete_project_soft_deletes_all_conversations_in_one_commit(monkeypatch):
+async def test_delete_project_archives_idle_threads_in_one_commit(monkeypatch):
     project = SimpleNamespace(id="project-1")
     calls = []
 
@@ -322,7 +326,7 @@ async def test_delete_project_soft_deletes_all_conversations_in_one_commit(monke
             assert (project_id, uid) == ("project-1", "user-1")
             return project
 
-        async def soft_delete_with_conversations(self, actual_project, *, deleted_at):
+        async def delete_project_and_archive_threads(self, actual_project, *, deleted_at):
             calls.append((actual_project, deleted_at))
             return 3
 
@@ -331,6 +335,6 @@ async def test_delete_project_soft_deletes_all_conversations_in_one_commit(monke
 
     result = await svc.delete_project_view(uid="user-1", project_id="project-1", db=db)
 
-    assert result == {"message": "删除成功", "deleted_conversations": 3}
+    assert result == {"message": "项目已删除，其中对话已归档", "archived_threads": 3}
     assert calls[0][0] is project
     assert db.commits == 1

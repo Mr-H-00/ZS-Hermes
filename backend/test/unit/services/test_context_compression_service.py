@@ -1,21 +1,23 @@
 from __future__ import annotations
 
-import asyncio
+from yuxi.modules.agents.services import thread_access
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 
-from yuxi.services import context_compression_service as service
+import yuxi.modules.agents.services.compression as service
+from yuxi.modules.agents.runtime.context import BaseContext
+from yuxi.shared.errors import DomainError, ResourceNotFoundError, StateConflictError
+
+_Context = BaseContext
 
 
-class _Context:
-    uid = ""
-    thread_id = ""
+@pytest.fixture(autouse=True)
+def prepared_context(monkeypatch):
+    """隔离资源准备，压缩测试只验证事务与checkpoint更新。"""
+    from unittest.mock import AsyncMock
 
-    def update_from_dict(self, values):
-        for key, value in values.items():
-            setattr(self, key, value)
+    monkeypatch.setattr(service, "prepare_agent_runtime_context", AsyncMock())
 
 
 class _Graph:
@@ -33,150 +35,132 @@ class _Graph:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_compress_thread_context_uses_locked_idle_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("thread_id", ["thread-1", "child-thread"])
+@pytest.mark.parametrize("compression_fails", [False, True])
+@pytest.mark.parametrize(
+    "config_snapshot",
+    [
+        None,
+        {"model": "provider:model", "tool_approval_mode": "default"},
+        {"model": "provider:model", "tool_approval_mode": "always_trust", "summary_prompt": "FROZEN_SUMMARY"},
+    ],
+)
+async def test_compress_thread_context_uses_locked_idle_thread(
+    monkeypatch: pytest.MonkeyPatch, thread_id: str, compression_fails: bool, config_snapshot: dict | None
+) -> None:
+    """空快照与摘要配置保持冻结，压缩只操作已锁定的空闲会话。"""
     events = []
-    conversation = SimpleNamespace(
+    agent_session = SimpleNamespace(
         uid="user-1",
+        app_id=None,
         status="active",
         agent_id="assistant",
-        extra_metadata={"model_spec": "provider:model"},
+        config_snapshot=config_snapshot,
+        tree_root_thread_id="thread-1",
+        extra_metadata={},
     )
-    agent = SimpleNamespace(capabilities=["context_compression"], context_schema=_Context)
+    agent = SimpleNamespace(context_schema=_Context)
 
     class Db:
         async def commit(self):
             events.append("commit")
 
-    class ConversationRepo:
+    class SessionRepo:
         def __init__(self, _db):
             pass
 
-        async def lock_conversation_by_thread_id(self, thread_id):
+        async def lock_session_by_thread_id(self, thread_id):
             events.append(("lock", thread_id))
-            return conversation
+            return agent_session
 
     class AgentRepo:
         def __init__(self, _db):
             pass
 
         async def get_visible_by_slug(self, **_kwargs):
-            return SimpleNamespace(backend_id="ChatbotAgent", config_json={"context": {}})
+            return SimpleNamespace(backend_id="ChatbotAgent", config_json={"context": {"summary_prompt": "CHANGED_SUMMARY"}})
 
     async def idle(**_kwargs):
         events.append("idle")
 
-    async def normalize(*_args, **_kwargs):
-        return {}
-
-    async def resolve_model(*_args, **_kwargs):
-        return "provider:model"
-
     async def workdir(**_kwargs):
         return "projects/project-1"
 
-    async def runtime(**_kwargs):
-        events.append("runtime")
-
-    async def release(**_kwargs):
-        events.append("release")
-
-    async def build_context(agent_config, *, thread_id, uid):
-        return {**agent_config, "thread_id": thread_id, "uid": uid}
+    async def prepare(context):
+        """记录准备顺序并核对已装配的线程目录。"""
+        assert context.thread_id == thread_id
+        assert context.workdir_relative_path == "projects/project-1"
+        events.append("prepare")
 
     async def compress(**kwargs):
-        events.append(("compress", kwargs["input_context"]["model"]))
+        assert kwargs["context"].runtime_scope_id is None
+        assert kwargs["context"].thread_id == thread_id
+        expected_prompt = "CHANGED_SUMMARY"
+        if config_snapshot is not None:
+            expected_prompt = config_snapshot.get("summary_prompt", _Context().summary_prompt)
+        assert kwargs["context"].summary_prompt == expected_prompt
+        assert kwargs["context"].tool_approval_mode == config_snapshot["tool_approval_mode"]
+        events.append(("compress", kwargs["context"].model))
+        if compression_fails:
+            raise RuntimeError("compression failed")
         return {"status": "completed", "after_tokens": 300}
 
-    monkeypatch.setattr(service, "ConversationRepository", ConversationRepo)
+    monkeypatch.setattr(thread_access, "SessionRepository", SessionRepo)
     monkeypatch.setattr(service, "AgentRepository", AgentRepo)
     monkeypatch.setattr(service, "_ensure_thread_idle", idle)
-    monkeypatch.setattr(service, "normalize_agent_context_config", normalize)
-    monkeypatch.setattr(service, "resolve_agent_run_model_spec", resolve_model)
-    monkeypatch.setattr(service, "ensure_conversation_workdir_available", workdir)
-    monkeypatch.setattr(service, "_ensure_runtime_available", runtime)
-    monkeypatch.setattr(service, "_release_runtime", release)
-    monkeypatch.setattr(service, "build_agent_input_context", build_context)
+    monkeypatch.setattr(service, "ensure_session_workdir_available", workdir)
+    monkeypatch.setattr(service, "prepare_agent_runtime_context", prepare)
     monkeypatch.setattr(service, "_compress_agent_checkpoint", compress)
-    monkeypatch.setattr(service.agent_manager, "get_agent", lambda _backend_id: agent)
+    monkeypatch.setattr(service, "get_agent_backend", lambda _backend_id: agent)
+
+    if config_snapshot is None:
+        with pytest.raises(ValueError, match="Session 缺少配置快照"):
+            await service.compress_thread_context(thread_id=thread_id, current_user=SimpleNamespace(uid="user-1", role="user"), db=Db())
+        assert events == [("lock", thread_id), "idle"]
+        return
+
+    if compression_fails:
+        with pytest.raises(RuntimeError, match="compression failed"):
+            await service.compress_thread_context(
+                thread_id=thread_id,
+                current_user=SimpleNamespace(uid="user-1", role="user"),
+                db=Db(),
+            )
+        assert events == [("lock", thread_id), "idle", "prepare", ("compress", "provider:model")]
+        return
 
     result = await service.compress_thread_context(
-        thread_id="thread-1",
+        thread_id=thread_id,
         current_user=SimpleNamespace(uid="user-1", role="user"),
         db=Db(),
     )
 
     assert result == {"status": "completed", "after_tokens": 300}
     assert events == [
-        ("lock", "thread-1"),
+        ("lock", thread_id),
         "idle",
-        "runtime",
+        "prepare",
         ("compress", "provider:model"),
-        "release",
         "commit",
     ]
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_runtime_is_released_when_checkpoint_compression_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    events = []
+async def test_compress_rejects_same_user_from_other_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """压缩副作用在 service 锁内重新核对 APP。"""
 
-    async def runtime(**_kwargs):
-        events.append("runtime")
+    class SessionRepo:
+        def __init__(self, _db):
+            pass
 
-    async def compress(**_kwargs):
-        events.append("compress")
-        raise RuntimeError("summary failed")
+        async def lock_session_by_thread_id(self, _thread_id):
+            return SimpleNamespace(uid="user-1", app_id="app-a", status="active")
 
-    async def release(**_kwargs):
-        events.append("release")
-
-    monkeypatch.setattr(service, "_ensure_runtime_available", runtime)
-    monkeypatch.setattr(service, "_compress_agent_checkpoint", compress)
-    monkeypatch.setattr(service, "_release_runtime", release)
-
-    with pytest.raises(RuntimeError, match="summary failed"):
-        await service._compress_agent_checkpoint_in_runtime(
-            agent=object(),
-            input_context={},
-            thread_id="thread-1",
-            uid="user-1",
-            workdir_path="projects/project-1",
-        )
-
-    assert events == ["runtime", "compress", "release"]
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_runtime_is_released_when_provisioning_fails_without_masking_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    events = []
-
-    async def runtime(**_kwargs):
-        events.append("runtime")
-        raise RuntimeError("provisioning failed")
-
-    async def release(**_kwargs):
-        events.append("release")
-        raise asyncio.CancelledError("release cancelled")
-
-    monkeypatch.setattr(service, "_ensure_runtime_available", runtime)
-    monkeypatch.setattr(service, "_release_runtime", release)
-
-    with pytest.raises(RuntimeError, match="provisioning failed"):
-        await service._compress_agent_checkpoint_in_runtime(
-            agent=object(),
-            input_context={},
-            thread_id="thread-1",
-            uid="user-1",
-            workdir_path="projects/project-1",
-        )
-
-    assert events == ["runtime", "release"]
+    monkeypatch.setattr(thread_access, "SessionRepository", SessionRepo)
+    with pytest.raises(DomainError) as exc:
+        await service.compress_thread_context(thread_id="thread-1", current_user=SimpleNamespace(uid="user-1"), db=object(), app_id="app-b")
+    assert isinstance(exc.value, ResourceNotFoundError)
 
 
 @pytest.mark.unit
@@ -219,7 +203,7 @@ async def test_compresses_checkpoint_through_canonical_graph(monkeypatch: pytest
 
     result = await service._compress_agent_checkpoint(
         agent=Agent(),
-        input_context={"uid": "user-1", "thread_id": "thread-1", "summary_threshold": 2},
+        context=BaseContext(**{"uid": "user-1", "thread_id": "thread-1", "summary_threshold": 2}),
     )
 
     assert result == {"status": "completed", "after_tokens": 300}
@@ -242,41 +226,26 @@ async def test_compresses_checkpoint_through_canonical_graph(monkeypatch: pytest
 @pytest.mark.unit
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("active_run", "latest_run", "queued_requests"),
+    ("active_turn", "pending_input"),
     [
-        (SimpleNamespace(status="running"), None, []),
-        (None, SimpleNamespace(status="interrupted"), []),
-        (None, None, [SimpleNamespace(status="queued")]),
+        ("turn-running", None),
+        ("turn-waiting", None),
+        (None, "input-pending"),
     ],
 )
-async def test_rejects_non_idle_thread(active_run, latest_run, queued_requests, monkeypatch) -> None:
-    class RunRepo:
-        def __init__(self, _db):
-            pass
+async def test_rejects_non_idle_thread(active_turn, pending_input) -> None:
+    class Db:
+        def __init__(self):
+            self.results = [active_turn, pending_input]
 
-        async def get_active_run_by_thread_for_user(self, **_kwargs):
-            return active_run
+        async def scalar(self, _statement):
+            return self.results.pop(0)
 
-        async def get_latest_chat_or_resume_run(self, **_kwargs):
-            return latest_run
-
-    class RequestRepo:
-        def __init__(self, _db):
-            pass
-
-        async def list_queued(self, **_kwargs):
-            return queued_requests
-
-    monkeypatch.setattr(service, "AgentRunRepository", RunRepo)
-    monkeypatch.setattr(service, "AgentRunRequestRepository", RequestRepo)
-
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(DomainError) as exc_info:
         await service._ensure_thread_idle(
-            db=object(),
-            uid="user-1",
-            agent_slug="main",
+            db=Db(),
             thread_id="thread-1",
         )
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail["code"] == "thread_busy"
+    assert isinstance(exc_info.value, StateConflictError)
+    assert exc_info.value.code == "thread_busy"
