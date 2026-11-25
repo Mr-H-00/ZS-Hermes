@@ -1,0 +1,10 @@
+services:
+  frontend:
+    build:
+      target: production
+    image: ${COMPOSE_PROJECT_NAME:-yuxi}-frontend-static:${YUXI_VERSION:-0.8.0}
+    command: !reset null
+    environment: !reset {}
+    volumes: !reset []
+    ports: !override
+      - "${YUXI_FRONTEND_PORT:-5173}:80"

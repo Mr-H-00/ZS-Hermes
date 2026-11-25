@@ -1709,6 +1709,11 @@ const currentThreadConfigNotice = computed(() => {
 const visibleApprovalThreadId = computed(() => {
   return currentChatId.value
 })
+const { approvalState, restoreInterruptFromThreadState, hideApprovalState } = useApproval({
+  getThreadState,
+  fetchThreadMessages,
+  getVisibleThread: () => visibleApprovalThreadId.value
+})
 const currentApprovalModalVisible = computed(
   () =>
     approvalState.showModal &&
@@ -2544,12 +2549,6 @@ const handleAttachmentRemove = async (file) => {
 }
 
 // ==================== 审批功能管理 ====================
-const { approvalState, restoreInterruptFromThreadState, hideApprovalState } = useApproval({
-  getThreadState,
-  fetchThreadMessages,
-  getVisibleThread: () => visibleApprovalThreadId.value
-})
-
 const restorePendingInterruptForThread = (threadId) => {
   if (!threadId) return false
   return restoreInterruptFromThreadState(threadId)

@@ -7,7 +7,7 @@ async page => {
   const prompt = '【反馈体验 2：点踩并说明】我正在做 Agent 反馈模块。请给我完整检查清单，覆盖点击、说明填写、撤销、刷新和管理员查看。每项一句话，不使用工具。'
   const reason = '内容偏长，我希望先看到最短的三步操作，再按需展开详细检查；补充说明保持选填即可。'
   await page.goto(origin + '/dashboard?tab=feedback')
-  await page.getByRole('link', { name: '新建对话', exact: true }).click()
+  await page.getByRole('link', { name: '新对话', exact: true }).click()
   await page.waitForURL(/\/agent$/)
   const accepted = page.waitForResponse(response => response.request().method() === 'POST' && /\/api\/v1\/agents\/sessions\/[^/]+\/events$/.test(response.url()))
   await page.locator('.mention-editor[contenteditable="true"]').fill(prompt)

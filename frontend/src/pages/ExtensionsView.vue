@@ -38,6 +38,8 @@ import { useUserStore } from '@/modules/identity/model/user'
 
 const route = useRoute()
 const router = useRouter()
+const listPath = route.name === 'CapabilitiesComp' ? route.path : null
+const isCurrentList = computed(() => route.name === 'CapabilitiesComp' && route.path === listPath)
 const userStore = useUserStore()
 const activeTab = ref(null)
 const skillsRef = ref(null)
@@ -71,12 +73,7 @@ const replaceTabQuery = (tab) => {
   router.replace({ query })
 }
 
-const isDetailPage = computed(() => {
-  return (
-    route.path.startsWith('/capabilities/mcp/') ||
-    route.path.startsWith('/capabilities/skill/')
-  )
-})
+const isDetailPage = computed(() => ['ExtensionMcpDetail', 'ExtensionSkillDetail'].includes(route.name))
 
 const activeChildLoading = computed(() => {
   const refMap = {
@@ -89,8 +86,9 @@ const activeChildLoading = computed(() => {
 })
 
 watch(
-  () => [route.query.tab, userStore.isAdmin],
-  ([tab]) => {
+  () => [isCurrentList.value, route.query.tab, userStore.isAdmin],
+  ([current, tab]) => {
+    if (!current) return
     const nextTab = normalizeTab(tab)
     if (activeTab.value !== nextTab) activeTab.value = nextTab
     if (tab && tab !== nextTab) {
@@ -102,7 +100,7 @@ watch(
 )
 
 watch(activeTab, (tab) => {
-  if (!tab) return
+  if (!isCurrentList.value || !tab) return
   const nextTab = normalizeTab(tab)
   if (nextTab !== tab) {
     activeTab.value = nextTab

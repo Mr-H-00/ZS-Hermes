@@ -55,8 +55,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { CircleHelp, Search } from '@lucide/vue'
 import PageHeader from '@/shared/ui/PageHeader.vue'
 import WorkspaceBrowser from '@/modules/workspace/ui/WorkspaceBrowser.vue'
-import DeliverablesBrowser from '@/modules/workspace/ui/DeliverablesBrowser.vue'
-import WPSCloudDrive from '@/modules/workspace/ui/WPSCloudDrive.vue'
+import { createAsyncPanel } from '@/shared/lib/asyncPanel'
+
+const DeliverablesBrowser = createAsyncPanel(() => import('@/modules/workspace/ui/DeliverablesBrowser.vue'))
+const WPSCloudDrive = createAsyncPanel(() => import('@/modules/workspace/ui/WPSCloudDrive.vue'))
 
 const route = useRoute()
 const router = useRouter()

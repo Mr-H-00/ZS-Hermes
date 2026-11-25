@@ -15,7 +15,6 @@ import {
   MessageCircle,
   Languages,
   Palette,
-  SquarePen,
   Search,
 } from '@lucide/vue'
 
@@ -56,7 +55,7 @@ const settingsInitialTab = ref('')
 const route = useRoute()
 const router = useRouter()
 const isAgentView = computed(() => ['AgentComp', 'AgentCompWithThreadId'].includes(route.name))
-const { sidebarCollapsed, lastThreadId, sessionsPinned, sessionPeekOpen } = storeToRefs(chatUIStore)
+const { sidebarCollapsed, sessionsPinned, sessionPeekOpen } = storeToRefs(chatUIStore)
 const normalNavigationRef = ref(null)
 const sessionsVisible = computed(
   () => !sidebarCollapsed.value || (isAgentView.value && (sessionsPinned.value || sessionPeekOpen.value))
@@ -157,9 +156,7 @@ const mainList = computed(() => {
   const items = [
     {
       name: '新对话',
-      path: lastThreadId.value
-        ? router.resolve({ name: 'AgentCompWithThreadId', params: { thread_id: lastThreadId.value } }).path
-        : '/agent',
+      path: '/agent',
       activePaths: ['/agent'],
       icon: MessageCircle,
       activeIcon: MessageCircle
@@ -206,9 +203,6 @@ const mainList = computed(() => {
 
   return items
 })
-
-const primaryNavItem = computed(() => mainList.value[0] || null)
-const secondaryNavItems = computed(() => mainList.value.slice(1))
 
 const isNavItemActive = (item) => {
   const activePaths = item.activePaths || [item.path]
@@ -305,42 +299,8 @@ provide('settingsModal', {
         </div>
       </div>
       <div class="nav">
-        <div v-if="primaryNavItem" class="primary-nav-row">
-          <RouterLink
-            :to="primaryNavItem.path"
-            class="nav-item"
-            :class="{ active: isNavItemActive(primaryNavItem) }"
-            :aria-label="primaryNavItem.name"
-            :active-class="primaryNavItem.action ? '' : 'active'"
-            @click.stop
-          >
-            <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
-              <template #title>{{ primaryNavItem.name }}</template>
-              <component
-                class="icon"
-                :is="
-                  isNavItemActive(primaryNavItem) ? primaryNavItem.activeIcon : primaryNavItem.icon
-                "
-                size="18"
-                aria-hidden="true"
-              />
-            </a-tooltip>
-            <span class="nav-text">{{ primaryNavItem.name }}</span>
-          </RouterLink>
-          <RouterLink
-            v-if="!sidebarCollapsed"
-            :to="{ name: 'AgentComp' }"
-            class="primary-new-chat"
-            active-class=""
-            aria-label="新建对话"
-            title="新建对话"
-          >
-            <SquarePen :size="16" aria-hidden="true" />
-          </RouterLink>
-        </div>
-
         <RouterLink
-          v-for="(item, index) in secondaryNavItems"
+          v-for="(item, index) in mainList"
           :key="index"
           :to="item.path"
           v-show="!item.hidden"
@@ -614,48 +574,6 @@ div.header,
     }
   }
 
-  .primary-nav-row {
-    position: relative;
-
-    .nav-item {
-      padding-right: 38px;
-    }
-
-    &:hover .primary-new-chat,
-    &:has(:focus-visible) .primary-new-chat {
-      opacity: 1;
-      pointer-events: auto;
-    }
-  }
-
-  .primary-new-chat {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--gray-600);
-    opacity: 0;
-    pointer-events: none;
-    transition: color 0.15s ease;
-
-    &:hover,
-    &:focus-visible {
-      color: var(--gray-1000);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--main-color);
-      outline-offset: -2px;
-    }
-  }
-
   .nav-item {
     display: flex;
     align-items: center;
@@ -901,10 +819,6 @@ div.header,
           display: block;
         }
       }
-    }
-
-    .primary-nav-row {
-      width: @sidebar-item-height;
     }
 
     .nav {

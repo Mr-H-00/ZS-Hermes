@@ -189,6 +189,18 @@ curl --fail http://localhost:5050/api/system/ready
 
 如出现审批，批准后继续。确认命令执行成功，并在工作区打开 `hello.txt` 核对内容，至此完成部署验证。就绪接口只证明服务可以接流量，不能代替这一步。
 
+### 本地使用静态前端
+
+项目启动后，可以用现有的 Nginx 镜像服务预编译页面，避免 Vite 在首次打开页面时转换源码。下面的命令只重建前端，继续使用原来的网页地址和后端服务。静态前端需要 Docker Compose v2.24.4 或更高版本。
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.frontend-static.yml up -d --no-deps --build frontend
+```
+
+构建后重新打开网页。源码更新时重新运行该命令。需要恢复热更新时，运行 `docker compose up -d --no-deps frontend`。
+
+如果 API 或 MinIO 容器被重新创建，运行 `docker compose -f docker-compose.yml -f docker-compose.frontend-static.yml restart frontend`，让 Nginx 重新解析上游地址。
+
 ## 常见配置
 
 以下配置保存在 `.env`。首次启动前按需调整；模型、Skills 和用户设置可在登录后配置。

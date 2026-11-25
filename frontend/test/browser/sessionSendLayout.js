@@ -106,7 +106,7 @@ async function verifySessionSendLayout(page, {
     }
     const editor = page.getByRole('textbox')
     await editor.fill('正式会话的未发送草稿')
-    await page.getByRole('link', { name: '新建对话', exact: true }).click()
+    await page.getByRole('link', { name: '新对话', exact: true }).click()
     await page.locator('.bottom.start-screen').waitFor()
     if (await page.getByRole('textbox').innerText()) throw new Error('新建页继承了正式会话草稿')
     await page.goBack()
