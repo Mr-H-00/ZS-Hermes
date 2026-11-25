@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import re
 from typing import Any
@@ -10,9 +11,11 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yuxi.infrastructure.observability.logging import logger
+from yuxi.modules.models.providers.ark import RETIRED_SEEDREAM_4_ID, ark_model_fields, is_ark_url
 from yuxi.modules.models.providers.builtin import BUILTIN_PROVIDERS
 from yuxi.modules.models.providers.cache import USER_UID_SIGNATURE_SECRET_ENV
 from yuxi.modules.models.providers.credentials import resolve_api_key
+from yuxi.modules.models.providers.model_types import IMAGE_MODEL_TYPE, VALID_MODEL_TYPES, normalize_model_type
 from yuxi.modules.models.providers.repository import (
     create_model_provider,
     delete_model_provider,
@@ -22,7 +25,6 @@ from yuxi.modules.models.providers.repository import (
 )
 from yuxi.modules.models.tables import ModelProvider, is_sensitive_config_key
 
-VALID_MODEL_TYPES = {"chat", "embedding", "rerank"}
 VALID_MODEL_SOURCES = {"manual", "remote"}
 VALID_PROVIDER_TYPES = {"openai", "anthropic", "gemini", "openrouter", "local"}
 LOCAL_PROVIDER_TYPE = "local"
@@ -73,9 +75,9 @@ def _normalize_model_item(model: dict[str, Any]) -> dict[str, Any]:
     if not model_id:
         raise ValueError("模型 id 不能为空")
 
-    model_type = str(model.get("type") or "unknown").strip()
+    model_type = normalize_model_type(str(model.get("type") or "unknown").strip())
     if model_type not in VALID_MODEL_TYPES:
-        raise ValueError(f"启用模型 {model_id} 的 type 必须是 chat、embedding 或 rerank")
+        raise ValueError(f"启用模型 {model_id} 的 type 必须是 {', '.join(sorted(VALID_MODEL_TYPES))} 之一")
 
     # source 区分手动添加 vs 远端拉取，用于跳过远端清单存在性的视觉警告。
     source = str(model.get("source") or "remote").strip()
@@ -161,6 +163,15 @@ def _validate_local_provider_scope(
             raise ValueError(f"local provider 仅支持 {LOCAL_BGE_M3_MODEL_ID} embedding 模型")
 
 
+def _validate_image_generation_scope(provider_type: str, capabilities: list[str], enabled_models: list[dict[str, Any]]) -> None:
+    """要求生图能力显式启用，并约束到 OpenAI Images 兼容供应商。"""
+    supports_images = IMAGE_MODEL_TYPE in capabilities
+    if supports_images and provider_type != "openai":
+        raise ValueError("生图能力仅支持 OpenAI 兼容供应商")
+    if not supports_images and any(normalize_model_type(model.get("type", "")) == IMAGE_MODEL_TYPE for model in enabled_models):
+        raise ValueError("供应商保留生图模型时必须启用生图能力")
+
+
 def _validate_request_body_overrides_scope(
     enabled_models: list[dict[str, Any]],
     provider_type: str | None,
@@ -240,23 +251,19 @@ def _normalize_payload(data: dict[str, Any], *, partial: bool = False) -> dict[s
         elif not partial:
             payload[field] = default
 
-    capabilities = payload.get("capabilities")
-    if capabilities:
+    if "capabilities" in payload:
+        capabilities = list(dict.fromkeys(normalize_model_type(str(kind)) for kind in payload["capabilities"]))
         unknown = sorted(set(capabilities) - VALID_MODEL_TYPES)
         if unknown:
             raise ValueError(f"capabilities 包含未知能力: {', '.join(unknown)}")
-
-    # 仅当本次 payload 同时携带 capabilities 与 enabled_models 时做一致性校验，
-    # 防止前端把超出 provider.capabilities 的模型 type 写入。
-    # partial 模式下若只更新其中一项，跳过校验避免误判（DB 已有值不可见）。
-    if "capabilities" in payload and "enabled_models" in payload:
-        capabilities_set = set(payload.get("capabilities") or [])
-        if capabilities_set:
-            _validate_models_capabilities(payload.get("enabled_models"), capabilities_set)
+        payload["capabilities"] = capabilities
 
     if not partial:
+        if payload["capabilities"]:
+            _validate_models_capabilities(payload["enabled_models"], set(payload["capabilities"]))
         _validate_request_body_overrides_scope(payload.get("enabled_models"), payload.get("provider_type"))
         _validate_local_provider_scope(payload.get("provider_type"), payload.get("capabilities"), payload.get("enabled_models"))
+        _validate_image_generation_scope(payload["provider_type"], payload["capabilities"], payload["enabled_models"])
 
     return payload
 
@@ -292,7 +299,8 @@ def _normalize_remote_model(raw_model: dict[str, Any], model_type: str = "chat")
     architecture = _normalize_dict(raw_model.get("architecture"))
     top_provider = _normalize_dict(raw_model.get("top_provider"))
     raw_type = raw_model.get("type")
-    normalized_type = raw_type if raw_type in VALID_MODEL_TYPES else model_type
+    declared_type = normalize_model_type(raw_type) if isinstance(raw_type, str) else ""
+    normalized_type = declared_type if declared_type in VALID_MODEL_TYPES else model_type
     normalized = {
         "id": model_id,
         "object": raw_model.get("object"),
@@ -418,22 +426,24 @@ async def update_provider_config(
                 update_data["headers_json"][key] = value
 
     payload = _normalize_payload(update_data, partial=True)
-    # partial 更新时仅传 enabled_models，结合 DB 中现有 capabilities 校验
-    if "enabled_models" in payload and "capabilities" not in payload:
-        existing_caps = set(provider.capabilities or [])
-        if existing_caps:
-            _validate_models_capabilities(payload.get("enabled_models"), existing_caps)
     if "enabled_models" in payload or "provider_type" in payload:
         _validate_request_body_overrides_scope(
             payload.get("enabled_models", provider.enabled_models or []),
             payload.get("provider_type", provider.provider_type),
         )
     if {"provider_type", "capabilities", "enabled_models"} & set(payload):
+        provider_type = payload.get("provider_type", provider.provider_type)
+        capabilities = [normalize_model_type(kind) for kind in payload.get("capabilities", provider.capabilities or [])]
+        enabled_models = payload.get("enabled_models", provider.enabled_models or [])
+        # 提交模型列表时，允许与数据库中的旧版能力名匹配。
+        if capabilities and "enabled_models" in payload:
+            _validate_models_capabilities(enabled_models, set(capabilities))
         _validate_local_provider_scope(
-            payload.get("provider_type", provider.provider_type),
-            payload.get("capabilities", provider.capabilities or []),
-            payload.get("enabled_models", provider.enabled_models or []),
+            provider_type,
+            capabilities,
+            enabled_models,
         )
+        _validate_image_generation_scope(provider_type, capabilities, enabled_models)
     _validate_user_uid_header(
         payload.get("provider_type", provider.provider_type),
         payload.get("include_user_uid", provider.include_user_uid),
@@ -451,39 +461,11 @@ async def delete_provider_config(db: AsyncSession, provider_id: str) -> bool:
     return True
 
 
-async def _fetch_models_from_endpoint(
-    client: httpx.AsyncClient,
-    provider: ModelProvider,
-    headers: dict[str, str],
-    endpoint: str | None,
-    model_type: str,
-) -> list[dict[str, Any]]:
-    """按单个模型类型端点拉取并规范化远端模型列表。"""
-    if not endpoint:
-        return []
-
-    response = await client.get(_models_url(provider.base_url, endpoint), headers=headers)
-    response.raise_for_status()
-    payload = response.json()
-
-    raw_models = payload.get("data") if isinstance(payload, dict) else payload
-    if not isinstance(raw_models, list):
-        raise ValueError(f"{endpoint} 响应必须是列表或包含 data 列表")
-
-    models = []
-    for raw_model in raw_models:
-        if isinstance(raw_model, dict):
-            normalized = _normalize_remote_model(raw_model, model_type)
-            if normalized:
-                models.append(normalized)
-    return models
-
-
 async def fetch_remote_models(provider: ModelProvider) -> list[dict[str, Any]]:
     """按 provider 配置实时拉取远端模型列表，不落库。
 
-    Chat 模型默认走 /models；embedding 只有 provider 声明能力时才走
-    /embeddings/models；rerank 供应商没有稳定通用端点，配置了 endpoint 才拉取。
+    通用主目录缺少类型时使用 chat，方舟混合目录按条目声明分类。
+    向量和重排只拉取配置并已启用对应能力的独立目录。
     """
     if getattr(provider, "provider_type", None) == LOCAL_PROVIDER_TYPE:
         return []
@@ -493,13 +475,16 @@ async def fetch_remote_models(provider: ModelProvider) -> list[dict[str, Any]]:
         headers.setdefault("Authorization", f"Bearer {api_key}")
 
     capabilities = set(provider.capabilities or [])
-    endpoint_specs = [
-        (provider.models_endpoint, "chat"),
-    ]
-    if "embedding" in capabilities:
-        endpoint_specs.append((provider.embedding_models_endpoint, "embedding"))
-    if "rerank" in capabilities and provider.rerank_models_endpoint:
-        endpoint_specs.append((provider.rerank_models_endpoint, "rerank"))
+    models_url = _models_url(provider.base_url, provider.models_endpoint)
+    ark_catalog = is_ark_url(models_url)
+    endpoint_specs = [(provider.models_endpoint, "unknown" if ark_catalog else "chat")]
+    # 方舟主目录已包含向量模型；表单预填的 /embeddings/models 在方舟没有对应路由。
+    skipped_catalog_urls = {models_url.rstrip("/")} if ark_catalog else set()
+    if ark_catalog and is_ark_url(provider.base_url):
+        skipped_catalog_urls.add(_models_url(provider.base_url, "/embeddings/models"))
+    for kind, endpoint in (("embedding", provider.embedding_models_endpoint), ("rerank", provider.rerank_models_endpoint)):
+        if kind in capabilities and endpoint and _models_url(provider.base_url, endpoint).rstrip("/") not in skipped_catalog_urls:
+            endpoint_specs.append((endpoint, kind))
 
     seen_ids: set[tuple[str, str]] = set()
     models: list[dict[str, Any]] = []
@@ -517,6 +502,42 @@ async def fetch_remote_models(provider: ModelProvider) -> list[dict[str, Any]]:
     return models
 
 
+async def _fetch_models_from_endpoint(
+    client: httpx.AsyncClient,
+    provider: ModelProvider,
+    headers: dict[str, str],
+    endpoint: str | None,
+    model_type: str,
+) -> list[dict[str, Any]]:
+    """按单个模型类型端点拉取并规范化远端模型列表。"""
+    if not endpoint:
+        return []
+
+    url = _models_url(provider.base_url, endpoint)
+    ark_catalog = is_ark_url(url)
+    response = await client.get(url, headers=headers)
+    response.raise_for_status()
+    payload = response.json()
+
+    raw_models = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(raw_models, list):
+        raise ValueError(f"{endpoint} 响应必须是列表或包含 data 列表")
+
+    models = []
+    for raw_model in raw_models:
+        if not isinstance(raw_model, dict):
+            continue
+        normalized = _normalize_remote_model(raw_model, model_type)
+        if not normalized:
+            continue
+        if ark_catalog:
+            if normalized["id"] == RETIRED_SEEDREAM_4_ID:
+                continue
+            normalized.update(ark_model_fields(raw_model, normalized["type"]))
+        models.append(normalized)
+    return models
+
+
 async def test_model_status_by_spec(spec: str) -> dict:
     """根据 spec 测试模型连接状态。"""
     from yuxi.modules.models.providers.cache import model_cache
@@ -525,11 +546,45 @@ async def test_model_status_by_spec(spec: str) -> dict:
     if not info:
         return {"spec": spec, "status": "error", "message": f"未找到模型: {spec}"}
 
+    if info.model_type == IMAGE_MODEL_TYPE:
+        return {
+            "spec": spec,
+            "status": "unsupported" if info.api_key else "unavailable",
+            "message": "请在绘画页实际生成以验证生图连接" if info.api_key else "生图供应商未配置凭据",
+            "model_type": IMAGE_MODEL_TYPE,
+        }
+
+    if info.model_type in {"video", "audio", "seed3D"}:
+        return {
+            "spec": spec,
+            "status": "unsupported",
+            "model_type": info.model_type,
+            "message": f"暂不支持 {info.model_type} 模型的连接测试",
+        }
+
     try:
         if info.model_type == "embedding":
             from yuxi.modules.models.embed import select_embedding_model
 
             model = select_embedding_model(spec)
+            # 方舟目录常省略维度；管理员主动测试时只用这一条实际向量测量。
+            if info.dimension is None and is_ark_url(info.base_url):
+                vectors = await model.aencode(["Hello world"])
+                vector = vectors[0] if len(vectors) == 1 else None
+                if (
+                    not isinstance(vector, list)
+                    or not vector
+                    or not all(type(value) in (int, float) and math.isfinite(value) for value in vector)
+                ):
+                    return {"spec": spec, "model_type": "embedding", "status": "unavailable", "message": "模型返回的向量无效"}
+                dimension = len(vector)
+                return {
+                    "spec": spec,
+                    "model_type": "embedding",
+                    "status": "available",
+                    "dimension": dimension,
+                    "message": f"连接正常，实测向量维度为 {dimension}",
+                }
             success, _message = await model.test_connection()
             return {
                 "spec": spec,

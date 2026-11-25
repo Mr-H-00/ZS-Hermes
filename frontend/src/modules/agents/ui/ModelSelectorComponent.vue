@@ -96,7 +96,7 @@
           type="button"
           class="config-dropdown-item model-option"
           :class="{ selected: model.spec === props.model_spec }"
-          @click="handleSelectV2Model(model.spec)"
+          @click="handleSelectV2Model(model)"
         >
           <span class="config-dropdown-item-label" :title="model.display_name"
             >{{ model.display_name }}
@@ -183,6 +183,7 @@ import { useModelStatus } from '@/modules/settings'
 import { useUserStore } from '@/modules/identity'
 import {
   invalidateModelDirectory,
+  MODEL_TYPE_NAMES,
   loadModelMetadataCatalog,
   resolveModelDisplayMetadata,
   useModelDirectory
@@ -192,7 +193,7 @@ const props = defineProps({
   modelType: {
     type: String,
     default: 'chat',
-    validator: (value) => ['chat', 'embedding', 'rerank'].includes(value)
+    validator: (value) => MODEL_TYPE_NAMES.includes(value)
   },
   upward: { type: Boolean, default: false },
   model_spec: {
@@ -473,9 +474,9 @@ const getCurrentModelStatusTitle = () => {
 }
 
 // 选择 v2 模型的方法
-const handleSelectV2Model = (spec) => {
+const handleSelectV2Model = (model) => {
   if (props.disabled) return
-  emit('select-model', spec)
+  emit('select-model', model.spec, model)
   dropdownOpen.value = false
 }
 

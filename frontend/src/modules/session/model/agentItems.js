@@ -86,6 +86,18 @@ export function getStreamingReasoning(state) {
   return { itemId: item.id, content: item.yuxi?.reasoning?.[active.contentIndex] || '' }
 }
 
+/** Turn 快照只投影结果 Run 的关联输出，排除工具项与过程消息。 */
+export function getCompletedTurnAnswer(turn) {
+  const resultRunId = turn.yuxi?.result_run_id
+  if (turn.status !== 'completed' || !resultRunId || !Number.isFinite(turn.completed_at)) return null
+  const answer = turn.yuxi.output?.find((item) =>
+    item.type === 'message' && item.role === 'assistant' && item.phase === 'final_answer' &&
+    item.status === 'completed' && item.yuxi?.run_id === resultRunId && item.turn_id === turn.id)
+  const content = answer?.content.filter((part) => part.type === 'output_text')
+    .map((part) => part.text).join('')
+  return content?.trim() ? { id: answer.id, content, completedAt: turn.completed_at * 1000 } : null
+}
+
 /** 从标准 item 派生消息视图；思考仅接受当前流式展示投影。 */
 export function itemsToMessages(items, reasoning = null) {
   const sorted = [...items].sort((left, right) =>

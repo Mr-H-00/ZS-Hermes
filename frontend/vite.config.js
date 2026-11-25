@@ -22,6 +22,7 @@ const modelMetadataPlugin = {
               modelId,
               {
                 modalities: { input: model.modalities?.input },
+                reasoning: model.reasoning,
                 limit: { context: model.limit?.context },
                 cost: model.cost
               }

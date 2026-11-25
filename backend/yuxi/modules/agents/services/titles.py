@@ -8,6 +8,7 @@ from yuxi.infrastructure.observability.logging import logger
 from yuxi.infrastructure.postgres.manager import pg_manager
 from yuxi.modules.agents.repositories.sessions import SessionRepository
 from yuxi.modules.models.chat import load_chat_model
+from yuxi.modules.models.utils import strip_chat_reasoning_tags
 from yuxi.modules.system.options import system_options
 
 _tasks: set[asyncio.Task] = set()
@@ -89,8 +90,7 @@ def _title_source(content: str) -> str:
 
 def _normalize_generated_title(candidate: str) -> str:
     """清理模型输出格式，返回非空、非占位且不含引用协议的单行标题。"""
-    candidate = re.sub(r"<think>.*?(?:</think>|$)", "", candidate, flags=re.IGNORECASE | re.DOTALL)
-    candidate = re.split(r"</think>", candidate, flags=re.IGNORECASE)[-1]
+    candidate = strip_chat_reasoning_tags(candidate)
     wrappers = "\"'“”‘’`* \t\r\n"
     candidate = re.sub(r"^#{1,6}\s+", "", candidate.strip(wrappers)).strip(wrappers)
     candidate = re.sub(r"^(?:title|标题)\s*[:：]\s*", "", candidate, flags=re.IGNORECASE)

@@ -99,11 +99,12 @@ export const useSessionRuntimeStore = defineStore('sessionRuntime', () => {
           page = await agentApi.getSessionItems(threadId, { after, turnId, limit: 100 })
         }
         const target = turnId || session.yuxi.current_turn?.id
+        let targetTurn
         if (target && !more) {
-          const turn = await agentApi.getThreadTurn(threadId, target)
+          targetTurn = await agentApi.getThreadTurn(threadId, target)
           if (!isCurrentThreadState(threadId, state)) return
-          mergeItemSnapshot(projection, turn.yuxi.output)
-          for (const run of turn.yuxi.runs || []) runs.set(run.id, run)
+          mergeItemSnapshot(projection, targetTurn.yuxi.output)
+          for (const run of targetTurn.yuxi.runs || []) runs.set(run.id, run)
         }
         if (!turnId && (more || !paging.after || !page.has_more)) {
           paging.after = page.last_id
@@ -124,6 +125,7 @@ export const useSessionRuntimeStore = defineStore('sessionRuntime', () => {
         threadRuns.value[threadId] = [...runs.values()]
         if (!state.isStreaming) state.turnStatus = session.yuxi.current_turn?.status || null
         chatThreads.upsertThread(session)
+        return targetTurn
       } catch (error) {
         handleChatError(error, 'load')
         throw error

@@ -379,6 +379,20 @@
                       </template>
                       <template #actions-right-extra>
                         <button
+                          v-if="voice.preferences.dictationEnabled"
+                          type="button"
+                          class="input-action-btn dictation-action"
+                          :class="{ active: isDictatingHere }"
+                          :aria-pressed="isDictatingHere"
+                          :aria-label="dictationLabel"
+                          :title="dictationLabel"
+                          :disabled="isDictatingHere ? voice.dictationStopping : !canStartDictation"
+                          @click="toggleDictation"
+                        >
+                          <MicOff v-if="isDictatingHere" :size="16" aria-hidden="true" />
+                          <Mic v-else :size="16" aria-hidden="true" />
+                        </button>
+                        <button
                           v-if="canSubmitSteer"
                           type="button"
                           class="direct-steer-button"
@@ -721,6 +735,8 @@ import {
   Bug,
   ChevronDown,
   CornerDownRight,
+  Mic,
+  MicOff,
   PanelRight,
   Gauge,
   Play,
@@ -765,6 +781,7 @@ import { normalizeAgentConfigurableItems } from '@/modules/agents'
 import { useConfigStore } from '@/modules/settings'
 import { useInfoStore } from '@/modules/settings'
 import { useUserStore } from '@/modules/identity'
+import { useVoiceStore, voicePlaybackScope } from '@/modules/voice'
 import { storeToRefs } from 'pinia'
 import { getMessageRunId } from '@/modules/session/model/messageDebug'
 import { MessageProcessor } from '@/modules/session/model/messageProcessor'
@@ -830,6 +847,9 @@ const chatThreadsStore = useChatThreadsStore()
 const configStore = useConfigStore()
 const infoStore = useInfoStore()
 const userStore = useUserStore()
+const voice = useVoiceStore()
+const voiceOwner = Symbol('session-voice')
+provide(voicePlaybackScope, voiceOwner)
 const messageDebugEnabled = computed(() => infoStore.debugMode && userStore.isSuperAdmin)
 const { agents, selectedAgentId, agentDetails, availableKnowledgeBases } = storeToRefs(agentStore)
 const threadStoreRefs = storeToRefs(chatThreadsStore)
@@ -1893,6 +1913,49 @@ const inputSubmissionBlocked = computed(
     !!pendingSends.value[currentChatId.value] ||
     Boolean(currentThreadState.value?.cancellationPending)
 )
+const voiceAvailable = computed(
+  () => workspaceActive.value && pageVisible.value && userStore.isLoggedIn && Boolean(userStore.uid)
+)
+const canDictateHere = computed(
+  () => voiceAvailable.value && !inputSubmissionBlocked.value &&
+    !threadCreationInFlight.value && !currentToolApprovalVisible.value
+)
+const isDictatingHere = computed(() => voice.dictationOwner === voiceOwner)
+const canStartDictation = computed(
+  () => canDictateHere.value && voice.canRecognize && !voice.dictationOwner
+)
+const dictationLabel = computed(() => {
+  if (!voice.canRecognize) return '当前浏览器不支持听写'
+  if (voice.dictationStopping && isDictatingHere.value) return '正在完成听写'
+  return isDictatingHere.value ? '结束听写' : '开始听写'
+})
+let voiceOpenedAt = performance.now()
+let voiceOpenedAtEpoch = Date.now()
+watch(
+  [voiceAvailable, currentThreadId, currentAgentId, () => userStore.uid],
+  () => {
+    voiceOpenedAt = performance.now()
+    voiceOpenedAtEpoch = Date.now()
+    voice.release(voiceOwner)
+  },
+  { flush: 'sync' }
+)
+watch(canDictateHere, (available) => {
+  if (!available) voice.cancelDictation(voiceOwner)
+}, { flush: 'sync' })
+onUnmounted(() => voice.release(voiceOwner))
+
+function toggleDictation() {
+  if (isDictatingHere.value) return voice.stopDictation(voiceOwner)
+  if (!canStartDictation.value) return
+  voice.startDictation(voiceOwner, {
+    onText: (text) => {
+      if (canDictateHere.value) composeWidgetDraft(text)
+    },
+    onError: (error) => message.warning(error)
+  })
+}
+
 const canSubmitSteer = computed(
   () =>
     !inputSubmissionBlocked.value &&
@@ -2503,13 +2566,17 @@ const runtimeView = {
   onInterruptDetected: ({ threadId }) => {
     if (workspaceActive.value) restorePendingInterruptForThread(threadId)
   },
-  onTerminalDetected: ({ threadId, runId }) => {
+  onTerminalDetected: ({ threadId, runId, finalAnswer, observedAt }) => {
     if (approvalState.threadId === threadId) hideApprovalState()
     if (runId && threadId === currentThreadId.value) {
       agentPanelFilesystemRefreshVersion.value += 1
     }
     if (workspaceActive.value && pageVisible.value && runId && threadId === currentThreadId.value) {
       void chatThreadsStore.markThreadViewed(threadId)
+    }
+    if (finalAnswer && voiceAvailable.value && threadId === currentThreadId.value &&
+        observedAt >= voiceOpenedAt && finalAnswer.completedAt >= voiceOpenedAtEpoch) {
+      voice.speak(voiceOwner, finalAnswer.id, finalAnswer.content, { automatic: true })
     }
   }
 }

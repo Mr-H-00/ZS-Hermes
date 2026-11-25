@@ -13,6 +13,8 @@ import {
   PanelLeft,
   PanelLeftOpen,
   MessageCircle,
+  Languages,
+  Palette,
   SquarePen,
   Search,
 } from '@lucide/vue'
@@ -188,6 +190,8 @@ const mainList = computed(() => {
     activeIcon: NetDiskIcon
   })
 
+  items.push({ name: '翻译', path: '/translate', icon: Languages, activeIcon: Languages })
+  items.push({ name: '绘画', path: '/paintings', icon: Palette, activeIcon: Palette })
   items.push({ name: '技能・工具・MCP', path: '/capabilities', icon: Wrench, activeIcon: Wrench })
   if (userStore.isAdmin) items.push({ name: 'API服务', path: '/api-services', icon: Unplug, activeIcon: Unplug })
 

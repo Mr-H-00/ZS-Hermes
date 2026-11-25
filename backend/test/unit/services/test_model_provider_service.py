@@ -564,3 +564,46 @@ def test_normalize_payload_allows_model_type_within_capabilities():
     sources = [model["source"] for model in payload["enabled_models"]]
     assert types == ["chat", "embedding"]
     assert sources == ["manual", "manual"]
+
+
+# 旧版图像和三维类型仍可与新版字段混用，写入时收敛为用户指定的名称。
+def test_provider_configuration_saves_canonical_media_types():
+    """保存七种能力时去除旧名重复项并统一模型类型。"""
+    kinds = ["chat", "embedding", "rerank", "image", "video", "audio", "seed3D"]
+    raw_types = ["chat", "embedding", "rerank", "image_generation", "video", "audio", "3d"]
+    payload = _normalize_payload(
+        {
+            "provider_id": "media-provider",
+            "display_name": "Media",
+            "base_url": "https://example.com/v1",
+            "capabilities": [*raw_types, "image", "seed3D"],
+            "enabled_models": [{"id": f"model-{index}", "type": kind} for index, kind in enumerate(raw_types)],
+        }
+    )
+    assert payload["capabilities"] == kinds
+    assert [model["type"] for model in payload["enabled_models"]] == kinds
+
+
+# 仅更新部分字段时按现有记录的类型别名核对能力，并保持图像协议约束。
+@pytest.mark.asyncio
+async def test_partial_update_compares_canonical_media_types_against_legacy_config(monkeypatch):
+    """旧版配置支持替换模型或能力，旧图像记录仍要求图像能力。"""
+    from unittest.mock import AsyncMock
+
+    provider = SimpleNamespace(
+        provider_type="openai",
+        include_user_uid=False,
+        capabilities=["image_generation", "3d"],
+        enabled_models=[{"id": "mesh", "type": "3d"}, {"id": "paint", "type": "image_generation"}],
+    )
+    save = AsyncMock(return_value=provider)
+    monkeypatch.setattr("yuxi.modules.models.providers.service.get_model_provider", AsyncMock(return_value=provider))
+    monkeypatch.setattr("yuxi.modules.models.providers.service.update_model_provider", save)
+    models = [{"id": "mesh", "type": "seed3D"}, {"id": "paint", "type": "image"}]
+    assert await update_provider_config(None, "legacy", {"enabled_models": models}, "tester") is provider
+    assert await update_provider_config(None, "legacy", {"capabilities": ["seed3D", "image"]}, "tester") is provider
+    assert await update_provider_config(None, "legacy", {"capabilities": ["image"]}, "tester") is provider
+    with pytest.raises(ValueError, match="必须启用生图能力"):
+        await update_provider_config(None, "legacy", {"capabilities": ["seed3D"]}, "tester")
+    with pytest.raises(ValueError, match="仅支持 OpenAI"):
+        await update_provider_config(None, "legacy", {"provider_type": "anthropic"}, "tester")

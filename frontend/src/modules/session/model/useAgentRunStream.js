@@ -1,5 +1,6 @@
 import { agentApi } from '@/apis'
 import { handleChatError } from '@/shared/lib/errorHandler'
+import { getCompletedTurnAnswer } from './agentItems.js'
 import { getReconnectDelay } from './reconnectBackoff.js'
 
 export const processRunSseResponse = async (response, onEvent) => {
@@ -97,7 +98,7 @@ export function useAgentRunStream({
     ts.runReconnectTimer = null
   }
 
-  const settleTurn = async (threadId, turnId, status, runId, touchedThreadIds, turn = null) => {
+  const settleTurn = async (threadId, turnId, status, runId, touchedThreadIds, turn = null, liveEvent = null) => {
     if (!isThreadActive(threadId)) return false
     const ts = getThreadState(threadId)
     if (!ts || ts.currentTurnId !== turnId) return false
@@ -122,9 +123,17 @@ export function useAgentRunStream({
       ts.pendingInterrupt = null
     }
     let refreshed = false
+    let finalAnswer
+    const observedAt = performance.now()
     try {
-      await fetchThreadMessages({ threadId, turnId, fresh: true })
+      const snapshot = await fetchThreadMessages({ threadId, turnId, fresh: true })
       refreshed = true
+      // 历史对账和断线恢复共用收尾，但只为实时完成事件发布已回读的答复。
+      if (liveEvent?.type === 'agent.session.turn.completed' &&
+          snapshot?.id === turnId && snapshot?.session_id === threadId &&
+          snapshot.yuxi?.result_run_id === liveEvent.yuxi?.result_run_id) {
+        finalAnswer = getCompletedTurnAnswer(snapshot)
+      }
     } catch (error) {
       console.warn('Failed to refresh terminal history; retaining streamed output:', error)
     }
@@ -138,7 +147,10 @@ export function useAgentRunStream({
       resetThreadExecution(threadId, { preserveInputMonitors: true })
     void fetchAgentState(threadId)
     if (status === 'requires_action') onInterruptDetected?.({ threadId, runId, turn })
-    else onTerminalDetected?.({ threadId, runId, touchedThreadIds: [...touchedThreadIds] })
+    else onTerminalDetected?.({
+      threadId, runId, touchedThreadIds: [...touchedThreadIds],
+      ...(finalAnswer ? { finalAnswer, observedAt } : {})
+    })
     if (status === 'completed') onScrollToBottom?.(threadId)
     return refreshed
   }
@@ -276,7 +288,9 @@ export function useAgentRunStream({
             turnId,
             status,
             data.yuxi?.run_id || ts.activeRunId,
-            new Set([threadId])
+            new Set([threadId]),
+            null,
+            data
           )
         }
       })

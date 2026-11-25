@@ -2,5 +2,5 @@
 export { useConfigStore } from './model/config'
 export { useInfoStore } from './model/info'
 export { loadModelMetadataCatalog, resolveModelDisplayMetadata } from './model/modelMetadata'
-export { invalidateModelDirectory, useModelDirectory } from './model/modelDirectory'
+export { invalidateModelDirectory, MODEL_TYPE_NAMES, useModelDirectory } from './model/modelDirectory'
 export { useModelStatus } from './model/useModelStatus'

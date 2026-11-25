@@ -12,6 +12,7 @@ from sqlalchemy import (
 )
 
 from yuxi.infrastructure.postgres.base import BusinessBase as Base
+from yuxi.modules.models.providers.model_types import normalize_model_type
 from yuxi.shared.datetime import format_utc_datetime, utc_now
 
 _SENSITIVE_KEY_PARTS = ("authorization", "api_key", "apikey", "token", "secret", "password", "cookie")
@@ -69,6 +70,12 @@ class ModelProvider(Base):
     def to_dict(self) -> dict[str, Any]:
         """返回管理端可见配置；凭据只保留是否已配置的事实。"""
         safe_headers = _redact_value(self.headers_json or {})
+        capabilities = list(dict.fromkeys(normalize_model_type(value) for value in self.capabilities or []))
+        enabled_models = []
+        for model in self.enabled_models or []:
+            if isinstance(model.get("type"), str):
+                model = {**model, "type": normalize_model_type(model["type"])}
+            enabled_models.append(model)
         return {
             "id": self.id,
             "provider_id": self.provider_id,
@@ -83,8 +90,8 @@ class ModelProvider(Base):
             "rerank_models_endpoint": self.rerank_models_endpoint,
             "api_key_env": self.api_key_env,
             "api_key_configured": bool(self.api_key),
-            "capabilities": self.capabilities or [],
-            "enabled_models": self.enabled_models or [],
+            "capabilities": capabilities,
+            "enabled_models": enabled_models,
             "headers_json": safe_headers,
             "extra_json": _redact_value(self.extra_json or {}),
             "is_enabled": bool(self.is_enabled),

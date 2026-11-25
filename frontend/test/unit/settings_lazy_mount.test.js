@@ -173,6 +173,9 @@ test('设置惰性挂载并保留草稿，安全设置仅超管可见且拒绝�
       assert.equal(find(host, (node) => node.props.panel === 'SecuritySettingsSection'), undefined)
       assert.equal(find(host, (node) => node.props.onClick && node.children.some((child) => child.text === '安全设置')), undefined)
       assert.ok(find(host, (node) => node.props.panel === 'AccountSettingsComponent'))
+      assert.equal(find(host, (node) => node.props.panel === 'VoiceSettingsSection'), undefined)
+      await select('语音')
+      assert.ok(find(host, (node) => node.props.panel === 'VoiceSettingsSection'))
     }
   } finally {
     app?.unmount()

@@ -11,6 +11,8 @@ from yuxi.api.dependencies.auth import get_db, get_required_user, get_superadmin
 from yuxi.infrastructure.observability.logging import logger
 from yuxi.infrastructure.postgres.manager import pg_manager
 from yuxi.modules.identity.models import User
+from yuxi.modules.models.images import image_model_capabilities
+from yuxi.modules.models.providers.model_types import IMAGE_MODEL_TYPE
 from yuxi.modules.models.providers.service import (
     check_credential_status,
     create_provider_config,
@@ -127,6 +129,7 @@ async def get_v2_models(
                     "display_name": m.display_name,
                     "dimension": m.dimension,
                     "batch_size": m.batch_size,
+                    **(image_model_capabilities(m.base_url, m.model_id) if m.model_type == IMAGE_MODEL_TYPE else {}),
                 }
                 for m in models
             ],

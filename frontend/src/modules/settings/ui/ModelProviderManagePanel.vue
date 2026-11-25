@@ -10,6 +10,11 @@ import {
   Trash2,
   CheckCircle2,
   TextInitial,
+  Type,
+  Boxes,
+  Box,
+  ArrowUpDown,
+  CircleQuestionMark,
   Image,
   Video,
   AudioLines,
@@ -21,6 +26,7 @@ import {
 
 import { modelProviderApi } from '@/apis/system_api'
 import { useConfigStore } from '@/modules/settings/model/config'
+import { MODEL_TYPE_NAMES } from '@/modules/settings/model/modelDirectory'
 import { modelAvatars } from '@/modules/settings/model/modelIcon'
 import {
   formatModelPriceDisplay,
@@ -40,6 +46,12 @@ const searchQuery = ref('')
 const modelTestLoadingBySpec = ref({})
 const modelTestResultBySpec = ref({})
 
+/** 配置重读或模型管理弹窗重新打开后，先前连接的实测值失效。 */
+const clearModelTests = () => {
+  modelTestLoadingBySpec.value = {}
+  modelTestResultBySpec.value = {}
+}
+
 const PROVIDER_TYPE_OPTIONS = [
   { value: 'openai', label: 'OpenAI Completions API' },
   { value: 'anthropic', label: 'Anthropic Messages API' },
@@ -53,6 +65,17 @@ const MODALITY_DISPLAY = {
   audio: { icon: AudioLines, label: '音频输入' },
   pdf: { icon: FileText, label: 'PDF 文档输入' }
 }
+const MODEL_TYPES = {
+  chat: { label: '文本', icon: Type },
+  embedding: { label: '嵌入', icon: Boxes },
+  rerank: { label: '重排', icon: ArrowUpDown },
+  image: { label: '图片', icon: Image },
+  video: { label: '视频', icon: Video },
+  audio: { label: '语音', icon: AudioLines },
+  seed3D: { label: '3D', icon: Box },
+  unknown: { label: '未识别', icon: CircleQuestionMark, catalogOnly: true }
+}
+const getModelType = (type) => MODEL_TYPES[type] || MODEL_TYPES.unknown
 const REQUEST_BODY_OVERRIDES_PLACEHOLDER = '{\n  "enable_thinking": false\n}'
 
 // Provider form state
@@ -164,6 +187,12 @@ const providerStats = computed(() => {
 const getProviderAvatar = (provider) => {
   const providerId = provider?.provider_id?.toLowerCase()
   const providerType = provider?.provider_type?.toLowerCase()
+  const endpoint = URL.canParse(provider?.base_url) ? new URL(provider.base_url) : null
+  if (
+    /^(ark|volces(?:-cn)?|volcengine|doubao)$/.test(providerId) ||
+    /火山方舟|火山引擎|豆包/.test(provider?.display_name) ||
+    (endpoint?.protocol === 'https:' && /^ark\.[a-z0-9-]+\.volces\.com$/.test(endpoint.hostname))
+  ) return modelAvatars.ark
   return modelAvatars[providerId] || modelAvatars[providerType] || modelAvatars.default
 }
 
@@ -257,35 +286,67 @@ const filteredRemoteModels = computed(() => {
   const typeFilter = remoteModelTypeFilter.value[providerId] || 'all'
   const models = remoteModelsMap.value[providerId] || []
   return models.filter((m) => {
-    const matchesType = typeFilter === 'all' || (m.type || 'chat') === typeFilter
+    const matchesType = typeFilter === 'all' || (m.type || 'unknown') === typeFilter
     const matchesQuery = !query || m.id.toLowerCase().includes(query)
     return matchesType && matchesQuery
   })
 })
 
 const remoteModelTypeOptions = computed(() => {
-  if (!currentProviderForModels.value) return [{ label: '全部', value: 'all' }]
+  if (!currentProviderForModels.value) return []
   const providerId = currentProviderForModels.value.provider_id
   const models = remoteModelsMap.value[providerId] || []
   const counts = models.reduce((acc, model) => {
-    const type = model.type || 'chat'
+    const type = model.type || 'unknown'
     acc[type] = (acc[type] || 0) + 1
     return acc
   }, {})
   return [
-    { label: `全部 ${models.length}`, value: 'all' },
-    { label: `对话 ${counts.chat || 0}`, value: 'chat' },
-    { label: `向量 ${counts.embedding || 0}`, value: 'embedding' },
-    { label: `重排 ${counts.rerank || 0}`, value: 'rerank' }
+    { value: 'all', payload: models.length },
+    ...MODEL_TYPE_NAMES.map((type) => ({ value: type, payload: counts[type] || 0 }))
   ]
 })
 
 // Model Config Modal 的 type 下拉选项：基于 provider.capabilities 限定
-const editingModelTypeOptions = computed(() => {
-  const caps = currentProviderForModels.value?.capabilities
-  const types = Array.isArray(caps) ? caps : []
-  return types.map((c) => ({ value: c, label: c }))
+const orderedCapabilities = (caps = []) => MODEL_TYPE_NAMES.filter((type) => caps?.includes(type))
+const editingModelTypeOptions = computed(() =>
+  orderedCapabilities(currentProviderForModels.value?.capabilities).map((type) => ({ value: type, label: type }))
+)
+const providerCapabilityOptions = computed(() =>
+  MODEL_TYPE_NAMES.filter((type) => type !== 'image' || providerForm.provider_type === 'openai')
+    .map((type) => ({ value: type, label: type }))
+)
+
+/** 未适配的远端类型仅供查看，支持的类型沿用管理员设置的供应商能力。 */
+const remoteTypeNotice = (provider, model) => {
+  const type = getModelType(model.type)
+  if (type.catalogOnly) return `${type.label}类型仅供查看，暂不支持启用`
+  if (!provider.capabilities?.includes(model.type)) {
+    return `请先在供应商设置的「能力」中启用 ${model.type}`
+  }
+  return ''
+}
+
+const editingRemoteModel = computed(() => {
+  if (isCreating.value) return null
+  const models = remoteModelsMap.value[currentProviderForModels.value?.provider_id] || []
+  const matches = models.filter((model) => model.id === editingModel.value.id)
+  return matches.length === 1 ? matches[0] : matches.find((model) => model.type === editingModel.value.type)
 })
+
+/** 把远端已知的模型规格填入编辑草稿，由管理员确认保存。 */
+const applyRemoteMetadata = () => {
+  const model = editingRemoteModel.value
+  const notice = remoteTypeNotice(currentProviderForModels.value, model)
+  if (notice) return message.warning(notice)
+  editingModel.value.type = model.type
+  editingModel.value.embedding_protocol = model.embedding_protocol
+  if (model.context_length) editingModel.value.context_length = model.context_length
+  if (model.max_completion_tokens) editingModel.value.max_completion_tokens = model.max_completion_tokens
+  if (model.dimension) editingModel.value.dimension = model.dimension
+  if (model.input_modalities?.length) editingModel.value.input_modalities = model.input_modalities
+  if (model.output_modalities?.length) editingModel.value.output_modalities = model.output_modalities
+}
 
 const parseJsonObject = (text, label) => {
   let parsed
@@ -304,6 +365,7 @@ const parseJsonObject = (text, label) => {
 
 const formatJsonText = (value) => JSON.stringify(value || {}, null, 2)
 const loadProviders = async () => {
+  clearModelTests()
   loading.value = true
   try {
     if (!configStore.config?.default_model) {
@@ -372,7 +434,7 @@ const openEditProviderModal = (provider) => {
     rerank_models_endpoint: provider.rerank_models_endpoint ?? '',
     api_key_env: provider.api_key_env || '',
     api_key: provider.api_key || '',
-    capabilities: provider.capabilities || [],
+    capabilities: orderedCapabilities(provider.capabilities),
     is_enabled: provider.is_enabled !== false,
     include_user_uid: provider.include_user_uid === true,
     headers_text: formatJsonText(provider.headers_json),
@@ -523,6 +585,7 @@ const deleteProviderFromEdit = async () => {
 
 // ============ Models Modal Operations ============
 const openModelsModal = (provider) => {
+  clearModelTests()
   currentProviderForModels.value = provider
   if (!remoteModelsLoaded.value[provider.provider_id]) {
     remoteModelsMap.value[provider.provider_id] = []
@@ -559,7 +622,7 @@ const fetchRemoteModels = async (providerId) => {
 const normalizeModel = (model = {}) => ({
   id: model.id || '',
   display_name: model.display_name || model.name || model.id || '',
-  type: model.type && model.type !== 'unknown' ? model.type : 'chat',
+  type: model.type || 'unknown',
   source: model.source || 'remote',
   protocol_override: model.protocol_override || null,
   base_url_override: model.base_url_override || null,
@@ -570,7 +633,11 @@ const normalizeModel = (model = {}) => ({
       ? model.request_body_overrides
       : {},
   context_length: model.context_length || null,
+  max_completion_tokens: model.max_completion_tokens,
   dimension: model.dimension || null,
+  embedding_protocol: model.embedding_protocol,
+  input_modalities: model.input_modalities,
+  output_modalities: model.output_modalities,
   batch_size: model.batch_size || null,
   supported_parameters: model.supported_parameters || [],
   extra: model.extra || {}
@@ -578,16 +645,18 @@ const normalizeModel = (model = {}) => ({
 
 const testModelConnection = async (providerId, model) => {
   const spec = buildModelSpec(providerId, model.id)
-  if (modelTestLoadingBySpec.value[spec]) return
+  const pending = modelTestLoadingBySpec.value
+  if (pending[spec]) return
 
-  modelTestLoadingBySpec.value = { ...modelTestLoadingBySpec.value, [spec]: true }
+  pending[spec] = true
   try {
     const result = await modelProviderApi.getModelStatusBySpec(spec)
+    if (pending !== modelTestLoadingBySpec.value || !showModelsModal.value) return
     const status = result.data || { spec, status: 'error', message: '检查失败' }
     modelTestResultBySpec.value = { ...modelTestResultBySpec.value, [spec]: status }
 
     if (status.status === 'available') {
-      message.success(`${getModelDisplayName(model)} 连接正常`)
+      message.success(`${getModelDisplayName(model)} ${status.message || '连接正常'}`)
     } else if (status.status === 'unsupported') {
       message.warning(status.message || '暂不支持测试该类型模型')
     } else if (status.status === 'unavailable') {
@@ -596,13 +665,14 @@ const testModelConnection = async (providerId, model) => {
       message.error(status.message || '模型连接测试失败')
     }
   } catch (error) {
+    if (pending !== modelTestLoadingBySpec.value || !showModelsModal.value) return
     modelTestResultBySpec.value = {
       ...modelTestResultBySpec.value,
       [spec]: { spec, status: 'error', message: error.message || '检查失败' }
     }
     message.error(error.message || '模型连接测试失败')
   } finally {
-    modelTestLoadingBySpec.value = { ...modelTestLoadingBySpec.value, [spec]: false }
+    delete pending[spec]
   }
 }
 
@@ -615,6 +685,8 @@ const addModelFromRemote = async (providerId, remoteModel) => {
     message.info('模型已存在')
     return
   }
+  const notice = remoteTypeNotice(provider, remoteModel)
+  if (notice) return message.warning(notice)
 
   const newModel = normalizeModel(remoteModel)
   newModel.source = 'remote' // 远端拉取的模型显式标注，避免后续被误判为旧数据
@@ -636,8 +708,13 @@ const addModelFromRemote = async (providerId, remoteModel) => {
 
 const openModelConfigModal = (model) => {
   const normalized = normalizeModel(model)
+  const spec = buildModelSpec(currentProviderForModels.value.provider_id, model.id)
+  const measuredDimension = modelTestResultBySpec.value[spec]?.dimension
+  if (model.type === 'embedding' && !normalized.dimension && measuredDimension) {
+    normalized.dimension = measuredDimension
+  }
   normalized.request_body_overrides_text = formatJsonText(normalized.request_body_overrides)
-  Object.assign(editingModel.value, normalized)
+  editingModel.value = normalized
   isCreating.value = false
   showModelModal.value = true
 }
@@ -645,9 +722,9 @@ const openModelConfigModal = (model) => {
 // 手动添加模型：弹出与编辑共用的 Model Config Modal，但 id 字段可编辑、type 选项受 provider 能力约束
 const openCreateModal = (provider) => {
   if (!provider) return
-  const types = provider.capabilities || []
+  const types = orderedCapabilities(provider.capabilities)
   const defaultType = types[0]
-  Object.assign(editingModel.value, {
+  editingModel.value = {
     id: '',
     display_name: '',
     type: defaultType,
@@ -661,7 +738,7 @@ const openCreateModal = (provider) => {
     batch_size: null,
     supported_parameters: [],
     extra: {}
-  })
+  }
   isCreating.value = true
   showModelModal.value = true
 }
@@ -673,6 +750,7 @@ const buildModelConfigPayload = () => {
   )
   const modelPayload = { ...editingModel.value }
   delete modelPayload.request_body_overrides_text
+  if (modelPayload.type !== 'embedding') modelPayload.embedding_protocol = undefined
   return {
     ...modelPayload,
     request_body_overrides: requestBodyOverrides
@@ -704,7 +782,7 @@ const saveModelConfig = async () => {
       enabledModels = [...(provider.enabled_models || []), newModel]
     } else {
       enabledModels = (provider.enabled_models || []).map((m) =>
-        m.id === modelPayload.id ? { ...modelPayload } : m
+        m.id === modelPayload.id ? { ...m, ...modelPayload } : m
       )
     }
 
@@ -1064,11 +1142,12 @@ defineExpose({
 
         <label class="form-label full-width">
           <span>能力</span>
-          <a-select v-model:value="providerForm.capabilities" mode="multiple">
-            <a-select-option value="chat">chat</a-select-option>
-            <a-select-option value="embedding">embedding</a-select-option>
-            <a-select-option value="rerank">rerank</a-select-option>
-          </a-select>
+          <a-select
+            :value="providerForm.capabilities"
+            :options="providerCapabilityOptions"
+            mode="multiple"
+            @update:value="(caps) => (providerForm.capabilities = orderedCapabilities(caps))"
+          />
         </label>
 
         <div class="form-switch">
@@ -1172,8 +1251,8 @@ defineExpose({
                 <span
                   v-if="model.type === 'embedding' && !model.dimension"
                   class="dim-warning"
-                  title="缺少维度配置"
-                  >⚠</span
+                  title="可在模型配置中填写向量维度"
+                  >待填写</span
                 >
                 <span v-else>{{ model.dimension || '-' }}</span>
               </span>
@@ -1252,11 +1331,6 @@ defineExpose({
                 >
                   {{ priceCurrency === 'CNY' ? '¥' : '$' }}
                 </button>
-                <a-segmented
-                  v-model:value="remoteModelTypeFilter[currentProviderForModels.provider_id]"
-                  :options="remoteModelTypeOptions"
-                  class="remote-type-filter"
-                />
               </template>
               <a-button
                 size="small"
@@ -1273,6 +1347,19 @@ defineExpose({
               </a-button>
             </div>
           </div>
+          <div v-if="remoteModelsLoaded[currentProviderForModels.provider_id]" class="remote-type-filter">
+            <a-segmented
+              v-model:value="remoteModelTypeFilter[currentProviderForModels.provider_id]"
+              :options="remoteModelTypeOptions"
+            >
+              <template #label="{ value, payload }">
+                <span class="type-filter-label">
+                  <component v-if="value !== 'all'" :is="getModelType(value).icon" :size="13" aria-hidden="true" />
+                  {{ value === 'all' ? '全部' : getModelType(value).label }} {{ payload }}
+                </span>
+              </template>
+            </a-segmented>
+          </div>
           <a-spin :spinning="remoteLoading" tip="正在加载远端模型...">
             <div class="remote-results" :aria-busy="remoteLoading" :inert="remoteLoading">
               <a-alert v-if="remoteError" type="error" show-icon :message="remoteError" />
@@ -1282,7 +1369,12 @@ defineExpose({
                   :key="remoteModel.id"
                   class="remote-row"
                 >
-                  <span class="remote-name">{{ getModelDisplayName(remoteModel) }}</span>
+                  <span class="remote-name" :title="remoteModel.id">
+                    {{ getModelDisplayName(remoteModel) }}
+                    <small v-if="getModelDisplayName(remoteModel) !== remoteModel.id" class="model-id">
+                      {{ remoteModel.id }}
+                    </small>
+                  </span>
                   <div class="remote-tags">
                     <template
                       v-for="mod in getProviderModelInfo(
@@ -1301,14 +1393,17 @@ defineExpose({
                         </span>
                       </a-tooltip>
                     </template>
-                    <span class="type-tag" :class="remoteModel.type || 'chat'">
-                      {{ remoteModel.type || 'chat' }}
+                    <span class="type-tag" :class="remoteModel.type" :title="remoteTypeNotice(currentProviderForModels, remoteModel) || remoteModel.type">
+                      <component :is="getModelType(remoteModel.type).icon" :size="12" aria-hidden="true" />
+                      {{ getModelType(remoteModel.type).catalogOnly ? '未识别' : remoteModel.type }}
                     </span>
                   </div>
-                  <span class="remote-context">{{
+                  <span class="remote-context" title="上下文长度（tokens）">{{
                     getProviderModelInfo(currentProviderForModels.provider_id, remoteModel)
                       .contextLabel || '-'
-                  }}</span>
+                  }}<small v-if="remoteModel.type === 'embedding'">
+                    {{ remoteModel.dimension ? `${remoteModel.dimension} 维` : '维度未提供' }}
+                  </small></span>
                   <span
                     v-if="
                       getRemoteModelPriceDisplay(currentProviderForModels.provider_id, remoteModel)
@@ -1331,14 +1426,15 @@ defineExpose({
                     :title="
                       currentProviderForModels.enabled_models?.some((m) => m.id === remoteModel.id)
                         ? `${getModelDisplayName(remoteModel)} 已启用`
-                        : `启用 ${getModelDisplayName(remoteModel)}`
+                        : remoteTypeNotice(currentProviderForModels, remoteModel) || `启用 ${getModelDisplayName(remoteModel)}`
                     "
                     :aria-label="
                       currentProviderForModels.enabled_models?.some((m) => m.id === remoteModel.id)
                         ? `${getModelDisplayName(remoteModel)} 已启用`
-                        : `启用 ${getModelDisplayName(remoteModel)}`
+                        : remoteTypeNotice(currentProviderForModels, remoteModel) || `启用 ${getModelDisplayName(remoteModel)}`
                     "
                     :disabled="
+                      getModelType(remoteModel.type).catalogOnly ||
                       currentProviderForModels.enabled_models?.some((m) => m.id === remoteModel.id)
                     "
                     @click="addModelFromRemote(currentProviderForModels.provider_id, remoteModel)"
@@ -1394,6 +1490,15 @@ defineExpose({
           <code>{{ editingModel.id }}</code>
         </div>
 
+        <div v-if="editingRemoteModel" class="form-help">
+          远端类型 {{ editingRemoteModel.type || 'unknown' }}
+          <template v-if="editingRemoteModel.context_length"> · 上下文 {{ editingRemoteModel.context_length }} tokens</template>
+          <template v-if="editingRemoteModel.type === 'embedding'">
+            · {{ editingRemoteModel.dimension ? `${editingRemoteModel.dimension} 维` : '维度未提供' }}
+          </template>
+          <a-button v-if="!getModelType(editingRemoteModel.type).catalogOnly" size="small" type="link" @click="applyRemoteMetadata">采用远端规格</a-button>
+        </div>
+
         <div class="form-row">
           <label class="form-label">
             <span>展示名称</span>
@@ -1434,9 +1539,13 @@ defineExpose({
         </label>
 
         <div class="form-row">
+          <label class="form-label">
+            <span>上下文长度（tokens）</span>
+            <a-input-number v-model:value="editingModel.context_length" :min="1" :precision="0" placeholder="未提供" />
+          </label>
           <label class="form-label" v-if="editingModel.type === 'embedding'">
-            <span>维度</span>
-            <a-input-number v-model:value="editingModel.dimension" :min="1" />
+            <span>向量维度</span>
+            <a-input-number v-model:value="editingModel.dimension" :min="1" :precision="0" placeholder="按模型规格填写" />
           </label>
           <label
             class="form-label"
@@ -1669,10 +1778,13 @@ defineExpose({
 .type-tag {
   display: inline-flex;
   align-items: center;
+  gap: 3px;
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
+  background: var(--gray-100);
+  color: var(--gray-700);
 
   & + & {
     margin-left: 4px;
@@ -1768,8 +1880,15 @@ defineExpose({
 }
 
 .remote-type-filter {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.type-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
-  flex-shrink: 0;
 }
 
 .remote-results {
@@ -1801,6 +1920,10 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  .model-id {
+    display: block;
+  }
 }
 
 .remote-tags {
@@ -1832,9 +1955,14 @@ defineExpose({
 }
 
 .remote-context {
-  width: 60px;
+  min-width: 60px;
   color: var(--gray-500);
   font-size: 12px;
+
+  small {
+    display: block;
+    white-space: nowrap;
+  }
 }
 
 .remote-price {
@@ -1976,7 +2104,7 @@ defineExpose({
 
   .table-head,
   .table-row {
-    grid-template-columns: 1fr 60px 60px;
+    grid-template-columns: minmax(0, 1fr) 100px 100px;
     font-size: 12px;
   }
 

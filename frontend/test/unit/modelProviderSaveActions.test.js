@@ -296,3 +296,147 @@ test('远端加载失败显示错误并解除加载，重试失败保留旧列�
     unmount()
   }
 })
+
+test('混合目录按远端类型筛选，未识别类型与未开启能力不写入配置', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    const ark = { ...provider, capabilities: ['chat', 'embedding'] }
+    const embedding = {
+      id: 'embed', type: 'embedding', context_length: 8192, max_completion_tokens: 512, dimension: 1024,
+      embedding_protocol: 'ark_multimodal', input_modalities: ['text', 'image'], output_modalities: ['embedding']
+    }
+    fetchRemoteModels = async () => ({ data: [
+      embedding, { id: 'rank', type: 'rerank' }, { id: 'video', type: 'video' }, { id: 'shape', type: 'seed3D' },
+      { id: 'unknown', type: 'unknown' }, { id: 'untyped' }
+    ] })
+    panel.openModelsModal(ark)
+    await flushAsync()
+    panel.providers = [ark]
+    assert.equal(panel.filteredRemoteModels.length, 6)
+    for (const model of panel.filteredRemoteModels.slice(-2)) await panel.addModelFromRemote('sample', model)
+    assert.deepEqual(panel.remoteModelTypeOptions.map(({ value, payload }) => [value, payload]),
+      [['all', 6], ['chat', 0], ['embedding', 1], ['rerank', 1], ['image', 0], ['video', 1], ['audio', 0], ['seed3D', 1]])
+    for (const type of ['video', 'seed3D']) {
+      panel.remoteModelTypeFilter.sample = type
+      assert.equal(panel.filteredRemoteModels[0].type, type)
+      await panel.addModelFromRemote('sample', panel.filteredRemoteModels[0])
+      assert.match(notices.at(-1)[1], /供应商设置/)
+    }
+    await panel.addModelFromRemote('sample', { id: 'rank', type: 'rerank' })
+    assert.match(notices.at(-1)[1], /供应商.*rerank/)
+    assert.deepEqual(requests, [])
+
+    await panel.addModelFromRemote('sample', embedding)
+    const [saved] = requests[0][1].enabled_models
+    for (const key of Object.keys(embedding)) assert.deepEqual(saved[key], embedding[key])
+    assert.equal(saved.enabled, true)
+  } finally {
+    unmount()
+  }
+})
+
+test('能力与模型表单按配置类型排序，媒体模型均能用正式类型保存', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    const types = ['chat', 'embedding', 'rerank', 'image', 'video', 'audio', 'seed3D']
+    const ark = { ...provider, provider_type: 'openai', capabilities: [...types].reverse() }
+    panel.openEditProviderModal(ark)
+    assert.deepEqual(panel.providerForm.capabilities, types)
+    assert.deepEqual(panel.providerCapabilityOptions.map(o => o.label), types)
+    panel.providerForm.provider_type = 'anthropic'
+    assert.deepEqual(panel.providerCapabilityOptions.map(o => o.value), types.filter(t => t !== 'image'))
+    panel.openModelsModal(ark)
+    assert.deepEqual(panel.editingModelTypeOptions.map(o => o.label), types)
+    await flushAsync()
+    for (const type of ['image', 'video', 'audio', 'seed3D']) {
+      panel.providers = [ark]
+      await panel.addModelFromRemote('sample', { id: type, type })
+      assert.equal(requests.at(-1)[1].enabled_models[0].type, type)
+    }
+  } finally {
+    unmount()
+  }
+})
+
+test('方舟官方域名、供应商 ID 与中文品牌使用火山引擎图标', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    for (const fields of [
+      { provider_id: 'Volces-cn' }, { display_name: '豆包（火山引擎 Ark）' },
+      { base_url: 'https://ark.cn-beijing.volces.com/api/v3' }
+    ]) {
+      assert.match(panel.getProviderAvatar({ ...provider, provider_type: 'openai', ...fields }).icon, /volcengine-color\.svg/)
+    }
+    assert.match(panel.getProviderAvatar({
+      ...provider, provider_type: 'openai', base_url: 'https://ark.cn-beijing.volces.com.example.org/'
+    }).icon, /openai\.svg/)
+  } finally {
+    unmount()
+  }
+})
+
+test('编辑旧模型时可参考远端类型和上下文，缺失维度可手填，保存保留其它配置', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    const saved = { id: 'old', type: 'chat', context_length: 4096, enabled: true, extra: { custom: true } }
+    const ark = { ...provider, capabilities: ['chat', 'embedding'], enabled_models: [saved] }
+    const remote = { id: 'old', type: 'embedding', context_length: 8192, max_completion_tokens: 512, embedding_protocol: 'ark_multimodal' }
+    fetchRemoteModels = async () => ({ data: [remote] })
+    panel.openModelsModal(ark)
+    await flushAsync()
+    panel.providers = [ark]
+    panel.openModelConfigModal(saved)
+    assert.deepEqual(panel.editingRemoteModel, remote)
+    assert.equal(panel.editingModel.type, 'chat')
+    assert.equal(panel.editingModel.context_length, 4096)
+    assert.deepEqual(requests, [])
+    panel.applyRemoteMetadata()
+    assert.equal(panel.editingModel.dimension, null)
+    assert.deepEqual(requests, [])
+    panel.editingModel.dimension = 2048
+    await panel.saveModelConfig()
+    const [updated] = requests[0][1].enabled_models
+    assert.equal(updated.type, 'embedding')
+    assert.equal(updated.context_length, 8192)
+    assert.equal(updated.max_completion_tokens, 512)
+    assert.equal(updated.dimension, 2048)
+    assert.equal(updated.embedding_protocol, 'ark_multimodal')
+    assert.equal(updated.enabled, true)
+    assert.deepEqual(updated.extra, { custom: true })
+  } finally {
+    unmount()
+  }
+})
+
+test('连接实测维度可见且仅填入缺少维度的编辑草稿', async () => {
+  const { panel, unmount } = mountPanel()
+  try {
+    const model = { id: 'vision', type: 'embedding' }
+    globalThis.__providerTestApi.getModelStatusBySpec = async () => ({
+      data: { status: 'available', dimension: 1536, message: '连接正常，实测维度 1536' }
+    })
+    panel.openModelsModal(provider)
+    await panel.testModelConnection('sample', model)
+    assert.match(notices.at(-1)[1], /实测维度 1536/)
+    panel.openModelConfigModal(model)
+    assert.equal(panel.editingModel.dimension, 1536)
+    assert.equal(model.dimension, undefined)
+    panel.openModelConfigModal({ ...model, dimension: 1024 })
+    assert.equal(panel.editingModel.dimension, 1024)
+    await panel.loadProviders()
+    panel.openModelConfigModal(model)
+    assert.equal(panel.editingModel.dimension, null)
+    let finishProbe
+    globalThis.__providerTestApi.getModelStatusBySpec = () => new Promise(resolve => { finishProbe = resolve })
+    const oldProbe = panel.testModelConnection('sample', model)
+    panel.openModelsModal(provider)
+    finishProbe({ data: { status: 'available', dimension: 3072 } })
+    await oldProbe
+    panel.openModelConfigModal(model)
+    assert.equal(panel.editingModel.dimension, null)
+    assert.deepEqual(requests, [])
+  } finally {
+    delete globalThis.__providerTestApi.getModelStatusBySpec
+    unmount()
+  }
+})

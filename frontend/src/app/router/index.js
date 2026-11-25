@@ -99,6 +99,30 @@ const router = createRouter({
       ]
     },
     {
+      path: '/translate',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'TranslateComp',
+          component: () => import('@/pages/TranslateView.vue'),
+          meta: { requiresAuth: true, keepAlive: false }
+        }
+      ]
+    },
+    {
+      path: '/paintings',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'PaintingsComp',
+          component: () => import('@/pages/PaintingsView.vue'),
+          meta: { requiresAuth: true, keepAlive: true }
+        }
+      ]
+    },
+    {
       path: '/agent-manage',
       name: 'agent-manage',
       component: AppLayout,

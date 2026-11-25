@@ -39,6 +39,20 @@
         <Check v-if="isCopied" size="12" />
         <Copy v-else size="12" />
       </span>
+      <button
+        v-if="canReadAnswer"
+        type="button"
+        class="item btn voice-playback"
+        :class="{ selected: readingAnswer }"
+        :title="readingAnswer ? '停止朗读' : '朗读回复'"
+        :aria-label="readingAnswer ? '停止朗读' : '朗读回复'"
+        :aria-pressed="readingAnswer"
+        :disabled="Boolean(voice.dictationOwner)"
+        @click="toggleAnswerPlayback"
+      >
+        <Square v-if="readingAnswer" :size="12" aria-hidden="true" />
+        <Volume2 v-else :size="12" aria-hidden="true" />
+      </button>
 
       <!-- 对话结束时间 / 执行耗时：纯文本，紧挨复制按钮展示 -->
       <span
@@ -134,7 +148,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onDeactivated, watch } from 'vue'
+import { ref, computed, inject, onDeactivated, watch } from 'vue'
 import { useClipboard } from '@vueuse/core'
 import { message as antMessage } from 'ant-design-vue'
 import {
@@ -146,7 +160,9 @@ import {
   RotateCcw,
   BookOpen,
   Quote,
-  LoaderCircle
+  LoaderCircle,
+  Square,
+  Volume2
 } from '@lucide/vue'
 import { formatChatTime } from '@/shared/lib/time'
 import UserFeedbackModal from '@/modules/session/ui/UserFeedbackModal.vue'
@@ -154,6 +170,7 @@ import { formatRunTimingDuration, getRunTotalLatencyMs } from '@/modules/session
 import { useTurnReferencesStore } from '@/modules/session/model/turnReferences'
 import { useSessionFeedbackStore } from '@/modules/session/model/sessionFeedback'
 import { useModelDirectory } from '@/modules/settings'
+import { isReadableAnswer, useVoiceStore, voicePlaybackScope } from '@/modules/voice'
 
 const emit = defineEmits(['retry', 'openRefs'])
 const props = defineProps({
@@ -277,6 +294,27 @@ const showKey = (key) => {
     return true
   }
   return props.showRefs.includes(key)
+}
+
+const voiceOwner = inject(voicePlaybackScope, null)
+const voice = voiceOwner ? useVoiceStore() : null
+const canReadAnswer = computed(() => Boolean(
+  voice?.canSpeak && isReadableAnswer(msg.value) && showKey('copy')
+))
+const readingAnswer = computed(() =>
+  voice?.playback?.owner === voiceOwner && voice?.playback?.id === msg.value?.id
+)
+function toggleAnswerPlayback() {
+  if (!canReadAnswer.value) return
+  if (readingAnswer.value) return voice.stopPlayback(voiceOwner)
+  let failed = false
+  const started = voice.speak(voiceOwner, msg.value.id, msg.value.content, {
+    onError: (error) => {
+      failed = true
+      antMessage.warning(error)
+    }
+  })
+  if (!started && !failed) antMessage.info('没有可朗读的正文')
 }
 
 // 复制状态
@@ -497,7 +535,8 @@ async function rate(rating, event) {
   }
 }
 
-.refs .feedback-vote {
+.refs .feedback-vote,
+.refs .voice-playback {
   border: 0;
   font-family: inherit;
   &.selected { color: var(--main-color); }

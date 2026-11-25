@@ -23,9 +23,11 @@ from yuxi.api.routers.knowledge.evaluation import evaluation
 from yuxi.api.routers.knowledge.graphs import graph
 from yuxi.api.routers.knowledge.management import knowledge as knowledge_routes
 from yuxi.api.routers.models import model_providers
+from yuxi.api.routers.paintings import router as paintings_router
 from yuxi.api.routers.public_v1 import public_agents_router, public_knowledge_router
 from yuxi.api.routers.schedules import scheduled_agents
 from yuxi.api.routers.system import system as system_routes
+from yuxi.api.routers.translation import router as translation_router
 from yuxi.api.routers.workspace.deliverables import deliverables
 from yuxi.api.routers.workspace.projects import projects
 from yuxi.api.routers.workspace.viewer import filesystem_router
@@ -48,6 +50,8 @@ router.include_router(reference_router)  # /api/agent/threads/* Web 回答来源
 router.include_router(trace_router)  # Web 管理员 Turn 观测跳转
 router.include_router(projects)  # /api/projects* 项目创建与选择
 router.include_router(scheduled_agents)  # /api/scheduled-tasks* 用户自建 Agent 定时任务
+router.include_router(translation_router)
+router.include_router(paintings_router)
 
 # 管理与工作台接口：后台作业、权限域以及工具体系配置。
 router.include_router(dashboard_routes)  # /api/dashboard/* 仪表盘聚合数据

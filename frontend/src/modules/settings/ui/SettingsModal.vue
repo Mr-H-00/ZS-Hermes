@@ -38,6 +38,15 @@
             <span>账户设置</span>
           </div>
           <div
+            v-if="userStore.isLoggedIn"
+            class="sider-item"
+            :class="{ activesec: activeTab === 'voice' }"
+            @click="activeTab = 'voice'"
+          >
+            <AudioLines class="icon" :size="18" />
+            <span>语音</span>
+          </div>
+          <div
             class="sider-item"
             :class="{ activesec: activeTab === 'apiKeys' }"
             @click="activeTab = 'apiKeys'"
@@ -162,6 +171,12 @@
           账户设置
         </div>
         <div
+          v-if="userStore.isLoggedIn"
+          class="nav-item"
+          :class="{ active: activeTab === 'voice' }"
+          @click="activeTab = 'voice'"
+        >语音</div>
+        <div
           class="nav-item"
           :class="{ active: activeTab === 'apiKeys' }"
           @click="activeTab = 'apiKeys'"
@@ -237,6 +252,9 @@
           >
             <AccountSettingsComponent />
           </div>
+          <div v-show="activeTab === 'voice'" v-if="userStore.isLoggedIn && loadedTabs.has('voice')">
+            <VoiceSettingsSection :active="visible && activeTab === 'voice'" />
+          </div>
 
           <div
             v-show="activeTab === 'apiKeys'"
@@ -286,6 +304,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '@/modules/identity'
 import {
+  AudioLines,
   Cloud,
   CircleUser,
   ExternalLink,
@@ -306,6 +325,7 @@ const AccountSettingsComponent = createAsyncPanel(
   () => import('@/modules/settings/ui/AccountSettingsComponent.vue')
 )
 const CloudDriveSettingsSection = createAsyncPanel(() => import('@/modules/settings/ui/CloudDriveSettingsSection.vue'))
+const VoiceSettingsSection = createAsyncPanel(() => import('@/modules/voice/ui/VoiceSettingsSection.vue'))
 const AgentEnvSettingsCard = createAsyncPanel(() => import('@/modules/settings/ui/AgentEnvSettingsCard.vue'))
 const BasicSettingsSection = createAsyncPanel(() => import('@/modules/settings/ui/BasicSettingsSection.vue'))
 const SecuritySettingsSection = createAsyncPanel(() => import('@/modules/settings/ui/SecuritySettingsSection.vue'))
@@ -349,7 +369,7 @@ const visible = computed({
 
 const availableTabs = computed(() => {
   const tabs = []
-  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys', 'agentEnv', 'cloudDrive')
+  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys', 'agentEnv', 'cloudDrive', 'voice')
   if (userStore.isAdmin) tabs.push('user')
   if (userStore.isSuperAdmin) tabs.push('base', 'security', 'ocr', 'webSearch')
   if (userStore.isSuperAdmin) tabs.push('department')

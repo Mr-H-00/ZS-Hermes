@@ -8,6 +8,21 @@ import pytest
 from yuxi.modules.models.embed import OtherEmbedding
 
 
+# 使用固定 URL 和配置维度核验普通协议请求，避免影响其他厂商。
+@pytest.mark.parametrize(
+    ("base_url", "dimension", "fields"),
+    [
+        ("https://ark.cn-beijing.volces.com/api/v3/embeddings", 512, {"dimensions": 512}),
+        ("https://ark.cn-beijing.volces.com/api/v3/embeddings", None, {}),
+        ("https://example.com/api/v3/embeddings", 512, {}),
+    ],
+)
+def test_text_embedding_sends_dimensions_to_ark_only(base_url, dimension, fields):
+    """方舟文本向量请求传递已选维度，空配置交由上游使用默认值。"""
+    model = OtherEmbedding(model="test", base_url=base_url, dimension=dimension)
+    assert model.build_payload(["text"]) == {"model": "test", "input": ["text"], **fields}
+
+
 @pytest.fixture
 def client():
     """配置了 4 维的测试供应商。"""

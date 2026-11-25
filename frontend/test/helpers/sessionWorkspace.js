@@ -53,7 +53,9 @@ export async function mountSessionWorkspace(t, fetchThreadMessages = async () =>
   agentStore.isInitialized = true
   const { default: component } = await server.ssrLoadModule('/src/modules/session/ui/SessionWorkspace.vue')
   globalThis.document = { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible' }
-  globalThis.window = { addEventListener() {}, removeEventListener() {}, innerWidth: 1200 }
+  globalThis.window = {
+    addEventListener() {}, removeEventListener() {}, innerWidth: 1200, ...options.window
+  }
   const renderer = createRenderer({
     createElement: () => ({}), createText: () => ({}), createComment: () => ({}),
     insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {},

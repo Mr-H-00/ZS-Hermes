@@ -7,11 +7,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import requests
 
 from yuxi.infrastructure.observability.logging import logger
+from yuxi.modules.models.providers.ark import is_ark_url
 from yuxi.modules.models.providers.cache import model_cache
 from yuxi.modules.models.utils import get_docker_safe_url
 
@@ -150,8 +152,13 @@ class OtherEmbedding(BaseEmbeddingModel):
         super().__init__(**kwargs)
         self.headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
+    # 方舟标准文本接口支持由调用方选择输出维度。
     def build_payload(self, message: list[str] | str) -> dict:
-        return {"model": self.model, "input": message}
+        """构造文本向量请求，仅在方舟配置维度时传给服务端。"""
+        payload = {"model": self.model, "input": message}
+        if self.dimension is not None and is_ark_url(self.base_url):
+            payload["dimensions"] = self.dimension
+        return payload
 
     def encode(self, message: list[str] | str) -> list[list[float]]:
         """供同步解析及向量客户端在线程内调用，共用响应解析和重试策略。"""
@@ -324,6 +331,47 @@ class OtherEmbedding(BaseEmbeddingModel):
             dense.extend(batch_dense)
             sparse.extend(batch_sparse)
         return dense, sparse
+
+
+class ArkMultimodalEmbedding(OtherEmbedding):
+    """将知识库的每条文本独立提交给方舟多模态向量接口。"""
+
+    # 多个内容块共用一条向量，因此批量文档必须逐条提交。
+    def encode(self, message: list[str] | str) -> list[list[float]]:
+        """同步返回与各输入文档逐条对应的向量。"""
+        vectors = []
+        for text in [message] if isinstance(message, str) else message:
+            vectors.extend(super().encode(text))
+        return vectors
+
+    # 上传与重试沿用异步 HTTP 客户端，取消可中断后续文档。
+    async def aencode(self, message: list[str] | str) -> list[list[float]]:
+        """异步返回按文档原顺序排列的向量。"""
+        vectors = []
+        for text in [message] if isinstance(message, str) else message:
+            vectors.extend(await super().aencode(text))
+        return vectors
+
+    # 每个请求包含当前文档的单个文本内容块。
+    def build_payload(self, message: str) -> dict:
+        """将文本和所选输出维度写入方舟多模态向量请求。"""
+        payload = {"model": self.model, "input": [{"type": "text", "text": message}]}
+        if self.dimension is not None:
+            payload["dimensions"] = self.dimension
+        return payload
+
+    # 方舟把单个向量放在 data 对象内，复用通用维度校验。
+    @staticmethod
+    def _extract_embeddings(result: dict, expected: int, dimension: int | None) -> list[list[float]]:
+        """校验多模态响应并取出本次请求对应的向量。"""
+        data = result.get("data") if isinstance(result, dict) else None
+        vector = data.get("embedding") if isinstance(data, dict) else None
+        if not isinstance(vector, list) or not vector:
+            raise ValueError("方舟多模态向量响应缺少 data.embedding")
+        if any(type(value) not in (int, float) or not math.isfinite(value) for value in vector):
+            raise ValueError("方舟多模态向量包含无效数值")
+        BaseEmbeddingModel._require_one_vector_per_input([vector], expected, dimension)
+        return [vector]
 
 
 def _repo_root_from_embed_module() -> Path:
@@ -707,7 +755,10 @@ def select_embedding_model(model_id: str):
             batch_size=info.batch_size,
         )
 
-    return OtherEmbedding(
+    embedding_class = OtherEmbedding
+    if is_ark_url(info.base_url) and urlsplit(info.base_url).path.rstrip("/").endswith("/embeddings/multimodal"):
+        embedding_class = ArkMultimodalEmbedding
+    return embedding_class(
         model=info.model_id,
         base_url=info.base_url,
         api_key=info.api_key,

@@ -15,7 +15,9 @@ from typing import Any
 
 from yuxi.infrastructure.observability.logging import logger
 from yuxi.infrastructure.redis import sync_redis_client
+from yuxi.modules.models.providers.ark import is_ark_url
 from yuxi.modules.models.providers.credentials import resolve_api_key
+from yuxi.modules.models.providers.model_types import normalize_model_type
 
 REDIS_CACHE_KEY = "yuxi:model_cache"
 _CACHE_TTL_SECONDS = 5
@@ -30,7 +32,7 @@ class ModelInfo:
 
     provider_id: str
     model_id: str
-    model_type: str  # chat / embedding / rerank
+    model_type: str
     display_name: str
 
     # 运行时配置
@@ -76,7 +78,7 @@ class ModelInfo:
         return cls(
             provider_id=data["provider_id"],
             model_id=data["model_id"],
-            model_type=data["model_type"],
+            model_type=normalize_model_type(data["model_type"]),
             display_name=data["display_name"],
             api_key=data["api_key"],
             base_url=data["base_url"],
@@ -132,10 +134,12 @@ class ModelCache:
         cache = self._load_cache()
         if model_type is None:
             return list(cache.values())
+        model_type = normalize_model_type(model_type)
         return [info for info in cache.values() if info.model_type == model_type]
 
     def get_specs_grouped_by_provider(self, model_type: str = "chat") -> dict[str, list[ModelInfo]]:
         cache = self._load_cache()
+        model_type = normalize_model_type(model_type)
         grouped: dict[str, list[ModelInfo]] = {}
         for info in cache.values():
             if info.model_type != model_type:
@@ -153,8 +157,8 @@ class ModelCache:
             api_key = resolve_api_key(provider)
 
             for model in provider.enabled_models or []:
-                model_type = model.get("type", "chat")
-                base_url = model.get("base_url_override") or self._get_base_url_for_type(provider, model_type)
+                model_type = normalize_model_type(model.get("type", "chat"))
+                base_url = model.get("base_url_override") or self._get_base_url_for_type(provider, model_type, model)
 
                 info = ModelInfo(
                     provider_id=provider.provider_id,
@@ -186,11 +190,19 @@ class ModelCache:
             logger.error(f"Failed to save model cache to Redis: {e}")
 
     @staticmethod
-    def _get_base_url_for_type(provider: Any, model_type: str) -> str:
-        if model_type == "embedding" and provider.embedding_base_url:
-            return provider.embedding_base_url
-        if model_type == "rerank" and provider.rerank_base_url:
-            return provider.rerank_base_url
+    def _get_base_url_for_type(provider: Any, model_type: str, model: dict) -> str:
+        """按供应商专用地址与模型协议解析运行时目标地址。"""
+        if model_type == "embedding":
+            if provider.embedding_base_url:
+                return provider.embedding_base_url
+            if is_ark_url(provider.base_url):
+                suffix = "embeddings/multimodal" if model.get("embedding_protocol") == "ark_multimodal" else "embeddings"
+                return f"{provider.base_url.rstrip('/')}/{suffix}"
+        if model_type == "rerank":
+            if provider.rerank_base_url:
+                return provider.rerank_base_url
+            if is_ark_url(provider.base_url):
+                return f"{provider.base_url.rstrip('/')}/rerank"
         return provider.base_url
 
 

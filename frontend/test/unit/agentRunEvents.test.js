@@ -365,6 +365,59 @@ test('Run settled 不结束 Turn；只有 Turn 终态收尾', async (t) => {
   assert.equal(h.terminal.length, 1)
 })
 
+const resultItem = (id, runId, phase, text) => ({
+  id,
+  type: 'message',
+  role: 'assistant',
+  phase,
+  status: 'completed',
+  turn_id: 'turn',
+  yuxi: { run_id: runId },
+  content: [{ type: 'output_text', text }]
+})
+const turnSnapshot = {
+  id: 'turn', session_id: 'thread', status: 'completed', completed_at: 1234.567,
+  yuxi: {
+    result_run_id: 'run',
+    output: [
+      resultItem('foreign', 'other', 'final_answer', '其他 Run'),
+      resultItem('reasoning', 'run', 'commentary', '执行过程'),
+      resultItem('answer', 'run', 'final_answer', '正式回复')
+    ]
+  }
+}
+const liveCompletion = (resultRunId) => ({
+  ...event('agent.session.turn.completed'),
+  yuxi: { run_id: 'run', result_run_id: resultRunId }
+})
+
+test('实时完成时只将本轮持久结果 Run 的正式答案交给会话', async (t) => {
+  const h = harness(t, [liveCompletion('run')], { snapshot: async () => turnSnapshot })
+  await h.stream.startRunStream('thread', 'run', null, { turnId: 'turn' })
+  await tick()
+  assert.deepEqual(h.terminal[0]?.finalAnswer, { id: 'answer', content: '正式回复', completedAt: 1234567 })
+})
+
+test('结果 Run 不一致的终态事件不能触发朗读', async (t) => {
+  const h = harness(t, [liveCompletion('foreign')], { snapshot: async () => turnSnapshot })
+  await h.stream.startRunStream('thread', 'run', null, { turnId: 'turn' })
+  await tick()
+  assert.equal(h.terminal.length, 1)
+  assert.equal(h.terminal[0].finalAnswer, undefined)
+})
+
+test('重连时已完成的历史 Turn 仍恢复到终态，但无自动朗读候选', async (t) => {
+  const h = harness(t, [liveCompletion('run')], {
+    status: 'completed',
+    snapshot: async () => turnSnapshot
+  })
+  await h.stream.startRunStream('thread', 'run', '2.0.1.23-0.3', { turnId: 'turn' })
+  await tick()
+  assert.equal(h.state.turnStatus, 'completed')
+  assert.equal(h.terminal.length, 1)
+  assert.equal(h.terminal[0].finalAnswer, undefined)
+})
+
 test('旧 Turn 等待历史回读时启动新 FIFO 流，旧收尾不能中止新订阅或审批', async (t) => {
   let releaseHistory
   const history = new Promise((resolve) => {

@@ -2,6 +2,8 @@ import { ref } from 'vue'
 import { modelProviderApi } from '@/apis/system_api'
 import { createSingleFlight } from '@/shared/lib/singleFlight'
 
+export const MODEL_TYPE_NAMES = ['chat', 'embedding', 'rerank', 'image', 'video', 'audio', 'seed3D']
+
 // 模型目录是跨组件共享的只读投影：按 modelType 缓存，别名变更时显式失效。
 const directories = ref({})
 const loaders = new Map()
