@@ -3,9 +3,9 @@
 import pytest
 from pydantic import ValidationError
 
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.identity.services.cloud_drive_service import CloudDriveService, WPSConfigInput, kso_signature, wps_id_segment
-from yuxi.shared.errors import InvalidOperationError, StateConflictError
+from zs.modules.identity.security import AuthUtils
+from zs.modules.identity.services.cloud_drive_service import CloudDriveService, WPSConfigInput, kso_signature, wps_id_segment
+from zs.shared.errors import InvalidOperationError, StateConflictError
 
 
 # 使用已独立计算的协议向量，返回固定日期下的签名断言结果。

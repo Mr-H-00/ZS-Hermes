@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/knowledge/services/document_resets.py
+Owner：backend/zs/modules/knowledge/services/document_resets.py
 
 ## 问题
 

@@ -11,10 +11,10 @@ import pytest
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yuxi.modules.extensions.skills import projection as projection_service
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.identity.models import User
+from zs.modules.extensions.skills import projection as projection_service
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -77,7 +77,7 @@ async def test_projection_refresh_waits_for_lock_then_reloads_revoked_authorizat
     skill_id: int | None = None
     refresh_task: asyncio.Task[dict[str, str]] | None = None
     policy_task: asyncio.Task[None] | None = None
-    lock_scope = f"yuxi:skills:user-projection:v1:{uid}"
+    lock_scope = f"zs:skills:user-projection:v1:{uid}"
 
     try:
         async with session_factory() as db:

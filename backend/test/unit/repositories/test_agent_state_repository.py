@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.repositories.state import AgentStateRepository
+from zs.modules.agents.repositories.state import AgentStateRepository
 
 
 class _Graph:

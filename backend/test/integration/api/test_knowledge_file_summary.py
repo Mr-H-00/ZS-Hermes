@@ -6,9 +6,9 @@ import pytest
 from sqlalchemy import select, update
 
 from test.integration.api.test_knowledge_directory_imports import directory_kb as directory_kb
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.identity.models import User
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeFile
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.identity.models import User
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeFile
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -26,7 +26,7 @@ async def test_summary_includes_hidden_failures_and_preserves_error(test_client,
             ("c", "failed", None, False),
             ("d", "error_parsing", None, True),
         ]:
-            from yuxi.shared.datetime import utc_now
+            from zs.shared.datetime import utc_now
 
             session.add(
                 KnowledgeFile(

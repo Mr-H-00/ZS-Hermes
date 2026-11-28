@@ -222,7 +222,7 @@ test('FIFO 领取只用真实 item 替换对应乐观输入，并通知持久运
     role: 'user',
     status: 'completed',
     content: [],
-    yuxi: { input_id: 'input' }
+    zs: { input_id: 'input' }
   }
   t.mock.method(agentApi, 'getThreadQueue', async () => ({
     inputs: [{ input_id: 'input', status: 'pending' }]

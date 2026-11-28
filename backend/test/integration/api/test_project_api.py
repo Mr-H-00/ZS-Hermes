@@ -15,11 +15,11 @@ from test.live_api_cleanup import (
     make_test_session_title,
     make_test_resource_id,
 )
-from yuxi.modules.workspace.services.projects import delete_project_view
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.paths import user_workdir_host_dir
+from zs.modules.workspace.services.projects import delete_project_view
+from zs.modules.agents.models.sessions import Session
+from zs.modules.workspace.models import Project
+from zs.modules.identity.models import User
+from zs.modules.workspace.paths import user_workdir_host_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -118,7 +118,7 @@ async def test_default_thread_creates_implicit_project_with_exclusive_binding(te
     assert response.status_code == 201, response.text
     snapshot = await test_client.get(f"/api/v1/agents/sessions/{response.json()['id']}", headers=admin_headers)
     assert snapshot.status_code == 200, snapshot.text
-    payload = snapshot.json()["yuxi"]
+    payload = snapshot.json()["zs"]
     assert payload["project_id"]
     async with _database_connection() as db:
         row = await db.fetchrow(
@@ -166,11 +166,11 @@ async def test_linked_project_and_thread_selection_keep_directory_bytes(
         },
     )
     assert thread_response.status_code == 201, thread_response.text
-    assert thread_response.json()["yuxi"]["title"] == title
-    assert thread_response.json()["yuxi"]["project_id"] == project["id"]
+    assert thread_response.json()["zs"]["title"] == title
+    assert thread_response.json()["zs"]["project_id"] == project["id"]
     snapshot = await test_client.get(f"/api/v1/agents/sessions/{thread_response.json()['id']}", headers=admin_headers)
     assert snapshot.status_code == 200, snapshot.text
-    thread = snapshot.json()["yuxi"]
+    thread = snapshot.json()["zs"]
     assert thread["project_id"] == project["id"]
     assert project["workdir_path"] == directory_name
 
@@ -319,7 +319,7 @@ async def test_project_rename_and_delete_soft_delete_sessions_but_keep_workdir(
     for thread_id in thread_ids:
         history = await test_client.get(f"/api/v1/agents/sessions/{thread_id}", headers=admin_headers)
         assert history.status_code == 200, history.text
-        assert history.json()["yuxi"]["archived"] is True
+        assert history.json()["zs"]["archived"] is True
 
     repeated_delete = await test_client.delete(
         f"/api/projects/{project['id']}",

@@ -40,7 +40,7 @@
 
 本地删除或禁用属于 Yuxi 业务决定。建议保留绑定指向的删除记录或持久拒绝标记，登录查到后直接拒绝；自动创建只处理未登记的外部身份。只删除绑定却保留自动创建能力，会允许同一外部身份重新开户。规范未规定应用必须自动恢复已删除账号，“禁止自动恢复”来自本地管理语义。若彻底清除身份绑定，则产品必须明确同一外部身份是否允许重新注册，不能把该后果藏在清理实现里。
 
-只读检查时，[OIDC 登录 service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/services/oidc.py) 存在按 sub 查找、按原始用户名绑定、恢复删除用户与签发本地 JWT 的分支；[OIDC 协议客户端](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/infrastructure/oidc/client.py) 拥有 discovery、token 和 UserInfo 请求；[OIDC 领域模块](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/oidc.py) 拥有登录暂态与配置。以上是研究时的源码定位，具体实现与迁移以最终提交的这些 Owner 为准。
+只读检查时，[OIDC 登录 service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/services/oidc.py) 存在按 sub 查找、按原始用户名绑定、恢复删除用户与签发本地 JWT 的分支；[OIDC 协议客户端](https://github.com/xerrors/Yuxi/blob/main/backend/zs/infrastructure/oidc/client.py) 拥有 discovery、token 和 UserInfo 请求；[OIDC 领域模块](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/oidc.py) 拥有登录暂态与配置。以上是研究时的源码定位，具体实现与迁移以最终提交的这些 Owner 为准。
 
 OIDC 登录只提供认证时的身份声明。SCIM 是独立的用户与群组资源管理协议；若未来要求全量成员、组织变动和离职同步，需要独立目录生命周期需求。当前登录补齐只处理已经到达 Yuxi 的认证和注销事件，不增加 SCIM 服务或读取 Keycloak 管理员凭据。[SCIM Protocol RFC 7644 §3](https://www.rfc-editor.org/rfc/rfc7644.html#section-3)
 

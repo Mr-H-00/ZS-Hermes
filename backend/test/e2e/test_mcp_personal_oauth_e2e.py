@@ -267,14 +267,14 @@ async def test_real_employee_mcp_through_worker(employee, via_skill, expected, f
                     finally:
                         await db.close()
                 else:
-                    accepted = await wait_for_consumed_input(client, headers, submitted.json()["yuxi"]["receipt"])
+                    accepted = await wait_for_consumed_input(client, headers, submitted.json()["zs"]["receipt"])
                 thread_id, turn_id = accepted["session_id"], accepted["turn_id"]
                 turn = await wait_for_terminal_turn(client, headers, thread_id, turn_id)
                 assert turn["status"] == "completed", turn
-                final_run = turn["yuxi"]["result_run_id"]
+                final_run = turn["zs"]["result_run_id"]
                 if entrypoint != "cooperation":
                     assert final_run == accepted["run_id"]
-                final = output_text(turn["yuxi"]["output"])
+                final = output_text(turn["zs"]["output"])
                 assert "MCP_ATTENDANCE_RESULT:" in final and expected in final and all(value not in final for value in forbidden)
                 assert observed and expected in str(observed[-1])
                 db = await asyncpg.connect(postgres_dsn())

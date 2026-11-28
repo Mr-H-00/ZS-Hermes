@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/system/repositories/dashboard.py
+Owner：backend/zs/modules/system/repositories/dashboard.py
 
 ## 问题
 

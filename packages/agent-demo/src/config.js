@@ -1,4 +1,4 @@
-export const STORAGE_KEY = "yuxi-agent-demo:v1";
+export const STORAGE_KEY = "zs-agent-demo:v1";
 
 /** 在 localhost 和局域网 HTTP 中生成随机 UUID。 */
 export function newId() {

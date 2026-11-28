@@ -74,7 +74,7 @@ test('支持的风格保留原作几何，色卡与夜间只改变颜色', () =>
 })
 
 test('身份稳定、支持自动主题、未知参数明确拒绝、配置返回值独立', () => {
-  assert.deepEqual(defaultStyles, { user: 'notionists', agent: 'lorelei', session: 'gaze' })
+  assert.deepEqual(defaultStyles, { user: 'lorelei', agent: 'shape-grid', session: 'gaze' })
   assert.equal(
     generate({ style: 'gaze', seed: 'agent:42' }),
     generate({ style: 'gaze', seed: 'agent:42' })

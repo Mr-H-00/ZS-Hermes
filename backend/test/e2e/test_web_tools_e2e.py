@@ -84,11 +84,11 @@ async def test_settings_switch_search_and_fetch_in_real_worker(e2e_client, e2e_h
                             terminal = event
                             break
                 assert terminal and terminal["type"] == "agent.session.turn.completed", terminal
-            consumed = await wait_for_consumed_input(client, headers, session["yuxi"]["receipt"])
+            consumed = await wait_for_consumed_input(client, headers, session["zs"]["receipt"])
             turn = await wait_for_terminal_turn(client, headers, thread_id, consumed["turn_id"])
             assert turn["status"] == "completed", turn
-            assert "WEB_TOOLS_E2E_OK" in json.dumps(turn["yuxi"]["output"])
-            run_id = turn["yuxi"]["result_run_id"]
+            assert "WEB_TOOLS_E2E_OK" in json.dumps(turn["zs"]["output"])
+            run_id = turn["zs"]["result_run_id"]
             conn = await asyncpg.connect(postgres_dsn())
             try:
                 records = await conn.fetch(

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/repositories/public_items.py
+Owner：backend/zs/modules/agents/repositories/public_items.py
 
 ## 问题
 

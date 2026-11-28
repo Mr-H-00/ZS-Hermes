@@ -9,19 +9,19 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
 from test.integration.services.agent_input_fixtures import SCOPE, queue_inputs, start_input_run
-import yuxi.modules.agents.services.run_lifecycle as lifecycle
-from yuxi.modules.agents.services.run_lifecycle import settle_run
+import zs.modules.agents.services.run_lifecycle as lifecycle
+from zs.modules.agents.services.run_lifecycle import settle_run
 from test.integration.services.test_arq_worker_dispatch import isolated_queue as isolated_queue
-from yuxi.modules.agents.input_messages import build_chat_input_message
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.services import inputs, leases, runner, runs, scheduler, threads, turns
+from zs.modules.agents.input_messages import build_chat_input_message
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.services import inputs, leases, runner, runs, scheduler, threads, turns
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]
@@ -152,9 +152,9 @@ async def test_waiting_cancellation_http_snapshot_keeps_stopping_fact(sessions, 
     import httpx
     from fastapi import FastAPI
 
-    from yuxi.api.dependencies.auth import get_db
-    from yuxi.api.routers.public_v1.agents.auth import require_public_context
-    from yuxi.api.routers.public_v1.agents.turns import router
+    from zs.api.dependencies.auth import get_db
+    from zs.api.routers.public_v1.agents.auth import require_public_context
+    from zs.api.routers.public_v1.agents.turns import router
 
     run = await start_input_run(sessions)
     async with sessions() as db:
@@ -195,11 +195,11 @@ async def test_waiting_cancellation_http_snapshot_keeps_stopping_fact(sessions, 
         assert response.status_code == 200
         snapshot = response.json()
         assert snapshot["status"] == "in_progress"
-        assert snapshot["yuxi"]["runs"][0]["status"] == "interrupted"
-        assert snapshot["yuxi"]["cancellation_pending"] is True
+        assert snapshot["zs"]["runs"][0]["status"] == "interrupted"
+        assert snapshot["zs"]["cancellation_pending"] is True
         assert await lifecycle.settle_waiting_cancel(thread_id="input-thread", turn_id=run.turn_id, uid=SCOPE.uid, app_id=None)
         snapshot = (await client.get(url)).json()
-        assert snapshot["status"] == "cancelled" and snapshot["yuxi"]["cancellation_pending"] is False
+        assert snapshot["status"] == "cancelled" and snapshot["zs"]["cancellation_pending"] is False
 
 
 async def test_waiting_checkpoint_cleanup_excludes_other_thread_writers(sessions, monkeypatch):
@@ -346,8 +346,8 @@ async def test_replaying_accepted_message_does_not_resume_a_later_pause(sessions
 
 async def test_resuming_input_waits_for_its_attachments_before_old_queue(sessions):
     """持久优先目标的附件未就绪时，重建调度也不能跳过它。"""
-    from yuxi.modules.agents.models.attachments import AgentAttachment
-    from yuxi.shared.datetime import utc_now
+    from zs.modules.agents.models.attachments import AgentAttachment
+    from zs.shared.datetime import utc_now
 
     await queue_inputs(sessions, count=2)
     async with sessions() as db:
@@ -387,7 +387,7 @@ async def test_arq_execution_timeout_persists_failed_turn_and_releases_cleanup(s
     """真实 ARQ 与 PostgreSQL 证明超时不会留下 pending 或被再次领取。"""
     from arq.worker import func
 
-    from yuxi.workers.arq import YuxiWorker
+    from zs.workers.arq import ZSWorker
 
     run = await start_input_run(sessions, running=False)
     entered, closed = asyncio.Event(), asyncio.Event()
@@ -420,7 +420,7 @@ async def test_arq_execution_timeout_persists_failed_turn_and_releases_cleanup(s
     monkeypatch.setattr(runner, "get_agent_state_view", AsyncMock(return_value={"agent_state": None}))
     monkeypatch.setattr(lifecycle, "get_sandbox_provider", lambda: type("Provider", (), {"cleanup_run": staticmethod(lambda *_: None)})())
     redis, namespace, queue_name, workers = isolated_queue
-    worker = YuxiWorker(
+    worker = ZSWorker(
         functions=[func(runner.process_agent_run, timeout=5)],
         redis_pool=redis,
         queue_name=queue_name,

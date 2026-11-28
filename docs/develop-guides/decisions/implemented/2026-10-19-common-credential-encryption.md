@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/infrastructure/crypto.py
+Owner：backend/zs/infrastructure/crypto.py
 
 ## 问题
 

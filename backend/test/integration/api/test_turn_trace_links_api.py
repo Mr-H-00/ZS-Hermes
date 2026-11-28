@@ -9,11 +9,11 @@ from sqlalchemy import select, update
 from test.integration.api.test_agent_feedback_api import create_feedback_session
 from test.integration.api.test_agent_feedback_api import feedback_agent as feedback_agent
 from test.live_api_cleanup import delete_test_session_resources
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

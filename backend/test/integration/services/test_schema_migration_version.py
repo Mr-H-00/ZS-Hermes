@@ -1,4 +1,4 @@
-"""Yuxi Schema 版本事实在真实 PostgreSQL 上的集成测试。"""
+"""ZS Schema 版本事实在真实 PostgreSQL 上的集成测试。"""
 
 from __future__ import annotations
 
@@ -12,19 +12,19 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.infrastructure.postgres.connection import postgres_conninfo
-from yuxi.modules.agents.models.sandbox import UserSandbox
-from yuxi.infrastructure.postgres.schema import BUSINESS_SCHEMA_VERSION, KNOWLEDGE_SCHEMA_VERSION
-from yuxi.migrations import main as schema_bootstrap
-from yuxi.migrations.schema import (
+from zs.infrastructure.postgres.connection import postgres_conninfo
+from zs.modules.agents.models.sandbox import UserSandbox
+from zs.infrastructure.postgres.schema import BUSINESS_SCHEMA_VERSION, KNOWLEDGE_SCHEMA_VERSION
+from zs.migrations import main as schema_bootstrap
+from zs.migrations.schema import (
     create_business_tables,
     create_knowledge_tables,
     create_schema_version_table,
     ensure_business_schema,
     record_schema_version,
 )
-from yuxi.infrastructure.postgres.schema import get_schema_versions, require_current_schema
-from yuxi.modules.knowledge.models import KnowledgeBase
+from zs.infrastructure.postgres.schema import get_schema_versions, require_current_schema
+from zs.modules.knowledge.models import KnowledgeBase
 from test.integration.support.postgres_schema import (
     create_isolated_manager as _create_isolated_manager,
     drop_isolated_schema as _drop_isolated_schema,
@@ -54,7 +54,7 @@ async def test_incompatible_schema_is_rejected_without_modifying_data(monkeypatc
         monkeypatch.setattr(manager, "close", AsyncMock())
         with pytest.raises(RuntimeError, match="incomplete or incompatible"):
             await require_current_schema(manager)
-        with pytest.raises(RuntimeError, match="Unsupported Yuxi schema"):
+        with pytest.raises(RuntimeError, match="Unsupported ZS schema"):
             await schema_bootstrap.initialize_schema(manager)
         assert await get_schema_versions(manager) == {"business": business, "knowledge": knowledge}
         async with engine.connect() as conn:
@@ -362,7 +362,7 @@ async def test_failed_fresh_initialization_cleans_checkpoint_tables_and_can_retr
 
 
 @pytest.mark.parametrize("table_name", ["sessions", "conversations", "tasks", "tool_calls"])
-async def test_unversioned_existing_yuxi_table_blocks_fresh_schema_initialization(monkeypatch, table_name) -> None:
+async def test_unversioned_existing_zs_table_blocks_fresh_schema_initialization(monkeypatch, table_name) -> None:
     """未版本化的旧表不得被空库初始化误认为全新部署。"""
     schema, admin_engine, scoped_engine, manager = await _create_isolated_manager("pytest_fresh_only")
     try:
@@ -525,11 +525,11 @@ async def test_fresh_initializer_creates_complete_baseline_and_restarts_without_
         async with engine.connect() as conn:
             sandbox_before = dict((await conn.execute(text("SELECT * FROM user_sandboxes WHERE uid='fixture'"))).mappings().one())
             assert sandbox_before["paused_at"] is None
-            versions_before = (await conn.execute(text("SELECT * FROM yuxi_schema_migrations ORDER BY domain"))).all()
+            versions_before = (await conn.execute(text("SELECT * FROM zs_schema_migrations ORDER BY domain"))).all()
         await schema_bootstrap.initialize_schema(manager)
         async with engine.connect() as conn:
             assert dict((await conn.execute(text("SELECT * FROM user_sandboxes WHERE uid='fixture'"))).mappings().one()) == sandbox_before
-            assert (await conn.execute(text("SELECT * FROM yuxi_schema_migrations ORDER BY domain"))).all() == versions_before
+            assert (await conn.execute(text("SELECT * FROM zs_schema_migrations ORDER BY domain"))).all() == versions_before
             assert await conn.scalar(text("SELECT name FROM knowledge_bases WHERE kb_id='existing'")) == "Preserved"
         with pytest.raises(IntegrityError, match="uq_knowledge_bases_active_name"):
             async with engine.begin() as conn:
@@ -547,7 +547,7 @@ async def test_fresh_initializer_creates_complete_baseline_and_restarts_without_
 @pytest.mark.parametrize("version", [1, 99])
 async def test_mcp_credential_upgrade_is_explicit_and_preserves_existing_data(version):
     """真实 PostgreSQL 证明重复升级保留旧值，未知版本在 DDL 前拒绝。"""
-    from yuxi.migrations.mcp_personal_credentials import upgrade_mcp_personal_credentials
+    from zs.migrations.mcp_personal_credentials import upgrade_mcp_personal_credentials
 
     schema, admin, engine, manager = await _create_isolated_manager("pytest_mcp_upgrade")
     try:

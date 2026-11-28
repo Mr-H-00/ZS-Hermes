@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/identity/repositories/users.py
+Owner：backend/zs/modules/identity/repositories/users.py
 
 ## 问题
 

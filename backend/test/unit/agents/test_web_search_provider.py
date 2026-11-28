@@ -9,13 +9,13 @@ import pytest
 from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 
-from yuxi.modules.agents.tool_results import normalize_tool_result
-from yuxi.modules.extensions.options import WEB_PROVIDER_OPTIONS
-from yuxi.modules.extensions.tools.builtin.web_search import web_fetch, web_search
-from yuxi.modules.extensions.tools.registry import get_all_tool_instances
-from yuxi.modules.extensions.web import providers as web_providers, services
-from yuxi.modules.extensions.web.schemas import FetchInput, SearchInput
-from yuxi.shared.errors import InvalidInputError, OperationTimeoutError, UpstreamError
+from zs.modules.agents.tool_results import normalize_tool_result
+from zs.modules.extensions.options import WEB_PROVIDER_OPTIONS
+from zs.modules.extensions.tools.builtin.web_search import web_fetch, web_search
+from zs.modules.extensions.tools.registry import get_all_tool_instances
+from zs.modules.extensions.web import providers as web_providers, services
+from zs.modules.extensions.web.schemas import FetchInput, SearchInput
+from zs.shared.errors import InvalidInputError, OperationTimeoutError, UpstreamError
 
 
 @pytest.fixture
@@ -243,9 +243,9 @@ def test_tools_register_stably_without_credentials():
 
 def test_provider_catalog_drives_settings_options_and_choices():
     """新增或重命名供应商只需改目录，配置定义与默认选项必须同步派生。"""
-    from yuxi.modules.extensions.web.schemas import FetchProvider, SearchProvider
-    from yuxi.modules.system.options import system_options
-    from yuxi.shared.web_providers import FETCH_PROVIDER_IDS, PROVIDERS_BY_ID, SEARCH_PROVIDER_IDS
+    from zs.modules.extensions.web.schemas import FetchProvider, SearchProvider
+    from zs.modules.system.options import system_options
+    from zs.shared.web_providers import FETCH_PROVIDER_IDS, PROVIDERS_BY_ID, SEARCH_PROVIDER_IDS
 
     assert get_args(SearchProvider) == SEARCH_PROVIDER_IDS
     assert get_args(FetchProvider) == FETCH_PROVIDER_IDS
@@ -263,8 +263,8 @@ def test_provider_catalog_drives_settings_options_and_choices():
 @pytest.mark.asyncio
 async def test_defaults_honor_environment_and_do_not_replace_explicit_missing_key(monkeypatch):
     """自动选择遵循顺序，显式选择缺少凭据时保持不可用。"""
-    from yuxi.modules.system.options import system_options
-    from yuxi.modules.system.services.options import Option
+    from zs.modules.system.options import system_options
+    from zs.modules.system.services.options import Option
 
     stored = {option.key: {} for option in WEB_PROVIDER_OPTIONS.values()}
     stored[system_options.key] = {}
@@ -297,7 +297,7 @@ async def test_defaults_honor_environment_and_do_not_replace_explicit_missing_ke
 async def test_runtime_excludes_unconfigured_web_tools_and_binds_after_configuration(monkeypatch, configured):
     """稳定注册不代表可执行能力，新装配必须依据有效凭据。"""
     from types import SimpleNamespace
-    from yuxi.modules.extensions.tools.runtime import resolve_configured_runtime_tools
+    from zs.modules.extensions.tools.runtime import resolve_configured_runtime_tools
 
     context = SimpleNamespace(tools=["web_search", "web_fetch"], mcps=[], skill_runtime_snapshot=None)
     configured["keys"] = {provider: "" for provider in WEB_PROVIDER_OPTIONS}

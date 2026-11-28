@@ -18,7 +18,7 @@ async (page) => {
   ] })
   const turn = (id) => ({
     id: `turn-${id}`, status: finished || id === 'attention-root' ? 'completed' : 'requires_action',
-    yuxi: { current_run_id: `run-${id}`, output: [], runs: [], waitpoint: {
+    zs: { current_run_id: `run-${id}`, output: [], runs: [], waitpoint: {
       id: `wait-${id}`, run_id: `run-${id}`, kind: id === 'attention-approval' ? 'approval' : 'answer',
       questions: [{ question_id: 'task-kind', question: '你希望优先处理哪类任务？', options: [{ label: '资料检索', value: '资料检索' }], allow_other: true }],
       calls: [{ call_id: 'call-publish', name: 'write_file', args: { path: '/report.md', content: '测试报告' }, allowed_decisions: ['approve', 'reject'] }]
@@ -26,7 +26,7 @@ async (page) => {
   })
   const session = (id) => ({
     id, agent: { id: agent.agent_id }, status: turn(id).status,
-    yuxi: { title: id === 'attention-root' ? '协作任务待办验证' : '资料整理', project_id: 'attention-project', current_turn: turn(id), tool_approval_mode: 'ask' }
+    zs: { title: id === 'attention-root' ? '协作任务待办验证' : '资料整理', project_id: 'attention-project', current_turn: turn(id), tool_approval_mode: 'ask' }
   })
   await page.route('**/api/**', async route => {
     const request = route.request(), path = request.url().split('?')[0].replace(/^https?:\/\/[^/]+/, '')
@@ -45,7 +45,7 @@ async (page) => {
       }
       if (path.endsWith('/items')) {
         if (id === 'attention-child' && historyDelay) await page.waitForTimeout(historyDelay)
-        return reply({ data: [], has_more: false, last_id: null, yuxi: { runs: [] } })
+        return reply({ data: [], has_more: false, last_id: null, zs: { runs: [] } })
       }
       if (path.includes('/turns/')) return reply(turn(id))
       if (path.endsWith('/state')) return reply({ agent_state: {} })
@@ -121,8 +121,8 @@ async (page) => {
   await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'dialog')
   historyDelay = 0
   await page.waitForFunction(() => [...document.querySelectorAll('.panel-session-chat [role="dialog"]')].some(el => el.offsetParent && getComputedStyle(el).opacity === '1'))
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-attention-inline-single.png', animations: 'disabled' })
-  screenshots.push('/tmp/yuxi-cooperation-attention-inline-single.png')
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-attention-inline-single.png', animations: 'disabled' })
+  screenshots.push('/tmp/zs-cooperation-attention-inline-single.png')
   second = true
   await page.waitForFunction(() => document.querySelector('.attention-pill')?.textContent.includes('2 个协作任务'))
   await page.evaluate(() => { window.__attentionNodes = { card: document.querySelector('.attention-card'), pill: document.querySelector('.attention-pill') } })
@@ -159,11 +159,11 @@ async (page) => {
       await settle()
       await checkInline()
       if (theme === 'dark') check(await card.evaluate(el => getComputedStyle(el).backgroundColor !== 'rgb(255, 255, 255)'), '暗色待办卡片仍使用浅色背景')
-      const path = `/tmp/yuxi-cooperation-attention-inline-${theme}-${width}.png`
+      const path = `/tmp/zs-cooperation-attention-inline-${theme}-${width}.png`
       await page.locator('.agent-view').screenshot({ path, animations: 'disabled' })
       screenshots.push(path)
       if (width === 1440) {
-        const detailPath = `/tmp/yuxi-cooperation-attention-inline-card-${theme}.png`
+        const detailPath = `/tmp/zs-cooperation-attention-inline-card-${theme}.png`
         await card.screenshot({ path: detailPath, animations: 'disabled' })
         screenshots.push(detailPath)
       }
@@ -194,8 +194,8 @@ async (page) => {
     return el.scrollHeight - el.clientHeight - el.scrollTop < 2
   })
   check(await list.locator('.attention-item').last().isVisible(), '长列表末项无法滚动访问')
-  await card.screenshot({ path: '/tmp/yuxi-cooperation-attention-inline-long-list.png', animations: 'disabled' })
-  screenshots.push('/tmp/yuxi-cooperation-attention-inline-long-list.png')
+  await card.screenshot({ path: '/tmp/zs-cooperation-attention-inline-long-list.png', animations: 'disabled' })
+  screenshots.push('/tmp/zs-cooperation-attention-inline-long-list.png')
   await page.keyboard.press('Escape')
   await list.waitFor({ state: 'hidden' })
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -205,7 +205,7 @@ async (page) => {
     const shell = document.querySelector('.attention-card')
     const collapse = shell.querySelector('.attention-list-collapse')
     return {
-      entering: collapse.classList.contains('yuxi-collapse-enter-active'),
+      entering: collapse.classList.contains('zs-collapse-enter-active'),
       durations: [shell, collapse, shell.querySelector('.attention-chevron')].map(node => getComputedStyle(node).transitionDuration)
     }
   })

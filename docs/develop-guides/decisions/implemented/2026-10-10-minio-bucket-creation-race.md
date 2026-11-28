@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/infrastructure/minio/client.py
+Owner：backend/zs/infrastructure/minio/client.py
 
 ## 问题
 

@@ -7,19 +7,19 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.bootstrap.options import ensure_options_in_db, get_option_definitions
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.documents.options import mineru_official_api_opts
-from yuxi.modules.knowledge.options import knowledge_url_import_policy
-from yuxi.modules.models.providers.builtin import BUILTIN_PROVIDERS
-from yuxi.modules.system.models import ConfigOption
-from yuxi.modules.system.options import system_options
-from yuxi.modules.system.services import options
+from zs.bootstrap.options import ensure_options_in_db, get_option_definitions
+from zs.infrastructure.postgres.base import Base
+from zs.modules.documents.options import mineru_official_api_opts
+from zs.modules.knowledge.options import knowledge_url_import_policy
+from zs.modules.models.providers.builtin import BUILTIN_PROVIDERS
+from zs.modules.system.models import ConfigOption
+from zs.modules.system.options import system_options
+from zs.modules.system.services import options
 
 
 def test_knowledge_url_import_option_is_registered_with_closed_default(monkeypatch):
     """新部署默认关闭 URL 导入，定义通过现有初始化入口汇总。"""
-    monkeypatch.delenv("YUXI_URL_WHITELIST", raising=False)
+    monkeypatch.delenv("ZS_URL_WHITELIST", raising=False)
     assert get_option_definitions()[knowledge_url_import_policy.key] is knowledge_url_import_policy
     assert knowledge_url_import_policy.resolve({}) == {"allowed_hosts": []}
 

@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.infrastructure.neo4j import get_shared_neo4j_connection, safe_neo4j_label
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.infrastructure.neo4j import get_shared_neo4j_connection, safe_neo4j_label
 
 
 @pytest.mark.integration

@@ -6,12 +6,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
-from yuxi.api.dependencies.auth import get_db, get_required_user
-from yuxi.api.routers.extensions.skills import skills as system_skills_router
-from yuxi.api.routers.extensions.skills import user_skills as user_skills_router
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.identity.models import User
-from yuxi.modules.extensions.skills.package import SkillEditConflict
+from zs.api.dependencies.auth import get_db, get_required_user
+from zs.api.routers.extensions.skills import skills as system_skills_router
+from zs.api.routers.extensions.skills import user_skills as user_skills_router
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.identity.models import User
+from zs.modules.extensions.skills.package import SkillEditConflict
 
 
 def _build_app(*, role: str = "admin") -> FastAPI:
@@ -70,7 +70,7 @@ def test_skill_list_projects_real_permissions_and_allowed_levels(monkeypatch, ro
         return [_skill_for_user(role)]
 
     monkeypatch.setattr(
-        "yuxi.modules.extensions.skills.repository.SkillRepository.list_visible_for_management",
+        "zs.modules.extensions.skills.repository.SkillRepository.list_visible_for_management",
         visible_skills,
     )
 
@@ -94,7 +94,7 @@ def test_builtin_routes_require_admin():
 def test_builtin_sync_requires_superadmin_without_calling_service(monkeypatch):
     """内置 Skill 同步在生产超级管理员依赖处拒绝普通管理员。"""
     initializer = AsyncMock(side_effect=AssertionError("unauthorized request reached service"))
-    monkeypatch.setattr("yuxi.api.routers.extensions.skills.init_builtin_skills", initializer)
+    monkeypatch.setattr("zs.api.routers.extensions.skills.init_builtin_skills", initializer)
 
     response = TestClient(_build_app()).post("/api/system/skills/builtin/sync")
 
@@ -105,7 +105,7 @@ def test_builtin_sync_requires_superadmin_without_calling_service(monkeypatch):
 def test_builtin_sync_passes_superadmin_to_service(monkeypatch):
     """同步路由把实际认证用户传给 Skill 初始化服务并装配响应。"""
     initializer = AsyncMock(return_value=[])
-    monkeypatch.setattr("yuxi.api.routers.extensions.skills.init_builtin_skills", initializer)
+    monkeypatch.setattr("zs.api.routers.extensions.skills.init_builtin_skills", initializer)
 
     response = TestClient(_build_app(role="superadmin")).post("/api/system/skills/builtin/sync")
 
@@ -117,7 +117,7 @@ def test_builtin_sync_passes_superadmin_to_service(monkeypatch):
 def test_skill_content_conflict_maps_to_http_409(monkeypatch):
     """Skill 修订冲突通过路由稳定映射为 HTTP 409。"""
     saver = AsyncMock(side_effect=SkillEditConflict("revision changed"))
-    monkeypatch.setattr("yuxi.api.routers.extensions.skills.save_skill_content", saver)
+    monkeypatch.setattr("zs.api.routers.extensions.skills.save_skill_content", saver)
 
     response = TestClient(_build_app()).put(
         "/api/system/skills/demo/content",
@@ -131,7 +131,7 @@ def test_skill_content_conflict_maps_to_http_409(monkeypatch):
 
 def test_skill_upload_validation_returns_displayable_business_error(tmp_path, monkeypatch):
     """真实解析拒绝非法 slug，并返回前端可展示的业务 detail。"""
-    monkeypatch.setenv("YUXI_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("ZS_RUNTIME_DIR", str(tmp_path))
     response = TestClient(_build_app()).post(
         "/api/skills/import/prepare",
         files={"file": ("SKILL.md", b"---\nname: demo\nslug: Invalid_Slug\ndescription: demo\n---\n", "text/markdown")},
@@ -150,7 +150,7 @@ def test_skill_upload_validation_returns_displayable_business_error(tmp_path, mo
 )
 def test_skill_upload_yaml_error_does_not_echo_input(tmp_path, monkeypatch, metadata):
     """YAML 两条失败路径都只返回安全语法提示。"""
-    monkeypatch.setenv("YUXI_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("ZS_RUNTIME_DIR", str(tmp_path))
     response = TestClient(_build_app()).post(
         "/api/skills/import/prepare",
         files={"file": ("SKILL.md", f"---\n{metadata}\n---\n".encode(), "text/markdown")},

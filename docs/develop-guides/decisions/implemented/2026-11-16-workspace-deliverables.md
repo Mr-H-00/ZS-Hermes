@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/workspace/services/deliverables.py
+Owner：backend/zs/modules/workspace/services/deliverables.py
 
 ## 问题
 

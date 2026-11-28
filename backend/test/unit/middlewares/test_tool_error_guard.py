@@ -26,9 +26,9 @@ from mcp import types as mcp_types
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import interrupt
 
-from yuxi.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
-from yuxi.modules.agents.runtime.middlewares import ToolErrorGuardMiddleware
-from yuxi.modules.agents.tool_results import normalize_tool_result
+from zs.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
+from zs.modules.agents.runtime.middlewares import ToolErrorGuardMiddleware
+from zs.modules.agents.tool_results import normalize_tool_result
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -176,9 +176,9 @@ async def test_tool_runtime_error_becomes_tool_message_and_run_continues():
 async def test_guard_streams_final_middleware_result(outcome, monkeypatch):
     """真实图验证逻辑生命周期覆盖异常与短路返回，结果只取最外层结局。"""
     from langgraph.types import Command
-    from yuxi.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
-    from yuxi.modules.agents.runtime.context import BaseContext
-    from yuxi.modules.agents.services.message_recorder import tool_event_output
+    from zs.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
+    from zs.modules.agents.runtime.context import BaseContext
+    from zs.modules.agents.services.message_recorder import tool_event_output
 
     class InnerMiddleware(AgentMiddleware):
         """覆盖有无执行 BaseTool 的真实中间件路径。"""
@@ -268,7 +268,7 @@ async def test_guard_publishes_final_status_and_error_text(hook, as_command, ori
     """同步与异步调用均以最终失败或恢复结果为准，Command 只取本次调用。"""
     from langgraph.types import Command
 
-    from yuxi.modules.agents.services.message_recorder import tool_event_output
+    from zs.modules.agents.services.message_recorder import tool_event_output
 
     original = ToolMessage(content="original result", tool_call_id="call", status=original_status)
     final = ToolMessage(content="final result", tool_call_id="call", status=final_status)
@@ -447,7 +447,7 @@ async def test_graph_mounts_guard_as_outermost_tool_wrapper(monkeypatch, module,
     else:
         middlewares = await module._build_middlewares(context, object(), tool_approval_mode)
 
-    from yuxi.modules.agents.runtime.middlewares.authorization import RuntimeAuthorizationMiddleware
+    from zs.modules.agents.runtime.middlewares.authorization import RuntimeAuthorizationMiddleware
 
     assert isinstance(middlewares[-3], RuntimeAuthorizationMiddleware)
     assert isinstance(middlewares[-2], chatbot_graph.ImageInputCompatibilityMiddleware)
@@ -482,7 +482,7 @@ async def test_guard_keeps_normal_tool_result_untouched():
 
 async def test_cancel_reaches_sandbox_executor_and_waits_for_cleanup(monkeypatch):
     """取消通过 guard 到达真实 backend 的线程事件，并等待执行器清理。"""
-    from yuxi.modules.agents.runtime.sandbox import backend as sandbox_module
+    from zs.modules.agents.runtime.sandbox import backend as sandbox_module
 
     entered = threading.Event()
     cancelled = threading.Event()

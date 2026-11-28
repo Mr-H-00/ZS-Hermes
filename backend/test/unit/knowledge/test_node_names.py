@@ -2,8 +2,8 @@
 
 import pytest
 
-from yuxi.modules.knowledge.names import normalize_name, source_segments, suffixed_name
-from yuxi.shared.errors import InvalidInputError
+from zs.modules.knowledge.names import normalize_name, source_segments, suffixed_name
+from zs.shared.errors import InvalidInputError
 
 
 @pytest.mark.parametrize("name", ["", " ", ".", "..", "a/b", "a\\b", "a\x00b", "a\nb", "x" * 513])

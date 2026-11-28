@@ -19,23 +19,23 @@ async (page) => {
     const turnId = `${id}-${next ? 'next' : 'first'}`
     const runId = `run-${turnId}`
     const status = root || stage === 'completed' ? 'completed' : stage === 'waiting' ? 'requires_action' : stage === 'cancelled' ? 'cancelled' : 'in_progress'
-    return { id: turnId, status, yuxi: { current_run_id: runId, output: [], runs: [],
+    return { id: turnId, status, zs: { current_run_id: runId, output: [], runs: [],
       waitpoint: !root && stage === 'waiting' ? { id: 'sync-wait', run_id: runId, kind: 'answer', questions: [{ question_id: 'q', question: '协作任务需要你的回答' }] } : null } }
   }
   const session = id => ({ id, agent: { id: agentId }, status: turn(id).status,
-    yuxi: { title: id === rootId ? '协作成员同步验证' : '资料整理', current_turn: turn(id), project_id: 'sync-project', tool_approval_mode: 'ask', parent_session_id: id === rootId ? null : rootId } })
+    zs: { title: id === rootId ? '协作成员同步验证' : '资料整理', current_turn: turn(id), project_id: 'sync-project', tool_approval_mode: 'ask', parent_session_id: id === rootId ? null : rootId } })
   const summary = () => ({ sessions: [rootId, childId].map(id => ({ session_id: id,
     parent_session_id: id === rootId ? null : rootId, path: id === rootId ? '/root' : '/root/child', name: id === rootId ? 'root' : '资料整理',
-    turn_id: turn(id).id, current_run_id: turn(id).yuxi.current_run_id,
+    turn_id: turn(id).id, current_run_id: turn(id).zs.current_run_id,
     turn_status: turn(id).status === 'requires_action' ? 'waiting' : turn(id).status,
-    waiting_for: turn(id).yuxi.waitpoint?.kind || null,
+    waiting_for: turn(id).zs.waitpoint?.kind || null,
     queue_paused: id === childId && stage === 'cancelled', has_pending_input: id === childId && stage === 'cancelled' })) })
   const items = id => {
     if (id === rootId) return []
     const next = ['running', 'completed'].includes(stage)
     return [{ id: next ? 'new-task' : 'old-task', type: 'message', role: next ? 'user' : 'assistant', status: 'completed', turn_id: turn(id).id,
       content: [{ type: next ? 'input_text' : 'output_text', text: next ? '外部第二轮任务' : '等待中的原任务' }],
-      yuxi: { message_id: next ? 2 : 1, run_id: turn(id).yuxi.current_run_id, created_at: next ? '2026-10-24T04:00:00Z' : '2026-10-24T03:00:00Z' } }]
+      zs: { message_id: next ? 2 : 1, run_id: turn(id).zs.current_run_id, created_at: next ? '2026-10-24T04:00:00Z' : '2026-10-24T03:00:00Z' } }]
   }
   await page.route('**/api/**', async route => {
     const request = route.request(), path = request.url().replace(/^https?:\/\/[^/]+/, '').split('?')[0]
@@ -49,11 +49,11 @@ async (page) => {
         await streamGate
         const current = turn(id)
         const data = { type: 'agent.session.turn.completed', session_id: id, turn_id: current.id,
-          event_id: 'sync-done', turn: { status: 'completed' }, yuxi: { run_id: current.yuxi.current_run_id, current_run_id: current.yuxi.current_run_id } }
+          event_id: 'sync-done', turn: { status: 'completed' }, zs: { run_id: current.zs.current_run_id, current_run_id: current.zs.current_run_id } }
         return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify(data)}\n\n` })
       }
       if (path.endsWith('/viewed')) { viewed.push(id); return reply(session(id)) }
-      if (path.endsWith('/items')) return reply({ data: items(id), has_more: false, last_id: items(id).at(-1)?.id || null, yuxi: { runs: [] } })
+      if (path.endsWith('/items')) return reply({ data: items(id), has_more: false, last_id: items(id).at(-1)?.id || null, zs: { runs: [] } })
       if (path.includes('/turns/')) return reply(turn(id))
       if (path.endsWith('/state')) return reply({ agent_state: {}, interrupt: null })
       if (path.endsWith('/queue')) return reply({ status: stage === 'cancelled' && id === childId ? 'paused' : 'ready', queue_paused: stage === 'cancelled' && id === childId,
@@ -65,7 +65,7 @@ async (page) => {
           return reply({ input_id: inputId, status: 'consumed', turn_id: `${childId}-first`, run_id: `run-${childId}-first`,
             items: [{ id: 'late-old-input', type: 'message', role: 'user', status: 'completed', turn_id: `${childId}-first`,
               content: [{ type: 'input_text', text: '旧轮次迟到的消费消息' }],
-              yuxi: { input_id: inputId, message_id: 3, run_id: `run-${childId}-first` } }] })
+              zs: { input_id: inputId, message_id: 3, run_id: `run-${childId}-first` } }] })
         }
         return reply({ input_id: inputId, status: 'pending' })
       }
@@ -112,7 +112,7 @@ async (page) => {
   queueTexts.push('第二条外部排队输入')
   await member.getByText('第二条外部排队输入', { exact: true }).waitFor()
   check(await member.getByRole('textbox', { name: /问点什么/ }).isEditable(), '外部取消后旧等待仍然禁止普通输入')
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-sync-cancelled.png', animations: 'disabled' })
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-sync-cancelled.png', animations: 'disabled' })
   await page.getByRole('tab', { name: '文件', exact: true }).click()
   const beforeViewed = viewed.filter(id => id === childId).length
   stage = 'running'
@@ -141,12 +141,12 @@ async (page) => {
     const { useThemeStore } = await import('/src/shared/model/theme.js')
     useThemeStore().setTheme(true)
   })
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-sync-next-dark.png', animations: 'disabled' })
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-sync-next-dark.png', animations: 'disabled' })
   stage = 'completed'
   releaseStream()
   await member.getByRole('button', { name: '停止回答', exact: true }).waitFor({ state: 'hidden' })
   await page.setViewportSize({ width: 375, height: 900 })
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-sync-mobile.png', animations: 'disabled' })
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-sync-mobile.png', animations: 'disabled' })
   page.off('pageerror', onError)
   check(!errors.length, `页面异常：${errors.join('; ')}`)
   return { externalCancellation: true, pausedQueue: true, secondQueuedInput: true, nextTurnHistory: true, lateOldInputKeepsCurrentTurn: true, oneSse: streams === 1,

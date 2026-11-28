@@ -5,11 +5,11 @@ import asyncio
 import pytest
 from sqlalchemy import func, select
 
-import yuxi.modules.knowledge.services.reslice as reslice
+import zs.modules.knowledge.services.reslice as reslice
 from test.integration.services.test_background_job_repository import background_job_schema as background_job_schema
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeFile
-from yuxi.shared.errors import ResourceNotFoundError, StateConflictError
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeFile
+from zs.shared.errors import ResourceNotFoundError, StateConflictError
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.self_managed_resources]
 

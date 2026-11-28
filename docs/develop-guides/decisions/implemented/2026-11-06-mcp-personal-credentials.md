@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/extensions/mcp/service.py
+Owner：backend/zs/modules/extensions/mcp/service.py
 
 ## 问题
 

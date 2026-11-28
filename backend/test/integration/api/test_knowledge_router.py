@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from test.integration.api.helpers import create_api_user, create_department, delete_department_by_id, delete_user_by_id
 from test.support.knowledge import default_embedding_model_spec
-from yuxi.modules.knowledge.chunking.presets import CHUNK_PRESET_IDS
+from zs.modules.knowledge.chunking.presets import CHUNK_PRESET_IDS
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -465,7 +465,7 @@ async def test_knowledge_routes_enforce_permissions(test_client, standard_user, 
 
 async def test_kb_image_proxy_requires_auth_and_streams_private_image(test_client, admin_headers, knowledge_base_resource):
     """知识库图片代理：未登录不可访问，鉴权后可读取私有 bucket 图片"""
-    from yuxi.infrastructure.minio.client import MinIOClient, get_minio_client
+    from zs.infrastructure.minio.client import MinIOClient, get_minio_client
 
     kb_id = knowledge_base_resource["kb_id"]
     image_name = f"proxy_{uuid.uuid4().hex[:8]}.png"

@@ -8,10 +8,10 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.modules.extensions.mcp import service as mcp_service
-from yuxi.modules.extensions.mcp import runtime as mcp_runtime
-import yuxi.infrastructure.postgres.manager as postgres_manager
-from yuxi.modules.extensions.mcp.models import MCPServer
+from zs.modules.extensions.mcp import service as mcp_service
+from zs.modules.extensions.mcp import runtime as mcp_runtime
+import zs.infrastructure.postgres.manager as postgres_manager
+from zs.modules.extensions.mcp.models import MCPServer
 
 
 class _AsyncSessionContext:
@@ -423,7 +423,7 @@ async def test_get_all_mcp_tools_connects_disabled_server(monkeypatch, mcp_sessi
     inspected = inspect.await_args.args[0]
     assert inspected.slug == "offline" and inspected.enabled == 0
     assert inspect.await_args.kwargs["uid"] == "admin"
-    from yuxi.modules.extensions.mcp.repository import list_enabled_mcp_servers
+    from zs.modules.extensions.mcp.repository import list_enabled_mcp_servers
 
     assert await list_enabled_mcp_servers(mcp_session, names=["offline"]) == []
 
@@ -435,12 +435,12 @@ async def test_disabled_personal_catalog_reads_own_credentials(monkeypatch):
     import httpx
     from cryptography.fernet import Fernet
 
-    from yuxi.modules.extensions.mcp.oauth_config import config_revision, encrypt
-    from yuxi.modules.extensions.mcp.oauth_runtime import PersonalMCPAuth, personal_mcp_tools
-    from yuxi.modules.extensions.mcp.oauth_service import MCPOAuthService
-    from yuxi.shared.errors import ResourceNotFoundError, StateConflictError
+    from zs.modules.extensions.mcp.oauth_config import config_revision, encrypt
+    from zs.modules.extensions.mcp.oauth_runtime import PersonalMCPAuth, personal_mcp_tools
+    from zs.modules.extensions.mcp.oauth_service import MCPOAuthService
+    from zs.shared.errors import ResourceNotFoundError, StateConflictError
 
-    monkeypatch.setenv("YUXI_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("ZS_ENCRYPTION_KEY", Fernet.generate_key().decode())
     server = MCPServer(
         id=1,
         slug="notes",
@@ -473,8 +473,8 @@ async def test_disabled_personal_catalog_reads_own_credentials(monkeypatch):
         assert lock is True
         return state["connection"]
 
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.oauth_service.runtime_mcp_policy", policy)
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.oauth_service.mcp_connection", lookup)
+    monkeypatch.setattr("zs.modules.extensions.mcp.oauth_service.runtime_mcp_policy", policy)
+    monkeypatch.setattr("zs.modules.extensions.mcp.oauth_service.mcp_connection", lookup)
     db = SimpleNamespace(commit=AsyncMock())
     oauth = MCPOAuthService(db)
     with pytest.raises(ResourceNotFoundError, match="已停用"):
@@ -529,7 +529,7 @@ async def test_disabled_personal_catalog_reads_own_credentials(monkeypatch):
             assert self.auth.management is True
             return [SimpleNamespace(name="ask", metadata=None)]
 
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.oauth_runtime.MultiServerMCPClient", CatalogClient)
+    monkeypatch.setattr("zs.modules.extensions.mcp.oauth_runtime.MultiServerMCPClient", CatalogClient)
     discovered = await personal_mcp_tools(server, "admin", include_disabled=True, management=True)
     assert [tool.name for tool in discovered] == ["ask"] and server.enabled == 0
     tools = await mcp_service.inspect_mcp_server_tools(server, uid="admin")
@@ -542,7 +542,7 @@ async def test_disabled_personal_catalog_reads_own_credentials(monkeypatch):
         async def get_tools(self):
             raise ConnectionError("remote down")
 
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.oauth_runtime.MultiServerMCPClient", DownClient)
+    monkeypatch.setattr("zs.modules.extensions.mcp.oauth_runtime.MultiServerMCPClient", DownClient)
     with pytest.raises(ConnectionError, match="remote down"):
         await mcp_service.inspect_mcp_server_tools(server, uid="admin")
     assert server.enabled == 0
@@ -679,8 +679,8 @@ async def test_runtime_connection_failure_remains_explicit(monkeypatch, phase):
 @pytest.mark.parametrize("failure_kind", ["missing_key", "wrong_key", "unreachable", "nested", "mixed"])
 async def test_runtime_isolates_failed_mcp_and_retains_healthy_tools(monkeypatch, auth_mode, failure_kind):
     """单服务失败保留安全原因，健康工具和正常聊天不受影响。"""
-    from yuxi.modules.extensions.mcp import repository
-    from yuxi.shared.errors import StateConflictError
+    from zs.modules.extensions.mcp import repository
+    from zs.shared.errors import StateConflictError
 
     failure = {
         "missing_key": StateConflictError("secret-must-not-leak", code="mcp_oauth_unconfigured"),
@@ -763,14 +763,14 @@ async def test_builtin_sync_rejects_user_slug_without_overwriting_configuration(
 
 async def test_deployment_switch_keeps_builtin_identity_and_admin_intent(monkeypatch, mcp_session):
     """部署关闭过滤候选但不覆盖原行，恢复后继续使用管理员工具开关。"""
-    from yuxi.modules.extensions.mcp.builtin import builtin_mcp_available
+    from zs.modules.extensions.mcp.builtin import builtin_mcp_available
 
     monkeypatch.setattr(postgres_manager.pg_manager, "get_async_session_context", lambda: _AsyncSessionContext(mcp_session))
     await mcp_service.ensure_builtin_mcp_servers_in_db()
     server = await mcp_session.scalar(select(MCPServer).where(MCPServer.slug == "knowledge"))
     server.disabled_tools = ["query_kb"]
     await mcp_session.commit()
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "false")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "false")
     await mcp_service.ensure_builtin_mcp_servers_in_db()
     await mcp_session.refresh(server)
     assert server.enabled == 1 and server.disabled_tools == ["query_kb"]
@@ -780,7 +780,7 @@ async def test_deployment_switch_keeps_builtin_identity_and_admin_intent(monkeyp
         await mcp_service.inspect_mcp_server_tools(server, uid="viewer")
     with pytest.raises(PermissionError, match="系统内置"):
         await mcp_service.delete_mcp_server(mcp_session, server.slug)
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "true")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "true")
     await mcp_service.ensure_builtin_mcp_servers_in_db()
     assert "knowledge" in await mcp_service.get_enabled_mcp_server_slugs(db=mcp_session)
     server.enabled = 0

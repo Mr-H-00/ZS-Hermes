@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
 from test.integration.support.module_audit import serve_http
-from yuxi.modules.agents.runtime.middlewares.summary import YuxiSummarizationMiddleware
+from zs.modules.agents.runtime.middlewares.summary import ZSSummarizationMiddleware
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -66,7 +66,7 @@ async def test_server_overflow_triggers_compaction_and_shrinks_summary_requests(
             http_async_client=model_client,
             profile={"max_input_tokens": 8192, "max_output_tokens": 128},
         )
-        middleware = YuxiSummarizationMiddleware(
+        middleware = ZSSummarizationMiddleware(
             model=model,
             backend=FilesystemBackend(root_dir=tmp_path, virtual_mode=True),
             trigger=("tokens", 1_000_000),

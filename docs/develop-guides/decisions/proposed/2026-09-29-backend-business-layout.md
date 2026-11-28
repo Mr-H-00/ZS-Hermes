@@ -6,7 +6,7 @@ Owner：backend/pyproject.toml
 
 ## 问题
 
-本提案面向后端维护者，基于 2026-09-29 工作目录中的实际源码，定义从 `backend/yuxi/` 开始的目标文件树和来源映射。目标目录现已落到工作树；本文保留逐文件来源映射。生产链路的完整验收尚未执行，故记录仍处于 proposed。
+本提案面向后端维护者，基于 2026-09-29 工作目录中的实际源码，定义从 `backend/zs/` 开始的目标文件树和来源映射。目标目录现已落到工作树；本文保留逐文件来源映射。生产链路的完整验收尚未执行，故记录仍处于 proposed。
 
 后端入口与业务实现分别位于 `backend/server` 和 `backend/package/yuxi`，业务服务、repository、运行时和资源管理采用不同归组方式。目标是合并后端项目边界，以业务模块组织用例与持久化，并明确 HTTP、worker、技术设施和启动装配的位置。
 
@@ -18,7 +18,7 @@ Owner：backend/pyproject.toml
 
 保留一个 Python 导入命名空间 `yuxi` 和一份后端项目配置。HTTP 与 worker 作为应用入口；业务模块拥有用例、事务和 repository；基础设施提供连接与技术适配；bootstrap 拥有启动装配。共享 Schema 初始化入口，保留当前 business 与 knowledge 两套 PostgreSQL metadata；业务 ORM 定义随其业务模块归组。
 
-项目装配事实来自后端项目配置（`backend/pyproject.toml`）、API 入口（`backend/yuxi/api/main.py`）、worker 执行与装配（`backend/yuxi/workers/main.py`、`backend/yuxi/bootstrap/worker.py`）和 Compose（`docker-compose.yml`）。当前业务边界由 ARCHITECTURE.md 与源码拥有；本文件保存来源与目标的迁移映射。
+项目装配事实来自后端项目配置（`backend/pyproject.toml`）、API 入口（`backend/zs/api/main.py`）、worker 执行与装配（`backend/zs/workers/main.py`、`backend/zs/bootstrap/worker.py`）和 Compose（`docker-compose.yml`）。当前业务边界由 ARCHITECTURE.md 与源码拥有；本文件保存来源与目标的迁移映射。
 
 普通输入继续由 Agent 模块接收并持久化，经 FIFO 创建 Turn/Run，在事务提交后投递 worker；worker 调用同域 runner 执行、收敛终态并发布事件。知识文件和聊天附件共同调用 documents 的配置感知解析入口，再调用 infrastructure 的解析引擎；知识文件的状态、分块与索引仍由 knowledge 拥有。schedules 调用统一 Agent 输入用例，background_jobs 保留独立持久作业状态。
 
@@ -26,12 +26,12 @@ Owner：backend/pyproject.toml
 
 ### 目标文件树
 
-这是一份目标结构快照，所有目标路径均相对 `backend/yuxi/`。来源前缀 `Y/` = `backend/package/yuxi/`，`S/` = `backend/server/`。`[移]` 为文件迁移，`[移改]` 同时重命名或收窄原入口，`[整移]` 为目录整体迁移，`[拆]` 为从来源文件抽取一部分，`[合]` 为合并多个来源中的指定职责，`[新]` 为装配需要的新文件。
+这是一份目标结构快照，所有目标路径均相对 `backend/zs/`。来源前缀 `Y/` = `backend/package/yuxi/`，`S/` = `backend/server/`。`[移]` 为文件迁移，`[移改]` 同时重命名或收窄原入口，`[整移]` 为目录整体迁移，`[拆]` 为从来源文件抽取一部分，`[合]` 为合并多个来源中的指定职责，`[新]` 为装配需要的新文件。
 
 整体迁移表示内部文件布局和业务职责保留，仍需机械修正 import、动态注册字符串及资源定位。存在内部新增、拆分或合并的目录全部展开。树列出具有职责的文件与现有 initializer；新增目录只在工具链或注册需求实际要求时补空 `__init__.py`，不在本提案批量制造空文件。
 
 ```text
-backend/yuxi/
+backend/zs/
 ├── api/
 │   ├── dependencies/
 │   │   ├── auth.py  # [移改] S/utils/auth_middleware.py；JWT/API Key 身份解析与 FastAPI Depends
@@ -320,7 +320,7 @@ backend/yuxi/
 
 ### 拆分与合并的具体边界
 
-本节补充树中不能仅靠 rename 完成的变更。下列目标均相对 `backend/yuxi/`；未明确抽出的职责留在表中指定的主要承接文件，不根据行数继续拆 helper。
+本节补充树中不能仅靠 rename 完成的变更。下列目标均相对 `backend/zs/`；未明确抽出的职责留在表中指定的主要承接文件，不根据行数继续拆 helper。
 
 | 来源 | 目标与职责分配 | 保持的边界 |
 |---|---|---|
@@ -356,24 +356,24 @@ backend/yuxi/
 
 ### 树外必须同步的装配文件
 
-这些文件不在 `backend/yuxi/` 下，保持原位置；实施迁移时必须一起检查。
+这些文件不在 `backend/zs/` 下，保持原位置；实施迁移时必须一起检查。
 
 | 文件或范围 | 同步内容 |
 |---|---|
 | `backend/pyproject.toml`、`backend/package/pyproject.toml`、`backend/uv.lock` | 合并项目元数据、运行依赖、包资源、测试依赖与约束，移除 workspace 对本地 package 的自依赖；重新生成锁文件。保留 distribution 版本查询、Python 版本范围与显式包发现配置。 |
 | `backend/package/README.md` | 核对包说明并归入唯一后端说明位置或根 README；删除旧子项目目录前明确其去向。 |
-| `docker/api.Dockerfile`、`docker/api-entrypoint.sh` | COPY/安装路径改为 backend/yuxi；核对工作目录、用户权限与 package data。 |
+| `docker/api.Dockerfile`、`docker/api-entrypoint.sh` | COPY/安装路径改为 backend/zs；核对工作目录、用户权限与 package data。 |
 | `docker-compose.yml`、`docker-compose.prod.yml` | 源码挂载、reload 范围、API 启动指向 `yuxi.api.main:app`；worker 指向 `yuxi.workers.main`；schema-init 指向 `yuxi.migrations.main`；healthcheck 路径同步。保持服务拓扑与依赖门禁。 |
 | `backend/test`、`backend/scripts`、根 `scripts`、`.github/workflows`、`Makefile` | 导入、monkeypatch 字符串、静态源码路径、Ruff 范围、pytest pythonpath、镜像构建和测试选择器随迁移同步。仍保留现有 unit/integration/E2E 分层。 |
 | 根与 backend `AGENTS.md`、`ARCHITECTURE.md`、开发与机制文档 | 实施后更新 `yuxi.services`、`yuxi.repositories` 等路径约定及源码链接。提案阶段继续以现有规则为准。 |
-| `packages/yuxi-cli`、`frontend` | HTTP 协议保持不变，原则上无需随 Python 目录迁移改动；搜索是否存在路径假设后再判断。 |
+| `packages/zs-cli`、`frontend` | HTTP 协议保持不变，原则上无需随 Python 目录迁移改动；搜索是否存在路径假设后再判断。 |
 
 内置 Skill 的 Markdown、脚本和相对资源路径属于交付资源；保留目录内容不等于自动保证镜像携带这些资源，必须从构建后的运行环境回读。数据库作业 type、handler_version、工具 slug、Agent backend_id、模型 provider ID 和公开 URL 不随纯 Python 目录迁移修改；后台作业的独立命名、schema 与 API 变更由[后台作业命名决策](../implemented/2026-10-04-background-job-naming-and-dispatch.md)拥有。
 
 ## 替代方案
 
 - 保留技术分层并在 services/repositories 内按业务归组：迁移成本更低，同一业务仍跨多个顶层目录维护。
-- `backend/src/yuxi`：可以隔离工作目录导入；本提案选择 `backend/yuxi` 减少嵌套，安装、测试与镜像统一配置导入入口。
+- `backend/src/yuxi`：可以隔离工作目录导入；本提案选择 `backend/zs` 减少嵌套，安装、测试与镜像统一配置导入入口。
 - 一次性引入严格领域层、端口层和适配器层：缺少足够当前消费者，不采用机械套层。
 
 ## 验收标准

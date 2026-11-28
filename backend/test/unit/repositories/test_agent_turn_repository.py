@@ -5,12 +5,12 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.modules.agents.repositories.turn import AgentTurnRepository
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.messages import Message
+from zs.modules.agents.repositories.turn import AgentTurnRepository
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.messages import Message
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

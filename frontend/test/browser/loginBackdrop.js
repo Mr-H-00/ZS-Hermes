@@ -25,10 +25,10 @@ async originalPage => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     const motion = await page.locator('.card-side.is-image .bough').evaluate(el => getComputedStyle(el).animationName)
     check(motion === 'none', '减少动效时枝条仍在动画')
-    await page.screenshot({ path: '/tmp/yuxi-login-review.png' })
+    await page.screenshot({ path: '/tmp/zs-login-review.png' })
     await page.evaluate(() => document.documentElement.classList.add('dark'))
     check(await page.locator('.login-bg-art').evaluate(el => getComputedStyle(el).getPropertyValue('--paper').trim()) === '#1b2422', '深色主题没有更新内置图色板')
-    await page.screenshot({ path: '/tmp/yuxi-login-review-dark.png' })
+    await page.screenshot({ path: '/tmp/zs-login-review-dark.png' })
 
     loginBg = '/login-bg.jpg'
     await page.reload()

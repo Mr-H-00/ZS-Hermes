@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760" role="img" aria-labelledby="title desc">
-  <title id="title">Yuxi knowledge ingestion, retrieval, and graph task flow</title>
+  <title id="title">ZS knowledge ingestion, retrieval, and graph task flow</title>
   <desc id="desc">Document ingestion is distinct from the optional graph indexing durable task; agent access is mediated by the knowledge-base skill.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#52616b"/></marker>

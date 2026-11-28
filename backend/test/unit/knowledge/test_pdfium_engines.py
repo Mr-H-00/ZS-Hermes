@@ -13,9 +13,9 @@ import pytest
 from PIL import Image
 from pypdf import PdfWriter
 
-from yuxi.infrastructure.document_parsing import OCRException, pdf_utils
-from yuxi.infrastructure.document_parsing.engines.deepseek_ocr import DeepSeekOCRParser
-from yuxi.infrastructure.document_parsing.engines.rapid_ocr import RapidOCRParser
+from zs.infrastructure.document_parsing import OCRException, pdf_utils
+from zs.infrastructure.document_parsing.engines.deepseek_ocr import DeepSeekOCRParser
+from zs.infrastructure.document_parsing.engines.rapid_ocr import RapidOCRParser
 
 
 @pytest.fixture

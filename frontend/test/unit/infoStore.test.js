@@ -25,7 +25,7 @@ test('调试模式读取受限 LocalStorage 时降级为关闭', async () => {
     const store = useInfoStore()
 
     assert.equal(store.debugMode, false)
-    assert.deepEqual(store.branding, { name: '智枢', logo: '/favicon.svg', title: '', login_bg: '' })
+    assert.deepEqual(store.branding, { name: '企业智能体', logo: '/favicon.svg', title: '', login_bg: '' })
     assert.equal('organization' in store, false)
   } finally {
     await server.close()

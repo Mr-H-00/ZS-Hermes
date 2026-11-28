@@ -8,12 +8,12 @@ async (page) => {
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='
   const check = (value, message) => { if (!value) throw new Error(message) }
   const thread = { id: threadId, object: 'agent.session', status: 'in_progress', agent: { id: agentId, model: 'test:chat' },
-    created_at: 1791580000, metadata: {}, yuxi: { title: '输入队列验证', current_turn: { id: 'turn-A', status: 'in_progress' }, context: {}, project_id: 'queue-project', config: {}, is_pinned: false } }
+    created_at: 1791580000, metadata: {}, zs: { title: '输入队列验证', current_turn: { id: 'turn-A', status: 'in_progress' }, context: {}, project_id: 'queue-project', config: {}, is_pinned: false } }
   const agent = { agent_id: agentId, name: '队列验证助手', config_json: { context: { model: 'test:chat' } }, configurable_items: {}, metadata: {} }
   let inputs = ['B', 'C', 'D'].map((id) => ({ input_id: id, kind: 'follow_up', status: 'pending', content: `待处理消息 ${id}`, attachment_status: id === 'D' ? 'preparing' : 'ready' }))
   const commands = [], snapshots = []
   const history = [{ id: 'input_1', object: 'agent.session.item', type: 'message', role: 'user', status: 'completed', turn_id: 'turn-A',
-    content: [{ type: 'input_text', text: '当前正在执行的消息 A' }], yuxi: { message_id: '1', run_id: 'run-A', created_at: '2026-10-10T01:00:00Z' } }]
+    content: [{ type: 'input_text', text: '当前正在执行的消息 A' }], zs: { message_id: '1', run_id: 'run-A', created_at: '2026-10-10T01:00:00Z' } }]
   const runs = [{ id: 'run-A', turn_id: 'turn-A', status: 'running', input_ids: ['A'], artifacts: [] }]
   await page.addInitScript(() => localStorage.setItem('user_token', 'queue-replay-token'))
   await page.route('**/api/**', async (route) => {
@@ -26,16 +26,16 @@ async (page) => {
     else if (path.endsWith('/events') && route.request().method() === 'POST') {
       const event = route.request().postDataJSON().events[0]
       commands.push(event)
-      if (event.type === 'yuxi.session.input.promote') inputs.find(item => item.input_id === event.input_id).kind = 'steer'
-      else if (event.type === 'yuxi.session.input.cancel_input') inputs = inputs.filter(item => item.input_id !== event.input_id)
-      else if (event.type === 'agent.session.input.message') inputs.push({ input_id: 'image-input', kind: event.yuxi.mode, status: 'pending', content: '图片引导', attachment_status: 'ready' })
+      if (event.type === 'zs.session.input.promote') inputs.find(item => item.input_id === event.input_id).kind = 'steer'
+      else if (event.type === 'zs.session.input.cancel_input') inputs = inputs.filter(item => item.input_id !== event.input_id)
+      else if (event.type === 'agent.session.input.message') inputs.push({ input_id: 'image-input', kind: event.zs.mode, status: 'pending', content: '图片引导', attachment_status: 'ready' })
       status = 202
-      json = { type: 'yuxi.session.event.accepted', event_id: 'receipt', input_id: event.input_id || 'image-input', turn_id: null, run_id: null, status: 'accepted' }
+      json = { type: 'zs.session.event.accepted', event_id: 'receipt', input_id: event.input_id || 'image-input', turn_id: null, run_id: null, status: 'accepted' }
     } else if (path.endsWith('/events')) return route.fulfill({ contentType: 'text/event-stream', body: ': heartbeat\n\n' })
     else if (path.includes('/inputs/')) json = { status: 'pending', messages: [], items: [] }
     else if (path.endsWith('/queue')) { snapshots.push(inputs.map(item => item.input_id)); json = { inputs: [...inputs].sort((a,b) => Number(b.kind === 'steer') - Number(a.kind === 'steer')), status: 'running', queue_paused: false } }
-    else if (path.endsWith('/turns/turn-A')) json = { id: 'turn-A', status: 'in_progress', yuxi: { current_run_id: 'run-A', runs: [], waitpoint: null } }
-    else if (path.endsWith('/items')) json = { data: history, has_more: false, last_id: history.at(-1).id, yuxi: { runs } }
+    else if (path.endsWith('/turns/turn-A')) json = { id: 'turn-A', status: 'in_progress', zs: { current_run_id: 'run-A', runs: [], waitpoint: null } }
+    else if (path.endsWith('/items')) json = { data: history, has_more: false, last_id: history.at(-1).id, zs: { runs } }
     else if (path === '/api/v1/agents/sessions') json = { data: [thread], has_more: false }
     else if (path.endsWith(`/${threadId}`) || path.endsWith('/viewed')) json = thread
     else if (path.endsWith('/state')) json = { agent_state: {}, interrupt: null }
@@ -55,7 +55,7 @@ async (page) => {
   check(await rows.filter({ hasText: '待处理消息 D' }).getByRole('button', { name: '转为引导', exact: true }).count() === 0, '未就绪输入允许转换')
   await rows.filter({ hasText: '待处理消息 B' }).getByRole('button', { name: '转为引导', exact: true }).click()
   await rows.filter({ hasText: '待处理消息 B' }).getByText('等待引导').waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-input-queue-desktop.png' })
+  await page.screenshot({ path: '/tmp/zs-input-queue-desktop.png' })
   await rows.filter({ hasText: '待处理消息 C' }).getByRole('button', { name: '取消排队输入：待处理消息 C', exact: true }).click()
   await rows.filter({ hasText: '待处理消息 C' }).waitFor({ state: 'detached' })
   await page.reload()
@@ -64,7 +64,7 @@ async (page) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.waitForFunction(() => document.querySelector('.app-layout.sidebar-collapsed')?.firstElementChild?.getBoundingClientRect().width <= 60)
   await page.waitForTimeout(250)
-  await page.screenshot({ path: '/tmp/yuxi-input-queue-mobile.png' })
+  await page.screenshot({ path: '/tmp/zs-input-queue-mobile.png' })
   const boxes = await rows.evaluateAll(nodes => nodes.map(node => {
     const content = node.querySelector('.queued-request-content').getBoundingClientRect()
     const notice = node.querySelector('.queued-request-status').getBoundingClientRect()
@@ -85,12 +85,12 @@ async (page) => {
   await page.getByRole('button', { name: '引导', exact: true }).click()
   await rows.filter({ hasText: '图片引导' }).waitFor()
   const sent = commands.find(command => command.type === 'agent.session.input.message')
-  check(sent?.yuxi.mode === 'steer' && sent.input[0].content.some(part => part.type === 'input_image' && part.image_url === png), '直接引导遗漏图片')
+  check(sent?.zs.mode === 'steer' && sent.input[0].content.some(part => part.type === 'input_image' && part.image_url === png), '直接引导遗漏图片')
   check(snapshots.length >= 4, '操作后没有回读队列')
-  await page.screenshot({ path: '/tmp/yuxi-input-queue-image-steer.png' })
+  await page.screenshot({ path: '/tmp/zs-input-queue-image-steer.png' })
   inputs = inputs.filter(item => item.input_id !== 'B')
   history.push({ ...history[0], id: 'input_2', content: [{ type: 'input_text', text: '待处理消息 B' }],
-    yuxi: { message_id: '2', run_id: 'run-B', input_id: 'B', input_position: 0, created_at: '2026-10-10T01:01:00Z' } })
+    zs: { message_id: '2', run_id: 'run-B', input_id: 'B', input_position: 0, created_at: '2026-10-10T01:01:00Z' } })
   runs[0].status = 'yielded'
   runs.push({ id: 'run-B', turn_id: 'turn-A', status: 'running', input_ids: ['B'], artifacts: [] })
   for (let reload = 0; reload < 2; reload += 1) {

@@ -141,27 +141,27 @@ def install(probe, app=None):
         return
     _installed = True
     modules = (
-        "yuxi.modules.agents.services.inputs",
-        "yuxi.modules.agents.services.scheduler",
-        "yuxi.modules.agents.services.turns",
-        "yuxi.modules.agents.services.runs",
-        "yuxi.modules.agents.services.preparation",
-        "yuxi.modules.workspace.services.bindings",
-        "yuxi.modules.agents.services.memory",
-        "yuxi.modules.agents.services.transport",
-        "yuxi.modules.agents.runtime.context",
-        "yuxi.modules.extensions.skills.runtime",
-        "yuxi.modules.extensions.skills.shared",
-        "yuxi.modules.agents.runtime.sandbox.backend",
-        "yuxi.modules.agents.runtime.agent_backends.chatbot.graph",
-        "yuxi.api.dependencies.auth",
+        "zs.modules.agents.services.inputs",
+        "zs.modules.agents.services.scheduler",
+        "zs.modules.agents.services.turns",
+        "zs.modules.agents.services.runs",
+        "zs.modules.agents.services.preparation",
+        "zs.modules.workspace.services.bindings",
+        "zs.modules.agents.services.memory",
+        "zs.modules.agents.services.transport",
+        "zs.modules.agents.runtime.context",
+        "zs.modules.extensions.skills.runtime",
+        "zs.modules.extensions.skills.shared",
+        "zs.modules.agents.runtime.sandbox.backend",
+        "zs.modules.agents.runtime.agent_backends.chatbot.graph",
+        "zs.api.dependencies.auth",
     )
     for name in modules:
         importlib.import_module(name)
 
     replacements = {}
     for module_name, module in list(sys.modules.items()):
-        if module is None or not (module_name in modules or ".repositories." in module_name and module_name.startswith("yuxi.modules.")):
+        if module is None or not (module_name in modules or ".repositories." in module_name and module_name.startswith("zs.modules.")):
             continue
         for value in vars(module).copy().values():
             if inspect.isfunction(value) and value.__module__ == module_name:
@@ -173,7 +173,7 @@ def install(probe, app=None):
                         setattr(value, method_name, measured(method, probe.trace))
     # 同一函数可能以 from import 绑定到多个 consumer，均替换以覆盖实际装配路径。
     for module_name, module in list(sys.modules.items()):
-        if module is not None and module_name.startswith(("yuxi.", "server.")):
+        if module is not None and module_name.startswith(("zs.", "server.")):
             for name, value in vars(module).copy().items():
                 if inspect.isfunction(value) and value in replacements:
                     setattr(module, name, replacements[value])

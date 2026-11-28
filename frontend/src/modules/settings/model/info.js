@@ -4,7 +4,7 @@ import { brandApi } from '@/apis/system_api'
 
 function readDebugMode() {
   try {
-    return localStorage.getItem('yuxi_debug_mode') === 'true'
+    return localStorage.getItem('zs_debug_mode') === 'true'
   } catch {
     return false
   }
@@ -21,7 +21,7 @@ export const useInfoStore = defineStore('info', () => {
 
   // 产品品牌只保留一份名称和 Logo。
   const branding = computed(
-    () => infoConfig.value.branding || { name: '智枢', logo: '/favicon.svg', title: '', login_bg: '' }
+    () => infoConfig.value.branding || { name: '企业智能体', logo: '/favicon.svg', title: '', login_bg: '' }
   )
 
   // 计算属性 - 页脚信息
@@ -42,9 +42,9 @@ export const useInfoStore = defineStore('info', () => {
     debugMode.value = Boolean(enabled)
     try {
       if (debugMode.value) {
-        localStorage.setItem('yuxi_debug_mode', 'true')
+        localStorage.setItem('zs_debug_mode', 'true')
       } else {
-        localStorage.removeItem('yuxi_debug_mode')
+        localStorage.removeItem('zs_debug_mode')
       }
     } catch {
       // localStorage 不可用时仍保留当前页面内的响应式状态。

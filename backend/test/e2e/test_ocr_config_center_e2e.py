@@ -90,7 +90,7 @@ async def test_admin_ocr_config_drives_real_tmp_attachment_parse(
                                 "content": [{"type": "input_text", "text": "保存 OCR 文档"}],
                             }
                         ],
-                        "yuxi": {"mode": "follow_up", "attachment_file_ids": [uploaded["id"]]},
+                        "zs": {"mode": "follow_up", "attachment_file_ids": [uploaded["id"]]},
                     }
                 ]
             },

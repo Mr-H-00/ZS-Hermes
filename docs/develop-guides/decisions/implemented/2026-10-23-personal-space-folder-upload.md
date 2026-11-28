@@ -2,11 +2,11 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/workspace/services/files.py
+Owner：backend/zs/modules/workspace/services/files.py
 
 ## 问题
 
-事实：改动前的个人空间上传入口只接受普通多选文件；前端输入框没有 `webkitdirectory`，API 只发送 `parent_path + files`，服务层用 `Path(file.filename).name` 把客户端文件名压成单段并拒绝同批重名（`frontend/src/pages/WorkspaceView.vue`、`frontend/src/apis/workspace_api.js`、`backend/yuxi/modules/workspace/services/files.py`，HEAD 版本）。知识库在 `462bb204` 单独实现了目录上传，通过 `webkitRelativePath` 和 `source_paths` 保留层级；个人空间没有跟进。仓库中没有找到个人空间文件夹上传的既决或否决记录。推断：个人空间未跟进知识库的目录上传，是两套上传链路造成的能力缺口，而不是已记录的技术限制。
+事实：改动前的个人空间上传入口只接受普通多选文件；前端输入框没有 `webkitdirectory`，API 只发送 `parent_path + files`，服务层用 `Path(file.filename).name` 把客户端文件名压成单段并拒绝同批重名（`frontend/src/pages/WorkspaceView.vue`、`frontend/src/apis/workspace_api.js`、`backend/zs/modules/workspace/services/files.py`，HEAD 版本）。知识库在 `462bb204` 单独实现了目录上传，通过 `webkitRelativePath` 和 `source_paths` 保留层级；个人空间没有跟进。仓库中没有找到个人空间文件夹上传的既决或否决记录。推断：个人空间未跟进知识库的目录上传，是两套上传链路造成的能力缺口，而不是已记录的技术限制。
 
 ## 决策
 

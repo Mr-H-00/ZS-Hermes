@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/agents/runtime/context.py
+Owner：backend/zs/modules/agents/runtime/context.py
 
 ## 问题
 
@@ -36,4 +36,4 @@ auth 不再提供保密语义，新增 Context 字段不得把凭据放在此配
 - `python3 scripts/verify_engineering_contracts.py` 与 `python3 -m unittest scripts.test_verify_engineering_contracts`：通过，后者 62 tests。
 - `cd docs && pnpm run build`：通过。
 
-实现和验证入口分别由 [Context 配置](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/context.py)、[HTTP 写入服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/configuration.py)、[权限集成测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_agent_config_resource_authorization.py) 和 [执行限制 E2E](https://github.com/xerrors/Yuxi/blob/main/backend/test/e2e/test_agent_lifecycle_extended_e2e.py) 拥有。配置使用说明见[配置智能体](../../../agents/agents-config.md)。
+实现和验证入口分别由 [Context 配置](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/context.py)、[HTTP 写入服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/configuration.py)、[权限集成测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_agent_config_resource_authorization.py) 和 [执行限制 E2E](https://github.com/xerrors/Yuxi/blob/main/backend/test/e2e/test_agent_lifecycle_extended_e2e.py) 拥有。配置使用说明见[配置智能体](../../../agents/agents-config.md)。

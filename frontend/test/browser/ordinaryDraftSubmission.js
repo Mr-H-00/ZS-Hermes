@@ -12,7 +12,7 @@ async page => {
   const submissions = []
   const thread = () => ({ id: 'draft-thread', object: 'agent.session', status: phase === 'idle' ? 'completed' : 'in_progress',
     agent: { id: agent.agent_id }, metadata: {}, created_at: 1793400000,
-    yuxi: { title: '普通草稿验收', context: {}, config: {}, project_id: null,
+    zs: { title: '普通草稿验收', context: {}, config: {}, project_id: null,
       current_turn: phase === 'idle' ? null : { id: 'draft-turn', status: 'in_progress' } } })
   await page.route('https://api.github.com/**', route => route.fulfill({ json: {} }))
   await page.route('**/api/**', async route => {
@@ -33,12 +33,12 @@ async page => {
     if (path === '/api/knowledge/knowledge-bases/accessible') accessibleKnowledgeReads++
     if (path === '/api/v1/agents/sessions') json = { data: [thread()], has_more: false }
     if (path.endsWith('/draft-thread') || path.endsWith('/viewed')) json = thread()
-    if (path.endsWith('/items')) json = { data: [], has_more: false, yuxi: { runs: [] } }
+    if (path.endsWith('/items')) json = { data: [], has_more: false, zs: { runs: [] } }
     if (path.endsWith('/state')) json = { agent_state: {}, interrupt: null }
     if (path.endsWith('/queue')) json = { inputs: [], status: 'ready', queue_paused: false }
     if (path.endsWith('/cooperation')) json = { sessions: [], members: [], edges: [] }
     if (path.endsWith('/feedback')) json = { items: [] }
-    if (path.endsWith('/turns/draft-turn')) json = { id: 'draft-turn', status: 'in_progress', yuxi: {
+    if (path.endsWith('/turns/draft-turn')) json = { id: 'draft-turn', status: 'in_progress', zs: {
       current_run_id: phase === 'missing-run' ? null : 'draft-run', cancellation_pending: phase === 'cancelling',
       waitpoint: phase === 'cooperation' ? { kind: 'cooperation' } : null } }
     if (path === '/api/agent/images') json = { image_url: imageUrl, thumbnail_url: imageUrl, mime_type: 'image/png', width: 1, height: 1, format: 'PNG', size_bytes: 68 }
@@ -79,7 +79,7 @@ async page => {
     check(await send.isEnabled(), '纯图片草稿必须可以发送')
     await send.click()
     await page.waitForFunction(() => document.querySelector('.image-preview') === null)
-    check(submissions.at(-1)?.events?.[0]?.yuxi?.mode === 'follow_up', '纯图片普通消息必须使用 FIFO')
+    check(submissions.at(-1)?.events?.[0]?.zs?.mode === 'follow_up', '纯图片普通消息必须使用 FIFO')
     check(submissions.at(-1)?.events?.[0]?.input?.[0]?.content?.[0]?.type === 'input_image', '发送协议必须保留图片正文')
 
     await load('running')
@@ -89,7 +89,7 @@ async page => {
     check(await page.getByRole('button', { name: '发送消息', exact: true }).isEnabled(), '运行中图片草稿可准备发送')
     await page.getByRole('button', { name: '移除图片 draft.png', exact: true }).click()
     await page.getByRole('button', { name: '停止回答', exact: true }).waitFor()
-    await page.screenshot({ path: '/tmp/yuxi-ordinary-draft-stop.png' })
+    await page.screenshot({ path: '/tmp/zs-ordinary-draft-stop.png' })
 
     for (const mode of ['cooperation', 'cancelling', 'missing-run']) {
       await load(mode)
@@ -104,13 +104,13 @@ async page => {
     await page.waitForFunction(() => document.querySelector('.mention-editor').textContent === '')
     await editor.fill('等待提交时的新草稿')
     check(await page.getByRole('button', { name: '引导', exact: true }).count() === 0, '接收结果待确认时不能重复引导')
-    check(submissions.at(-1)?.events?.[0]?.yuxi?.mode === 'steer', '普通引导必须显式提交 steer')
+    check(submissions.at(-1)?.events?.[0]?.zs?.mode === 'steer', '普通引导必须显式提交 steer')
     const accepted = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/events'))
     releaseInput()
     releaseInput = null
     await accepted
     check(managementKnowledgeReads === 0, 'Knowledge关闭时布局不应加载管理列表')
-    await page.screenshot({ path: '/tmp/yuxi-ordinary-draft-pending.png' })
+    await page.screenshot({ path: '/tmp/zs-ordinary-draft-pending.png' })
     discoveryMode = 'failed'
     await load('idle')
     check(managementKnowledgeReads === 0, 'discovery失败时布局不应加载管理列表')

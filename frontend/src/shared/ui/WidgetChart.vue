@@ -157,7 +157,7 @@ function drawChart() {
 </script>
 
 <style lang="less">
-.yuxi-widget .widget-chart {
+.zs-widget .widget-chart {
   margin: 0;
   width: 100%;
   min-width: 0;

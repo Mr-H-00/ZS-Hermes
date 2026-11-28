@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from yuxi.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
 
 pytestmark = pytest.mark.usefixtures("milvus_graph_projection_lock")
 
@@ -211,7 +211,7 @@ async def test_milvus_graph_service_early_returns_empty_for_missing_kb_id(method
 @pytest.mark.parametrize("operation", ["has_collection", "drop_collection"])
 def test_drop_graph_collections_propagates_storage_failure(monkeypatch, operation):
     """图集合检查或删除失败必须向上传播。"""
-    from yuxi.modules.knowledge.graphs import milvus_graph_vector_store as module
+    from zs.modules.knowledge.graphs import milvus_graph_vector_store as module
 
     store = MilvusGraphVectorStore.__new__(MilvusGraphVectorStore)
     store.connection_alias = "test"
@@ -252,7 +252,7 @@ async def test_delete_file_graph_initializes_vector_store_outside_event_loop(mon
     from contextlib import asynccontextmanager
     from unittest.mock import AsyncMock
 
-    import yuxi.modules.knowledge.graphs.service as module
+    import zs.modules.knowledge.graphs.service as module
 
     loop_thread = threading.get_ident()
     store = SimpleNamespace(delete_graph_records=AsyncMock())

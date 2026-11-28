@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/infrastructure/document_parsing/engines/mineru.py
+Owner：backend/zs/infrastructure/document_parsing/engines/mineru.py
 
 ## 问题
 

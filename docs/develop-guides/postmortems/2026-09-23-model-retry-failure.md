@@ -1,7 +1,7 @@
 # 模型重试耗尽合成回答破坏终态关联
 
 日期：2026-09-23
-Owner：backend/yuxi/modules/agents/runtime/middlewares/network_retry.py
+Owner：backend/zs/modules/agents/runtime/middlewares/network_retry.py
 关联决策：[模型重试耗尽保留失败语义](../decisions/implemented/2026-09-23-model-retry-failure.md)
 
 ## 影响

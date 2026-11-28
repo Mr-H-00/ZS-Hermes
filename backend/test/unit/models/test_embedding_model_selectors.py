@@ -4,13 +4,13 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from yuxi.modules.models.embed import (
+from zs.modules.models.embed import (
     LocalBGEM3Embedding,
     OtherEmbedding,
     RemoteBGEM3DenseLocalSparseEmbedding,
     select_embedding_model,
 )
-from yuxi.modules.models.providers.cache import ModelInfo
+from zs.modules.models.providers.cache import ModelInfo
 
 
 def _local_bge_m3_info(model_id: str = "BAAI/bge-m3") -> ModelInfo:
@@ -93,7 +93,7 @@ async def _fake_httpx_post(*args, **kwargs):
 def test_select_embedding_model_uses_local_bge_m3_provider(monkeypatch):
     """provider_type=local 时选择本地 BGE-M3 provider。"""
     monkeypatch.setattr(
-        "yuxi.modules.models.embed.model_cache.get_model_info",
+        "zs.modules.models.embed.model_cache.get_model_info",
         lambda spec: _local_bge_m3_info() if spec == "local-bge-m3:BAAI/bge-m3" else None,
     )
 
@@ -110,7 +110,7 @@ def test_select_embedding_model_uses_remote_bge_m3_hybrid_provider(monkeypatch, 
     """远端 BGE-M3 spec 应选择 dense 远端、sparse 本地的组合 provider。"""
     spec = f"siliconflow:{model_id}"
     monkeypatch.setattr(
-        "yuxi.modules.models.embed.model_cache.get_model_info",
+        "zs.modules.models.embed.model_cache.get_model_info",
         lambda current_spec: _remote_bge_m3_info(model_id) if current_spec == spec else None,
     )
 
@@ -128,7 +128,7 @@ def test_select_embedding_model_keeps_other_remote_embeddings_unchanged(monkeypa
     """非 BGE-M3 的远端 embedding 仍走原有 HTTP provider。"""
     spec = "openai:text-embedding-3-large"
     monkeypatch.setattr(
-        "yuxi.modules.models.embed.model_cache.get_model_info",
+        "zs.modules.models.embed.model_cache.get_model_info",
         lambda current_spec: _remote_embedding_info() if current_spec == spec else None,
     )
 
@@ -141,7 +141,7 @@ def test_select_embedding_model_keeps_other_remote_embeddings_unchanged(monkeypa
 def test_select_embedding_model_rejects_local_non_bge_m3(monkeypatch):
     """local provider 不允许绑定非 BGE-M3 embedding 模型。"""
     monkeypatch.setattr(
-        "yuxi.modules.models.embed.model_cache.get_model_info",
+        "zs.modules.models.embed.model_cache.get_model_info",
         lambda spec: _local_bge_m3_info("BAAI/other") if spec == "local-bge-m3:BAAI/other" else None,
     )
 
@@ -218,7 +218,7 @@ async def test_local_bge_m3_connection_probe_does_not_load_full_encoder(monkeypa
     model_dir = Path("rag_qa/models/bge-m3")
     checked_dirs = []
 
-    monkeypatch.setattr("yuxi.modules.models.embed._resolve_local_bge_m3_model_dir", lambda raw_path: model_dir)
+    monkeypatch.setattr("zs.modules.models.embed._resolve_local_bge_m3_model_dir", lambda raw_path: model_dir)
     monkeypatch.setattr(
         LocalBGEM3Embedding,
         "_validate_model_files",

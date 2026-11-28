@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# Yuxi Initialization Script for Bash/Linux/macOS
-# This script helps set up the environment for the Yuxi project
+# ZS Initialization Script for Bash/Linux/macOS
+# This script helps set up the environment for the ZS project
 
 set -e
 umask 077
 
 # 环境输入优先于文件；无人值守必须显式选择，避免 EOF 被当成用户回答。
-env_file="${YUXI_ENV_FILE:-.env}"
-non_interactive="${YUXI_INIT_NON_INTERACTIVE:-0}"
-skip_images="${YUXI_INIT_SKIP_IMAGES:-0}"
+env_file="${ZS_ENV_FILE:-.env}"
+non_interactive="${ZS_INIT_NON_INTERACTIVE:-0}"
+skip_images="${ZS_INIT_SKIP_IMAGES:-0}"
 compose_file=docker-compose.yml
 
 fail() {
@@ -210,7 +210,7 @@ fi
 [ $# -eq 0 ] || fail "Unknown argument: $1"
 case "$non_interactive:$skip_images" in
     0:0|0:1|1:0|1:1) ;;
-    *) fail "YUXI_INIT_NON_INTERACTIVE and YUXI_INIT_SKIP_IMAGES must be 0 or 1." ;;
+    *) fail "ZS_INIT_NON_INTERACTIVE and ZS_INIT_SKIP_IMAGES must be 0 or 1." ;;
 esac
 
 skip_existing_image() {
@@ -224,7 +224,7 @@ skip_existing_image() {
     return 0
 }
 
-echo "🚀 Initializing Yuxi project..."
+echo "🚀 Initializing ZS project..."
 echo "=================================="
 
 if [ ! -f "$env_file" ]; then
@@ -234,13 +234,13 @@ chmod 600 "$env_file"
 
 # 只接收初始化拥有的输入，不把宿主全部环境或开发配置复制进新部署。
 for name in SILICONFLOW_API_KEY WEB_SEARCH_PROVIDER DOUBAO_SEARCH_API_KEY TAVILY_API_KEY DEEPSEEK_API_KEY \
-    JWT_SECRET_KEY API_KEY_DERIVATION_SECRET YUXI_INSTANCE_ID YUXI_ENV \
+    JWT_SECRET_KEY API_KEY_DERIVATION_SECRET ZS_INSTANCE_ID ZS_ENV \
     POSTGRES_PASSWORD NEO4J_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY \
     CUBE_API_URL CUBE_API_KEY CUBE_PROXY_NODE_IP CUBE_PROXY_PORT_HTTP CUBE_TEMPLATE_ID \
     CUBE_NODE_USER_DATA_DIR CUBE_NODE_SKILL_PROJECTION_DIR \
     SANDBOX_BACKEND SANDBOX_RUNNER_TOKEN SANDBOX_RUNNER_URL SANDBOX_CONTAINER_IMAGE \
     SANDBOX_CONTAINER_IMAGE_DIGEST SANDBOX_CONTAINER_NETWORK SANDBOX_CONTAINER_UID SANDBOX_CONTAINER_GID \
-    COMPOSE_PROJECT_NAME YUXI_STATE_DIR YUXI_FRONTEND_PORT; do
+    COMPOSE_PROJECT_NAME ZS_STATE_DIR ZS_FRONTEND_PORT; do
     if [ "${!name+x}" = x ]; then
         case "$name" in
             JWT_SECRET_KEY|API_KEY_DERIVATION_SECRET)
@@ -266,14 +266,14 @@ echo "🔍 Configure Search and Fetch after login in Settings → 网络搜索 (
 ensure_security_secret JWT_SECRET_KEY
 ensure_security_secret API_KEY_DERIVATION_SECRET JWT_SECRET_KEY
 validate_security_env
-if [ -z "$(get_env_value YUXI_INSTANCE_ID)" ]; then
+if [ -z "$(get_env_value ZS_INSTANCE_ID)" ]; then
     if [ "$non_interactive" = 1 ]; then
         instance="instance-$(generate_hex 8)"
     else
-        prompt_value YUXI_INSTANCE_ID "YUXI_INSTANCE_ID (Enter to auto-generate)"
+        prompt_value ZS_INSTANCE_ID "ZS_INSTANCE_ID (Enter to auto-generate)"
         instance="${PROMPT_VALUE:-instance-$(generate_hex 8)}"
     fi
-    set_env_value YUXI_INSTANCE_ID "$instance"
+    set_env_value ZS_INSTANCE_ID "$instance"
 fi
 
 sandbox_backend=$(get_env_value SANDBOX_BACKEND)
@@ -292,7 +292,7 @@ if [ "$sandbox_backend" = container ]; then
     fi
 fi
 
-if [ "$(get_env_value YUXI_ENV)" = production ]; then
+if [ "$(get_env_value ZS_ENV)" = production ]; then
     compose_file=docker-compose.prod.yml
     for name in POSTGRES_PASSWORD NEO4J_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY; do
         if [ -z "$(get_env_value "$name")" ]; then
@@ -318,7 +318,7 @@ if [ "$sandbox_backend" = container ]; then
     echo "🐳 Container sandbox selected: start services with docker compose --profile container up -d."
 fi
 if [ "$skip_images" = 1 ]; then
-    echo "Image preparation skipped (YUXI_INIT_SKIP_IMAGES=1)."
+    echo "Image preparation skipped (ZS_INIT_SKIP_IMAGES=1)."
     exit 0
 fi
 
@@ -358,7 +358,7 @@ done
 
 # MinIO 官方镜像已全面下架，改为从仓库内 Dockerfile 构建
 echo "🔄 Building minio and storage-init images..."
-if YUXI_ENV_FILE="$env_file" docker compose --env-file "$env_file" -f "$compose_file" build minio storage-init; then
+if ZS_ENV_FILE="$env_file" docker compose --env-file "$env_file" -f "$compose_file" build minio storage-init; then
     echo "✅ Successfully built minio and storage-init images"
 else
     echo "❌ Failed to build minio or storage-init image"

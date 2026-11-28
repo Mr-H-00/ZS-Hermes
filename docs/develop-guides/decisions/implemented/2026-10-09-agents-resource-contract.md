@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/api/routers/public_v1/agents/schemas.py
+Owner：backend/zs/api/routers/public_v1/agents/schemas.py
 
 ## 问题
 

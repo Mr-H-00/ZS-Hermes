@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.knowledge.graphs.extractors.llm import LLMGraphExtractor
-from yuxi.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-from yuxi.modules.knowledge.storage import milvus
-from yuxi.modules.knowledge.storage.offload import BoundedOffload
-from yuxi.modules.knowledge.chunking.ragflow_like.parsers import semantic
+from zs.modules.knowledge.graphs.extractors.llm import LLMGraphExtractor
+from zs.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.storage import milvus
+from zs.modules.knowledge.storage.offload import BoundedOffload
+from zs.modules.knowledge.chunking.ragflow_like.parsers import semantic
 
 
 @pytest.mark.parametrize("kind", ["document", "entity", "triple"])
@@ -34,7 +34,7 @@ def test_collection_contract_has_fixed_common_fields_and_indexes(monkeypatch, ki
             self.indexes[name] = params
 
     monkeypatch.setattr(milvus, "Collection", Collection)
-    monkeypatch.setattr("yuxi.modules.knowledge.graphs.milvus_graph_vector_store.utility.has_collection", lambda *a, **k: False)
+    monkeypatch.setattr("zs.modules.knowledge.graphs.milvus_graph_vector_store.utility.has_collection", lambda *a, **k: False)
     info = SimpleNamespace(dimension=4, model_id="fixed")
     if kind == "document":
         executor = MilvusKB.__new__(MilvusKB)
@@ -114,7 +114,7 @@ async def test_graph_store_concurrent_acquisition_constructs_once(monkeypatch):
         stores.append(value)
         return value
 
-    monkeypatch.setattr("yuxi.modules.knowledge.graphs.service.MilvusGraphVectorStore", construct)
+    monkeypatch.setattr("zs.modules.knowledge.graphs.service.MilvusGraphVectorStore", construct)
     service = KnowledgeGraphService()
     clients = await asyncio.gather(*(service.get_graph_vector_store() for _ in range(40)))
     assert stores == [clients[0]]
@@ -132,7 +132,7 @@ async def test_extraction_reuses_model_and_preserves_each_chunk(monkeypatch):
         clients.append(client)
         return client
 
-    monkeypatch.setattr("yuxi.modules.knowledge.graphs.extractors.llm.select_model", model)
+    monkeypatch.setattr("zs.modules.knowledge.graphs.extractors.llm.select_model", model)
     extractor = LLMGraphExtractor({"model_spec": "fixed:model"})
     results = await asyncio.gather(*(extractor.extract(f"chunk-{i}") for i in range(30)))
     assert results == [{"entities": []}] * 30
@@ -149,7 +149,7 @@ def test_semantic_missing_or_unavailable_model_fails_explicitly(monkeypatch):
         """注入明确的模型装配故障。"""
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr("yuxi.modules.models.embed.select_embedding_model", unavailable)
+    monkeypatch.setattr("zs.modules.models.embed.select_embedding_model", unavailable)
     with pytest.raises(RuntimeError, match="model unavailable"):
         semantic.chunk_markdown("fixed input", {"embed_model_id": "fixed:model"})
 
@@ -169,7 +169,7 @@ async def test_cancelled_first_graph_waiter_does_not_duplicate_constructor(monke
         release.wait(3)
         return value
 
-    monkeypatch.setattr("yuxi.modules.knowledge.graphs.service.MilvusGraphVectorStore", construct)
+    monkeypatch.setattr("zs.modules.knowledge.graphs.service.MilvusGraphVectorStore", construct)
     service = KnowledgeGraphService()
     first = asyncio.create_task(service.get_graph_vector_store())
     await asyncio.wait_for(asyncio.to_thread(started.wait), 1)

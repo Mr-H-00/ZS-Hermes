@@ -48,18 +48,18 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                     ": heartbeat",
                     "",
                     "id: 1-0",
-                    "event: yuxi.session.run.created",
+                    "event: zs.session.run.created",
                     'data: {"session_id":"thread-1",',
-                    'data: "input_id":"input-1","turn_id":"turn-1","yuxi":{"run_id":"run-1"}}',
+                    'data: "input_id":"input-1","turn_id":"turn-1","zs":{"run_id":"run-1"}}',
                     "",
                 )
             )
         ]
 
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].name, "yuxi.session.run.created")
+        self.assertEqual(events[0].name, "zs.session.run.created")
         self.assertEqual(events[0].event_id, "1-0")
-        self.assertEqual(events[0].data["yuxi"]["run_id"], "run-1")
+        self.assertEqual(events[0].data["zs"]["run_id"], "run-1")
 
     async def test_iter_sse_rejects_non_json_data(self) -> None:
         with self.assertRaises(LoadTestError):
@@ -72,12 +72,12 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 text=(
-                    "event: yuxi.session.run.created\n"
+                    "event: zs.session.run.created\n"
                     'data: {"session_id":"thread-1","input_id":"neighbor","turn_id":"other",'
-                    '"yuxi":{"run_id":"other"}}\n\n'
-                    "event: yuxi.session.run.created\n"
+                    '"zs":{"run_id":"other"}}\n\n'
+                    "event: zs.session.run.created\n"
                     'data: {"session_id":"thread-1","input_id":"input-1","turn_id":"turn-1",'
-                    '"yuxi":{"run_id":"run-1"}}\n\n'
+                    '"zs":{"run_id":"run-1"}}\n\n'
                 ),
             )
 
@@ -92,8 +92,8 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 text=(
-                    'event: yuxi.session.run.created\ndata: {"session_id":"other","input_id":"input-1",'
-                    '"turn_id":"turn-2","yuxi":{"run_id":"run-2"}}\n\n'
+                    'event: zs.session.run.created\ndata: {"session_id":"other","input_id":"input-1",'
+                    '"turn_id":"turn-2","zs":{"run_id":"run-2"}}\n\n'
                 ),
             )
 
@@ -109,7 +109,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request.url.path, "/api/v1/agents/sessions/thread-1/events")
             self.assertEqual(request.headers["Idempotency-Key"], "load-event")
             event = json.loads(request.content)["events"][0]
-            self.assertEqual((event["type"], event["yuxi"]["mode"]), ("agent.session.input.message", "follow_up"))
+            self.assertEqual((event["type"], event["zs"]["mode"]), ("agent.session.input.message", "follow_up"))
             self.assertEqual(event["input"][0]["content"][0]["text"], "say hi")
             return httpx.Response(202, json={"thread_id": "thread-1", "input_id": "input-1"})
 
@@ -143,7 +143,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                     "role": "assistant",
                     "content": [{"type": "output_text", "text": "LOAD_TEST_OK"}],
                     "turn_id": "turn-1",
-                    "yuxi": {"run_id": "run-1"},
+                    "zs": {"run_id": "run-1"},
                 }
             ],
         }
@@ -158,7 +158,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                 "id": "turn-1",
                 "object": "agent.session.turn",
                 "status": "completed",
-                "yuxi": {"result_run_id": "run-1"},
+                "zs": {"result_run_id": "run-1"},
             },
             evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=False),
         )
@@ -247,7 +247,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                         "role": "assistant",
                         "content": [{"type": "output_text", "text": "LOAD_TEST_OK"}],
                         "turn_id": "turn-1",
-                        "yuxi": {"run_id": "run-1"},
+                        "zs": {"run_id": "run-1"},
                     }
                 ],
             },
@@ -258,7 +258,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                 "id": "turn-1",
                 "object": "agent.session.turn",
                 "status": "completed",
-                "yuxi": {"result_run_id": "run-1"},
+                "zs": {"result_run_id": "run-1"},
             },
             evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=True),
         )
@@ -281,7 +281,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                         "role": "assistant",
                         "content": [{"type": "output_text", "text": "LOAD_TEST_OK"}],
                         "turn_id": "turn-1",
-                        "yuxi": {"run_id": "run-neighbor"},
+                        "zs": {"run_id": "run-neighbor"},
                     }
                 ],
             },
@@ -292,7 +292,7 @@ class AgentLoadTestScriptTest(unittest.IsolatedAsyncioTestCase):
                 "id": "turn-1",
                 "object": "agent.session.turn",
                 "status": "completed",
-                "yuxi": {"result_run_id": "run-1"},
+                "zs": {"result_run_id": "run-1"},
             },
             evidence=ToolEvidence(execute_started=True, execute_finished=True, output_marker_seen=True),
         )

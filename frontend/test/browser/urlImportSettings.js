@@ -71,7 +71,7 @@ async page => {
       await page.evaluate(value => window.urlImportSettingsFixture.theme.setTheme(value), theme)
       await edit.click()
       check(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1), '设置面板横向溢出')
-      const path = `/tmp/yuxi-security-settings-${theme}-${width}.png`
+      const path = `/tmp/zs-security-settings-${theme}-${width}.png`
       await dialog.screenshot({ path, animations: 'disabled' })
       screenshots.push(path)
       await panel.getByRole('button', { name: /^取\s*消$/ }).click()

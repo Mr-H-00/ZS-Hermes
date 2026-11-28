@@ -7,12 +7,12 @@ import uuid
 import asyncpg
 import pytest
 
-from yuxi.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.models import load_models
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from test.live_api_cleanup import make_test_session_title
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services.turns import get_turn_snapshot
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services.turns import get_turn_snapshot
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -84,7 +84,7 @@ async def test_turn_result_follows_only_its_bound_run(test_client, admin_headers
                                     "content": [{"type": "output_text", "text": content}],
                                     "status": "completed",
                                     "phase": "commentary",
-                                    "yuxi": {"run_id": run_id, "message_id": message_id, "output_index": 0},
+                                    "zs": {"run_id": run_id, "message_id": message_id, "output_index": 0},
                                 }
                             }
                         }
@@ -114,9 +114,9 @@ async def test_turn_result_follows_only_its_bound_run(test_client, admin_headers
         url = f"/api/v1/agents/sessions/{thread_id}/turns/{turn_ids[1]}"
         result = await test_client.get(url, headers=admin_headers)
         assert result.status_code == 200, result.text
-        assert result.json()["yuxi"]["result_run_id"] == run_ids[1]
-        assert result.json()["yuxi"]["output"][0]["content"] == [{"type": "output_text", "text": "second output"}]
-        assert result.json()["yuxi"]["output"][0]["phase"] == "final_answer"
+        assert result.json()["zs"]["result_run_id"] == run_ids[1]
+        assert result.json()["zs"]["output"][0]["content"] == [{"type": "output_text", "text": "second output"}]
+        assert result.json()["zs"]["output"][0]["phase"] == "final_answer"
         assert result.json()["started_at"] == 1791417600
         assert (await test_client.get(url, headers=standard_user["headers"])).status_code == 404
 

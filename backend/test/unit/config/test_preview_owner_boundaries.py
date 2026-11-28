@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[3] / "yuxi"
+PACKAGE_ROOT = Path(__file__).resolve().parents[3] / "zs"
 
 
 @pytest.mark.parametrize(
@@ -15,29 +15,29 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[3] / "yuxi"
     [
         (
             "shared/files.py",
-            ("yuxi.infrastructure", "yuxi.modules", "yuxi.storage", "fastapi", "starlette", "subprocess", "tempfile"),
+            ("zs.infrastructure", "zs.modules", "zs.storage", "fastapi", "starlette", "subprocess", "tempfile"),
         ),
         (
             "infrastructure/file_preview.py",
             (
-                "yuxi.modules",
-                "yuxi.storage",
+                "zs.modules",
+                "zs.storage",
                 "fastapi",
                 "starlette",
                 "subprocess",
                 "tempfile",
-                "yuxi.infrastructure.office_conversion",
+                "zs.infrastructure.office_conversion",
             ),
         ),
         (
             "infrastructure/office_conversion.py",
             (
-                "yuxi.modules",
-                "yuxi.storage",
+                "zs.modules",
+                "zs.storage",
                 "fastapi",
                 "starlette",
-                "yuxi.infrastructure.file_preview",
-                "yuxi.infrastructure.minio",
+                "zs.infrastructure.file_preview",
+                "zs.infrastructure.minio",
             ),
         ),
     ],
@@ -57,7 +57,7 @@ def test_knowledge_and_artifact_do_not_import_workspace_preview() -> None:
         "modules/knowledge/preview.py",
         "modules/agents/services/artifacts.py",
     ):
-        assert "yuxi.modules.workspace.preview" not in _imports(relative_path)
+        assert "zs.modules.workspace.preview" not in _imports(relative_path)
 
 
 def _imports(relative_path: str) -> set[str]:

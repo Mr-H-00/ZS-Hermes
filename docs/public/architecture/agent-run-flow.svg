@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="660" viewBox="0 0 1400 660" role="img" aria-labelledby="title desc">
-  <title id="title">Yuxi AgentRun request and execution flow</title>
+  <title id="title">ZS AgentRun request and execution flow</title>
   <desc id="desc">The regular Request FIFO workflow and the separate resume workflow.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#52616b"/></marker>

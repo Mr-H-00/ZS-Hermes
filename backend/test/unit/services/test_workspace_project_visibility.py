@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.workspace.services.files as svc
+import zs.modules.workspace.services.files as svc
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

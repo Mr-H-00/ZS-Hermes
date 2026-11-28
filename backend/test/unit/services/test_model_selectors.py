@@ -10,10 +10,10 @@ import httpx
 import pytest
 import requests
 from langchain_core.messages import HumanMessage
-from yuxi.modules.models.chat import LangChainChatAdapter, load_chat_model, resolve_chat_model_spec, select_model
-from yuxi.modules.models.embed import OtherEmbedding, select_embedding_model
-from yuxi.modules.models.providers.cache import ModelInfo, model_cache
-from yuxi.modules.models.rerank import OpenAIReranker, get_reranker
+from zs.modules.models.chat import LangChainChatAdapter, load_chat_model, resolve_chat_model_spec, select_model
+from zs.modules.models.embed import OtherEmbedding, select_embedding_model
+from zs.modules.models.providers.cache import ModelInfo, model_cache
+from zs.modules.models.rerank import OpenAIReranker, get_reranker
 
 
 def _model_info(model_type: str) -> ModelInfo:
@@ -52,7 +52,7 @@ def _chat_model_info(
 def _capture_embed_warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     warnings = []
     monkeypatch.setattr(
-        "yuxi.modules.models.embed.logger",
+        "zs.modules.models.embed.logger",
         SimpleNamespace(
             warning=warnings.append,
             error=lambda *_args, **_kwargs: None,
@@ -149,7 +149,7 @@ def test_select_model_wraps_langchain_model_and_expands_model_params(monkeypatch
         captured["kwargs"] = kwargs
         return fake_model
 
-    monkeypatch.setattr("yuxi.modules.models.chat.load_chat_model", fake_load_chat_model)
+    monkeypatch.setattr("zs.modules.models.chat.load_chat_model", fake_load_chat_model)
 
     model = select_model(
         "test-provider:namespace/chat-model",
@@ -175,7 +175,7 @@ def test_select_model_maps_anthropic_max_completion_tokens(monkeypatch):
         lambda spec: _chat_model_info("anthropic", "mimo-v2.5", provider_type="anthropic") if spec == "anthropic:mimo-v2.5" else None,
     )
     monkeypatch.setattr(
-        "yuxi.modules.models.chat.load_chat_model",
+        "zs.modules.models.chat.load_chat_model",
         lambda spec, **kwargs: captured.update({"spec": spec, "kwargs": kwargs}) or SimpleNamespace(),
     )
 
@@ -185,7 +185,7 @@ def test_select_model_maps_anthropic_max_completion_tokens(monkeypatch):
 
 
 def test_load_chat_model_uses_toolcall_chunk_fix_for_openai_compatible(monkeypatch):
-    from yuxi.modules.models.chat import ChatCompletionsAdapter
+    from zs.modules.models.chat import ChatCompletionsAdapter
 
     monkeypatch.setattr(
         model_cache,
@@ -202,10 +202,10 @@ def test_load_chat_model_uses_toolcall_chunk_fix_for_openai_compatible(monkeypat
     # 不再按 provider 禁用流式，改用归一化子类规避 v3 流式累积丢 tool_call 字段的缺陷
     assert isinstance(model, ChatCompletionsAdapter)
     assert model.disable_streaming is False
-    assert model.metadata["yuxi_provider_id"] == "siliconflow-cn"
-    assert model.metadata["yuxi_provider_type"] == "openai"
-    assert model.metadata["yuxi_model_id"] == "deepseek-ai/DeepSeek-V4-Flash"
-    assert model.metadata["yuxi_model_spec"] == "siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash"
+    assert model.metadata["zs_provider_id"] == "siliconflow-cn"
+    assert model.metadata["zs_provider_type"] == "openai"
+    assert model.metadata["zs_model_id"] == "deepseek-ai/DeepSeek-V4-Flash"
+    assert model.metadata["zs_model_spec"] == "siliconflow-cn:deepseek-ai/DeepSeek-V4-Flash"
 
 
 def test_load_chat_model_keeps_non_siliconflow_openai_streaming(monkeypatch):
@@ -280,7 +280,7 @@ async def test_opencode_session_headers_reach_stream_and_regular_requests(monkey
         assert request.headers["X-Test"] == "preserved"
         if provider_id in {"opencode", "opencode-go"}:
             assert request.headers["x-opencode-session"] == session_id
-            assert request.headers["user-agent"].startswith("yuxi/")
+            assert request.headers["user-agent"].startswith("zs/")
         else:
             assert "x-opencode-session" not in request.headers
 
@@ -308,8 +308,8 @@ def test_opencode_standalone_models_have_distinct_stable_sessions(monkeypatch):
     ],
 )
 async def test_load_chat_model_user_uid_header_follows_opt_in(monkeypatch, include_user_uid, uid, expected):
-    """按开关与 uid 存在性注入 x-yuxi-uid；缺 uid 的路径不注入也不伪造身份。"""
-    monkeypatch.setenv("YUXI_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
+    """按开关与 uid 存在性注入 x-zs-uid；缺 uid 的路径不注入也不伪造身份。"""
+    monkeypatch.setenv("ZS_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
     monkeypatch.setattr(
         model_cache,
         "get_model_info",
@@ -322,10 +322,10 @@ async def test_load_chat_model_user_uid_header_follows_opt_in(monkeypatch, inclu
         await model.ainvoke("hi")
 
     if expected is None:
-        assert "x-yuxi-uid" not in requests_seen[0].headers
-        assert "x-yuxi-uid-sig" not in requests_seen[0].headers
+        assert "x-zs-uid" not in requests_seen[0].headers
+        assert "x-zs-uid-sig" not in requests_seen[0].headers
     else:
-        assert requests_seen[0].headers["x-yuxi-uid"] == expected
+        assert requests_seen[0].headers["x-zs-uid"] == expected
 
 
 def test_load_chat_model_rejects_header_unsafe_uid(monkeypatch):
@@ -336,13 +336,13 @@ def test_load_chat_model_rejects_header_unsafe_uid(monkeypatch):
         lambda _spec: _chat_model_info("uid-provider", "test-model", include_user_uid=True),
     )
 
-    with pytest.raises(ValueError, match="x-yuxi-uid"):
+    with pytest.raises(ValueError, match="x-zs-uid"):
         load_chat_model("uid-provider:test-model", uid="user-42\r\nX-Evil: 1")
 
 
 async def test_load_chat_model_signs_user_uid_header(monkeypatch):
     """开启开关后，出站请求附带时间戳与可独立重算的 HMAC-SHA256 签名。"""
-    monkeypatch.setenv("YUXI_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
+    monkeypatch.setenv("ZS_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
     monkeypatch.setattr(
         model_cache,
         "get_model_info",
@@ -355,22 +355,22 @@ async def test_load_chat_model_signs_user_uid_header(monkeypatch):
         await model.ainvoke("hi")
 
     headers = requests_seen[0].headers
-    assert headers["x-yuxi-uid"] == "user-42"
-    timestamp = headers["x-yuxi-uid-ts"]
+    assert headers["x-zs-uid"] == "user-42"
+    timestamp = headers["x-zs-uid-ts"]
     assert abs(int(timestamp) - int(time.time())) <= 5
-    assert headers["x-yuxi-uid-sig"] == _user_uid_signature("user-42", timestamp)
+    assert headers["x-zs-uid-sig"] == _user_uid_signature("user-42", timestamp)
 
 
 def test_load_chat_model_rejects_signing_without_secret(monkeypatch):
     """开启 UID 头但固定签名密钥缺失时拒绝发请求，不静默降级为未签名。"""
-    monkeypatch.delenv("YUXI_UID_SIGNATURE_SECRET", raising=False)
+    monkeypatch.delenv("ZS_UID_SIGNATURE_SECRET", raising=False)
     monkeypatch.setattr(
         model_cache,
         "get_model_info",
         lambda _spec: _chat_model_info("uid-provider", "test-model", include_user_uid=True),
     )
 
-    with pytest.raises(ValueError, match="YUXI_UID_SIGNATURE_SECRET"):
+    with pytest.raises(ValueError, match="ZS_UID_SIGNATURE_SECRET"):
         load_chat_model("uid-provider:test-model", uid="user-42")
 
 
@@ -444,8 +444,8 @@ def test_user_uid_signature_binds_uid_and_timestamp():
 
 @pytest.mark.asyncio
 async def test_user_uid_header_reaches_real_stream_and_regular_requests(monkeypatch):
-    """开启后流式与非流式出站请求都携带 x-yuxi-uid，调用方已有请求头保留。"""
-    monkeypatch.setenv("YUXI_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
+    """开启后流式与非流式出站请求都携带 x-zs-uid，调用方已有请求头保留。"""
+    monkeypatch.setenv("ZS_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
     monkeypatch.setattr(
         model_cache,
         "get_model_info",
@@ -465,39 +465,39 @@ async def test_user_uid_header_reaches_real_stream_and_regular_requests(monkeypa
 
     assert len(requests_seen) == 2
     for request in requests_seen:
-        assert request.headers["x-yuxi-uid"] == "user-42"
+        assert request.headers["x-zs-uid"] == "user-42"
         assert request.headers["X-Test"] == "preserved"
-        timestamp = request.headers["x-yuxi-uid-ts"]
-        assert request.headers["x-yuxi-uid-sig"] == _user_uid_signature("user-42", timestamp)
+        timestamp = request.headers["x-zs-uid-ts"]
+        assert request.headers["x-zs-uid-sig"] == _user_uid_signature("user-42", timestamp)
 
 
 @pytest.mark.asyncio
 async def test_user_uid_signing_fails_closed_when_secret_removed_after_load(monkeypatch):
     """构图后密钥被移除（例如只重建了部分容器）时，发送边界显式失败而非发未签名头。"""
-    monkeypatch.setenv("YUXI_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
+    monkeypatch.setenv("ZS_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
     monkeypatch.setattr(
         model_cache,
         "get_model_info",
         lambda _spec: _chat_model_info("uid-provider", "test-model", include_user_uid=True),
     )
     model = load_chat_model("uid-provider:test-model", uid="user-42")
-    monkeypatch.delenv("YUXI_UID_SIGNATURE_SECRET")
+    monkeypatch.delenv("ZS_UID_SIGNATURE_SECRET")
 
-    with pytest.raises(ValueError, match="YUXI_UID_SIGNATURE_SECRET"):
+    with pytest.raises(ValueError, match="ZS_UID_SIGNATURE_SECRET"):
         await model.ainvoke("hi")
 
 
 @pytest.mark.asyncio
 async def test_user_uid_signature_refreshed_after_window_expiry(monkeypatch):
     """同一模型实例跨越验签窗口后再次发送时重新签名，不复用构图时的时间戳。"""
-    monkeypatch.setenv("YUXI_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
+    monkeypatch.setenv("ZS_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
     monkeypatch.setattr(
         model_cache,
         "get_model_info",
         lambda _spec: _chat_model_info("uid-provider", "test-model", include_user_uid=True),
     )
     clock = {"now": 1_700_000_000}
-    monkeypatch.setattr("yuxi.modules.models.chat.time", SimpleNamespace(time=lambda: clock["now"]))
+    monkeypatch.setattr("zs.modules.models.chat.time", SimpleNamespace(time=lambda: clock["now"]))
     requests_seen = []
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(_deterministic_chat_responder(requests_seen))) as client:
@@ -507,22 +507,22 @@ async def test_user_uid_signature_refreshed_after_window_expiry(monkeypatch):
         await model.ainvoke("hi")
 
     first, second = (request.headers for request in requests_seen)
-    assert int(first["x-yuxi-uid-ts"]) == int(second["x-yuxi-uid-ts"]) - 301
-    assert first["x-yuxi-uid-sig"] != second["x-yuxi-uid-sig"]
+    assert int(first["x-zs-uid-ts"]) == int(second["x-zs-uid-ts"]) - 301
+    assert first["x-zs-uid-sig"] != second["x-zs-uid-sig"]
     for headers in (first, second):
-        assert headers["x-yuxi-uid-sig"] == _user_uid_signature(headers["x-yuxi-uid"], headers["x-yuxi-uid-ts"])
+        assert headers["x-zs-uid-sig"] == _user_uid_signature(headers["x-zs-uid"], headers["x-zs-uid-ts"])
 
 
 def test_anthropic_model_signs_user_uid_at_every_send_boundary(monkeypatch):
     """anthropic 家族同样在发送边界现算签名，跨窗口复用实例不带过期时间戳。"""
-    monkeypatch.setenv("YUXI_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
+    monkeypatch.setenv("ZS_UID_SIGNATURE_SECRET", "unit-test-signing-secret")
     monkeypatch.setattr(
         model_cache,
         "get_model_info",
         lambda _spec: _chat_model_info("uid-provider", "test-model", provider_type="anthropic", include_user_uid=True),
     )
     clock = {"now": 1_700_000_000}
-    monkeypatch.setattr("yuxi.modules.models.chat.time", SimpleNamespace(time=lambda: clock["now"]))
+    monkeypatch.setattr("zs.modules.models.chat.time", SimpleNamespace(time=lambda: clock["now"]))
 
     model = load_chat_model("uid-provider:test-model", uid="user-42")
 
@@ -531,10 +531,10 @@ def test_anthropic_model_signs_user_uid_at_every_send_boundary(monkeypatch):
     clock["now"] += 301
     second = model._get_request_payload([HumanMessage(content="hi")])["extra_headers"]
 
-    assert first["x-yuxi-uid"] == second["x-yuxi-uid"] == "user-42"
-    assert int(second["x-yuxi-uid-ts"]) == int(first["x-yuxi-uid-ts"]) + 301
+    assert first["x-zs-uid"] == second["x-zs-uid"] == "user-42"
+    assert int(second["x-zs-uid-ts"]) == int(first["x-zs-uid-ts"]) + 301
     for headers in (first, second):
-        assert headers["x-yuxi-uid-sig"] == _user_uid_signature(headers["x-yuxi-uid"], headers["x-yuxi-uid-ts"])
+        assert headers["x-zs-uid-sig"] == _user_uid_signature(headers["x-zs-uid"], headers["x-zs-uid-ts"])
 
 
 def test_anthropic_model_without_uid_switch_sends_no_extra_headers(monkeypatch):
@@ -674,7 +674,7 @@ async def test_embedding_400_logs_warning(monkeypatch, async_mode):
 
     if async_mode:
         client = _FakeAsyncEmbeddingClient([_httpx_embedding_response(400, response_text)])
-        monkeypatch.setattr("yuxi.modules.models.embed.httpx.AsyncClient", lambda: client)
+        monkeypatch.setattr("zs.modules.models.embed.httpx.AsyncClient", lambda: client)
         with pytest.raises(httpx.HTTPStatusError, match="400 Bad Request"):
             await model.aencode(["hello", "test"])
         attempts = client.calls
@@ -685,7 +685,7 @@ async def test_embedding_400_logs_warning(monkeypatch, async_mode):
             calls.append(1)
             return _requests_embedding_response(400, response_text.encode())
 
-        monkeypatch.setattr("yuxi.modules.models.embed.requests.post", fake_post)
+        monkeypatch.setattr("zs.modules.models.embed.requests.post", fake_post)
         with pytest.raises(ValueError, match="400 Client Error"):
             model.encode(["hello", "test"])
         attempts = len(calls)
@@ -715,15 +715,15 @@ async def test_embedding_429_retries_ten_times_before_success(monkeypatch, async
         async def fake_sleep(delay):
             sleeps.append(delay)
 
-        monkeypatch.setattr("yuxi.modules.models.embed.asyncio.sleep", fake_sleep)
+        monkeypatch.setattr("zs.modules.models.embed.asyncio.sleep", fake_sleep)
         responses = [_httpx_embedding_response(429) for _ in range(10)]
         responses.append(_httpx_embedding_response(200, '{"data":[{"embedding":[0.1,0.2]}]}'))
         client = _FakeAsyncEmbeddingClient(responses)
-        monkeypatch.setattr("yuxi.modules.models.embed.httpx.AsyncClient", lambda: client)
+        monkeypatch.setattr("zs.modules.models.embed.httpx.AsyncClient", lambda: client)
         result = await model.aencode(["hello"])
         attempts = client.calls
     else:
-        monkeypatch.setattr("yuxi.modules.models.embed.time.sleep", sleeps.append)
+        monkeypatch.setattr("zs.modules.models.embed.time.sleep", sleeps.append)
         responses = [_requests_embedding_response(429) for _ in range(10)]
         responses.append(_requests_embedding_response(200, b'{"data":[{"embedding":[0.1,0.2]}]}'))
         calls = []
@@ -732,7 +732,7 @@ async def test_embedding_429_retries_ten_times_before_success(monkeypatch, async
             calls.append(1)
             return responses.pop(0)
 
-        monkeypatch.setattr("yuxi.modules.models.embed.requests.post", fake_post)
+        monkeypatch.setattr("zs.modules.models.embed.requests.post", fake_post)
         result = model.encode(["hello"])
         attempts = len(calls)
 
@@ -759,21 +759,21 @@ async def test_embedding_5xx_uses_short_retry_budget(monkeypatch, async_mode):
         async def fake_sleep(delay):
             sleeps.append(delay)
 
-        monkeypatch.setattr("yuxi.modules.models.embed.asyncio.sleep", fake_sleep)
+        monkeypatch.setattr("zs.modules.models.embed.asyncio.sleep", fake_sleep)
         client = _FakeAsyncEmbeddingClient([_httpx_embedding_response(503) for _ in range(3)])
-        monkeypatch.setattr("yuxi.modules.models.embed.httpx.AsyncClient", lambda: client)
+        monkeypatch.setattr("zs.modules.models.embed.httpx.AsyncClient", lambda: client)
         with pytest.raises(httpx.HTTPStatusError, match="503 Service Unavailable"):
             await model.aencode(["hello"])
         attempts = client.calls
     else:
-        monkeypatch.setattr("yuxi.modules.models.embed.time.sleep", sleeps.append)
+        monkeypatch.setattr("zs.modules.models.embed.time.sleep", sleeps.append)
         calls = []
 
         def fake_post(*_args, **_kwargs):
             calls.append(1)
             return _requests_embedding_response(503)
 
-        monkeypatch.setattr("yuxi.modules.models.embed.requests.post", fake_post)
+        monkeypatch.setattr("zs.modules.models.embed.requests.post", fake_post)
         with pytest.raises(ValueError, match="503 Server Error"):
             model.encode(["hello"])
         attempts = len(calls)

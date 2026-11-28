@@ -6,7 +6,7 @@
 
 import pytest
 
-from yuxi.modules.knowledge.chunking.ragflow_like.parsers import qa
+from zs.modules.knowledge.chunking.ragflow_like.parsers import qa
 
 # embedding 上下文上限的保守字符兜底（对应 bge_m3 4096 token），独立于实现常量以避免自我引用 oracle
 _EMBEDDING_CHAR_LIMIT = 4000

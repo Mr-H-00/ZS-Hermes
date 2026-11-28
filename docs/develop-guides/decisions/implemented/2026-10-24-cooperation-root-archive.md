@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/threads.py
+Owner：backend/zs/modules/agents/services/threads.py
 
 ## 问题
 
@@ -12,7 +12,7 @@ Owner：backend/yuxi/modules/agents/services/threads.py
 
 ### 实现方案
 
-[Thread service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/threads.py)决定检查范围和锁序。根归档先锁 Project，再按 Thread ID 锁同用户、APP 的树成员；成员归档只锁自身。[Session repository](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/repositories/sessions.py)通过同一个查询判断范围内是否存在 pending Input、未结束 Turn、未终态 Run 或运行清理责任。检查通过后只归档指定 Thread，不取消工作或改动历史。
+[Thread service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/threads.py)决定检查范围和锁序。根归档先锁 Project，再按 Thread ID 锁同用户、APP 的树成员；成员归档只锁自身。[Session repository](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/repositories/sessions.py)通过同一个查询判断范围内是否存在 pending Input、未结束 Turn、未终态 Run 或运行清理责任。检查通过后只归档指定 Thread，不取消工作或改动历史。
 
 ## 替代方案
 

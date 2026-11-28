@@ -8,16 +8,16 @@ import pytest_asyncio
 from sqlalchemy import func, select
 
 from test.integration.support.module_audit import serve_http
-from yuxi.api.dependencies.auth import get_required_user
-from yuxi.api.dependencies.knowledge import require_knowledge_base_manage, require_knowledge_base_read
-from yuxi.api.main import app
-from yuxi.api.routers.knowledge import management as knowledge_routes
-from yuxi.api.routers.public_v1.agents import turns as query_routes
-from yuxi.api.routers.public_v1.agents.auth import require_public_context
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.shared.errors import (
+from zs.api.dependencies.auth import get_required_user
+from zs.api.dependencies.knowledge import require_knowledge_base_manage, require_knowledge_base_read
+from zs.api.main import app
+from zs.api.routers.knowledge import management as knowledge_routes
+from zs.api.routers.public_v1.agents import turns as query_routes
+from zs.api.routers.public_v1.agents.auth import require_public_context
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.shared.errors import (
     ContentTooLargeError,
     InvalidInputError,
     InvalidOperationError,
@@ -104,7 +104,7 @@ async def test_http_idempotency_conflict_preserves_one_input_and_receipt(domain_
             {
                 "type": "agent.session.input.message",
                 "input": [{"role": "user", "content": [{"type": "input_text", "text": "original"}]}],
-                "yuxi": {"mode": "follow_up"},
+                "zs": {"mode": "follow_up"},
             }
         ]
     }

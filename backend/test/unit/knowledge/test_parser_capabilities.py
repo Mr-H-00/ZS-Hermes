@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.infrastructure.document_parsing import (
+from zs.infrastructure.document_parsing import (
     IMAGE_FILE_EXTENSIONS,
     ParseOptions,
     SUPPORTED_FILE_EXTENSIONS,
     is_supported_file_extension,
 )
-from yuxi.infrastructure.document_parsing.engines import ENGINE_SPECS, get_ocr_engines_for_extension
+from zs.infrastructure.document_parsing.engines import ENGINE_SPECS, get_ocr_engines_for_extension
 
 pytestmark = pytest.mark.unit
 
@@ -34,10 +34,10 @@ def test_capability_lookup_does_not_load_concrete_parser_modules() -> None:
     script = f"""
 import sys
 sys.path.insert(0, {str(package_dir)!r})
-from yuxi.infrastructure.document_parsing.engines import get_engine_spec
+from zs.infrastructure.document_parsing.engines import get_engine_spec
 
 get_engine_spec("rapid_ocr")
-assert "yuxi.infrastructure.document_parsing.engines.rapid_ocr" not in sys.modules
+assert "zs.infrastructure.document_parsing.engines.rapid_ocr" not in sys.modules
 assert "docling" not in sys.modules
 """
 
@@ -49,11 +49,11 @@ def test_knowledge_router_import_does_not_load_docling_or_ocr_provider() -> None
     script = f"""
 import sys
 sys.path.insert(0, {str(backend_dir)!r})
-import yuxi.api.routers.knowledge
+import zs.api.routers.knowledge
 
 assert "docling" not in sys.modules
-assert "yuxi.infrastructure.document_parsing.engines.rapid_ocr" not in sys.modules
-assert "yuxi.infrastructure.document_parsing.engines.mineru" not in sys.modules
+assert "zs.infrastructure.document_parsing.engines.rapid_ocr" not in sys.modules
+assert "zs.infrastructure.document_parsing.engines.mineru" not in sys.modules
 """
 
     subprocess.run([sys.executable, "-c", script], check=True)
@@ -64,7 +64,7 @@ async def test_parse_document_rejects_ocr_engine_without_format_capability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import yuxi.modules.documents.service as ocr_service
+    import zs.modules.documents.service as ocr_service
 
     source = tmp_path / "scan.webp"
     source.write_bytes(b"not an image")
@@ -97,7 +97,7 @@ def test_concurrent_engine_configuration_returns_each_requested_instance(monkeyp
     from threading import Barrier
     from types import SimpleNamespace
 
-    from yuxi.infrastructure.document_parsing import engines
+    from zs.infrastructure.document_parsing import engines
 
     class ConfiguredEngine:
         """保留构造配置，作为返回实例的独立断言依据。"""
@@ -127,7 +127,7 @@ def test_cold_engine_requests_share_instance(monkeypatch):
     from threading import Event
     from types import SimpleNamespace
 
-    from yuxi.infrastructure.document_parsing import engines
+    from zs.infrastructure.document_parsing import engines
 
     entered, second_entered, release = Event(), Event(), Event()
     original_get_spec = engines.get_engine_spec

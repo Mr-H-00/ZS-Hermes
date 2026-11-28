@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-import yuxi.modules.agents.services.transport as transport
+import zs.modules.agents.services.transport as transport
 
 
 class _FakeStreamRedis:
@@ -84,15 +84,15 @@ async def test_run_stream_event_roundtrip(monkeypatch: pytest.MonkeyPatch):
         "delta": "text",
         "session_id": "child-thread",
         "turn_id": "child-turn",
-        "yuxi": {"run_id": run_id},
+        "zs": {"run_id": run_id},
     }
     second = {
-        "type": "yuxi.session.run.settled",
+        "type": "zs.session.run.settled",
         "event_id": "logical-2",
         "status": "completed",
         "session_id": "child-thread",
         "turn_id": "child-turn",
-        "yuxi": {"run_id": run_id},
+        "zs": {"run_id": run_id},
     }
     seq1, seq2 = await transport.append_run_stream_events(run_id, [first, second])
     assert seq1 < seq2

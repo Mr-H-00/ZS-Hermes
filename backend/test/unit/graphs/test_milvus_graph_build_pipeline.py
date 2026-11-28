@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from yuxi.modules.knowledge.graphs.extractors import GraphExtractorFactory, normalize_extraction_result
-from yuxi.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.graphs.extractors import GraphExtractorFactory, normalize_extraction_result
+from zs.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
 
 pytestmark = pytest.mark.usefixtures("milvus_graph_projection_lock")
 
@@ -170,7 +170,7 @@ async def test_graph_build_keeps_extraction_concurrency_full_while_writes_are_bl
     extractor = Extractor()
     monkeypatch.setattr(GraphExtractorFactory, "create", lambda extractor_type, options: extractor)
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.graphs.service.GRAPH_EXTRACTION_RETRY_DELAYS_SECONDS",
+        "zs.modules.knowledge.graphs.service.GRAPH_EXTRACTION_RETRY_DELAYS_SECONDS",
         (0, 0),
     )
 

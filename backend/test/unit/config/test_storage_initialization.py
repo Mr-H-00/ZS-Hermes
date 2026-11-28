@@ -23,7 +23,7 @@ def test_storage_initializer_prepares_only_consumer_mounts(filename):
     assert initializer["user"] == "0:0"
     assert initializer["restart"] == "no"
     assert not initializer.get("environment") and not initializer.get("env_file")
-    assert initializer["image"].startswith("${COMPOSE_PROJECT_NAME:-yuxi}-storage-init:")
+    assert initializer["image"].startswith("${COMPOSE_PROJECT_NAME:-zs}-storage-init:")
     expected = {}
     for consumer in ("api", "milvus"):
         for volume in services[consumer]["volumes"]:

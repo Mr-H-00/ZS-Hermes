@@ -8,8 +8,8 @@ from typing import TypedDict
 import pytest
 from langgraph.graph import START, StateGraph
 from psycopg_pool import AsyncConnectionPool
-from yuxi.infrastructure.postgres.checkpointer import get_langgraph_checkpointer
-from yuxi.infrastructure.postgres.manager import PostgresManager
+from zs.infrastructure.postgres.checkpointer import get_langgraph_checkpointer
+from zs.infrastructure.postgres.manager import PostgresManager
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

@@ -10,10 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.redis import close_async_redis_client, get_async_redis_client
-from yuxi.migrations.schema import create_business_tables, create_knowledge_tables
-from yuxi.modules.knowledge.models import KnowledgeBase
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.redis import close_async_redis_client, get_async_redis_client
+from zs.migrations.schema import create_business_tables, create_knowledge_tables
+from zs.modules.knowledge.models import KnowledgeBase
 
 
 @asynccontextmanager
@@ -35,7 +35,7 @@ async def isolated_audit_store(monkeypatch):
                 *[
                     key
                     for kb_id in kb_ids
-                    for key in (f"yuxi:knowledge_base:{kb_id}", f"yuxi:knowledge_base:{kb_id}:lock", f"yuxi:kb_file_stats:{kb_id}")
+                    for key in (f"zs:knowledge_base:{kb_id}", f"zs:knowledge_base:{kb_id}:lock", f"zs:kb_file_stats:{kb_id}")
                 ]
             )
         await close_async_redis_client()

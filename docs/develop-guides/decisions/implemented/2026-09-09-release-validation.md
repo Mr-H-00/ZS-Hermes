@@ -14,7 +14,7 @@ Owner：.github/workflows/system-tests.yml
 
 运行链路 workflow 为 Run 结果归属、API Key 和 Skill 授权测试显式传入 CI 初始化的账号。工程契约 verifier 同步要求这些命令携带认证变量；恢复缺少账号的命令会使 gate 失败。
 
-`publish-yuxi-cli.yml` 仅保留手动发布入口，CLI 包版本由其 pyproject 拥有。应用 Release 不触发 PyPI 写入。维护者以最近的正式 tag 为发布说明基线，候选验证成功后在相同提交新增正式 tag；操作由[贡献指南](../../contributing.md#候选版本与正式发布)维护。
+`publish-zs-cli.yml` 仅保留手动发布入口，CLI 包版本由其 pyproject 拥有。应用 Release 不触发 PyPI 写入。维护者以最近的正式 tag 为发布说明基线，候选验证成功后在相同提交新增正式 tag；操作由[贡献指南](../../contributing.md#候选版本与正式发布)维护。
 
 ## 替代方案
 

@@ -47,7 +47,7 @@ function setup(t, { status = 'completed', singleRoot = false } = {}) {
   const item = () => ({
     id: current.turnId, type: 'message', role: 'assistant', status: 'completed',
     turn_id: current.turnId, content: [{ type: 'output_text', text: current.output }],
-    yuxi: { message_id: current.turnId, run_id: current.runId }
+    zs: { message_id: current.turnId, run_id: current.runId }
   })
   Object.assign(api, {
     getCooperationSummary: async () => ({ sessions: [...(singleRoot ? [] : [{ session_id: 'root' }]), {
@@ -58,17 +58,17 @@ function setup(t, { status = 'completed', singleRoot = false } = {}) {
       queue_paused: current.paused, has_pending_input: current.pending
     }] }),
     getPublicThread: async () => ({
-      id: 'child', yuxi: { current_turn: { id: current.turnId, status: current.status } }
+      id: 'child', zs: { current_turn: { id: current.turnId, status: current.status } }
     }),
     getThreadTurn: async () => {
       detailReads++
       if (current.unavailable) throw new Error('persistent detail unavailable')
       return { id: current.turnId, status: current.status,
-        yuxi: { current_run_id: current.runId, waitpoint: waitpoint(), output: [], runs: [] } }
+        zs: { current_run_id: current.runId, waitpoint: waitpoint(), output: [], runs: [] } }
     },
     getSessionItems: async () => {
       itemReads++
-      return { data: [item()], has_more: false, last_id: current.turnId, yuxi: { runs: [] } }
+      return { data: [item()], has_more: false, last_id: current.turnId, zs: { runs: [] } }
     },
     getAgentState: async () => ({ agent_state: {}, interrupt: null }),
     getThreadQueue: async () => ({
@@ -192,7 +192,7 @@ test('运行历史期间收到进展事件后，相同摘要重读持久历史',
   await h.cooperation.refresh()
   await settle()
   h.emit({ type: 'agent.session.turn.in_progress', session_id: 'child', turn_id: 'live-turn',
-    turn: { status: 'in_progress' }, yuxi: { run_id: 'live-run', current_run_id: 'live-run' } })
+    turn: { status: 'in_progress' }, zs: { run_id: 'live-run', current_run_id: 'live-run' } })
   await settle()
   await release()
   await settle()
@@ -321,7 +321,7 @@ test('摘要变化后的对账不共用变化之前的在途恢复快照', async
   Object.assign(h.current, { turnId: 'latest-turn', runId: 'latest-run', status: 'in_progress' })
   await h.cooperation.refresh()
   await settle()
-  releaseOld({ yuxi: { current_turn: null } })
+  releaseOld({ zs: { current_turn: null } })
   await old
   await settle()
   await h.cooperation.refresh()

@@ -26,8 +26,8 @@ RUN uv pip install --python /usr/local/bin/python3 --break-system-packages \
     && rm -rf /var/lib/apt/lists/*
 RUN rm -f /etc/sudoers.d/user \
     && (gpasswd -d user sudo 2>/dev/null || true) \
-    && printf 'user ALL=(ALL:ALL) !ALL\n' > /etc/sudoers.d/99-yuxi-deny \
-    && chmod 0440 /etc/sudoers.d/99-yuxi-deny \
+    && printf 'user ALL=(ALL:ALL) !ALL\n' > /etc/sudoers.d/99-zs-deny \
+    && chmod 0440 /etc/sudoers.d/99-zs-deny \
     && groupmod -g ${CUBE_GID} user \
     && usermod -u ${CUBE_UID} -g user user \
     && chown -R user:user /home/user \

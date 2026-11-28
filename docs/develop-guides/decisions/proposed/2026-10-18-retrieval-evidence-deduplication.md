@@ -2,7 +2,7 @@
 
 状态：proposed
 类型：architecture
-Owner：backend/yuxi/modules/agents/runtime/middlewares/summary.py
+Owner：backend/zs/modules/agents/runtime/middlewares/summary.py
 
 ## 问题
 

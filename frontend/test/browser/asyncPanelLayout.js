@@ -32,7 +32,7 @@ async (page) => {
       const oldLayout = await measure()
       await loading.evaluate(el => { el.classList.add('async-panel-loading') })
       if (oldLayout.dx <= 2 && oldLayout.dy <= 2) throw new Error('居中检查未识别旧布局')
-      await page.locator('.knowledge-detail-layout').screenshot({ path: `/tmp/yuxi-${module}-loading.png` })
+      await page.locator('.knowledge-detail-layout').screenshot({ path: `/tmp/zs-${module}-loading.png` })
       await page.evaluate(() => document.documentElement.classList.add('dark'))
       await page.setViewportSize({ width: 720, height: 800 })
       const compact = await measure()

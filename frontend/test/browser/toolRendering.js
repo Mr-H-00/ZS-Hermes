@@ -127,8 +127,8 @@ async page => {
           return { baseline, matchedRows: roots.length }
         })
         styleEvidence.push({ theme: dark ? 'dark' : 'light', width, ...styles })
-        await host.screenshot({ path: `/tmp/yuxi-session-directory-shared-${dark ? 'dark' : 'light'}-${width}.png` })
-        await groupedSessions.screenshot({ path: `/tmp/yuxi-session-directory-shared-group-${dark ? 'dark' : 'light'}-${width}.png` })
+        await host.screenshot({ path: `/tmp/zs-session-directory-shared-${dark ? 'dark' : 'light'}-${width}.png` })
+        await groupedSessions.screenshot({ path: `/tmp/zs-session-directory-shared-group-${dark ? 'dark' : 'light'}-${width}.png` })
       }
     }
     if (errors.length) throw new Error(errors.join('\n'))

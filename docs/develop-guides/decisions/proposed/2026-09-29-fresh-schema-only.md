@@ -2,7 +2,7 @@
 
 状态：proposed
 类型：simplification
-Owner：backend/yuxi/migrations/main.py
+Owner：backend/zs/migrations/main.py
 
 ## 问题
 

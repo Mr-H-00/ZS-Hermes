@@ -1,6 +1,6 @@
 """naive_merge 必须使用调用方传入的分隔符拼接片段。"""
 
-from yuxi.modules.knowledge.chunking.ragflow_like import nlp
+from zs.modules.knowledge.chunking.ragflow_like import nlp
 
 
 def test_merge_uses_configured_delimiter_when_budget_is_unlimited():

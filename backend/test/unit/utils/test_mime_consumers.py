@@ -2,9 +2,9 @@
 
 import pytest
 
-from yuxi.infrastructure.minio.client import MinIOClient
-from yuxi.modules.knowledge.services import documents
-from yuxi.shared import files
+from zs.infrastructure.minio.client import MinIOClient
+from zs.modules.knowledge.services import documents
+from zs.shared import files
 
 
 @pytest.mark.parametrize(("explicit_type", "expected"), [(None, "text/markdown"), ("text/custom", "text/custom")])

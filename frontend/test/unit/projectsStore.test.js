@@ -39,7 +39,7 @@ test('创建 Project 后迟到的列表响应不会覆盖侧边栏状态', async
     assert.deepEqual(store.projects, [createdProject])
     assert.equal(store.isLoading, false)
     const grouped = buildProjectSessionGroups(store.projects, [
-      { id: 'thread-new', yuxi: { project_id: createdProject.id }, created_at: 1788256800 }
+      { id: 'thread-new', zs: { project_id: createdProject.id }, created_at: 1788256800 }
     ])
     assert.equal(grouped.groups[0].sessions[0].id, 'thread-new')
     assert.deepEqual(grouped.otherSessions, [])

@@ -86,7 +86,7 @@ async page => {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
       await page.waitForFunction(() => document.querySelector('#mention-rendering-check').getAnimations({ subtree: true }).every(animation => animation.playState !== 'running' || animation.effect.getTiming().iterations === Infinity))
       themeImages[theme] = (await compare()).image
-      await page.locator('#mention-rendering-check').screenshot({ path: `/tmp/yuxi-mention-${theme}-${width}.png` })
+      await page.locator('#mention-rendering-check').screenshot({ path: `/tmp/zs-mention-${theme}-${width}.png` })
     }
     check(themeImages.light === themeImages.dark, '人物头像应遵循当前色卡规则，在主题切换时保持原色')
     await page.locator('#mention-rendering-check .mention-editor').evaluate(editor => {

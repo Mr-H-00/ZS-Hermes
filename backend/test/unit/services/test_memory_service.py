@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.agents.services.memory as memory_service
-from yuxi.modules.workspace import paths as workspace_paths
-from yuxi.modules.workspace.filesystem import Workspace
+import zs.modules.agents.services.memory as memory_service
+from zs.modules.workspace import paths as workspace_paths
+from zs.modules.workspace.filesystem import Workspace
 
 pytestmark = pytest.mark.unit
 
@@ -48,7 +48,7 @@ def test_validate_replaces_preserves_exact_whitespace():
 
 
 def test_replace_authorized_file_is_atomic_on_publish_failure(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     workspace = Workspace("user-1")
     original = workspace.read_authorized_file(memory_service.MEMORY_PATH, 1024)
@@ -56,7 +56,7 @@ def test_replace_authorized_file_is_atomic_on_publish_failure(tmp_path, monkeypa
     def fail_rename(*_args, **_kwargs):
         raise OSError("publish failed")
 
-    monkeypatch.setattr("yuxi.modules.workspace.filesystem.os.rename", fail_rename)
+    monkeypatch.setattr("zs.modules.workspace.filesystem.os.rename", fail_rename)
 
     with pytest.raises(OSError, match="publish failed"):
         workspace.replace_authorized_file(memory_service.MEMORY_PATH, b"new")
@@ -67,7 +67,7 @@ async def test_remember_memory_validates_run_and_publishes_append(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     events: list[str] = []
 
@@ -113,7 +113,7 @@ async def test_remember_memory_validates_run_and_publishes_append(
 
 
 async def test_remember_memory_fails_closed_when_config_disabled(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     original = Workspace("user-1").read_authorized_file(memory_service.MEMORY_PATH, 1024)
 
@@ -151,7 +151,7 @@ async def test_remember_memory_fails_closed_when_config_disabled(tmp_path, monke
 
 
 async def test_remember_memory_rejects_oversized_source(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     memory_path = tmp_path / "threads" / "shared" / "user-1" / "workspace" / "agents" / "MEMORY.md"
     memory_path.write_bytes(b"x" * (memory_service.MEMORY_FILE_MAX_BYTES + 1))
@@ -161,7 +161,7 @@ async def test_remember_memory_rejects_oversized_source(tmp_path, monkeypatch: p
 
 
 async def test_remember_memory_recreates_deleted_file(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     memory_path = tmp_path / "threads" / "shared" / "user-1" / "workspace" / "agents" / "MEMORY.md"
     memory_path.unlink()
@@ -202,7 +202,7 @@ async def test_remember_memory_recreates_deleted_file(tmp_path, monkeypatch: pyt
 
 
 async def test_load_memory_prompt_returns_empty_when_enabled_and_file_missing_or_empty(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     memory_path = tmp_path / "threads" / "shared" / "user-1" / "workspace" / "agents" / "MEMORY.md"
 
@@ -224,7 +224,7 @@ async def test_load_memory_prompt_returns_empty_when_enabled_and_file_missing_or
 
 
 async def test_load_memory_prompt_respects_switch_and_budget(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     workspace_paths.ensure_user_workspace("user-1")
     memory_path = tmp_path / "threads" / "shared" / "user-1" / "workspace" / "agents" / "MEMORY.md"
     memory_path.write_text("记" * memory_service.MEMORY_PROMPT_MAX_BYTES, encoding="utf-8")

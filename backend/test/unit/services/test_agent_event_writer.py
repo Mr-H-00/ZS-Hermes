@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 
-import yuxi.modules.agents.services.event_writer as event_writer
+import zs.modules.agents.services.event_writer as event_writer
 
 
 async def test_public_writer_flushes_function_call_boundary(monkeypatch):
@@ -15,7 +15,7 @@ async def test_public_writer_flushes_function_call_boundary(monkeypatch):
     await writer.append(call)
     append.assert_awaited_once_with("run", [call])
     assert event_writer.contains_model_output(call)
-    assert not event_writer.contains_model_output({"type": "yuxi.session.turn.state"})
+    assert not event_writer.contains_model_output({"type": "zs.session.turn.state"})
 
 
 async def test_public_writer_preserves_each_event_and_flushes_first_semantic_output(monkeypatch):

@@ -10,16 +10,16 @@ import pytest
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.identity.services.administration import (
+from zs.modules.identity.services.administration import (
     DepartmentAdminCreation,
     IdentityConflictError,
     SystemAlreadyInitializedError,
     create_department_with_admin,
     initialize_system_admin,
 )
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.identity.models import Department, User
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.base import Base
+from zs.modules.identity.models import Department, User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

@@ -5,10 +5,10 @@ import sys
 
 import pytest
 
-from yuxi.modules.agents.runtime import agent_backends
-from yuxi.modules.agents import presets
-from yuxi.modules.agents.runtime.agent_backends.chatbot.graph import ChatbotAgent
-from yuxi.modules.extensions.skills import shared as skill_service
+from zs.modules.agents.runtime import agent_backends
+from zs.modules.agents import presets
+from zs.modules.agents.runtime.agent_backends.chatbot.graph import ChatbotAgent
+from zs.modules.extensions.skills import shared as skill_service
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,7 @@ def clean_discovery_test_modules():
     before = set(sys.modules)
     yield
     for name in set(sys.modules) - before:
-        if name.startswith(("yuxi.modules.agents.presets.test_", "yuxi.modules.agents.runtime.agent_backends.test_")):
+        if name.startswith(("zs.modules.agents.presets.test_", "zs.modules.agents.runtime.agent_backends.test_")):
             del sys.modules[name]
 
 
@@ -42,7 +42,7 @@ def test_new_preset_file_is_discovered_without_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(presets, "__file__", str(tmp_path / "__init__.py"))
     monkeypatch.setattr(presets, "__path__", [str(tmp_path)])
     (tmp_path / "test_new_role.py").write_text(
-        'from yuxi.modules.agents.presets import AgentPreset\nPRESET = AgentPreset(slug="new-role", name="新增角色", description="测试发现")\n'
+        'from zs.modules.agents.presets import AgentPreset\nPRESET = AgentPreset(slug="new-role", name="新增角色", description="测试发现")\n'
     )
     invalidate_caches()
     found = presets.discover_agent_presets()
@@ -73,7 +73,7 @@ def test_duplicate_preset_slug_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(presets, "__path__", [str(tmp_path)])
     for name in ("test_duplicate_a", "test_duplicate_b"):
         (tmp_path / f"{name}.py").write_text(
-            'from yuxi.modules.agents.presets import AgentPreset\nPRESET = AgentPreset(slug="duplicate", name="重复", description="测试")\n'
+            'from zs.modules.agents.presets import AgentPreset\nPRESET = AgentPreset(slug="duplicate", name="重复", description="测试")\n'
         )
     invalidate_caches()
     with pytest.raises(ValueError, match="重复的预置 Agent slug: duplicate"):
@@ -123,7 +123,7 @@ def test_backend_import_does_not_scan_or_create_instances():
     code = """
 from importlib import reload
 from unittest.mock import patch
-import yuxi.modules.agents.runtime.agent_backends as agent_backends
+import zs.modules.agents.runtime.agent_backends as agent_backends
 with patch('pathlib.Path.iterdir', side_effect=AssertionError('directory scan')), \
      patch.object(agent_backends.ChatbotAgent, '__init__', side_effect=AssertionError('eager instance')):
     reload(agent_backends)
@@ -180,7 +180,7 @@ async def test_reused_prepared_context_refreshes_skills_before_each_graph(monkey
     from unittest.mock import AsyncMock
 
     from langchain_core.language_models.fake_chat_models import FakeListChatModel
-    from yuxi.modules.extensions.skills import runtime as skill_runtime
+    from zs.modules.extensions.skills import runtime as skill_runtime
 
     source = tmp_path / "source.md"
     projection = tmp_path / "projection.md"

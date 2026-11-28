@@ -86,7 +86,7 @@ metadata:
 test('relative document images resolve beside their artifact with the same authorization boundary', async () => {
   const { resolveMarkdownImageUrl } = await import('../../src/shared/lib/markdown_preview.js')
   const base = '/api/v1/agents/sessions/thread-1/artifacts/home/user/workspace/project/parsed/document.md'
-  const origin = 'https://yuxi.example'
+  const origin = 'https://zs.example'
   assert.equal(
     resolveMarkdownImageUrl('images/chart.png', base, origin),
     '/api/v1/agents/sessions/thread-1/artifacts/home/user/workspace/project/parsed/images/chart.png'
@@ -111,17 +111,17 @@ test('公式插件保留行内、块级、源行定位与不可信命令限制',
 
 test('公式插件不读取原型中注入的宏定义', () => {
   const renderer = createMarkdownRenderer({ themeName: 'github-light', highlighter: null })
-  const source = '$\\yuxipolluted$'
-  Object.defineProperty(Object.prototype, '\\yuxipolluted', {
+  const source = '$\\zspolluted$'
+  Object.defineProperty(Object.prototype, '\\zspolluted', {
     configurable: true,
     value: 'POLLUTED'
   })
   try {
     const html = renderer.render(source)
     assert.doesNotMatch(html.replace(/<[^>]*>/g, ''), /POLLUTED/)
-    assert.match(html, /\\yuxipolluted/)
+    assert.match(html, /\\zspolluted/)
     assert.match(html, /#cc0000/)
   } finally {
-    delete Object.prototype['\\yuxipolluted']
+    delete Object.prototype['\\zspolluted']
   }
 })

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/infrastructure/file_preview.py
+Owner：backend/zs/infrastructure/file_preview.py
 
 ## 问题
 

@@ -24,8 +24,8 @@ from test.e2e.e2e_helpers import (
 )
 from test.support.openai_replay_server import send_openai_sse_response, serve_replay_handler
 from test.support.public_api import delete_agent
-from yuxi.modules.extensions.mcp.oauth_config import config_revision
-from yuxi.shared.datetime import utc_now
+from zs.modules.extensions.mcp.oauth_config import config_revision
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.self_managed_resources]
 
@@ -140,12 +140,12 @@ async def test_unavailable_mcp_preserves_chat_and_reports_reason(e2e_client, e2e
                 json={"agent_id": agent, "title": "pytest-mcp-failure-" + suffix, "input": [public_message("你好")]},
             )
             assert response.status_code == 201, response.text
-            accepted = await wait_for_consumed_input(client, headers, response.json()["yuxi"]["receipt"])
+            accepted = await wait_for_consumed_input(client, headers, response.json()["zs"]["receipt"])
             thread, turn_id = accepted["session_id"], accepted["turn_id"]
             turn = await wait_for_terminal_turn(client, headers, thread, accepted["turn_id"])
             run = accepted["run_id"]
             assert turn["status"] == "completed", turn
-            assert turn["yuxi"]["result_run_id"] == run and "普通聊天正常" in output_text(turn["yuxi"]["output"])
+            assert turn["zs"]["result_run_id"] == run and "普通聊天正常" in output_text(turn["zs"]["output"])
             record = await db.fetchrow("SELECT status,error_message FROM agent_runs WHERE id=$1", run)
             assert record["status"] == "completed" and not record["error_message"]
             assert observed
@@ -165,9 +165,9 @@ async def test_unavailable_mcp_preserves_chat_and_reports_reason(e2e_client, e2e
             async with Redis.from_url(os.environ["REDIS_URL"], decode_responses=True) as redis:
                 rows = await redis.xrange(f"run:events:v2:{run}")
             events = [json.loads(fields["event"]) for _, fields in rows]
-            states = [event["agent_state"] for event in events if event["type"] == "yuxi.session.turn.state"]
+            states = [event["agent_state"] for event in events if event["type"] == "zs.session.turn.state"]
             assert any(state.get("warnings") == warnings for state in states)
-            assert not any(event["type"] == "yuxi.session.turn.capability_limited" for event in events)
+            assert not any(event["type"] == "zs.session.turn.capability_limited" for event in events)
         finally:
             try:
                 if thread:

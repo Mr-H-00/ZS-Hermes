@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/migrations/legacy_v073.py
+Owner：backend/zs/migrations/legacy_v073.py
 
 ## 问题
 

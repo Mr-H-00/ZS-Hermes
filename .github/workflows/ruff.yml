@@ -55,6 +55,6 @@ jobs:
 
       - name: Check lint, formatting and imports
         run: |
-          ruff check yuxi
-          ruff format yuxi --check
-          ruff check --select I yuxi
+          ruff check zs
+          ruff format zs --check
+          ruff check --select I zs

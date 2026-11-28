@@ -27,9 +27,9 @@ from test.e2e.e2e_helpers import (
 from test.live_api_cleanup import cleanup_test_chat_resources, make_test_session_title
 from test.support.openai_replay_server import send_openai_sse_response, serve_replay_handler
 from test.support.public_events import read_events
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.workspace.filesystem import Workspace
-from yuxi.modules.workspace.paths import global_user_data_dir, user_workspace_dir
+from zs.modules.identity.security import AuthUtils
+from zs.modules.workspace.filesystem import Workspace
+from zs.modules.workspace.paths import global_user_data_dir, user_workspace_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.timeout(180), pytest.mark.self_managed_resources]
 
@@ -187,7 +187,7 @@ async def test_worker_publishes_independent_deliverables_and_followup_does_not_r
                     pytest.fail("成果生成流未发布 Turn 终态")
 
         turn = await wait_for_terminal_turn(e2e_client, headers, thread_id, turn_id)
-        run_id = turn["yuxi"]["result_run_id"]
+        run_id = turn["zs"]["result_run_id"]
         connection = await asyncpg.connect(postgres_dsn())
         try:
             rows = await connection.fetch("SELECT * FROM workspace_deliverables WHERE thread_id=$1 ORDER BY name", thread_id)
@@ -232,7 +232,7 @@ async def test_worker_publishes_independent_deliverables_and_followup_does_not_r
                     {
                         "type": "agent.session.input.message",
                         "input": [{"role": "user", "content": [{"type": "input_text", "text": "DELIVERABLES_FOLLOWUP"}]}],
-                        "yuxi": {"mode": "follow_up"},
+                        "zs": {"mode": "follow_up"},
                     }
                 ]
             },
@@ -242,7 +242,7 @@ async def test_worker_publishes_independent_deliverables_and_followup_does_not_r
         consumed = await wait_for_consumed_input(e2e_client, headers, receipt)
         final = await wait_for_terminal_turn(e2e_client, headers, thread_id, consumed["turn_id"])
         assert final["status"] == "completed", final
-        assert final["yuxi"]["result_run_id"] != run_id
+        assert final["zs"]["result_run_id"] != run_id
         await archive_public_thread(e2e_client, headers, thread_id, turn_id=consumed["turn_id"])
         listing = await e2e_client.get("/api/workspace/deliverables", headers=headers)
         own_items = [item for item in listing.json()["items"] if item["thread_id"] == thread_id]

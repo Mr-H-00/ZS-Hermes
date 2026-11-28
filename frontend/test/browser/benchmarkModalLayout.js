@@ -47,7 +47,7 @@ async page => {
  const results=[];
  for(const theme of ['light','dark'])for(const width of [1440,1024,768]){
   await page.setViewportSize({width,height:768});await page.evaluate(t=>window.overlayAudit.theme.setTheme(t),theme);
-  await page.screenshot({path:`/tmp/yuxi-benchmark-modal-${theme}-${width}.png`,animations:'disabled'});
+  await page.screenshot({path:`/tmp/zs-benchmark-modal-${theme}-${width}.png`,animations:'disabled'});
   results.push({theme,width,...await checkBounds()});
  }
  const regression=await page.addStyleTag({content:'.ant-modal-body {max-height:none !important;overflow:visible !important}'});

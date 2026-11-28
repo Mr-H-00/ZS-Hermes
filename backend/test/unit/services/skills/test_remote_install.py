@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from yuxi.modules.extensions.skills import remote as svc
+from zs.modules.extensions.skills import remote as svc
 
 
 @pytest.fixture(autouse=True)
@@ -194,10 +194,10 @@ async def test_remote_skill_sandbox_rejects_failed_command_without_echoing_outpu
 
 def test_remote_skill_sandbox_uses_operator_workspace(monkeypatch, tmp_path):
     """请求有独立目录，运行身份固定为操作者。"""
-    from yuxi.modules.workspace.paths import user_workspace_dir
+    from zs.modules.workspace.paths import user_workspace_dir
 
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("yuxi.modules.agents.runtime.sandbox.backend.get_sandbox_provider", lambda: SimpleNamespace())
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("zs.modules.agents.runtime.sandbox.backend.get_sandbox_provider", lambda: SimpleNamespace())
     first = svc._RemoteSkillRequest.create("user-1")
     second = svc._RemoteSkillRequest.create("user-1")
     assert first.backend.id == second.backend.id == "user-1"
@@ -327,10 +327,10 @@ async def test_download_remote_skills_creates_sandbox_before_temp_home(monkeypat
 @pytest.mark.asyncio
 async def test_remote_skill_cleanup_preserves_other_request_and_workspace(monkeypatch, tmp_path):
     """回读真实文件证明清理不会删除用户环境或其他请求目录。"""
-    from yuxi.modules.workspace.paths import user_workspace_dir
+    from zs.modules.workspace.paths import user_workspace_dir
 
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("yuxi.modules.agents.runtime.sandbox.backend.get_sandbox_provider", lambda: SimpleNamespace())
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("zs.modules.agents.runtime.sandbox.backend.get_sandbox_provider", lambda: SimpleNamespace())
     first = svc._RemoteSkillRequest.create("user-1")
     second = svc._RemoteSkillRequest.create("user-1")
     root = user_workspace_dir("user-1")

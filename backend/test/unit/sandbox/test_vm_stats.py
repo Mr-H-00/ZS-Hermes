@@ -7,9 +7,9 @@ import httpx
 import pytest
 
 from test.unit.sandbox.test_cube_health import http_server
-from yuxi.modules.agents.runtime.sandbox.cube import CubeAdapter
-from yuxi.modules.agents.services import sandbox
-from yuxi.shared.errors import UpstreamError
+from zs.modules.agents.runtime.sandbox.cube import CubeAdapter
+from zs.modules.agents.services import sandbox
+from zs.shared.errors import UpstreamError
 
 
 @pytest.mark.parametrize(

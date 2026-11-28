@@ -20,15 +20,6 @@
       <div class="settings-sider">
         <div class="settings-sider-nav">
           <div
-            v-if="userStore.isLoggedIn"
-            class="sider-item"
-            :class="{ activesec: activeTab === 'cloudDrive' }"
-            @click="activeTab = 'cloudDrive'"
-          >
-            <Cloud class="icon" :size="18" />
-            <span>云盘配置</span>
-          </div>
-          <div
             class="sider-item"
             :class="{ activesec: activeTab === 'account' }"
             @click="activeTab = 'account'"
@@ -110,49 +101,10 @@
             <span>运行环境</span>
           </div>
         </div>
-
-        <div v-if="showStarCard" class="settings-star-card">
-          <div class="star-card-header">
-            <div class="star-card-badge">
-              <Star :size="12" />
-              <span>支持项目</span>
-            </div>
-            <button
-              class="star-card-close lucide-icon-btn"
-              @click="dismissStarCard"
-              aria-label="关闭 Star 提示"
-            >
-              <X :size="14" />
-            </button>
-          </div>
-          <p class="star-card-title">给 Yuxi 点个 Star</p>
-          <p class="star-card-description">
-            如果这个项目帮到了你，欢迎去 GitHub 点亮一个 Star，让更多人看到它。
-          </p>
-          <a
-            class="star-card-link"
-            :href="projectRepoUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              class="star-card-link-image"
-              src="https://img.shields.io/github/stars/xerrors/Yuxi?label=Yuxi&style=social"
-              alt="GitHub stars for Yuxi"
-            />
-            <ExternalLink :size="13" />
-          </a>
-        </div>
       </div>
 
       <!-- 顶部导航 (Mobile) -->
       <div class="settings-mobile-nav">
-        <div
-          v-if="userStore.isLoggedIn"
-          class="nav-item"
-          :class="{ active: activeTab === 'cloudDrive' }"
-          @click="activeTab = 'cloudDrive'"
-        >云盘配置</div>
         <div
           class="nav-item"
           :class="{ active: activeTab === 'account' }"
@@ -228,9 +180,6 @@
       <!-- 内容区域 -->
       <div class="settings-content-wrapper">
         <div class="settings-content">
-          <div v-show="activeTab === 'cloudDrive'" v-if="userStore.isLoggedIn && loadedTabs.has('cloudDrive')">
-            <CloudDriveSettingsSection />
-          </div>
           <div
             v-show="activeTab === 'account'"
             v-if="userStore.isLoggedIn && loadedTabs.has('account')"
@@ -283,18 +232,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useUserStore } from '@/modules/identity'
 import {
-  Cloud,
   CircleUser,
-  ExternalLink,
   Globe,
   Settings,
   ShieldCheck,
   Key,
   ScanText,
-  Star,
   SquareTerminal,
   User,
   Users,
@@ -305,7 +251,6 @@ import { createAsyncPanel } from '@/shared/lib/asyncPanel'
 const AccountSettingsComponent = createAsyncPanel(
   () => import('@/modules/settings/ui/AccountSettingsComponent.vue')
 )
-const CloudDriveSettingsSection = createAsyncPanel(() => import('@/modules/settings/ui/CloudDriveSettingsSection.vue'))
 const AgentEnvSettingsCard = createAsyncPanel(() => import('@/modules/settings/ui/AgentEnvSettingsCard.vue'))
 const BasicSettingsSection = createAsyncPanel(() => import('@/modules/settings/ui/BasicSettingsSection.vue'))
 const SecuritySettingsSection = createAsyncPanel(() => import('@/modules/settings/ui/SecuritySettingsSection.vue'))
@@ -337,10 +282,6 @@ const emit = defineEmits(['update:visible', 'close'])
 const userStore = useUserStore()
 const activeTab = ref('account')
 const loadedTabs = ref(new Set())
-const showStarCard = ref(true)
-
-const STAR_CARD_STORAGE_KEY = 'yuxi-settings-star-card-dismissed'
-const projectRepoUrl = 'https://github.com/xerrors/Yuxi'
 
 const visible = computed({
   get: () => props.visible,
@@ -349,7 +290,7 @@ const visible = computed({
 
 const availableTabs = computed(() => {
   const tabs = []
-  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys', 'agentEnv', 'cloudDrive')
+  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys', 'agentEnv')
   if (userStore.isAdmin) tabs.push('user')
   if (userStore.isSuperAdmin) tabs.push('base', 'security', 'ocr', 'webSearch')
   if (userStore.isSuperAdmin) tabs.push('department')
@@ -367,15 +308,6 @@ const setActiveTab = (preferredTab) => {
 const handleClose = () => {
   emit('close')
 }
-
-const dismissStarCard = () => {
-  showStarCard.value = false
-  localStorage.setItem(STAR_CARD_STORAGE_KEY, 'true')
-}
-
-onMounted(() => {
-  showStarCard.value = localStorage.getItem(STAR_CARD_STORAGE_KEY) !== 'true'
-})
 
 watch(
   () => [props.visible, props.initialTab],
@@ -493,86 +425,6 @@ watch(
       background: var(--gray-150);
       color: var(--main-700);
     }
-  }
-
-  .settings-star-card {
-    width: 100%;
-    margin-top: auto;
-    padding: 14px 12px 12px;
-    border-radius: 12px;
-    border: 1px solid var(--gray-150);
-    background: var(--gray-0);
-    overflow: hidden;
-  }
-
-  .star-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  .star-card-badge {
-    width: fit-content;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 8px;
-    border-radius: 999px;
-    background: var(--main-30);
-    color: var(--main-700);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-  }
-
-  .star-card-close {
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 999px;
-    background: var(--gray-50);
-    color: var(--gray-600);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex-shrink: 0;
-
-    &:hover {
-      background: var(--gray-0);
-      color: var(--gray-900);
-    }
-  }
-
-  .star-card-title {
-    margin: 10px 0 6px;
-    color: var(--gray-900);
-    font-size: 15px;
-    font-weight: 600;
-    line-height: 1.35;
-  }
-
-  .star-card-description {
-    margin: 0;
-    color: var(--gray-600);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .star-card-link {
-    margin-top: 12px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 6px;
-    text-decoration: none;
-    color: var(--gray-600);
-  }
-
-  .star-card-link-image {
-    display: block;
-    height: 20px;
   }
 }
 

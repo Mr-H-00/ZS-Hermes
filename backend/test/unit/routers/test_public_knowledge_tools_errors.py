@@ -6,11 +6,11 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from yuxi.api.routers.public_v1 import knowledge as knowledge_router
-from yuxi.api.routers.public_v1.knowledge import tool_router
-from yuxi.api.dependencies.auth import get_required_user
-from yuxi.modules.knowledge.base import KBNotFoundError
-from yuxi.modules.knowledge.services import tools as knowledge_tools
+from zs.api.routers.public_v1 import knowledge as knowledge_router
+from zs.api.routers.public_v1.knowledge import tool_router
+from zs.api.dependencies.auth import get_required_user
+from zs.modules.knowledge.base import KBNotFoundError
+from zs.modules.knowledge.services import tools as knowledge_tools
 
 
 @pytest.mark.asyncio

@@ -4,9 +4,9 @@ import os
 
 import pytest
 
-from yuxi.modules.workspace import filesystem
-from yuxi.modules.workspace import runtime_files
-from yuxi.modules.workspace.errors import FileTransferLimitError
+from zs.modules.workspace import filesystem
+from zs.modules.workspace import runtime_files
+from zs.modules.workspace.errors import FileTransferLimitError
 
 
 @pytest.fixture(params=["workspace", "skill"])

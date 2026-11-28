@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.extensions.mcp.repository import get_mcp_server
-from yuxi.modules.extensions.mcp.service import resolve_runtime_mcp_tools
-from yuxi.modules.knowledge.repositories.bases import KnowledgeBaseRepository
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.extensions.mcp.repository import get_mcp_server
+from zs.modules.extensions.mcp.service import resolve_runtime_mcp_tools
+from zs.modules.knowledge.repositories.bases import KnowledgeBaseRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

@@ -47,7 +47,7 @@ Owner：scripts/bump-version.sh
 - `docker compose exec -T api uv run --no-sync --group test pytest test/unit -m 'not slow' -q`：Passed，3273 项、122 skipped；容器缺少仓库根文件的部署配置范围由宿主补跑。
 - `uv run --project backend --no-sync --group test pytest backend/test/unit/config -q`：Passed，204 项，无跳过。
 - `uv lock --project backend --check --offline`、`pnpm --dir docs run build`：Passed。
-- `uv run --project backend --no-sync ruff check backend/yuxi`、`uv run --project backend --no-sync ruff check --select I backend/yuxi`、`uv run --project backend --no-sync ruff format backend/yuxi --check`：Passed，441 个源码文件；检查发现的一处显式导出 import 排序已修正。
+- `uv run --project backend --no-sync ruff check backend/zs`、`uv run --project backend --no-sync ruff check --select I backend/zs`、`uv run --project backend --no-sync ruff format backend/zs --check`：Passed，441 个源码文件；检查发现的一处显式导出 import 排序已修正。
 - `pnpm --dir frontend run lint:check`、`pnpm --dir frontend run test:unit`、`pnpm --dir frontend run build`：Passed，849 项 unit、无跳过，build 包含 typecheck。旧开发容器内的同名 unit 命令为 840 passed / 9 failed；文件哈希核对确认其未挂载的 `eslint-boundaries.js` 仍是旧规则，当前 checkout 的 19 项边界目标测试和完整集合通过。旧容器结果不作为候选通过证据，未为此放宽断言或修改产品配置。
 
 版本脚本的扩展夹具在修复前为 2 failed / 1 passed，明确复现普通升级与 dev 升级遗漏 sandbox 镜像默认值；修复后 3 项通过，仍验证 dev 模式保留公开文档和历史记录。

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/services/references.py
+Owner：backend/zs/modules/agents/services/references.py
 
 模型选择与可标注内容范围由[来源标注模型与内容范围](2026-10-23-reference-model-and-content-scope.md)部分取代；新标注使用管理员配置，空值沿用快速响应模型。
 

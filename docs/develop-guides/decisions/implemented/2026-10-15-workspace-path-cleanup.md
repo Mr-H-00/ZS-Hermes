@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/workspace/runtime_paths.py
+Owner：backend/zs/modules/workspace/runtime_paths.py
 
 ## 问题
 

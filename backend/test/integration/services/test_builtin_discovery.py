@@ -9,12 +9,12 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.agents import presets
-from yuxi.modules.agents.runtime.agent_backends import AgentBackendNotFoundError
-from yuxi.modules.extensions.skills.builtin import sync as skill_service
-from yuxi.modules.agents.services.configuration import initialize_agent_presets
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.extensions.skills.models import Skill
+from zs.modules.agents import presets
+from zs.modules.agents.runtime.agent_backends import AgentBackendNotFoundError
+from zs.modules.extensions.skills.builtin import sync as skill_service
+from zs.modules.agents.services.configuration import initialize_agent_presets
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.extensions.skills.models import Skill
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -119,7 +119,7 @@ async def test_unknown_backend_prevents_all_preset_writes(tmp_path, monkeypatch)
     modules = [f"a_valid_{suffix}", f"z_invalid_{suffix}"]
     for module, slug, backend in zip(modules, slugs, ["ChatbotAgent", "UnknownBackend"], strict=True):
         (tmp_path / f"{module}.py").write_text(
-            f'from yuxi.modules.agents.presets import AgentPreset\nPRESET = AgentPreset(slug="{slug}", name="验证角色", description="测试", backend_id="{backend}")\n'
+            f'from zs.modules.agents.presets import AgentPreset\nPRESET = AgentPreset(slug="{slug}", name="验证角色", description="测试", backend_id="{backend}")\n'
         )
     monkeypatch.setattr(presets, "__file__", str(tmp_path / "__init__.py"))
     monkeypatch.setattr(presets, "__path__", [str(tmp_path)])
@@ -138,7 +138,7 @@ async def test_unknown_backend_prevents_all_preset_writes(tmp_path, monkeypatch)
             await db.commit()
         await engine.dispose()
         for module in modules:
-            sys.modules.pop(f"yuxi.modules.agents.presets.{module}", None)
+            sys.modules.pop(f"zs.modules.agents.presets.{module}", None)
 
 
 async def test_discovered_content_persists_and_preserves_customization(tmp_path, monkeypatch, test_client, admin_headers):
@@ -150,7 +150,7 @@ async def test_discovered_content_persists_and_preserves_customization(tmp_path,
     role_dir = tmp_path / "presets"
     role_dir.mkdir()
     (role_dir / f"{module_name}.py").write_text(
-        "from yuxi.modules.agents.presets import AgentPreset\n"
+        "from zs.modules.agents.presets import AgentPreset\n"
         f'PRESET = AgentPreset(slug="{role_slug}", name="发现测试", description="初始化测试", '
         'backend_id="ChatbotAgent", context={"system_prompt": "原始提示词"})\n'
     )
@@ -212,4 +212,4 @@ async def test_discovered_content_persists_and_preserves_customization(tmp_path,
             await db.execute(delete(Skill).where(Skill.slug == skill_slug))
             await db.commit()
         await engine.dispose()
-        sys.modules.pop(f"yuxi.modules.agents.presets.{module_name}", None)
+        sys.modules.pop(f"zs.modules.agents.presets.{module_name}", None)

@@ -154,11 +154,11 @@ async def test_personal_credentials_reach_worker_with_own_saved_secret(e2e_clien
                 },
             )
             assert response.status_code == 201, response.text
-            accepted = await wait_for_consumed_input(client, headers, response.json()["yuxi"]["receipt"])
+            accepted = await wait_for_consumed_input(client, headers, response.json()["zs"]["receipt"])
             thread, turn_id = accepted["session_id"], accepted["turn_id"]
             turn = await wait_for_terminal_turn(client, headers, thread, turn_id)
-            assert turn["status"] == "completed" and identity in output_text(turn["yuxi"]["output"])
-            run = turn["yuxi"]["result_run_id"]
+            assert turn["status"] == "completed" and identity in output_text(turn["zs"]["output"])
+            run = turn["zs"]["result_run_id"]
             assert run == accepted["run_id"] and observed == [identity]
             record = await db.fetchrow("SELECT status,error_message FROM agent_runs WHERE id=$1", run)
             assert record["status"] == "completed" and record["error_message"] is None

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/shared/files.py
+Owner：backend/zs/shared/files.py
 
 ## 问题
 

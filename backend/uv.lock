@@ -3791,7 +3791,7 @@ wheels = [
 ]
 
 [[package]]
-name = "yuxi"
+name = "zs"
 version = "0.8.0"
 source = { editable = "." }
 dependencies = [

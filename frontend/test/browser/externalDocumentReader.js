@@ -63,7 +63,7 @@ async (page) => {
   const visibleLines = await page.locator('.reader-line-text').allTextContents()
   const expectedLines = Array.from({ length: 100 }, (_, index) => `oversized-${index + 901}`)
   if (JSON.stringify(visibleLines) !== JSON.stringify(expectedLines)) throw Error('超长行后的上一页缺失连续正文')
-  await page.locator('.external-document-reader').screenshot({ path: '/tmp/yuxi-reader-isolated.png' })
+  await page.locator('.external-document-reader').screenshot({ path: '/tmp/zs-reader-isolated.png' })
   for (const message of ['网络连接失败', '无权读取该知识库']) {
     await page.evaluate(() => { window.fixture.startLine = 1002 })
     await page.getByText('oversized-1002', { exact: true }).waitFor()
@@ -74,7 +74,7 @@ async (page) => {
     await previous.click()
     await page.getByRole('alert').getByText(message).waitFor()
     if (await page.evaluate(() => window.calls.length) !== count + 1) throw Error('网络或权限错误被错误收窄')
-    await page.locator('.external-document-reader').screenshot({ path: '/tmp/yuxi-reader-error.png' })
+    await page.locator('.external-document-reader').screenshot({ path: '/tmp/zs-reader-error.png' })
     await page.evaluate(() => { window.failPrevious = null })
   }
   await page.getByText('重新读取').click()

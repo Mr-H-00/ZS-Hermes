@@ -2,7 +2,7 @@
 
 import pytest
 
-from yuxi.shared.files import PreviewResult, detect_media_type
+from zs.shared.files import PreviewResult, detect_media_type
 
 
 @pytest.mark.parametrize(
@@ -58,7 +58,7 @@ def test_detect_media_type_preserves_signature_and_extension_rules(path, content
 )
 def test_media_type_fallback_is_independent_of_system_mapping(monkeypatch, suffix, expected):
     """系统缺少扩展名映射时仍保留存储入口的既有 fallback。"""
-    from yuxi.shared import files
+    from zs.shared import files
 
     monkeypatch.setattr(files.mimetypes, "guess_type", lambda _path: (None, None))
     assert detect_media_type(f"folder/report.{suffix.upper()}") == expected
@@ -66,7 +66,7 @@ def test_media_type_fallback_is_independent_of_system_mapping(monkeypatch, suffi
 
 def test_media_type_keeps_system_mapping_when_available(monkeypatch):
     """系统已识别的媒体类型优先于后缀 fallback。"""
-    from yuxi.shared import files
+    from zs.shared import files
 
     monkeypatch.setattr(files.mimetypes, "guess_type", lambda _path: ("text/x-markdown", None))
     assert detect_media_type("report.md") == "text/x-markdown"

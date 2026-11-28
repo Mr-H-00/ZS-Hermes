@@ -7,9 +7,9 @@ import zipfile
 import pytest
 import httpx
 
-from yuxi.infrastructure.document_parsing import DocumentParserException, ParseOptions
-from yuxi.infrastructure.document_parsing.parser import parse
-from yuxi.infrastructure.document_parsing.engines.mineru import MinerUParser
+from zs.infrastructure.document_parsing import DocumentParserException, ParseOptions
+from zs.infrastructure.document_parsing.parser import parse
+from zs.infrastructure.document_parsing.engines.mineru import MinerUParser
 
 
 @pytest.fixture
@@ -304,7 +304,7 @@ def test_synchronous_archive_extraction_cannot_publish_after_deadline(wire, monk
         time.sleep(0.03)
         return "late markdown"
 
-    monkeypatch.setattr("yuxi.infrastructure.document_parsing.engines.mineru.extract_markdown_archive", delayed_extract)
+    monkeypatch.setattr("zs.infrastructure.document_parsing.engines.mineru.extract_markdown_archive", delayed_extract)
     with pytest.raises(DocumentParserException, match="超时") as error:
         parser.process_file(str(source), output, {"timeout_seconds": 0.01})
     assert error.value.status_code == "timeout"

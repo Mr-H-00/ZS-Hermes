@@ -11,23 +11,23 @@ from sqlalchemy import func, select
 from test.integration.services.agent_input_fixtures import SCOPE
 from test.integration.services.agent_input_fixtures import send_input as _send
 from test.integration.services.agent_input_fixtures import start_input_run as _start
-from yuxi.infrastructure.minio import get_minio_client
-from yuxi.modules.agents.models.attachments import AgentAttachment
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.repositories.attachments import AttachmentRepository
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.services import attachments, inputs, runs, scheduler, threads
-from yuxi.modules.agents.input_messages import build_chat_input_message
-from yuxi.modules.workspace.filesystem import Workspace
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.workspace.paths import ensure_user_workspace
-from yuxi.modules.workspace.repositories.projects import ProjectRepository
-from yuxi.modules.workspace.services.bindings import resolve_session_workdir_binding
-from yuxi.modules.workspace.workdir import Workdir
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import DomainError, InvalidInputError, StateConflictError
+from zs.infrastructure.minio import get_minio_client
+from zs.modules.agents.models.attachments import AgentAttachment
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.repositories.attachments import AttachmentRepository
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.services import attachments, inputs, runs, scheduler, threads
+from zs.modules.agents.input_messages import build_chat_input_message
+from zs.modules.workspace.filesystem import Workspace
+from zs.modules.workspace.models import Project
+from zs.modules.workspace.paths import ensure_user_workspace
+from zs.modules.workspace.repositories.projects import ProjectRepository
+from zs.modules.workspace.services.bindings import resolve_session_workdir_binding
+from zs.modules.workspace.workdir import Workdir
+from zs.shared.datetime import utc_now
+from zs.shared.errors import DomainError, InvalidInputError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]
@@ -36,7 +36,7 @@ pytest_plugins = ["test.integration.services.agent_input_fixtures"]
 @pytest.fixture
 async def files_env(sessions, tmp_path, monkeypatch):  # noqa: F811
     """保留真实文件与对象边界，只有 ARQ 投递沿用隔离 fixture。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path))
     ensure_user_workspace(SCOPE.uid)
     path = f"projects/2026-10-09_00-00-00_{uuid.uuid4().hex[:8]}"
     async with sessions() as db:
@@ -84,7 +84,7 @@ async def test_multi_message_files_bind_last_projection_and_receipt_stays_unchan
     """提交级附件只挂末条消息，消费不修改接收回执。"""
     from sqlalchemy.exc import IntegrityError
 
-    from yuxi.modules.agents.models.messages import Message
+    from zs.modules.agents.models.messages import Message
 
     factory, upload, submit, workdir = files_env
     first, second = await upload("first.txt"), await upload("second.txt")
@@ -179,7 +179,7 @@ async def test_unready_steer_head_blocks_later_ready_inputs(files_env, monkeypat
 
 async def test_steer_batch_anchors_each_input_and_rolls_back_all_projections(files_env):
     """合批仍逐 Input 锚定；回滚后所有消息和附件关联都未消费。"""
-    from yuxi.modules.agents.models.messages import Message
+    from zs.modules.agents.models.messages import Message
 
     factory, upload, _, _ = files_env
     files = [await upload("A.txt"), await upload("C.txt")]
@@ -486,7 +486,7 @@ async def test_attachment_delete_guards_and_failed_commit_preserve_formal_bytes(
     """待消费、执行中和事务失败均不能删除正式文件，成功才删除关系与字节。"""
     from unittest.mock import AsyncMock
 
-    from yuxi.modules.agents.models.turns import AgentTurn
+    from zs.modules.agents.models.turns import AgentTurn
 
     factory, upload, submit, workdir = files_env
     file = await upload()

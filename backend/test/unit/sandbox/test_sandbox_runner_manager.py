@@ -10,21 +10,21 @@ import time
 from dataclasses import replace
 from datetime import timedelta
 
-from yuxi.modules.agents.repositories.sandbox import SandboxRepository
-from yuxi.shared.datetime import utc_now
+from zs.modules.agents.repositories.sandbox import SandboxRepository
+from zs.shared.datetime import utc_now
 from pathlib import Path
 
 import pytest
 
-from yuxi.sandbox_runner.engine import EngineError, ExecDeadlineExceeded
-from yuxi.sandbox_runner.manager import (
+from zs.sandbox_runner.engine import EngineError, ExecDeadlineExceeded
+from zs.sandbox_runner.manager import (
     ContainerManager,
     SandboxCapacityError,
     SandboxConflictError,
     SandboxError,
     SandboxValidationError,
 )
-from yuxi.sandbox_runner.settings import RunnerSettings
+from zs.sandbox_runner.settings import RunnerSettings
 
 
 class FakeEngine:
@@ -55,7 +55,7 @@ class FakeEngine:
     def list_containers(self, *, scope):
         if not self.container:
             return []
-        if self.container["Config"]["Labels"].get("yuxi.scope") != scope:
+        if self.container["Config"]["Labels"].get("zs.scope") != scope:
             return []
         return [
             {
@@ -95,7 +95,7 @@ def settings(tmp_path: Path, *, uid: int | None = None, max_containers: int = 2)
     return RunnerSettings(
         token="t" * 32,
         socket_path="/nonexistent",
-        image="yuxi-sandbox:test",
+        image="zs-sandbox:test",
         image_digest="",
         network="none",
         memory_bytes=256 * 1024 * 1024,
@@ -203,7 +203,7 @@ def test_local_stdin_path_is_separate_from_docker_host_source(tmp_path):
     value.create(uid="one", run_id="run-1", owner="worker:1", workdir="projects/demo")
     mount = next(item for item in engine.configs[0]["HostConfig"]["Mounts"] if item["Target"].endswith("/demo"))
     assert Path(mount["Source"]) == host
-    stdin = local / ".yuxi-stdin-run-1-cmd"
+    stdin = local / ".zs-stdin-run-1-cmd"
     value._write_stdin(stdin, b"payload")
     assert stdin.read_bytes() == b"payload"
     value._delete_stdin_file(stdin)
@@ -248,7 +248,7 @@ def test_capacity_limit_rejects_new_container(tmp_path):
             return None
 
         def list_containers(self, *, scope):
-            return [{"Id": f"cid{index}", "State": "running", "Labels": {"yuxi.managed": "true"}} for index in range(2)]
+            return [{"Id": f"cid{index}", "State": "running", "Labels": {"zs.managed": "true"}} for index in range(2)]
 
     value = ContainerManager(settings(tmp_path, max_containers=2), engine=Full())
     with pytest.raises(SandboxCapacityError):
@@ -276,7 +276,7 @@ def test_expired_container_is_removed(manager):
     """超过最大存活时间的容器由 TTL 兜底清理。"""
     value, engine, _ = manager
     value.create(uid="one", run_id="run-1", owner="worker:1", workdir="projects/demo")
-    engine.container["Config"]["Labels"]["yuxi.created_at"] = str(int(time.time()) - 601)
+    engine.container["Config"]["Labels"]["zs.created_at"] = str(int(time.time()) - 601)
     assert value.remove_expired() == 1
     assert engine.removed
 
@@ -295,7 +295,7 @@ def test_independent_data_roots_cannot_manage_each_others_containers(manager, tm
     with pytest.raises(SandboxConflictError, match="部署"):
         other.remove_container(created["id"])
     assert other.remove_all() == 0
-    engine.container["Config"]["Labels"]["yuxi.created_at"] = str(int(time.time()) - 601)
+    engine.container["Config"]["Labels"]["zs.created_at"] = str(int(time.time()) - 601)
     assert other.remove_expired() == 0
     assert engine.inspect_container(created["id"]) is not None
     assert engine.removed == []
@@ -305,7 +305,7 @@ def test_direct_removal_rejects_container_without_deployment_scope(manager):
     """直接删除入口不能接管未标注部署身份的历史容器。"""
     value, engine, _ = manager
     created = value.create(uid="one", run_id="run-1", owner="worker:1", workdir="projects/demo")
-    engine.container["Config"]["Labels"].pop("yuxi.scope", None)
+    engine.container["Config"]["Labels"].pop("zs.scope", None)
     with pytest.raises(SandboxConflictError, match="部署"):
         value.remove_container(created["id"])
     with pytest.raises(SandboxConflictError, match="部署"):
@@ -318,7 +318,7 @@ def test_direct_removal_rejects_container_without_deployment_scope(manager):
 def test_stdin_file_is_owned_and_removed(manager):
     """stdin 临时文件写到 Workdir，身份匹配容器用户，执行后删除。"""
     value, _, workdir = manager
-    path = workdir / ".yuxi-stdin-test"
+    path = workdir / ".zs-stdin-test"
     value._write_stdin(path, b"payload")
     assert path.read_bytes() == b"payload"
     assert path.stat().st_uid == os.getuid()
@@ -332,13 +332,13 @@ def test_trusted_env_rejects_reserved_override_and_keeps_markers_last(tmp_path):
     value = ContainerManager.__new__(ContainerManager)
     value.settings = settings(tmp_path)
     env = value._trusted_env(
-        {"A": "B", "YUXI_EXECUTION_ID": "forged"},
+        {"A": "B", "ZS_EXECUTION_ID": "forged"},
         command_id="c" * 32,
         run_id="run-1",
         uid="one",
     )
-    assert env.count(f"YUXI_EXECUTION_ID={'c' * 32}") == 1
-    assert "YUXI_EXECUTION_ID=forged" not in env
+    assert env.count(f"ZS_EXECUTION_ID={'c' * 32}") == 1
+    assert "ZS_EXECUTION_ID=forged" not in env
     with pytest.raises(SandboxValidationError):
         value._trusted_env({"BAD-KEY": "x"}, command_id="c" * 32, run_id="run-1", uid="one")
 
@@ -379,7 +379,7 @@ def test_cleanup_uid_label_cannot_open_outside_data_root(manager, tmp_path, labe
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
     secret_dir = outside / "workspace" / "projects" / "demo"
     secret_dir.mkdir(parents=True)
-    secret = secret_dir / ".yuxi-stdin-run-a-cmd"
+    secret = secret_dir / ".zs-stdin-run-a-cmd"
     secret.write_bytes(b"secret")
     label_uid = {
         "slash": f"../../{outside.name}",
@@ -390,7 +390,7 @@ def test_cleanup_uid_label_cannot_open_outside_data_root(manager, tmp_path, labe
         "overlong": "a" * 129,
     }[label_kind]
     try:
-        value._cleanup_stdin_dir({"yuxi.uid": label_uid, "yuxi.workdir": "projects/demo"}, "run-a")
+        value._cleanup_stdin_dir({"zs.uid": label_uid, "zs.workdir": "projects/demo"}, "run-a")
         assert secret.is_file()
         assert secret.read_bytes() == b"secret"
         with pytest.raises(SandboxValidationError, match="uid 非法"):
@@ -402,11 +402,11 @@ def test_cleanup_uid_label_cannot_open_outside_data_root(manager, tmp_path, labe
 def test_stdin_cleanup_only_removes_owner_run(manager):
     """共享 Workdir 的其他协作 Run stdin 文件不能被本 Run 清理删除。"""
     value, _, workdir = manager
-    own = workdir / ".yuxi-stdin-run-a-cmd"
-    other = workdir / ".yuxi-stdin-run-b-cmd"
+    own = workdir / ".zs-stdin-run-a-cmd"
+    other = workdir / ".zs-stdin-run-b-cmd"
     own.write_bytes(b"a")
     other.write_bytes(b"b")
-    value._cleanup_stdin_dir({"yuxi.uid": "one", "yuxi.workdir": "projects/demo"}, "run-a")
+    value._cleanup_stdin_dir({"zs.uid": "one", "zs.workdir": "projects/demo"}, "run-a")
     assert not own.exists()
     assert other.exists()
 

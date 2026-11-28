@@ -17,25 +17,25 @@ from fastapi import FastAPI
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.workspace.deliverables import deliverables
-from yuxi.infrastructure.postgres.base import BusinessBase
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir
-from yuxi.modules.identity.models import APIKey, Department, User
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.workspace.filesystem import Workspace
-from yuxi.modules.workspace.models import Deliverable, Project
-from yuxi.modules.workspace.paths import ensure_bound_user_workdir, global_user_data_dir, user_workspace_dir
-from yuxi.modules.workspace.runtime_paths import WORKSPACE_PATH
-from yuxi.modules.workspace.services.deliverables import save_run_deliverables
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import ContentTooLargeError, DomainError, PermissionDeniedError
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.workspace.deliverables import deliverables
+from zs.infrastructure.postgres.base import BusinessBase
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir
+from zs.modules.identity.models import APIKey, Department, User
+from zs.modules.identity.security import AuthUtils
+from zs.modules.workspace.filesystem import Workspace
+from zs.modules.workspace.models import Deliverable, Project
+from zs.modules.workspace.paths import ensure_bound_user_workdir, global_user_data_dir, user_workspace_dir
+from zs.modules.workspace.runtime_paths import WORKSPACE_PATH
+from zs.modules.workspace.services.deliverables import save_run_deliverables
+from zs.shared.datetime import utc_now
+from zs.shared.errors import ContentTooLargeError, DomainError, PermissionDeniedError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 BASE = "/api/workspace/deliverables"
@@ -44,8 +44,8 @@ BASE = "/api/workspace/deliverables"
 @pytest_asyncio.fixture
 async def deliverables_env(monkeypatch, tmp_path):
     """创建独立 Schema、Workspace 和真实认证 HTTP，不触碰业务数据。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "user-data"))
-    monkeypatch.setenv("YUXI_SKILL_PROJECTION_DIR", str(tmp_path / "skill-projections"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "user-data"))
+    monkeypatch.setenv("ZS_SKILL_PROJECTION_DIR", str(tmp_path / "skill-projections"))
     monkeypatch.setenv("JWT_SECRET_KEY", "deliverables-integration-jwt-key-at-least-32-characters")
     schema = f"pytest_deliverables_{uuid.uuid4().hex[:16]}"
     admin_engine = create_async_engine(os.environ["POSTGRES_URL"])

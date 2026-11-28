@@ -10,7 +10,7 @@ def main() -> None:
     """从串口与退出设备确认客体实际运行。"""
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
         raise SystemExit("探针仅允许在 GitHub 临时托管执行器运行")
-    marker = b"yuxi-kvm-guest-ok"
+    marker = b"zs-kvm-guest-ok"
     code = b"\xba\xf8\x03" + b"".join(b"\xb0" + bytes([byte]) + b"\xee" for byte in marker)
     code += b"\xba\xf4\x00\xb0\x00\xee\xf4"
     with tempfile.TemporaryDirectory() as root:

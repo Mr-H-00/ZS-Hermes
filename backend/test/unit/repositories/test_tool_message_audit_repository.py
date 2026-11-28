@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.repositories.tool_audit import ToolMessageAuditRepository
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.messages import Message
+from zs.modules.agents.repositories.tool_audit import ToolMessageAuditRepository
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.messages import Message
 
 
 class _FakeDb:

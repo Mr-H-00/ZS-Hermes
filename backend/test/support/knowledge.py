@@ -1,6 +1,6 @@
 """知识库集成测试的默认模型配置。"""
 
-from yuxi.modules.system.options import system_options
+from zs.modules.system.options import system_options
 
 
 def default_embedding_model_spec() -> str:

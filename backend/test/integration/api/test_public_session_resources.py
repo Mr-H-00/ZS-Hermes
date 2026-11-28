@@ -7,13 +7,13 @@ from sqlalchemy import select
 
 from test.integration.api.helpers import delete_created_threads
 from test.live_api_cleanup import make_test_session_title
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.workspace.filesystem import Workspace
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.workspace.runtime_paths import runtime_workspace_path
-from yuxi.shared.datetime import utc_now
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.workspace.filesystem import Workspace
+from zs.modules.workspace.models import Project
+from zs.modules.workspace.runtime_paths import runtime_workspace_path
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -100,21 +100,21 @@ async def test_session_resource_operations_preserve_identity_and_activity(test_c
             assert created["object"] == "agent.session"
             assert created["status"] == "idle"
             assert created["agent"]["model"]
-            assert created["yuxi"]["receipt"]["status"] == "accepted"
-            assert created["yuxi"]["receipt"]["session_id"] == created["id"]
-            assert not {"thread_id", "agent_id", "status", "metadata", "input_id"} & created["yuxi"].keys()
+            assert created["zs"]["receipt"]["status"] == "accepted"
+            assert created["zs"]["receipt"]["session_id"] == created["id"]
+            assert not {"thread_id", "agent_id", "status", "metadata", "input_id"} & created["zs"].keys()
         target = session_ids[-1]
         before = (await test_client.get(f"/api/v1/agents/sessions/{target}", headers=admin_headers)).json()
         changed = await test_client.post(
             f"/api/v1/agents/sessions/{target}",
-            json={"yuxi": {"title": "更名", "is_pinned": True}},
+            json={"zs": {"title": "更名", "is_pinned": True}},
             headers=admin_headers,
         )
         assert changed.status_code == 200, changed.text
         updated = changed.json()
         assert updated.keys() == before.keys() == created.keys()
-        assert updated["yuxi"].keys() == before["yuxi"].keys() == created["yuxi"].keys()
-        assert updated["yuxi"]["title"] == "更名"
+        assert updated["zs"].keys() == before["zs"].keys() == created["zs"].keys()
+        assert updated["zs"]["title"] == "更名"
         assert updated["agent"] == before["agent"] == created["agent"]
         assert updated["last_active_at"] == before["last_active_at"]
         assert (await test_client.patch(f"/api/v1/agents/sessions/{target}", json={}, headers=admin_headers)).status_code == 405
@@ -137,13 +137,13 @@ async def test_session_resource_operations_preserve_identity_and_activity(test_c
         pinned = await test_client.get("/api/v1/agents/sessions", params={"is_pinned": True, "limit": 100}, headers=admin_headers)
         assert pinned.status_code == 200, pinned.text
         assert target in {item["id"] for item in pinned.json()["data"]}
-        assert all(item["yuxi"]["is_pinned"] for item in pinned.json()["data"])
+        assert all(item["zs"]["is_pinned"] for item in pinned.json()["data"])
         viewed = await test_client.post(f"/api/v1/agents/sessions/{target}/viewed", headers=admin_headers)
         assert viewed.status_code == 200, viewed.text
         assert viewed.json()["last_active_at"] == before["last_active_at"]
         archived = await test_client.post(f"/api/v1/agents/sessions/{target}/archive", headers=admin_headers)
         assert archived.status_code == 200, archived.text
-        assert archived.json()["yuxi"]["archived"] is True
+        assert archived.json()["zs"]["archived"] is True
         assert archived.json()["status"] == "idle"
     finally:
         await delete_created_threads(*session_ids)
@@ -176,7 +176,7 @@ async def test_merged_steer_receipts_advance_session_activity(test_client, stand
                         {
                             "type": "agent.session.input.message",
                             "input": [{"role": "user", "content": [{"type": "input_text", "text": text}]}],
-                            "yuxi": {"mode": "steer"},
+                            "zs": {"mode": "steer"},
                         }
                     ]
                 },

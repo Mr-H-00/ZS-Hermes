@@ -4,18 +4,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.runtime.sandbox import backend as backend_module
-from yuxi.modules.agents.runtime.sandbox.backend import UserSandboxBackend, create_agent_composite_backend
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir
-from yuxi.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
-from yuxi.modules.workspace.runtime_paths import SHARED_SKILLS_PATH, WORKSPACE_PATH
+from zs.modules.agents.runtime.sandbox import backend as backend_module
+from zs.modules.agents.runtime.sandbox.backend import UserSandboxBackend, create_agent_composite_backend
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir
+from zs.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
+from zs.modules.workspace.runtime_paths import SHARED_SKILLS_PATH, WORKSPACE_PATH
 
 
 @pytest.fixture
 def backend(tmp_path, monkeypatch):
     """执行端一旦被访问即失败，文件结果由磁盘回读核验。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "users"))
-    monkeypatch.setenv("YUXI_SKILL_PROJECTION_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "users"))
+    monkeypatch.setenv("ZS_SKILL_PROJECTION_DIR", str(tmp_path / "skills"))
     ensure_user_workspace("one")
     ensure_user_workspace("two")
     get_user_skills_root_dir("one").mkdir(parents=True)
@@ -239,7 +239,7 @@ async def test_async_file_tools_delegate_to_native_sync_implementations(backend)
 
 def test_agent_filesystem_tools_do_not_expose_delete(backend):
     """检查真实注册的模型工具，恢复删除暴露时必须失败。"""
-    from yuxi.modules.agents.runtime.middlewares.filesystem import create_agent_filesystem_middleware
+    from zs.modules.agents.runtime.middlewares.filesystem import create_agent_filesystem_middleware
 
     middleware = create_agent_filesystem_middleware(backend=backend)
     names = {tool.name for tool in middleware.tools}

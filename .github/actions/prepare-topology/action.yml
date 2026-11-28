@@ -20,7 +20,7 @@ runs:
       if: inputs.sandbox-only != 'true'
       uses: actions/cache/restore@v4
       with:
-        path: /tmp/yuxi-buildkit-cache/api
+        path: /tmp/zs-buildkit-cache/api
         key: buildkit-v2-api-${{ runner.os }}-${{ hashFiles('backend/uv.lock', 'backend/pyproject.toml', 'docker/api.Dockerfile') }}
         restore-keys: |
           buildkit-v2-api-${{ runner.os }}-
@@ -29,7 +29,7 @@ runs:
       if: inputs.sandbox-only != 'true'
       uses: actions/cache/restore@v4
       with:
-        path: /tmp/yuxi-buildkit-cache/minio
+        path: /tmp/zs-buildkit-cache/minio
         key: buildkit-v2-minio-${{ runner.os }}-${{ hashFiles('docker/minio/Dockerfile', 'docker/minio/docker-entrypoint.sh') }}
         restore-keys: |
           buildkit-v2-minio-${{ runner.os }}-
@@ -37,33 +37,33 @@ runs:
       id: sandbox-cache
       uses: actions/cache/restore@v4
       with:
-        path: /tmp/yuxi-buildkit-cache/sandbox
+        path: /tmp/zs-buildkit-cache/sandbox
         key: buildkit-v2-sandbox-${{ runner.os }}-${{ hashFiles('docker/sandbox.Dockerfile') }}
         restore-keys: |
           buildkit-v2-sandbox-${{ runner.os }}-
     - name: Build topology images with cached layers
       if: inputs.sandbox-only != 'true'
-      run: bash scripts/ci/build_topology_images.sh /tmp/yuxi-buildkit-cache/api /tmp/yuxi-buildkit-cache/minio /tmp/yuxi-buildkit-cache/sandbox
+      run: bash scripts/ci/build_topology_images.sh /tmp/zs-buildkit-cache/api /tmp/zs-buildkit-cache/minio /tmp/zs-buildkit-cache/sandbox
       shell: bash
     - name: Build sandbox image with cached layers
       if: inputs.sandbox-only == 'true'
-      run: bash scripts/ci/build_topology_images.sh "" "" /tmp/yuxi-buildkit-cache/sandbox --sandbox-only
+      run: bash scripts/ci/build_topology_images.sh "" "" /tmp/zs-buildkit-cache/sandbox --sandbox-only
       shell: bash
     - name: Save successful api build before runtime tests
       if: inputs.sandbox-only != 'true' && steps.api-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
-        path: /tmp/yuxi-buildkit-cache/api
+        path: /tmp/zs-buildkit-cache/api
         key: ${{ steps.api-cache.outputs.cache-primary-key }}
     - name: Save successful minio build before runtime tests
       if: inputs.sandbox-only != 'true' && steps.minio-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
-        path: /tmp/yuxi-buildkit-cache/minio
+        path: /tmp/zs-buildkit-cache/minio
         key: ${{ steps.minio-cache.outputs.cache-primary-key }}
     - name: Save successful sandbox build before runtime tests
       if: steps.sandbox-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
-        path: /tmp/yuxi-buildkit-cache/sandbox
+        path: /tmp/zs-buildkit-cache/sandbox
         key: ${{ steps.sandbox-cache.outputs.cache-primary-key }}

@@ -8,7 +8,7 @@ $PowerShellPath = (Get-Process -Id $PID).Path
 $InitScript = (Resolve-Path (Join-Path $PSScriptRoot "../init.ps1")).Path
 
 function Invoke-SecurityValidation([string]$EnvContent) {
-    $caseDirectory = Join-Path ([IO.Path]::GetTempPath()) ("yuxi-init-security-" + [guid]::NewGuid().ToString("N"))
+    $caseDirectory = Join-Path ([IO.Path]::GetTempPath()) ("zs-init-security-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $caseDirectory | Out-Null
     try {
         Set-Content -Path (Join-Path $caseDirectory ".env") -Value $EnvContent -Encoding utf8NoBOM
@@ -57,10 +57,10 @@ Write-Host "PowerShell security environment validation matrix passed."
 function global:docker { $global:LASTEXITCODE = 0 }
 
 function Invoke-SandboxInitialization([string]$ExtraEnv = "") {
-    $caseDirectory = Join-Path ([IO.Path]::GetTempPath()) ("yuxi-init-sandbox-" + [guid]::NewGuid().ToString("N"))
+    $caseDirectory = Join-Path ([IO.Path]::GetTempPath()) ("zs-init-sandbox-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $caseDirectory | Out-Null
     try {
-        $content = (New-SecurityEnv $validJwt $validApi) + "`nSILICONFLOW_API_KEY=test-key`nYUXI_INSTANCE_ID=test-instance`n" + $ExtraEnv
+        $content = (New-SecurityEnv $validJwt $validApi) + "`nSILICONFLOW_API_KEY=test-key`nZS_INSTANCE_ID=test-instance`n" + $ExtraEnv
         Set-Content -Path (Join-Path $caseDirectory ".env") -Value $content -Encoding utf8NoBOM
         Push-Location $caseDirectory
         try {

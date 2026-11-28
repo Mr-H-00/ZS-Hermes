@@ -196,7 +196,7 @@ async def test_remote_config_rejected_before_persistence(test_client, admin_head
 
 async def test_manifest_metadata_persisted_and_invalid_update_preserves_connection(test_client, admin_headers):
     """清单展示信息落库，非法更新不得改变既有远程连接。"""
-    from yuxi.modules.extensions.mcp.config import normalize_mcp_manifest_entry
+    from zs.modules.extensions.mcp.config import normalize_mcp_manifest_entry
 
     slug = "pytest-mcp-manifest-" + uuid4().hex[:12]
     path = f"/api/system/mcp-servers/{slug}"

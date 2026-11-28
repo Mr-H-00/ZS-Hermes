@@ -10,11 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.migrations.schema import create_knowledge_tables
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeImport
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.migrations.schema import create_knowledge_tables
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeImport
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -46,9 +46,9 @@ async def database(monkeypatch):
 @pytest_asyncio.fixture
 async def object_storage(monkeypatch):
     """真实 MinIO 使用独立桶，只清理本例创建的对象。"""
-    from yuxi.infrastructure.minio.client import MinIOClient
-    from yuxi.modules.knowledge import base, preview
-    from yuxi.modules.knowledge.services import uploads
+    from zs.infrastructure.minio.client import MinIOClient
+    from zs.modules.knowledge import base, preview
+    from zs.modules.knowledge.services import uploads
 
     client = MinIOClient()
     bucket = f"pytest-knowledge-{uuid4().hex}"
@@ -66,7 +66,7 @@ async def object_storage(monkeypatch):
 
 async def test_office_preview_cannot_publish_after_file_deletion(database, object_storage, monkeypatch):
     """转换暂停时删除文件，恢复转换后回读存储确认没有晚写预览。"""
-    from yuxi.modules.knowledge import preview
+    from zs.modules.knowledge import preview
 
     client = object_storage
     source = await client.aupload_file(client.KB_BUCKETS["documents"], "kb-test/original/file-test/source.docx", b"office")
@@ -104,7 +104,7 @@ async def test_office_preview_cannot_publish_after_file_deletion(database, objec
 
 async def test_file_resource_cleanup_removes_office_preview(database, object_storage):
     """删除单文件必须回收独立 preview 前缀下的缓存。"""
-    from yuxi.modules.knowledge.base import KnowledgeExecutor
+    from zs.modules.knowledge.base import KnowledgeExecutor
 
     client = object_storage
     bucket = client.KB_BUCKETS["documents"]
@@ -124,7 +124,7 @@ async def test_staging_lifecycle_is_tag_scoped_and_preserves_unrelated_rules(obj
     from minio.commonconfig import ENABLED, Filter
     from minio.lifecycleconfig import Expiration, LifecycleConfig, Rule
 
-    from yuxi.modules.knowledge.services.uploads import STAGING_TAG, stage_document
+    from zs.modules.knowledge.services.uploads import STAGING_TAG, stage_document
 
     client = object_storage
     bucket = client.KB_BUCKETS["documents"]
@@ -145,8 +145,8 @@ async def test_staging_lifecycle_is_tag_scoped_and_preserves_unrelated_rules(obj
 
 async def test_import_intent_is_minimal_and_replays_after_staging_expires(database, object_storage, monkeypatch):
     """回执重放不读取已过期暂存，运行意图只保留执行需要的身份和参数。"""
-    from yuxi.modules.knowledge.services import imports
-    from yuxi.modules.knowledge.services.uploads import stage_document
+    from zs.modules.knowledge.services import imports
+    from zs.modules.knowledge.services.uploads import stage_document
 
     client = object_storage
     monkeypatch.setattr(imports, "get_minio_client", lambda: client)
@@ -181,6 +181,6 @@ async def test_import_intent_is_minimal_and_replays_after_staging_expires(databa
     await client.adelete_file(staged.upload.bucket_name, staged.upload.object_name)
     assert await imports.register_import(**request) == first
     file = await KnowledgeFileRepository().get_by_file_id(first["items"][0]["file_id"])
-    from yuxi.infrastructure.minio.object_urls import parse_minio_url
+    from zs.infrastructure.minio.object_urls import parse_minio_url
 
     assert await client.adownload_file(*parse_minio_url(file.path)) == b"source"

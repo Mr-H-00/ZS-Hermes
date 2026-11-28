@@ -7,8 +7,8 @@ from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
-from yuxi.modules.agents.runtime.middlewares.model_input import ImageInputCompatibilityMiddleware
-from yuxi.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
+from zs.modules.agents.runtime.middlewares.model_input import ImageInputCompatibilityMiddleware
+from zs.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
 
 
 def _request(model, messages, *, tools=None) -> ModelRequest:

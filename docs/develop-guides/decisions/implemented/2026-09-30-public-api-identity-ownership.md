@@ -2,9 +2,9 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/identity/services/public_auth.py
+Owner：backend/zs/modules/identity/services/public_auth.py
 
-实现位置更新：模型注册现由 `backend/yuxi/infrastructure/postgres/models.py` 拥有，见 [2026-10-21 后端边界收敛](./2026-10-21-backend-boundary-and-provider-catalog.md)。本记录保留当次命令与证据。
+实现位置更新：模型注册现由 `backend/zs/infrastructure/postgres/models.py` 拥有，见 [2026-10-21 后端边界收敛](./2026-10-21-backend-boundary-and-provider-catalog.md)。本记录保留当次命令与证据。
 
 ## 问题
 
@@ -67,8 +67,8 @@ python3 scripts/verify_engineering_contracts.py
 python3 -m unittest scripts.test_verify_engineering_contracts
 pnpm --dir docs run build
 git diff --check
-uvx ruff check backend/yuxi/api/dependencies/auth.py backend/yuxi/api/routers/public_v1/agents/auth.py backend/yuxi/modules/agents/services/directory.py backend/yuxi/modules/identity/repositories/api_keys.py backend/yuxi/modules/identity/services/public_auth.py backend/test/unit/routers/test_api_key_security.py backend/test/unit/services/test_public_agents_api.py
-uvx ruff format --check backend/yuxi/api/dependencies/auth.py backend/yuxi/api/routers/public_v1/agents/auth.py backend/yuxi/modules/agents/services/directory.py backend/yuxi/modules/identity/repositories/api_keys.py backend/yuxi/modules/identity/services/public_auth.py backend/test/unit/routers/test_api_key_security.py backend/test/unit/services/test_public_agents_api.py
+uvx ruff check backend/zs/api/dependencies/auth.py backend/zs/api/routers/public_v1/agents/auth.py backend/zs/modules/agents/services/directory.py backend/zs/modules/identity/repositories/api_keys.py backend/zs/modules/identity/services/public_auth.py backend/test/unit/routers/test_api_key_security.py backend/test/unit/services/test_public_agents_api.py
+uvx ruff format --check backend/zs/api/dependencies/auth.py backend/zs/api/routers/public_v1/agents/auth.py backend/zs/modules/agents/services/directory.py backend/zs/modules/identity/repositories/api_keys.py backend/zs/modules/identity/services/public_auth.py backend/test/unit/routers/test_api_key_security.py backend/test/unit/services/test_public_agents_api.py
 ```
 
 工程契约、64 项契约 unit、文档链接与构建、补丁空白检查和本次 7 个 Python 文件的 Ruff 检查均通过。容器内未安装 Ruff，使用宿主的 `uvx ruff` 验证。独立 Review 未重复运行测试，其测试证据依据上述实际执行结果。

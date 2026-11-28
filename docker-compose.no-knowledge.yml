@@ -2,13 +2,13 @@
 services:
   api:
     environment:
-      YUXI_KNOWLEDGE_ENABLED: "false"
+      ZS_KNOWLEDGE_ENABLED: "false"
   worker:
     environment:
-      YUXI_KNOWLEDGE_ENABLED: "false"
+      ZS_KNOWLEDGE_ENABLED: "false"
   app-init:
     environment:
-      YUXI_KNOWLEDGE_ENABLED: "false"
+      ZS_KNOWLEDGE_ENABLED: "false"
   milvus:
     scale: 0
   etcd:

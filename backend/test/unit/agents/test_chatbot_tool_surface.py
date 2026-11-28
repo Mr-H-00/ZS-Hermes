@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
-from yuxi.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
-from yuxi.modules.agents.runtime.checkpoint_cleanup import CheckpointCleanupModel
-from yuxi.modules.agents.runtime.middlewares import summary as summary_module
+from zs.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
+from zs.modules.agents.runtime.checkpoint_cleanup import CheckpointCleanupModel
+from zs.modules.agents.runtime.middlewares import summary as summary_module
 
 
 @pytest.mark.asyncio

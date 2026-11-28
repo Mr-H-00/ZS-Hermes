@@ -24,7 +24,7 @@ test('首次发送在创建 Thread 前冻结附件、图片和配置，后来草
   images.push({ imageUrl: 'next-draft-image' })
   h.state.selectedModelByThread.__draft__ = 'next:model'
   h.state.savedToolApprovalMode.value = 'always_trust'
-  resolveCreation({ id: 'created-thread', agent: { id: 'agent' }, yuxi: {} })
+  resolveCreation({ id: 'created-thread', agent: { id: 'agent' }, zs: {} })
   await sending
   assert.equal(submitted.threadId, 'created-thread')
   assert.deepEqual(submitted.draft.attachments, [{ id: 'original-file' }])
@@ -92,7 +92,7 @@ for (const uploadTarget of ['__draft__', 'thread-a']) {
     t.mock.method(h.state.chatThreadsStore, 'createThread', async (...args) => {
       calls.push(JSON.parse(JSON.stringify(args)))
       if (calls.length === 1) throw new Error('response lost')
-      return { id: 'same-session', agent: { id: 'agent' }, yuxi: {} }
+      return { id: 'same-session', agent: { id: 'agent' }, zs: {} }
     })
     h.state.savedToolApprovalMode.value = 'default'
     await assert.rejects(h.state.createActiveThread(), /response lost/)
@@ -115,7 +115,7 @@ test('首次创建会话明确提交完全信任，不继承智能体的审批�
   t.mock.method(h.agentStore, 'fetchAgentDetail', async () => ({ can_run: true }))
   t.mock.method(h.state.chatThreadsStore, 'createThread', async (_agent, _project, config) => {
     assert.equal(config.tool_approval_mode, 'always_trust')
-    return { id: 'new-session', agent: { id: 'agent' }, yuxi: config }
+    return { id: 'new-session', agent: { id: 'agent' }, zs: config }
   })
   assert.equal(await h.state.createActiveThread(), 'new-session')
   assert.equal(h.state.currentToolApprovalMode.value, 'always_trust')
@@ -157,7 +157,7 @@ test('预写 Thread 身份也须加载历史，已有历史的视图只恢复订
           resumeQueuedInputs: async () => {}
         }
       })
-      h.state.chatThreadsStore.threads = [{ id: 'thread', agent: { id: 'agent' }, yuxi: {} }]
+      h.state.chatThreadsStore.threads = [{ id: 'thread', agent: { id: 'agent' }, zs: {} }]
       h.runtime.getThreadState('thread').historyLoaded = historyLoaded
       subtest.mock.method(h.agentStore, 'fetchAgentDetail', async () => ({ can_run: historyLoaded }))
       subtest.mock.method(h.state.chatThreadsStore, 'markThreadViewed', () => {})
@@ -193,7 +193,7 @@ for (const status of [403, 404, 503]) {
         resumeQueuedInputs: () => execution.push('queue')
       }
     })
-    h.state.chatThreadsStore.threads = [{ id: 'history', agent: { id: 'agent' }, yuxi: {} }]
+    h.state.chatThreadsStore.threads = [{ id: 'history', agent: { id: 'agent' }, zs: {} }]
     const toast = t.mock.method(message, 'error', () => {})
     t.mock.method(h.agentStore, 'fetchAgentDetail', async () => { throw { status } })
     t.mock.method(h.state.chatThreadsStore, 'markThreadViewed', () => {})
@@ -227,7 +227,7 @@ for (const historyLoaded of [false, true]) {
         threadId: historyLoaded ? 'cached' : 'previous',
         runtime: { resumeActiveRunForThread: () => assert.fail('失效或读取失败时不能恢复执行') }
       })
-      h.state.chatThreadsStore.threads = [{ id: 'cached', agent: { id: 'agent' }, yuxi: {} }]
+      h.state.chatThreadsStore.threads = [{ id: 'cached', agent: { id: 'agent' }, zs: {} }]
       h.runtime.getThreadState('cached').historyLoaded = historyLoaded
       t.mock.method(h.agentStore, 'fetchAgentDetail', async () => ({ can_run: false }))
       t.mock.method(h.agentApi, 'getPublicThread', async () => { throw { status } })

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from yuxi.modules.knowledge.chunking.ragflow_like.utils import semantic_utils
-from yuxi.modules.knowledge.chunking.ragflow_like.utils.semantic_utils import (
+from zs.modules.knowledge.chunking.ragflow_like.utils import semantic_utils
+from zs.modules.knowledge.chunking.ragflow_like.utils.semantic_utils import (
     semantic_chunking_with_auto_clusters,
 )
 

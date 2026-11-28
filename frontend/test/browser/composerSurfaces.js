@@ -156,7 +156,7 @@ async page => {
     await page.evaluate(async () => { window.composerReview.state.loading = false; document.activeElement.blur(); await window.composerReview.nextTick() })
     await page.mouse.move(0, 0)
     await settle()
-    await page.locator('#composer-review > section').screenshot({ path: `/tmp/yuxi-composer-${dark ? 'dark' : 'light'}.png`, animations: 'disabled' })
+    await page.locator('#composer-review > section').screenshot({ path: `/tmp/zs-composer-${dark ? 'dark' : 'light'}.png`, animations: 'disabled' })
     observations.push({ dark, normal, hovered: hovered.background, focused: focused.background })
   }
   const transfer = await page.evaluateHandle(() => {

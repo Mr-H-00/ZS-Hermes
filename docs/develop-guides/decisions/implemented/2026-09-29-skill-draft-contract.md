@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/extensions/skills/install_draft.py
+Owner：backend/zs/modules/extensions/skills/install_draft.py
 
 Agent 专用安装工具及其直接来源下载流程由[沙盒 CLI 个人安装](./2026-10-31-personal-skills-cli.md)取代；网页个人/共享安装与草稿契约继续有效。
 

@@ -1,4 +1,4 @@
-/** 将远程 mcpServers 清单转换为 Yuxi 的 MCP 创建请求。 */
+/** 将远程 mcpServers 清单转换为 ZS 的 MCP 创建请求。 */
 export function parseMcpManifest(text) {
   if (!text.trim()) return []
 

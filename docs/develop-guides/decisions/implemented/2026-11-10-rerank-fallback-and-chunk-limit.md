@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/models/rerank.py
+Owner：backend/zs/modules/models/rerank.py
 
 ## 问题
 

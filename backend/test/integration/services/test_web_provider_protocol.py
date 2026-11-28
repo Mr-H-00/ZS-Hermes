@@ -8,8 +8,8 @@ import sys
 import httpx
 import pytest
 
-from yuxi.modules.extensions.web.schemas import FetchInput, SearchInput
-from yuxi.modules.extensions.web.services import fetch_web, search_web
+from zs.modules.extensions.web.schemas import FetchInput, SearchInput
+from zs.modules.extensions.web.services import fetch_web, search_web
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.self_managed_resources]
 

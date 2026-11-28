@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/agents/runtime/middlewares/tool_error_guard.py
+Owner：backend/zs/modules/agents/runtime/middlewares/tool_error_guard.py
 
 ## 问题
 

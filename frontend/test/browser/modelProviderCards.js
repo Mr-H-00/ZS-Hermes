@@ -37,7 +37,7 @@ async page => {
     }
     if (path.endsWith('/auth/me')) return respond({ id: 1, uid: 'fixture', username: 'Fixture', role: 'superadmin' })
     if (path.endsWith('/system/config')) return respond({ default_model: 'deepseek:fixture-chat' })
-    if (path.endsWith('/system/info')) return respond({ data: { branding: { name: 'Yuxi' } } })
+    if (path.endsWith('/system/info')) return respond({ data: { branding: { name: 'ZS' } } })
     if (path.endsWith('/system/health')) return respond({ status: 'ok' })
     if (path.endsWith('/model-providers')) {
       if (mode === 'loading') await new Promise(resolve => { releaseLoading = resolve; loadingReady() })
@@ -91,7 +91,7 @@ async page => {
   const remoteHeader = modelsDialog.locator('.remote-header')
   check(await remoteHeader.getByRole('button', { name: '刷新远端模型', exact: true }).count() === 1, '刷新按钮没有位于远端列表标题右侧')
   await waitForModalAnimation()
-  await modelsDialog.locator('.ant-modal-content').screenshot({ path: '/tmp/yuxi-provider-remote-loading.png' })
+  await modelsDialog.locator('.ant-modal-content').screenshot({ path: '/tmp/zs-provider-remote-loading.png' })
   await firstRemoteRoute.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: remoteModels }) })
   await modelsDialog.getByText('Remote First', { exact: true }).waitFor()
   await modelsDialog.locator('.ant-spin-spinning .ant-spin-text').waitFor({ state: 'hidden' })
@@ -162,7 +162,7 @@ async page => {
     check(await settings.getByRole('switch', { name: '启用供应商', exact: true }).isChecked() === false, '配置中未保留供应商停用状态')
     check(await modelsDialog.isVisible() === false, '未启用卡片误开模型列表')
     await waitForModalAnimation(settings)
-    if (!key) await settings.locator('.ant-modal-content').screenshot({ path: '/tmp/yuxi-disabled-provider-settings.png' })
+    if (!key) await settings.locator('.ant-modal-content').screenshot({ path: '/tmp/zs-disabled-provider-settings.png' })
     await settings.getByRole('button', { name: /^取\s*消$/ }).click()
     await settings.waitFor({ state: 'hidden' })
   }
@@ -181,7 +181,7 @@ async page => {
       const settingsBox = await panel.getByRole('button', { name: '配置 DeepSeek 供应商', exact: true }).boundingBox()
       const cardBox = await deepseek.boundingBox()
       check(settingsBox.x >= cardBox.x && settingsBox.x + settingsBox.width <= cardBox.x + cardBox.width, '设置按钮溢出卡片')
-      const path = `/tmp/yuxi-provider-cards-${theme}-${width}.png`
+      const path = `/tmp/zs-provider-cards-${theme}-${width}.png`
       await page.screenshot({ path, fullPage: true })
       screenshots.push(path)
       await panel.getByRole('button', { name: '选择 DeepSeek 模型', exact: true }).click()
@@ -190,7 +190,7 @@ async page => {
       const refreshBox = await modelsDialog.getByRole('button', { name: '刷新远端模型', exact: true }).boundingBox()
       const headerBox = await modelsDialog.locator('.remote-header').boundingBox()
       check(refreshBox.x + refreshBox.width <= headerBox.x + headerBox.width + 1, '远端刷新按钮溢出标题行')
-      await modelsDialog.locator('.ant-modal-content').screenshot({ path: `/tmp/yuxi-provider-remote-${theme}-${width}.png` })
+      await modelsDialog.locator('.ant-modal-content').screenshot({ path: `/tmp/zs-provider-remote-${theme}-${width}.png` })
       await modelsDialog.getByRole('button', { name: 'Close' }).click()
       await modelsDialog.waitFor({ state: 'hidden' })
     }

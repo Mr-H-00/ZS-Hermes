@@ -2,10 +2,10 @@
 
 import pytest
 
-from yuxi.modules.agents.repositories.feedback import AgentFeedbackRepository
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services.trace_links import get_feedback_turn_trace, get_thread_turn_trace
-from yuxi.shared.errors import PermissionDeniedError
+from zs.modules.agents.repositories.feedback import AgentFeedbackRepository
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services.trace_links import get_feedback_turn_trace, get_thread_turn_trace
+from zs.shared.errors import PermissionDeniedError
 
 
 @pytest.mark.asyncio

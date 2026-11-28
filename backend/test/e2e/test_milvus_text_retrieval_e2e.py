@@ -21,25 +21,25 @@ from pymilvus import Collection, connections, utility
 from sqlalchemy import select
 
 from test.e2e.e2e_helpers import wait_model_provider_cache
-from yuxi.infrastructure.minio import get_minio_client
-from yuxi.infrastructure.minio.object_urls import parse_minio_url
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.graphs.extractors import normalize_extraction_result
-from yuxi.modules.knowledge.graphs.graph_utils import graph_entity_collection_name, graph_triple_collection_name
-from yuxi.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.modules.knowledge.models import (
+from zs.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio.object_urls import parse_minio_url
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.graphs.extractors import normalize_extraction_result
+from zs.modules.knowledge.graphs.graph_utils import graph_entity_collection_name, graph_triple_collection_name
+from zs.modules.knowledge.graphs.milvus_graph_vector_store import MilvusGraphVectorStore
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.models import (
     KnowledgeChunk,
     KnowledgeGraphEntityMention,
     KnowledgeGraphTripleMention,
     KnowledgeProjectionOutbox,
 )
-from yuxi.modules.knowledge.repositories.chunks import KnowledgeChunkRepository
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
-from yuxi.modules.knowledge.repositories.graphs import KnowledgeGraphRepository
-from yuxi.modules.knowledge.repositories.projections import knowledge_projection_lock
+from zs.modules.knowledge.repositories.chunks import KnowledgeChunkRepository
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.modules.knowledge.repositories.graphs import KnowledgeGraphRepository
+from zs.modules.knowledge.repositories.projections import knowledge_projection_lock
 
 load_models()
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -235,7 +235,7 @@ async def test_worker_index_and_all_search_modes_use_text_constraints(e2e_client
             alias=alias,
             uri=os.environ["MILVUS_URI"],
             token=os.getenv("MILVUS_TOKEN", ""),
-            db_name=os.getenv("MILVUS_DB", "yuxi"),
+            db_name=os.getenv("MILVUS_DB", "zs"),
         )
         collection = Collection(kb_id, using=alias)
         assert Version(pymilvus.__version__) >= Version("3.0.2")
@@ -807,7 +807,7 @@ async def test_worker_reparse_preserves_original_and_rebuilds_artifacts(e2e_clie
             alias=alias,
             uri=os.environ["MILVUS_URI"],
             token=os.getenv("MILVUS_TOKEN", ""),
-            db_name=os.getenv("MILVUS_DB", "yuxi"),
+            db_name=os.getenv("MILVUS_DB", "zs"),
         )
 
         async def run_job(path, payload=None):

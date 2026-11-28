@@ -13,20 +13,20 @@ from agent_run_test_helpers import cleanup_agent_run_threads, create_agent_run
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-import yuxi.modules.agents.services.run_lifecycle as lifecycle
-import yuxi.modules.agents.services.leases as lease_worker
-import yuxi.modules.agents.services.runner as run_worker
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.model_audit import ModelMessageAuditRepository
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.tool_audit import ToolMessageAuditRepository
-from yuxi.modules.agents.services.message_recorder import RunMessageRecorder
-from yuxi.modules.agents.services.openai_events import OpenAIEventAdapter
-from yuxi.shared.datetime import utc_now
+import zs.modules.agents.services.run_lifecycle as lifecycle
+import zs.modules.agents.services.leases as lease_worker
+import zs.modules.agents.services.runner as run_worker
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.model_audit import ModelMessageAuditRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.tool_audit import ToolMessageAuditRepository
+from zs.modules.agents.services.message_recorder import RunMessageRecorder
+from zs.modules.agents.services.openai_events import OpenAIEventAdapter
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

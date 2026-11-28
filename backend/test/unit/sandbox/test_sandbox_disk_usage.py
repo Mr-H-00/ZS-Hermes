@@ -2,8 +2,8 @@
 
 import pytest
 
-from yuxi.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
-from yuxi.shared.errors import UpstreamError
+from zs.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
+from zs.shared.errors import UpstreamError
 
 
 def test_disk_usage_keeps_available_space_distinct_from_reserved_space(monkeypatch):

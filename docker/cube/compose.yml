@@ -1,5 +1,5 @@
 # 仅供开发验证的嵌套 KVM 节点。部署时优先使用原生 Linux/KVM。
-name: yuxi-cube
+name: zs-cube
 services:
   node:
     build:
@@ -20,8 +20,8 @@ services:
     cpus: 8
     volumes:
       - ${CUBE_DATA_DIR:?Set CUBE_DATA_DIR}/vm:/cube/vm
-      - ${CUBE_SHARED_DIR:?Set the Yuxi state directory}/threads:/cube/shared/threads
-      - ${CUBE_SHARED_DIR:?Set the Yuxi state directory}/skill-projections:/cube/shared/skill-projections
+      - ${CUBE_SHARED_DIR:?Set the ZS state directory}/threads:/cube/shared/threads
+      - ${CUBE_SHARED_DIR:?Set the ZS state directory}/skill-projections:/cube/shared/skill-projections
     ports:
       - "127.0.0.1:10022:10022"
       - "127.0.0.1:13000:13000"

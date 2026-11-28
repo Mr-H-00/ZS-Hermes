@@ -59,7 +59,7 @@ async page => {
     allowSuccess = true
     await retry.click()
     await page.getByRole('button', { name: '构建此文件图谱' }).waitFor({ state: 'visible' })
-    await page.locator('#graph-status-check').screenshot({ path: '/tmp/yuxi-file-status-retry.png' })
+    await page.locator('#graph-status-check').screenshot({ path: '/tmp/zs-file-status-retry.png' })
     return { attempts, retryClicked: attempts >= 2 }
   } finally {
     await page.evaluate(() => { window.graphStatusCheck.app.unmount(); window.graphStatusCheck.host.remove(); window.graphStatusCheck.restoreAuth(); delete window.graphStatusCheck })

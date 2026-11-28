@@ -34,7 +34,7 @@ async page => {
       check(await dialog.getByRole('button', { name: '添加到知识库', exact: true }).isDisabled(), '失败 URL 被允许入库')
       check(!(await dialog.innerText()).includes('private-url-diagnostic'), '内部诊断进入页面')
       check(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1), '错误文案使弹窗溢出')
-      if (current < 2) await dialog.screenshot({ path: `/tmp/yuxi-url-import-${current === 0 ? 'disabled-light' : 'blocked-dark-768'}.png`, animations: 'disabled' })
+      if (current < 2) await dialog.screenshot({ path: `/tmp/zs-url-import-${current === 0 ? 'disabled-light' : 'blocked-dark-768'}.png`, animations: 'disabled' })
     }
     return { errorCases: messages.length, screenshots: 2 }
   } finally {

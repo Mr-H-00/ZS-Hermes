@@ -22,8 +22,8 @@ from test.e2e.e2e_helpers import (
     wait_for_terminal_turn as _turn,
 )
 from test.live_api_cleanup import make_test_session_title
-from yuxi.infrastructure.runtime_settings import get_skill_projection_dir
-from yuxi.modules.workspace.paths import workspace_uid_dirname
+from zs.infrastructure.runtime_settings import get_skill_projection_dir
+from zs.modules.workspace.paths import workspace_uid_dirname
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.timeout(240)]
 
@@ -50,8 +50,8 @@ async def test_public_run_persists_preloaded_tool_and_model_audit(e2e_client, e2
         thread_id, turn_id, run_id = created["session_id"], created["turn_id"], created["run_id"]
         turn = await _turn(e2e_client, e2e_headers, thread_id, turn_id)
         assert turn["status"] == "completed", turn
-        assert turn["yuxi"]["result_run_id"] == run_id
-        assert output_text(turn["yuxi"]["output"]) == OUTPUT
+        assert turn["zs"]["result_run_id"] == run_id
+        assert output_text(turn["zs"]["output"]) == OUTPUT
         assert projection_root.is_dir(), "worker 应在工具运行前物化用户 Skill 投影"
 
         run_response = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}/runs/{run_id}", headers=e2e_headers)
@@ -59,18 +59,18 @@ async def test_public_run_persists_preloaded_tool_and_model_audit(e2e_client, e2
         run = run_response.json()
         assert run["status"] == "completed"
         assert run["turn_id"] == turn_id and run["input_ids"] == [created["input_id"]]
-        assert run["output"] == turn["yuxi"]["output"]
+        assert run["output"] == turn["zs"]["output"]
 
         history_response = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}/items?order=asc&limit=100", headers=e2e_headers)
         assert history_response.status_code == 200, history_response.text
         history = history_response.json()["data"]
         tool_call = next(item for item in history if item["type"] == "function_call")
         tool_result = next(item for item in history if item["type"] == "function_call_output")
-        assert tool_call["yuxi"]["run_id"] == run_id and tool_call["turn_id"] == turn_id
+        assert tool_call["zs"]["run_id"] == run_id and tool_call["turn_id"] == turn_id
         assert (tool_call["call_id"], tool_call["name"], tool_call["status"]) == (TOOL_CALL_ID, TOOL, "completed")
         assert tool_result["call_id"] == TOOL_CALL_ID and TOOL_RESULT in tool_result["output"]
         assert [item["id"] for item in history if item["type"] == "message" and output_text([item]) == OUTPUT] == [
-            turn["yuxi"]["output"][0]["id"]
+            turn["zs"]["output"][0]["id"]
         ]
 
         audits_response = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}/audits", headers=e2e_headers)
@@ -85,7 +85,7 @@ async def test_public_run_persists_preloaded_tool_and_model_audit(e2e_client, e2
         assert audits[1]["tool_call_id"] == TOOL_CALL_ID and audits[1]["tool_input"] == {"filepaths": []}
         assert audits[1]["source_model_operation_id"] == audits[0]["operation_id"]
         assert TOOL_RESULT in audits[1]["content"]
-        assert audits[2]["id"] == turn["yuxi"]["output"][0]["yuxi"]["message_id"]
+        assert audits[2]["id"] == turn["zs"]["output"][0]["zs"]["message_id"]
 
         conn = await asyncpg.connect(postgres_dsn())
         try:
@@ -117,7 +117,7 @@ async def test_public_run_persists_preloaded_tool_and_model_audit(e2e_client, e2
                 run_id,
                 turn_id,
             )
-            assert binding["output_message_id"] == turn["yuxi"]["output"][0]["yuxi"]["message_id"]
+            assert binding["output_message_id"] == turn["zs"]["output"][0]["zs"]["message_id"]
             assert binding["output_content"] == OUTPUT
             assert binding["runtime_scope_id"] == thread_id
             assert str(binding["workdir_path"]).startswith("projects/")
@@ -206,7 +206,7 @@ async def test_standard_user_run_uses_admin_execution_limit(e2e_client, e2e_head
             threads.append((thread_id, turn_id))
             turn = await _turn(e2e_client, user_headers, thread_id, turn_id)
             assert turn["status"] == expected_status, turn
-            assert turn["yuxi"]["current_run_id"] == run_id
+            assert turn["zs"]["current_run_id"] == run_id
 
             conn = await asyncpg.connect(postgres_dsn())
             try:
@@ -218,10 +218,10 @@ async def test_standard_user_run_uses_admin_execution_limit(e2e_client, e2e_head
                 assert manifest["limits"]["max_execution_steps"] == limit
                 if limit == 1:
                     assert "Recursion limit of 1 reached" in row["error_message"]
-                    assert turn["yuxi"]["output"] is None
+                    assert turn["zs"]["output"] is None
                 else:
-                    assert turn["yuxi"]["result_run_id"] == run_id
-                    assert output_text(turn["yuxi"]["output"]) == OUTPUT
+                    assert turn["zs"]["result_run_id"] == run_id
+                    assert output_text(turn["zs"]["output"]) == OUTPUT
             finally:
                 await conn.close()
     finally:
@@ -284,15 +284,15 @@ async def test_scheduled_task_run_now_reaches_exact_thread_and_turn(e2e_client, 
         thread_id, turn_id, run_id = execution["thread_id"], execution["turn_id"], execution["run_id"]
         turn = await _turn(e2e_client, e2e_headers, thread_id, turn_id)
         assert turn["status"] == "completed", turn
-        assert turn["yuxi"]["result_run_id"] == run_id and output_text(turn["yuxi"]["output"]) == OUTPUT
+        assert turn["zs"]["result_run_id"] == run_id and output_text(turn["zs"]["output"]) == OUTPUT
 
         thread = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}", headers=e2e_headers)
         assert thread.status_code == 200, thread.text
-        assert thread.json()["yuxi"]["project_id"] == project_id
+        assert thread.json()["zs"]["project_id"] == project_id
         history_response = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}/items?order=asc&limit=100", headers=e2e_headers)
         assert history_response.status_code == 200, history_response.text
         history = history_response.json()["data"]
-        assert any(item["id"] == turn["yuxi"]["output"][0]["id"] and item["yuxi"]["run_id"] == run_id for item in history)
+        assert any(item["id"] == turn["zs"]["output"][0]["id"] and item["zs"]["run_id"] == run_id for item in history)
 
         jobs_response = await e2e_client.get("/api/scheduled-tasks", headers=e2e_headers)
         assert jobs_response.status_code == 200, jobs_response.text
@@ -364,7 +364,7 @@ async def test_tool_error_is_persisted_by_tool_message(e2e_client, e2e_headers):
         thread_id, turn_id, run_id = created["session_id"], created["turn_id"], created["run_id"]
         turn = await _turn(e2e_client, e2e_headers, thread_id, turn_id)
         assert turn["status"] == "completed", turn
-        assert turn["yuxi"]["result_run_id"] == run_id and output_text(turn["yuxi"]["output"]) == OUTPUT
+        assert turn["zs"]["result_run_id"] == run_id and output_text(turn["zs"]["output"]) == OUTPUT
 
         audits_response = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}/audits", headers=e2e_headers)
         assert audits_response.status_code == 200, audits_response.text
@@ -424,7 +424,7 @@ async def _create_thread(client: httpx.AsyncClient, headers: dict[str, str], slu
         },
     )
     assert response.status_code == 201, response.text
-    return await wait_for_consumed_input(client, headers, response.json()["yuxi"]["receipt"])
+    return await wait_for_consumed_input(client, headers, response.json()["zs"]["receipt"])
 
 
 async def test_standard_user_restores_visible_function_items_without_internal_audit(e2e_client, e2e_headers, standard_user):
@@ -450,7 +450,7 @@ async def test_standard_user_restores_visible_function_items_without_internal_au
         )
         assert created.status_code == 201, created.text
         thread_id = created.json()["id"]
-        consumed = await wait_for_consumed_input(e2e_client, user_headers, created.json()["yuxi"]["receipt"])
+        consumed = await wait_for_consumed_input(e2e_client, user_headers, created.json()["zs"]["receipt"])
         turn_id = consumed["turn_id"]
         assert (await _turn(e2e_client, user_headers, thread_id, turn_id))["status"] == "completed"
         history = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}/items?order=asc&limit=100", headers=user_headers)

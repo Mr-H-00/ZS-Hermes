@@ -48,30 +48,11 @@
             </div>
           </a-menu-item>
           <a-menu-divider />
-          <a-menu-item key="docs" @click="openDocs">
-            <template #icon><BookOpen :size="16" /></template>
-            <span class="menu-text">文档中心</span>
+          <a-menu-item key="workspace" @click="router.push('/workspace')">
+            <template #icon><NetDiskIcon :size="16" /></template>
+            <span class="menu-text">网盘</span>
           </a-menu-item>
-          <a-menu-item key="github" @click="openGitHub">
-            <template #icon>
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path
-                  d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0c-2.4-1.6-3.5-1.3-3.5-1.3a4.2 4.2 0 0 0-.1 3.2 4.6 4.6 0 0 0-1.3 3.2c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2v3.5"
-                />
-              </svg>
-            </template>
-            <span class="menu-text">给个 Star / 提个 Issue</span>
-          </a-menu-item>
+          <a-menu-divider />
           <a-menu-item key="theme" @click="toggleTheme">
             <template #icon>
               <Sun v-if="themeStore.themeMode === 'light'" :size="16" />
@@ -111,9 +92,10 @@ import { useUserStore } from '@/modules/identity'
 import { useInfoStore } from '@/modules/settings/model/info'
 import DebugComponent from '@/modules/settings/ui/DebugComponent.vue'
 import { message } from 'ant-design-vue'
-import { BookOpen, Sun, Moon, Monitor, LogOut, Settings, Terminal } from '@lucide/vue'
+import { Sun, Moon, Monitor, LogOut, Settings, Terminal } from '@lucide/vue'
 import { useThemeStore } from '@/shared/model/theme'
 import FallbackAvatar from '@/shared/ui/FallbackAvatar.vue'
+import NetDiskIcon from '@/shared/ui/NetDiskIcon.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -171,14 +153,6 @@ const logout = async () => {
 // 前往登录页
 const goToLogin = () => {
   router.push('/login')
-}
-
-const openDocs = () => {
-  window.open('https://xerrors.github.io/Yuxi/', '_blank', 'noopener,noreferrer')
-}
-
-const openGitHub = () => {
-  window.open('https://github.com/xerrors/Yuxi', '_blank', 'noopener,noreferrer')
 }
 
 const toggleTheme = () => {

@@ -13,8 +13,8 @@ from test.e2e.e2e_helpers import public_message as _message
 from test.e2e.e2e_helpers import register_replay_provider as _provider
 from test.e2e.e2e_helpers import wait_for_consumed_input
 from test.support.permission_convergence import SHARED, create_agent
-from yuxi.modules.workspace.paths import user_workspace_dir
-from yuxi.modules.workspace.runtime_paths import WORKSPACE_PATH
+from zs.modules.workspace.paths import user_workspace_dir
+from zs.modules.workspace.runtime_paths import WORKSPACE_PATH
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.timeout(120)]
 
@@ -98,7 +98,7 @@ async def test_tool_boundary_rechecks_current_caller_and_retains_history(actors,
             },
         )
         assert created.status_code == 201, created.text
-        accepted = await wait_for_consumed_input(client, user["headers"], created.json()["yuxi"]["receipt"])
+        accepted = await wait_for_consumed_input(client, user["headers"], created.json()["zs"]["receipt"])
         for _ in range(200):
             if replay["entered"].is_set():
                 break
@@ -222,7 +222,7 @@ async def test_queued_input_after_revocation_fails_without_another_model_call(ac
             json={"agent_id": agent["slug"], "agent": {"model": model}, "input": [_message("First")]},
         )
         assert initial.status_code == 201, initial.text
-        accepted = await wait_for_consumed_input(client, user["headers"], initial.json()["yuxi"]["receipt"])
+        accepted = await wait_for_consumed_input(client, user["headers"], initial.json()["zs"]["receipt"])
         for _ in range(200):
             if replay["entered"].is_set():
                 break
@@ -235,7 +235,7 @@ async def test_queued_input_after_revocation_fails_without_another_model_call(ac
                 "events": [
                     {
                         "type": "agent.session.input.message",
-                        "yuxi": {"mode": "follow_up"},
+                        "zs": {"mode": "follow_up"},
                         "input": [_message("Queued")],
                     }
                 ]
@@ -261,7 +261,7 @@ async def test_queued_input_after_revocation_fails_without_another_model_call(ac
         continued = await client.post(
             f"/api/v1/agents/sessions/{accepted['session_id']}/events",
             headers={**user["headers"], "Idempotency-Key": uuid.uuid4().hex},
-            json={"events": [{"type": "yuxi.session.input.continue"}]},
+            json={"events": [{"type": "zs.session.input.continue"}]},
         )
         assert continued.status_code == 202, continued.text
         for _ in range(200):
@@ -344,7 +344,7 @@ async def test_waitpoint_resume_after_revocation_cannot_create_new_run(actors, r
             json={"agent_id": agent["slug"], "agent": {"model": model}, "input": [_message("Wait")]},
         )
         assert response.status_code == 201, response.text
-        accepted = await wait_for_consumed_input(client, user["headers"], response.json()["yuxi"]["receipt"])
+        accepted = await wait_for_consumed_input(client, user["headers"], response.json()["zs"]["receipt"])
         for _ in range(200):
             response = await client.get(
                 f"/api/v1/agents/sessions/{accepted['session_id']}/turns/{accepted['turn_id']}", headers=user["headers"]
@@ -368,7 +368,7 @@ async def test_waitpoint_resume_after_revocation_cannot_create_new_run(actors, r
                             json={
                                 "events": [
                                     {
-                                        "type": "yuxi.session.input.resume",
+                                        "type": "zs.session.input.resume",
                                         "turn_id": accepted["turn_id"],
                                         "waitpoint_id": str(uuid.uuid4()),
                                         "response": {
@@ -408,9 +408,9 @@ async def test_waitpoint_resume_after_revocation_cannot_create_new_run(actors, r
             json={
                 "events": [
                     {
-                        "type": "yuxi.session.input.resume",
+                        "type": "zs.session.input.resume",
                         "turn_id": accepted["turn_id"],
-                        "waitpoint_id": snapshot["yuxi"]["waitpoint"]["id"],
+                        "waitpoint_id": snapshot["zs"]["waitpoint"]["id"],
                         "response": {"type": "answer", "answers": [{"question_id": "permission-q", "answer": "Yes"}]},
                     }
                 ]
@@ -482,7 +482,7 @@ async def test_failed_model_response_cannot_start_retry_or_summary_after_revocat
             },
         )
         assert response.status_code == 201, response.text
-        accepted = await wait_for_consumed_input(client, user["headers"], response.json()["yuxi"]["receipt"])
+        accepted = await wait_for_consumed_input(client, user["headers"], response.json()["zs"]["receipt"])
         if failure == "overflow":
             for _ in range(200):
                 status = await db.fetchval("SELECT status FROM agent_runs WHERE id=$1", accepted["run_id"])
@@ -502,7 +502,7 @@ async def test_failed_model_response_cannot_start_retry_or_summary_after_revocat
                         {
                             "type": "agent.session.input.message",
                             "input": [_message("Trigger overflow")],
-                            "yuxi": {"mode": "follow_up", "model": model},
+                            "zs": {"mode": "follow_up", "model": model},
                         }
                     ]
                 },
@@ -547,11 +547,11 @@ async def test_runless_forced_summary_uses_current_thread_agent_permission(actor
     """主动摘要没有 Run 时仍按真实 Thread 撤权，并且不发送模型请求。"""
     from langchain_core.messages import HumanMessage
     from langchain_openai import ChatOpenAI
-    from yuxi.infrastructure.postgres.models import load_models
-    from yuxi.infrastructure.postgres.manager import pg_manager
-    from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-    from yuxi.modules.agents.runtime.middlewares.authorization import AgentExecutionRevoked
-    from yuxi.modules.agents.runtime.middlewares.summary import create_summary_middleware_from_context
+    from zs.infrastructure.postgres.models import load_models
+    from zs.infrastructure.postgres.manager import pg_manager
+    from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+    from zs.modules.agents.runtime.middlewares.authorization import AgentExecutionRevoked
+    from zs.modules.agents.runtime.middlewares.summary import create_summary_middleware_from_context
 
     user = actors["identities"]["user0"]
     agent, provider, model = await prepared_agent(actors, replay)

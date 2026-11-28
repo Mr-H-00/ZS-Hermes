@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from PIL import Image
 
-from yuxi.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio import get_minio_client
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

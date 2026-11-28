@@ -48,12 +48,12 @@ async function requestTabChange(item) {
 <template>
   <div class="api-services-view">
     <PageHeader
-      title="API服务"
+      title="模型服务"
       :active-key="activeTab"
       :tabs="tabs"
       :loading="loading"
       :show-border="true"
-      aria-label="API服务功能切换"
+      aria-label="模型服务功能切换"
       @change="requestTabChange"
     >
       <template #info>

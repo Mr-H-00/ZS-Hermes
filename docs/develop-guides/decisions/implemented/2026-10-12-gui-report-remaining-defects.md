@@ -3,7 +3,7 @@
 状态：implemented
 类型：bug-fix
 日期：2026-10-12
-Owner：backend/yuxi/modules/agents/services/cooperation.py
+Owner：backend/zs/modules/agents/services/cooperation.py
 
 ## 问题
 

@@ -24,7 +24,7 @@ async (page) => {
     ))
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.evaluate(() => localStorage.removeItem('yuxi_tool_approval_mode'))
+  await page.evaluate(() => localStorage.removeItem('zs_tool_approval_mode'))
   await page.goto(origin + '/agent')
   const composer = page.locator('.input-box')
   await composer.waitFor()
@@ -37,7 +37,7 @@ async (page) => {
   await composer.locator('.model-select button[title="deepseek-ai/DeepSeek-V3"]').waitFor()
   for (const mode of ['light', 'dark']) {
     await theme(mode)
-    await composer.screenshot({ path: `/tmp/yuxi-main-composer-${mode}.png` })
+    await composer.screenshot({ path: `/tmp/zs-main-composer-${mode}.png` })
   }
   await page.locator('.user-info-dropdown').click()
   await page.getByRole('menuitem', { name: '设置', exact: true }).click()
@@ -55,12 +55,12 @@ async (page) => {
       probe.remove()
       return same
     }), '超级管理员使用中性文本色')
-    await settings.locator('.identity-panel').screenshot({ path: `/tmp/yuxi-main-role-${mode}.png` })
+    await settings.locator('.identity-panel').screenshot({ path: `/tmp/zs-main-role-${mode}.png` })
   }
   await settings.locator('.settings-sider').getByText('用户管理', { exact: true }).click()
   await settings.locator('.user-uid').getByText('ID: fixture-user', { exact: true }).waitFor()
   check(!await settings.getByText('登录 ID', { exact: false }).count(), '用户管理不再展示登录 ID')
-  await settings.locator('.ant-table-tbody').screenshot({ path: '/tmp/yuxi-main-user-id.png' })
+  await settings.locator('.ant-table-tbody').screenshot({ path: '/tmp/zs-main-user-id.png' })
   await settings.locator('.settings-sider').getByText('运行环境', { exact: true }).click()
   await settings.getByRole('heading', { name: '运行环境', exact: true }).waitFor()
   check(!await settings.getByText('Agent 环境', { exact: true }).count(), '设置标题和导航使用运行环境')
@@ -84,7 +84,7 @@ async (page) => {
       borders.push(border)
     }
     observations.push({ mode, borders })
-    await suite.locator('..').locator('..').screenshot({ path: `/tmp/yuxi-main-skills-${mode}.png` })
+    await suite.locator('..').locator('..').screenshot({ path: `/tmp/zs-main-skills-${mode}.png` })
   }
   await page.goto(origin + '/agent-manage')
   check(await page.locator('.page-header .tab-item').count() === 0, '智能体管理不再显示模型供应商、定时任务或 API 标签')
@@ -94,7 +94,7 @@ async (page) => {
   await integration.locator('.metric-strip').waitFor()
   check(!await integration.locator('.settings-section-description, .integration-section-hint').count(), 'API 概览不常驻显示内部协议说明')
   check(await integration.getByRole('button', { name: '创建 API Key', exact: true }).isVisible(), 'API Key 创建入口保留')
-  await integration.screenshot({ path: '/tmp/yuxi-main-api-integration.png' })
+  await integration.screenshot({ path: '/tmp/zs-main-api-integration.png' })
 
   await page.goto(origin + '/agent-manage?tab=agents&agent=default-chatbot')
   const dialog = page.getByRole('dialog', { name: '编辑智能体', exact: true })
@@ -109,7 +109,7 @@ async (page) => {
       check(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth + 1), '编辑弹窗横向溢出')
     }
     await page.setViewportSize({ width: 1440, height: 1000 })
-    await dialog.locator('.ant-modal-content').screenshot({ path: `/tmp/yuxi-main-agent-edit-${mode}.png` })
+    await dialog.locator('.ant-modal-content').screenshot({ path: `/tmp/zs-main-agent-edit-${mode}.png` })
   }
   await dialog.getByRole('button', { name: '模型配置', exact: true }).click()
   const model = dialog.locator('.model-select').first()
@@ -117,7 +117,7 @@ async (page) => {
   if (await clear.count()) await clear.click()
   await model.getByText('使用系统默认', { exact: true }).waitFor()
   check(await model.getByRole('button', { name: '检查', exact: true }).isDisabled(), '沿用默认时不检查空模型')
-  await dialog.locator('.ant-modal-content').screenshot({ path: '/tmp/yuxi-main-agent-model-default.png' })
+  await dialog.locator('.ant-modal-content').screenshot({ path: '/tmp/zs-main-agent-model-default.png' })
   await page.goto(origin + '/schedules')
   await page.getByRole('button', { name: '新建任务', exact: true }).click()
   await page.getByRole('region', { name: '任务配置', exact: true }).getByRole('button', { name: '完全信任', exact: true }).waitFor()

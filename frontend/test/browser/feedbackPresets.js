@@ -45,7 +45,7 @@ async page => {
   const detail = page.getByRole('dialog', { name: '反馈详情' })
   await detail.waitFor()
   check((await detail.locator('.detail-reason').textContent()).trim() === reason, '管理员详情应展示全部预设与文字')
-  await page.locator('.ant-modal-content').screenshot({ path: '/tmp/yuxi-feedback-presets-detail.png' })
+  await page.locator('.ant-modal-content').screenshot({ path: '/tmp/zs-feedback-presets-detail.png' })
   await page.keyboard.press('Escape')
   return { id: record.id, run_id: target.run_id, rating: record.rating, reason: record.reason, combinedLimit: true, adminDetails: true }
 }

@@ -17,15 +17,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager as _create_isolated_manager
 from test.integration.support.postgres_schema import drop_isolated_schema as _drop_isolated_schema
-from yuxi.api.routers.knowledge import management as knowledge_router
-from yuxi.infrastructure.filesystem import await_io
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.redis import close_async_redis_client
-from yuxi.migrations.schema import create_knowledge_tables
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-from yuxi.modules.knowledge.models import (
+from zs.api.routers.knowledge import management as knowledge_router
+from zs.infrastructure.filesystem import await_io
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.redis import close_async_redis_client
+from zs.migrations.schema import create_knowledge_tables
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.models import (
     KnowledgeBase,
     KnowledgeChunk,
     KnowledgeFile,
@@ -33,13 +33,13 @@ from yuxi.modules.knowledge.models import (
     KnowledgeGraphEntityMention,
     KnowledgeProjectionOutbox,
 )
-from yuxi.modules.knowledge.repositories import files
-from yuxi.modules.knowledge.repositories.bases import KnowledgeBaseRepository
-from yuxi.modules.knowledge.repositories.chunks import KnowledgeChunkRepository
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
-from yuxi.modules.knowledge.repositories.graphs import KnowledgeGraphRepository
-from yuxi.modules.knowledge.services import projection_cleanup
-from yuxi.shared.datetime import utc_now
+from zs.modules.knowledge.repositories import files
+from zs.modules.knowledge.repositories.bases import KnowledgeBaseRepository
+from zs.modules.knowledge.repositories.chunks import KnowledgeChunkRepository
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.modules.knowledge.repositories.graphs import KnowledgeGraphRepository
+from zs.modules.knowledge.services import projection_cleanup
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -93,7 +93,7 @@ async def _running_job(database, job_id, owner):
 
 async def test_competing_parse_cannot_overwrite_winner_parameters(database, monkeypatch, tmp_path):
     """真实 worker 用例竞争文件，落败请求不能改变胜出产物的参数事实。"""
-    from yuxi.modules.knowledge.services import background_jobs as jobs
+    from zs.modules.knowledge.services import background_jobs as jobs
 
     repo = KnowledgeFileRepository()
     await repo.upsert("file-test", {"kb_id": "kb-test", "filename": "scan.pdf", "path": "minio://fixture/scan.pdf", "status": "uploaded"})
@@ -118,8 +118,8 @@ async def test_competing_parse_cannot_overwrite_winner_parameters(database, monk
         jobs.knowledge_base, "get_kb_config", AsyncMock(return_value=SimpleNamespace(kb_type="milvus", additional_params={}))
     )
     monkeypatch.setattr(jobs.knowledge_base, "_get_or_create_kb_instance", AsyncMock(return_value=executor))
-    monkeypatch.setattr("yuxi.modules.documents.service.parse_to_hosted_markdown", parse_source)
-    monkeypatch.setattr("yuxi.modules.knowledge.base.get_minio_client", lambda: SimpleNamespace(KB_BUCKETS={"images": "images"}))
+    monkeypatch.setattr("zs.modules.documents.service.parse_to_hosted_markdown", parse_source)
+    monkeypatch.setattr("zs.modules.knowledge.base.get_minio_client", lambda: SimpleNamespace(KB_BUCKETS={"images": "images"}))
     monkeypatch.setattr(executor, "save_markdown_artifact", save)
 
     async def process(job_id, worker_id, engine):
@@ -467,9 +467,9 @@ async def test_http_delete_does_not_remove_original_before_tombstone_commit(data
             KB_BUCKETS={"parsed": "parsed"},
         ),
     )
-    from yuxi.api.errors import domain_error_handler
-    from yuxi.modules.knowledge import runtime
-    from yuxi.shared.errors import DomainError
+    from zs.api.errors import domain_error_handler
+    from zs.modules.knowledge import runtime
+    from zs.shared.errors import DomainError
 
     monkeypatch.setattr(
         runtime,
@@ -515,7 +515,7 @@ async def test_tombstones_are_absent_from_tree_names_hashes_and_counts(database)
     await repo.mark_deleted(kb_id="kb-test", file_id="child")
     assert await repo.list_documents(kb_id="kb-test", parent_id="folder") == ([], 0)
     assert await repo.count_children_by_parent_ids(kb_id="kb-test", parent_ids=["folder"]) == {}
-    from yuxi.modules.knowledge.repositories.directories import DirectoryRepository
+    from zs.modules.knowledge.repositories.directories import DirectoryRepository
 
     async with database() as observer:
         assert await DirectoryRepository().named(observer, "kb-test", "folder", "child.md") is None
@@ -569,7 +569,7 @@ async def test_graph_pending_candidates_and_counts_use_only_visible_active_gener
 
 async def test_graph_parallel_vector_cancel_drains_both_branches_before_cleanup(database, monkeypatch, tmp_path):
     """真实图谱并行循环取消后，PG 清理等待较慢写分支落地。"""
-    from yuxi.modules.knowledge.graphs import service as graph_module
+    from zs.modules.knowledge.graphs import service as graph_module
 
     await _file()
     started, release = threading.Event(), threading.Event()

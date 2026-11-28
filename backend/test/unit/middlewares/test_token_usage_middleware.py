@@ -6,7 +6,7 @@ import pytest
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from yuxi.modules.agents.runtime.middlewares.token_usage import TokenUsageMiddleware
+from zs.modules.agents.runtime.middlewares.token_usage import TokenUsageMiddleware
 
 
 def _request(*, run_id: str, model_spec: str, state: dict | None = None, model_name: str = "model-a"):
@@ -14,10 +14,10 @@ def _request(*, run_id: str, model_spec: str, state: dict | None = None, model_n
         model=SimpleNamespace(
             profile={"max_input_tokens": 2000},
             metadata={
-                "yuxi_provider_id": model_spec.split(":", 1)[0],
-                "yuxi_provider_type": "openai",
-                "yuxi_model_id": model_name,
-                "yuxi_model_spec": model_spec,
+                "zs_provider_id": model_spec.split(":", 1)[0],
+                "zs_provider_type": "openai",
+                "zs_model_id": model_name,
+                "zs_model_spec": model_spec,
             },
         ),
         state=state or {"messages": [HumanMessage(content="old message")]},

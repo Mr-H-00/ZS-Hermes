@@ -9,7 +9,7 @@ import yaml
 
 def project_root() -> Path:
     """定位当前工作树的 Compose 根目录。"""
-    configured = os.environ.get("YUXI_PROJECT_ROOT")
+    configured = os.environ.get("ZS_PROJECT_ROOT")
     if configured:
         return Path(configured)
 

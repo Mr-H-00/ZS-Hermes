@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.knowledge.runtime import knowledge_base
-from yuxi.modules.knowledge.services.access import visible_knowledge_bases
+from zs.modules.knowledge.runtime import knowledge_base
+from zs.modules.knowledge.services.access import visible_knowledge_bases
 
 
 @pytest.mark.asyncio

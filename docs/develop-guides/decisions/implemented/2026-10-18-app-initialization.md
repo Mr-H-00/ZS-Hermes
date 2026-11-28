@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/bootstrap/app.py
+Owner：backend/zs/bootstrap/app.py
 
 ## 问题
 

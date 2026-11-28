@@ -2,7 +2,7 @@
 
 import pytest
 
-from yuxi.modules.agents.runtime.base import BaseAgent
+from zs.modules.agents.runtime.base import BaseAgent
 
 
 def test_incomplete_agent_backend_cannot_be_instantiated():

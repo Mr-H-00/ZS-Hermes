@@ -8,13 +8,13 @@
       </div>
       <div class="settings-header-actions">
         <a-button
-          class="yuxi-refresh-button"
+          class="zs-refresh-button"
           :loading="loading"
           title="刷新"
           aria-label="刷新环境变量"
           @click="loadAgentEnv"
         >
-          <template #icon><RefreshCw :size="16" :class="{ 'yuxi-rotate': loading }" /></template>
+          <template #icon><RefreshCw :size="16" :class="{ 'zs-rotate': loading }" /></template>
         </a-button>
         <a-button
           :loading="verifying"

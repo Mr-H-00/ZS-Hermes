@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/shared/datetime.py
+Owner：backend/zs/shared/datetime.py
 
 ## 问题
 

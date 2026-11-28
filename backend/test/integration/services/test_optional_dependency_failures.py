@@ -11,13 +11,13 @@ import pytest
 from redis import Redis
 
 from test.integration.support.module_audit import isolated_audit_store
-import yuxi.modules.models.providers.cache as cache_module
-import yuxi.modules.models.chat as chat_module
-from yuxi.modules.extensions.mcp.models import MCPServer
-from yuxi.modules.identity.models import User
-from yuxi.modules.extensions.mcp.service import inspect_mcp_server_tools
-from yuxi.modules.extensions.tools.runtime import resolve_configured_runtime_tools
-from yuxi.modules.models.providers.cache import ModelCache, ModelInfo
+import zs.modules.models.providers.cache as cache_module
+import zs.modules.models.chat as chat_module
+from zs.modules.extensions.mcp.models import MCPServer
+from zs.modules.identity.models import User
+from zs.modules.extensions.mcp.service import inspect_mcp_server_tools
+from zs.modules.extensions.tools.runtime import resolve_configured_runtime_tools
+from zs.modules.models.providers.cache import ModelCache, ModelInfo
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

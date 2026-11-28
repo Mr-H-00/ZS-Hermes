@@ -7,9 +7,9 @@ import time
 from pathlib import Path
 
 import pytest
-from yuxi.modules.extensions.skills import install_draft as skill_draft
-from yuxi.modules.extensions.skills.package import copy_skill_tree_no_symlinks, validated_shared_skill_parts
-from yuxi.modules.identity.models import User
+from zs.modules.extensions.skills import install_draft as skill_draft
+from zs.modules.extensions.skills.package import copy_skill_tree_no_symlinks, validated_shared_skill_parts
+from zs.modules.identity.models import User
 
 
 def _write_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, items: list[dict]) -> str:
@@ -91,14 +91,14 @@ def test_symlinked_source_root_cannot_be_staged(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_partial_install_preserves_failed_and_unselected_snapshots(tmp_path, monkeypatch):
     """部分成功后重读磁盘，失败和未选条目仍可确认且成功项不再出现。"""
-    from yuxi.modules.extensions.skills import personal
+    from zs.modules.extensions.skills import personal
 
     items = [{"slug": slug, "source_dir": f"items/{letter * 32}"} for slug, letter in [("alpha", "a"), ("beta", "b"), ("gamma", "c")]]
     draft_id = _write_draft(tmp_path, monkeypatch, items)
     for item in items:
         directory = tmp_path / "skill_import_drafts" / draft_id / item["source_dir"]
         (directory / "SKILL.md").write_text(f"---\nname: {item['slug']}\ndescription: example\n---\nBody", encoding="utf-8")
-    from yuxi.modules.workspace import paths
+    from zs.modules.workspace import paths
 
     monkeypatch.setattr(paths, "get_user_data_dir", lambda: tmp_path / "users")
     operator = User(uid="owner", role="user")

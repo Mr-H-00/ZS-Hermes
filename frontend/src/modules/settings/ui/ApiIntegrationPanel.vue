@@ -3,12 +3,12 @@
     <div class="settings-header">
       <div class="settings-header-actions">
         <a-button
-          class="yuxi-refresh-button lucide-icon-btn"
+          class="zs-refresh-button lucide-icon-btn"
           :loading="loading"
           title="刷新"
           @click="load"
         >
-          <template #icon><RefreshCw :size="16" :class="{ 'yuxi-rotate': loading }" /></template>
+          <template #icon><RefreshCw :size="16" :class="{ 'zs-rotate': loading }" /></template>
         </a-button>
         <a-button type="primary" class="lucide-icon-btn" @click="openKeyManager">
           <Plus :size="14" />

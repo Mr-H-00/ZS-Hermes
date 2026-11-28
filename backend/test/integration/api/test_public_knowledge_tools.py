@@ -11,9 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from test.support.knowledge import default_embedding_model_spec
-from yuxi.infrastructure.minio import get_minio_client
-from yuxi.infrastructure.minio.client import MinIOClient
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeFile
+from zs.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio.client import MinIOClient
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeFile
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

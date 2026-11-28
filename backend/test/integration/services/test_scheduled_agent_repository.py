@@ -12,23 +12,23 @@ import pytest
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
-from yuxi.modules.schedules.repository import ScheduledAgentRepository
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
-from yuxi.modules.agents.repositories.turn import AgentTurnRepository
-import yuxi.modules.schedules.service as service
-from yuxi.modules.schedules.service import _claim_due_run, _create_run_record
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
-from yuxi.modules.identity.models import User
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.shared.datetime import utc_now
+from zs.modules.schedules.repository import ScheduledAgentRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
+from zs.modules.agents.repositories.turn import AgentTurnRepository
+import zs.modules.schedules.service as service
+from zs.modules.schedules.service import _claim_due_run, _create_run_record
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.messages import Message
+from zs.modules.workspace.models import Project
+from zs.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
+from zs.modules.identity.models import User
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -306,7 +306,7 @@ async def test_transient_dispatch_failure_is_recovered_exactly_once(monkeypatch)
             uid=uid,
             app_id=None,
             thread_id=thread_id,
-            event_type="yuxi.session.create",
+            event_type="zs.session.create",
             intent_hash="scheduled",
             input_id=input_item.id,
         )
@@ -484,7 +484,7 @@ async def test_account_soft_deletion_removes_scheduled_job_history():
         async with session_factory() as db:
             user = await db.scalar(select(User).where(User.uid == uid).with_for_update())
             assert user is not None
-            from yuxi.modules.identity.services.users import delete_user
+            from zs.modules.identity.services.users import delete_user
 
             actor = await db.scalar(select(User).where(User.uid == actor_uid))
             await delete_user(db, current_user=actor, user_id=user.id)

@@ -2,7 +2,7 @@
 
 import pytest
 
-from yuxi.modules.identity.oidc import OIDCConfig
+from zs.modules.identity.oidc import OIDCConfig
 
 
 @pytest.mark.parametrize(
@@ -17,14 +17,14 @@ from yuxi.modules.identity.oidc import OIDCConfig
 )
 def test_production_urls_reject_plaintext_credentials_and_ambiguous_urls(monkeypatch, url):
     """生产信任根和发现端点不得携带明文、凭据或歧义控制字符。"""
-    monkeypatch.setenv("YUXI_ENV", "production")
+    monkeypatch.setenv("ZS_ENV", "production")
     with pytest.raises(ValueError):
         OIDCConfig.validate_url(url)
 
 
 def test_development_http_is_explicit_and_disabled_config_needs_no_secrets(monkeypatch):
     """开发联调允许 HTTP，关闭 OIDC 的部署不需要配置。"""
-    monkeypatch.setenv("YUXI_ENV", "development")
+    monkeypatch.setenv("ZS_ENV", "development")
     OIDCConfig.validate_url("http://localhost:39090/realms/test")
     monkeypatch.setenv("OIDC_ENABLED", "false")
     assert not OIDCConfig.from_env().enabled
@@ -34,7 +34,7 @@ def test_development_http_is_explicit_and_disabled_config_needs_no_secrets(monke
     "overrides",
     [
         {"issuer_url": ""},
-        {"redirect_uri": "https://yuxi.example/auth/callback"},
+        {"redirect_uri": "https://zs.example/auth/callback"},
         {"scopes": "profile"},
         {"issuer_url": "https://idp.example?tenant=other"},
     ],
@@ -48,7 +48,7 @@ def test_incomplete_login_configuration_fails(overrides):
                 "issuer_url": "https://idp.example",
                 "client_id": "fixture",
                 "client_secret": "secret",
-                "redirect_uri": "https://yuxi.example/api/auth/oidc/callback",
+                "redirect_uri": "https://zs.example/api/auth/oidc/callback",
             }
             | overrides
         )
@@ -67,7 +67,7 @@ def test_automatic_username_binding_is_not_a_configuration_bypass(monkeypatch):
 
 def test_oidc_configuration_is_read_at_consumer_boundary(monkeypatch):
     """模块导入后的配置读取仍校验当前环境，不沿用旧单例。"""
-    from yuxi.modules.identity.oidc import get_oidc_config
+    from zs.modules.identity.oidc import get_oidc_config
 
     monkeypatch.setenv("OIDC_ENABLED", "false")
     assert get_oidc_config().enabled is False

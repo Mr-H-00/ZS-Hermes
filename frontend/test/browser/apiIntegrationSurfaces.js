@@ -151,7 +151,7 @@ async (page) => {
       }
       samples.push({ dark, width, ...sample })
     }
-    await page.screenshot({ path: `/tmp/yuxi-review-integration-${dark ? 'dark' : 'light'}.png`, animations: 'disabled' })
+    await page.screenshot({ path: `/tmp/zs-review-integration-${dark ? 'dark' : 'light'}.png`, animations: 'disabled' })
   }
   await page.locator('.pdf-error-view').waitFor()
   const errorColor = await page.locator('.pdf-error-view').evaluate(element => getComputedStyle(element).color)
@@ -173,7 +173,7 @@ async (page) => {
   check(disabled.input[0] !== disabled.input[1], '禁用输入框丢失背景状态')
   const selectColors = await page.locator('.ant-modal .ant-select-selector').evaluateAll(elements => elements.map(element => getComputedStyle(element).backgroundColor))
   check(selectColors[0] !== selectColors[1], '禁用选择框丢失背景状态')
-  await page.screenshot({ path: '/tmp/yuxi-review-disabled-dark.png', animations: 'disabled' })
+  await page.screenshot({ path: '/tmp/zs-review-disabled-dark.png', animations: 'disabled' })
   await page.evaluate(() => { window.integrationReview.state.controls = false; window.integrationReview.state.mcp = true })
   const mcp = page.getByRole('dialog', { name: 'MCP 接入' })
   await mcp.waitFor()
@@ -183,7 +183,7 @@ async (page) => {
   await mcp.getByRole('button', { name: '复制', exact: true }).first().click()
   const copied = await page.evaluate(() => navigator.clipboard.readText())
   check(copied === `${origin}/api/mcp`, '非安全连接复制失败')
-  await page.screenshot({ path: '/tmp/yuxi-review-mcp-dark.png', animations: 'disabled' })
+  await page.screenshot({ path: '/tmp/zs-review-mcp-dark.png', animations: 'disabled' })
   await mcp.getByRole('button', { name: '到设置中创建 API Key' }).click()
   await mcp.waitFor({ state: 'hidden' })
   check(await page.evaluate(() => window.integrationReview.state.openedTab) === 'apiKeys', '创建入口未打开凭据设置')
@@ -193,7 +193,7 @@ async (page) => {
   await settle()
   check(await page.locator('.metric-card').count() === 0, '加载失败仍展示零值或过期统计')
   check(await page.locator('.integration-section').count() === 1, '加载失败丢失静态接入信息')
-  await page.screenshot({ path: '/tmp/yuxi-review-integration-error.png', animations: 'disabled' })
+  await page.screenshot({ path: '/tmp/zs-review-integration-error.png', animations: 'disabled' })
   failed = false
   await page.locator('#integration-review').getByRole('button', { name: '刷新' }).click()
   await page.getByText('有效接入凭据 · agents', { exact: true }).waitFor()
@@ -217,7 +217,7 @@ async (page) => {
     check(dark ? settings.content === 'rgb(34, 37, 41)' : settings.content === 'rgb(255, 255, 255)', '设置内容区主题背景不正确')
     if (!dark) check(settings.nav === 'rgb(245, 247, 247)', '浅色设置导航背景发生回归')
   }
-  await page.screenshot({ path: '/tmp/yuxi-review-settings-dark.png', animations: 'disabled' })
+  await page.screenshot({ path: '/tmp/zs-review-settings-dark.png', animations: 'disabled' })
   check(errors.length === 0, errors.join('\n'))
   return { samples, disabled: disabled.input, selectColors, copied, endpoints: endpoints.length }
 }

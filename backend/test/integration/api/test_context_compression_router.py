@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from unittest.mock import AsyncMock
-from yuxi.modules.agents.runtime.context import BaseContext
+from zs.modules.agents.runtime.context import BaseContext
 from typing import Annotated, Any, TypedDict
 
 import httpx
@@ -17,14 +17,14 @@ from langgraph.graph.message import add_messages
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.routers.public_v1.agents import public_agents_router
-from yuxi.api.dependencies.auth import get_db, get_required_user
-import yuxi.modules.agents.services.compression as context_compression_service
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.postgres.checkpointer import get_langgraph_checkpointer
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.identity.models import User
+from zs.api.routers.public_v1.agents import public_agents_router
+from zs.api.dependencies.auth import get_db, get_required_user
+import zs.modules.agents.services.compression as context_compression_service
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.postgres.checkpointer import get_langgraph_checkpointer
+from zs.modules.agents.models.sessions import Session
+from zs.modules.workspace.models import Project
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

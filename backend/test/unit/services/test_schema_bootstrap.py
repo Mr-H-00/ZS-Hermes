@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.migrations import main as schema_bootstrap
+from zs.migrations import main as schema_bootstrap
 
 
 @pytest.mark.asyncio
@@ -16,7 +16,7 @@ async def test_legacy_schema_version_is_rejected_before_ddl(monkeypatch):
     monkeypatch.setattr(schema_bootstrap, "get_schema_versions", AsyncMock(return_value={"business": 8, "knowledge": 2}))
     monkeypatch.setattr(schema_bootstrap, "create_business_tables", create_tables)
 
-    with pytest.raises(RuntimeError, match="Unsupported Yuxi schema versions"):
+    with pytest.raises(RuntimeError, match="Unsupported ZS schema versions"):
         await schema_bootstrap.initialize_schema(manager)
 
     create_tables.assert_not_awaited()

@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy import select, text
 
 from test.integration.services.agent_input_fixtures import SCOPE, send_input, start_input_run
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.services.run_lifecycle import lock_run_lifecycle, settle_run
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.services.run_lifecycle import lock_run_lifecycle, settle_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]

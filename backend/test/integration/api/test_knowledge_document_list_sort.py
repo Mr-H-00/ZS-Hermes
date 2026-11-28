@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from test.integration.api.test_knowledge_directory_imports import directory_kb as directory_kb
-from yuxi.modules.knowledge.models import KnowledgeFile
+from zs.modules.knowledge.models import KnowledgeFile
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

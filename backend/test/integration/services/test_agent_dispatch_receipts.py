@@ -8,17 +8,17 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 
 from test.integration.services.agent_input_fixtures import SCOPE, send_input
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.public_v1.agents.auth import require_public_context
-from yuxi.api.routers.public_v1.agents.events import router
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.services import scheduler, threads
-from yuxi.modules.agents.services.scheduler import deliver
-from yuxi.shared.errors import DomainError
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.public_v1.agents.auth import require_public_context
+from zs.api.routers.public_v1.agents.events import router
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.services import scheduler, threads
+from zs.modules.agents.services.scheduler import deliver
+from zs.shared.errors import DomainError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]
@@ -42,7 +42,7 @@ def publication(sessions, monkeypatch):
     monkeypatch.setattr(scheduler, "deliver", deliver)
     monkeypatch.setattr(threads, "deliver", deliver)
     monkeypatch.setattr(scheduler, "ensure_bound_user_workdir", lambda *_args: None)
-    monkeypatch.setattr("yuxi.modules.agents.services.transport.enqueue_agent_run", enqueue)
+    monkeypatch.setattr("zs.modules.agents.services.transport.enqueue_agent_run", enqueue)
     return state
 
 

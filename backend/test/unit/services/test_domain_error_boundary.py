@@ -6,16 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.receipts import require_receipt_replay
-from yuxi.modules.workspace.services import projects
-from yuxi.shared.errors import DomainError, StateConflictError
+from zs.modules.agents.receipts import require_receipt_replay
+from zs.modules.workspace.services import projects
+from zs.shared.errors import DomainError, StateConflictError
 
 pytestmark = pytest.mark.unit
 
 
 def test_domain_modules_do_not_depend_on_http_exceptions():
     """领域源码不导入或消费 HTTP 异常及框架状态常量。"""
-    root = Path(__file__).resolve().parents[3] / "yuxi"
+    root = Path(__file__).resolve().parents[3] / "zs"
     violations = []
     for path in [root / "shared/errors.py", *sorted((root / "modules").rglob("*.py"))]:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):

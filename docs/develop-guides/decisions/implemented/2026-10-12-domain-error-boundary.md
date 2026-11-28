@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/shared/errors.py
+Owner：backend/zs/shared/errors.py
 
 ## 问题
 
@@ -12,9 +12,9 @@ Owner：backend/yuxi/shared/errors.py
 
 ### 实现方案
 
-`backend/yuxi/shared/errors.py` 的领域异常保存业务消息与已有可选业务 code，以异常类型区分非法操作、无权访问、资源不存在、状态冲突、内容过大、输入无效、执行失败、上游失败及超时。类型服务于当前调用方的失败分类；异常本身没有 HTTP 属性。
+`backend/zs/shared/errors.py` 的领域异常保存业务消息与已有可选业务 code，以异常类型区分非法操作、无权访问、资源不存在、状态冲突、内容过大、输入无效、执行失败、上游失败及超时。类型服务于当前调用方的失败分类；异常本身没有 HTTP 属性。
 
-`backend/yuxi/api/errors.py` 的适配器拥有类型到 HTTP 状态的映射，正式 FastAPI app 注册该 handler，保留既有字符串或 code/message detail。知识库示例问题路由的宽泛捕获透传已知领域失败。HTTP 认证依赖及其他协议错误继续由 API 拥有。
+`backend/zs/api/errors.py` 的适配器拥有类型到 HTTP 状态的映射，正式 FastAPI app 注册该 handler，保留既有字符串或 code/message detail。知识库示例问题路由的宽泛捕获透传已知领域失败。HTTP 认证依赖及其他协议错误继续由 API 拥有。
 
 业务模块全部 244 个 HTTPException 抛出点与相应捕获使用领域契约。定时执行按领域拒绝区别可重试故障，文件预览按内容过大类型降级，工具将领域消息转换为 ToolException。事务、幂等意图、授权判定、租约、清理和发布顺序继续由原 service 与 repository 拥有。
 

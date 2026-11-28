@@ -44,11 +44,11 @@ async (page) => {
     check(await root.locator('tr .reference-citation').count() === 1, '表格引用落在对应末行')
     check(await root.locator('.task-list-item .reference-citation').count() === 1, '任务列表文字保持标注')
     check(await root.locator('[data-reference-start="25"] .reference-citation').count() === 1, '过滤不改变后续原始行号')
-    await root.screenshot({ path: '/tmp/yuxi-reference-content-scope-light.png' })
+    await root.screenshot({ path: '/tmp/zs-reference-content-scope-light.png' })
     await page.evaluate(() => window.setReferenceProbeTheme('dark'))
     await page.setViewportSize({ width: 768, height: 1000 })
     check(await root.evaluate((node) => node.scrollWidth <= node.clientWidth), '768px 无横向溢出')
-    await root.screenshot({ path: '/tmp/yuxi-reference-content-scope-dark-768.png' })
+    await root.screenshot({ path: '/tmp/zs-reference-content-scope-dark-768.png' })
     return { citations: 5, excludedBadges: 0, taskList: true, originalLine: 25, widths: [1440, 768] }
   } finally {
     await page.evaluate(() => { window.cleanupReferenceProbe(); delete window.cleanupReferenceProbe; delete window.setReferenceProbeTheme })

@@ -10,7 +10,7 @@ import { message } from 'ant-design-vue'
 function safeRequestMetadata(url, requestOptions, response = null) {
   let path = '[invalid-url]'
   try {
-    path = new URL(url, 'http://yuxi.local').pathname
+    path = new URL(url, 'http://zs.local').pathname
   } catch {
     // 不把无法解析的原始 URL 写入日志，其中可能包含凭据或其他敏感查询参数。
   }

@@ -20,7 +20,7 @@ after(async () => {
 
 const waitingTurn = () => ({
   status: 'requires_action',
-  yuxi: {
+  zs: {
     current_run_id: 'run-1',
     waitpoint: { id: 'wait-1', run_id: 'run-1', questions: [{ question_id: 'q1' }, { question_id: 'q2' }] }
   }
@@ -48,7 +48,7 @@ test('问答按当前问题ID构造协议，恢复结果绑定同一Turn和等�
 
 test('审批使用持久call_id并保留每项允许或拒绝', async (t) => {
   const turn = waitingTurn()
-  turn.yuxi.waitpoint.calls = [{ call_id: 'call-a' }, { call_id: 'call-b' }]
+  turn.zs.waitpoint.calls = [{ call_id: 'call-a' }, { call_id: 'call-b' }]
   t.mock.method(api, 'getThreadTurn', async () => turn)
   let response
   t.mock.method(api, 'resumeThreadTurn', async (_, body) => { response = body.response; return { run_id: 'run-2' } })
@@ -62,14 +62,14 @@ for (const defect of ['finished', 'different-run', 'different-waitpoint-run', 'm
   test(`拒绝过期或不完整等待点：${defect}`, async (t) => {
     const turn = waitingTurn(), command = answerCommand()
     if (defect === 'finished') turn.status = 'completed'
-    if (defect === 'different-run') turn.yuxi.current_run_id = 'run-other'
-    if (defect === 'different-waitpoint-run') turn.yuxi.waitpoint.run_id = 'run-other'
-    if (defect === 'missing-waitpoint') delete turn.yuxi.waitpoint
+    if (defect === 'different-run') turn.zs.current_run_id = 'run-other'
+    if (defect === 'different-waitpoint-run') turn.zs.waitpoint.run_id = 'run-other'
+    if (defect === 'missing-waitpoint') delete turn.zs.waitpoint
     if (defect === 'missing-answer') delete command.answer.q2
     if (defect === 'missing-turn') command.turnId = null
     if (defect === 'changed-calls') {
       command.kind = 'tool_approval'
-      turn.yuxi.waitpoint.calls = [{ call_id: 'call-a' }]
+      turn.zs.waitpoint.calls = [{ call_id: 'call-a' }]
       command.answer = { decisions: [] }
     }
     t.mock.method(api, 'getThreadTurn', async () => turn)

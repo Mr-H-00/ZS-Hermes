@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from yuxi.api.routers.knowledge import management
+from zs.api.routers.knowledge import management
 
 
 @pytest.fixture

@@ -121,7 +121,7 @@
                 >
                   <MessageCircle :size="18" class="result-icon" />
                   <span class="result-main">
-                    <span class="result-title">{{ item.session.yuxi.title || '新的对话' }}</span>
+                    <span class="result-title">{{ item.session.zs.title || '新的对话' }}</span>
                     <span class="result-snippet">
                       <template v-for="(part, partIndex) in splitSnippet(item)" :key="partIndex">
                         <mark v-if="part.match">{{ part.text }}</mark>
@@ -164,7 +164,7 @@
                   @click="selectRecentThread(row.thread)"
                 >
                   <MessageCircle :size="18" class="default-icon" />
-                  <span>{{ row.thread.yuxi.title || '新的对话' }}</span>
+                  <span>{{ row.thread.zs.title || '新的对话' }}</span>
                 </button>
               </template>
 

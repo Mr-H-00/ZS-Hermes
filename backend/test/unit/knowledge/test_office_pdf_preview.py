@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from test.unit.support.knowledge import make_knowledge_file_record
-from yuxi.infrastructure.minio import ObjectSizeLimitError
-from yuxi.modules.knowledge import preview
-from yuxi.shared.files import MAX_FILE_PREVIEW_BYTES
+from zs.infrastructure.minio import ObjectSizeLimitError
+from zs.modules.knowledge import preview
+from zs.shared.files import MAX_FILE_PREVIEW_BYTES
 
 
 class FakeMinioClient:

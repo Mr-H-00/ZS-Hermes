@@ -22,7 +22,7 @@ import pytest
 )
 def test_health_requires_live_bounded_lease(monkeypatch, value, ttl, expected):
     """缺失、空值、永久或超长租约不能被视为健康。"""
-    import yuxi.workers.health as worker_health
+    import zs.workers.health as worker_health
 
     client = MagicMock()
     client.pipeline.return_value.__enter__.return_value.execute.return_value = (value, ttl)
@@ -35,7 +35,7 @@ def test_health_requires_live_bounded_lease(monkeypatch, value, ttl, expected):
 
 def test_health_connection_error_does_not_expose_credentials(monkeypatch, capsys):
     """连接失败返回非零且不输出异常中的凭据。"""
-    import yuxi.workers.health as worker_health
+    import zs.workers.health as worker_health
 
     context = MagicMock()
     context.__enter__.side_effect = ConnectionError("redis://user:secret@host/0")
@@ -51,12 +51,12 @@ import importlib.abc
 import sys
 class BlockBusiness(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        blocked = ('yuxi.modules.agents.services.runner', 'yuxi.modules.agents.services.transport',
+        blocked = ('zs.modules.agents.services.runner', 'zs.modules.agents.services.transport',
                    'langgraph', 'sqlalchemy', 'tiktoken')
         if fullname.startswith(blocked):
             raise AssertionError('health probe imported business runtime: ' + fullname)
 sys.meta_path.insert(0, BlockBusiness())
-import yuxi.workers.health
+import zs.workers.health
 """
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=os.environ.copy())
     assert result.returncode == 0, result.stderr

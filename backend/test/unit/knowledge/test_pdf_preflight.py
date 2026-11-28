@@ -9,8 +9,8 @@ import pypdfium2 as pdfium
 import pytest
 from pypdf import PdfWriter
 
-from yuxi.infrastructure.document_parsing import DocumentParserException
-from yuxi.infrastructure.document_parsing import pdf_utils
+from zs.infrastructure.document_parsing import DocumentParserException
+from zs.infrastructure.document_parsing import pdf_utils
 
 
 @pytest.mark.parametrize("invalid_page", [None, 1])

@@ -12,34 +12,34 @@ fi
 if [[ -f /etc/selinux/config ]]; then
     sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config
 fi
-mkdir -p /data/shared/yuxi /opt/yuxi-cube
+mkdir -p /data/shared/zs /opt/zs-cube
 # 嵌套开发节点才需要外层 virtiofs；原生节点直接使用本地共享目录。
 if [[ ${1:-} == --nested ]]; then
     # 细粒度上报至少 8 KiB 的空闲块，重启后由 tmpfiles 恢复；文件缓存仍由内核管理。
     printf '%s\n' 'w /sys/module/page_reporting/parameters/page_reporting_order - - - - 1' \
-        > /etc/tmpfiles.d/yuxi-page-reporting.conf
-    systemd-tmpfiles --create /etc/tmpfiles.d/yuxi-page-reporting.conf
-    if ! mountpoint -q /data/shared/yuxi; then
-        mount -t virtiofs yuxi_shared /data/shared/yuxi
+        > /etc/tmpfiles.d/zs-page-reporting.conf
+    systemd-tmpfiles --create /etc/tmpfiles.d/zs-page-reporting.conf
+    if ! mountpoint -q /data/shared/zs; then
+        mount -t virtiofs zs_shared /data/shared/zs
     fi
-    if ! grep -q '^yuxi_shared ' /etc/fstab; then
-        printf '%s\n' 'yuxi_shared /data/shared/yuxi virtiofs defaults 0 0' >> /etc/fstab
+    if ! grep -q '^zs_shared ' /etc/fstab; then
+        printf '%s\n' 'zs_shared /data/shared/zs virtiofs defaults 0 0' >> /etc/fstab
     fi
 fi
 if ! command -v cubemastercli >/dev/null; then
-    if [[ ! -f /opt/yuxi-cube/release.tar.gz ]]; then
+    if [[ ! -f /opt/zs-cube/release.tar.gz ]]; then
         curl --fail --silent --show-error --location --retry 3 \
             https://github.com/TencentCloud/CubeSandbox/releases/download/v0.7.3/cube-sandbox-one-click-v0.7.3-amd64.tar.gz \
-            -o /opt/yuxi-cube/release.tar.gz.download
-        mv /opt/yuxi-cube/release.tar.gz.download /opt/yuxi-cube/release.tar.gz
+            -o /opt/zs-cube/release.tar.gz.download
+        mv /opt/zs-cube/release.tar.gz.download /opt/zs-cube/release.tar.gz
     fi
-    tar -xzf /opt/yuxi-cube/release.tar.gz -C /opt/yuxi-cube
-    cube_install=$(find /opt/yuxi-cube -name install.sh -print -quit)
+    tar -xzf /opt/zs-cube/release.tar.gz -C /opt/zs-cube
+    cube_install=$(find /opt/zs-cube -name install.sh -print -quit)
     if [[ -z "$cube_install" ]]; then
         echo '发布包缺少安装入口' >&2
         exit 1
     fi
-    MIRROR=cn bash "$cube_install" --yes > /opt/yuxi-cube/install.log 2>&1
+    MIRROR=cn bash "$cube_install" --yes > /opt/zs-cube/install.log 2>&1
 fi
 # 嵌套节点采用轻量任务超售；这些逻辑额度不增加物理 CPU 和 RAM。
 if [[ ${1:-} == --nested ]]; then

@@ -4,11 +4,11 @@ import uuid
 
 import pytest
 
-from yuxi.modules.agents.runtime.sandbox.backend import UserSandboxBackend
-from yuxi.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
+from zs.modules.agents.runtime.sandbox.backend import UserSandboxBackend
+from zs.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir
+from zs.modules.identity.security import AuthUtils
+from zs.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
 
 
 @pytest.fixture

@@ -5,8 +5,8 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-import yuxi.modules.knowledge.repositories.bases as repository_module
-from yuxi.modules.knowledge.repositories.bases import KnowledgeBaseRepository
+import zs.modules.knowledge.repositories.bases as repository_module
+from zs.modules.knowledge.repositories.bases import KnowledgeBaseRepository
 
 pytestmark = pytest.mark.unit
 
@@ -173,7 +173,7 @@ async def test_refresh_stats_preserves_concurrent_additional_params(monkeypatch)
     from unittest.mock import AsyncMock
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository.query_kb_file_stats",
+        "zs.modules.knowledge.repositories.files.KnowledgeFileRepository.query_kb_file_stats",
         AsyncMock(return_value={"file_count": 3}),
     )
     result = await KnowledgeBaseRepository().refresh_stats("kb_1")

@@ -51,11 +51,11 @@ async (page) => {
       theme.setTheme(false)
       return dark
     })
-    await page.locator('.knowledge-base-info-container').screenshot({ path: '/tmp/yuxi-knowledge-naming-light.png' })
+    await page.locator('.knowledge-base-info-container').screenshot({ path: '/tmp/zs-knowledge-naming-light.png' })
     await page.evaluate(async () => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme(true) })
-    await page.locator('.knowledge-base-info-container').screenshot({ path: '/tmp/yuxi-knowledge-naming-dark.png' })
+    await page.locator('.knowledge-base-info-container').screenshot({ path: '/tmp/zs-knowledge-naming-dark.png' })
     await page.setViewportSize({ width: 375, height: 812 })
-    await page.locator('.knowledge-base-info-container').screenshot({ path: '/tmp/yuxi-knowledge-naming-mobile.png' })
+    await page.locator('.knowledge-base-info-container').screenshot({ path: '/tmp/zs-knowledge-naming-mobile.png' })
     await page.setViewportSize({ width: 1280, height: 900 })
     return { create: true, nameField: true, detailRoute: true, persistedFolder: true, evaluationEmpty: true, screenshots: ['light', 'dark', 'mobile'] }
   } finally {

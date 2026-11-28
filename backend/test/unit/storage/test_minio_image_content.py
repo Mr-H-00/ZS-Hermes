@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from yuxi.infrastructure.minio import utils
+from zs.infrastructure.minio import utils
 
 
 @pytest.mark.asyncio

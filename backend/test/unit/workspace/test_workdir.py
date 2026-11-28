@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.modules.workspace import filesystem as workspace_filesystem_module
-from yuxi.modules.workspace.workdir import Workdir
+from zs.modules.workspace import filesystem as workspace_filesystem_module
+from zs.modules.workspace.workdir import Workdir
 
 
 def test_open_existing_returns_workdir_capability(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,7 +107,7 @@ async def test_directory_copy_never_removes_existing_destination(workdir, tmp_pa
     """失败或取消发生在目标已存在时，保留其他操作拥有的文件。"""
     import asyncio
     import threading
-    from yuxi.modules.workspace.filesystem import Workspace
+    from zs.modules.workspace.filesystem import Workspace
 
     source = tmp_path / "parsed"
     source.mkdir()
@@ -233,4 +233,4 @@ async def test_directory_copy_preserves_replacement_directory(workdir, tmp_path,
         assert (target / "existing.txt").read_text() == "keep"
     if outcome == "cancel":
         assert (moved / "document.md").read_text() == "text"
-    assert not list((tmp_path / "workspace").parent.glob(".yuxi-copy-*"))
+    assert not list((tmp_path / "workspace").parent.glob(".zs-copy-*"))

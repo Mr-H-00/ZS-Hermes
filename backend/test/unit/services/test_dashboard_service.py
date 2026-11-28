@@ -9,13 +9,13 @@ import pytest_asyncio
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.identity.models import Department, User
-from yuxi.modules.system.services.dashboard import DashboardService
-from yuxi.shared.datetime import UTC, utc_now
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.sessions import Session
+from zs.modules.identity.models import Department, User
+from zs.modules.system.services.dashboard import DashboardService
+from zs.shared.datetime import UTC, utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -471,8 +471,8 @@ async def test_dashboard_service_session_detail(dashboard_db):
 async def test_session_tokens_use_runs_and_expose_missing_usage(dashboard_db):
     """审计累加同会话 Run，忽略旧汇总并区分真实零和未知。"""
     from sqlalchemy import select
-    from yuxi.modules.agents.models.runs import AgentRun
-    from yuxi.modules.agents.models.turns import AgentTurn
+    from zs.modules.agents.models.runs import AgentRun
+    from zs.modules.agents.models.turns import AgentTurn
 
     agent_session = (await dashboard_db.execute(select(Session).where(Session.thread_id == "thread-102"))).scalar_one()
     dashboard_db.add(
@@ -650,7 +650,7 @@ async def test_agent_distribution_uses_created_cohort_and_weighted_messages(dash
 
 async def test_agent_distribution_empty_range_has_zero_summary(dashboard_db):
     """无会话范围返回可解释的零值与空排行。"""
-    from yuxi.shared.datetime import UTC
+    from zs.shared.datetime import UTC
 
     result = await DashboardService(dashboard_db).repo.get_agent_session_distribution(
         time_range="7days", now=datetime(2000, 1, 1, tzinfo=UTC)

@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from minio.error import S3Error
 
-from yuxi.infrastructure.minio.client import MinIOClient
+from zs.infrastructure.minio.client import MinIOClient
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

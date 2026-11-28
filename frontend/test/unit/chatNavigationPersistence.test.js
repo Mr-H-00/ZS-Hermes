@@ -80,7 +80,7 @@ test('导航偏好跨刷新保留，按认证账号隔离，临时展示和消�
     state = reload(2)
     assert.equal(state.ui.lastThreadId, 'thread-b')
     assert.equal(state.ui.sessionsPinned, true)
-    state.threads.upsertThread({ id: 'thread-b', yuxi: { project_id: 'removed' } })
+    state.threads.upsertThread({ id: 'thread-b', zs: { project_id: 'removed' } })
     state.threads.removeThreadsByProject('removed')
     // 刷新后的偏好独立于未选择的工作区，项目移除也须清除它。
     assert.equal(state.ui.lastThreadId, null)

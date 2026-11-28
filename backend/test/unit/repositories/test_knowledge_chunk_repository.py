@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.knowledge.repositories.chunks as repo_module
-from yuxi.modules.knowledge.repositories.chunks import KnowledgeChunkRepository, SQL_IN_BATCH_SIZE
+import zs.modules.knowledge.repositories.chunks as repo_module
+from zs.modules.knowledge.repositories.chunks import KnowledgeChunkRepository, SQL_IN_BATCH_SIZE
 
 
 def _extract_id_batch(statement) -> list[str]:

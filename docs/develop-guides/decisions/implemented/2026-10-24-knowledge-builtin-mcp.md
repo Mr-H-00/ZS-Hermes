@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/knowledge/mcp/client.py
+Owner：backend/zs/modules/knowledge/mcp/client.py
 
 ## 问题
 

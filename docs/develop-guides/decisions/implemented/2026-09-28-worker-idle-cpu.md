@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/workers/health.py
+Owner：backend/zs/workers/health.py
 
 ## 问题
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.infrastructure.minio import MinIOClient, ObjectSizeLimitError
+from zs.infrastructure.minio import MinIOClient, ObjectSizeLimitError
 
 
 @pytest.mark.asyncio

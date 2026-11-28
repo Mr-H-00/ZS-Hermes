@@ -141,9 +141,9 @@ npm CLI 的 `kb` 命令使用 Public 工具接口读取知识库，不提供文�
 
 ## 验证入口
 
-- [知识库路由](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/knowledge/management.py)
-- [Public 工具路由](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/public_v1/knowledge.py)
-- [知识库权限解析](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/permissions/resource_permission.py)
+- [知识库路由](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/knowledge/management.py)
+- [Public 工具路由](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/public_v1/knowledge.py)
+- [知识库权限解析](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/permissions/resource_permission.py)
 - [知识库 HTTP integration](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_knowledge_router.py)
 - [Public 工具 integration](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_public_knowledge_tools.py)
 

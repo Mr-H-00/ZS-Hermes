@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.models import KnowledgeFile
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.models import KnowledgeFile
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -14,7 +14,7 @@ async def test_file_metadata_read_does_not_load_execution_configuration(monkeypa
     """损坏的运行配置不能阻止读取已经持久化的文件事实。"""
     record = KnowledgeFile(file_id="file-a", kb_id="kb-a", filename="report.md", status="uploaded", is_folder=False)
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository.get_by_file_id",
+        "zs.modules.knowledge.repositories.files.KnowledgeFileRepository.get_by_file_id",
         AsyncMock(return_value=record),
     )
     manager = KnowledgeBaseManager(str(tmp_path))
@@ -29,11 +29,11 @@ async def test_file_metadata_read_does_not_load_execution_configuration(monkeypa
 @pytest.mark.parametrize("kb_type", ["milvus", "dify", "notion", "feishu"])
 async def test_query_configuration_needs_no_executor(kb_type, monkeypatch, tmp_path):
     """每种查询配置不构造执行器，模型选项只读取已装配的目录缓存。"""
-    from yuxi.modules.knowledge.implementations.dify import DifyKB
-    from yuxi.modules.knowledge.implementations.feishu import FeishuKB
-    from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-    from yuxi.modules.knowledge.implementations.notion import NotionKB
-    from yuxi.modules.models.providers.cache import model_cache
+    from zs.modules.knowledge.implementations.dify import DifyKB
+    from zs.modules.knowledge.implementations.feishu import FeishuKB
+    from zs.modules.knowledge.implementations.milvus import MilvusKB
+    from zs.modules.knowledge.implementations.notion import NotionKB
+    from zs.modules.models.providers.cache import model_cache
 
     monkeypatch.setattr(model_cache, "get_all_specs", lambda _kind: [])
     kb_class = {"milvus": MilvusKB, "dify": DifyKB, "notion": NotionKB, "feishu": FeishuKB}[kb_type]
@@ -49,14 +49,14 @@ async def test_local_document_window_does_not_load_execution_configuration(monke
     """本地正文阅读只依赖当前文件归属和对象内容。"""
     from types import SimpleNamespace
 
-    from yuxi.modules.knowledge.services import documents
+    from zs.modules.knowledge.services import documents
 
     manager = KnowledgeBaseManager(str(tmp_path))
     monkeypatch.setattr(manager, "get_kb_config", AsyncMock(side_effect=ValueError("invalid parser configuration")))
     monkeypatch.setattr(manager, "_get_or_create_kb_instance", AsyncMock(side_effect=RuntimeError("Milvus unavailable")))
     monkeypatch.setattr(manager, "get_knowledge_base_document_support", AsyncMock(return_value=(SimpleNamespace(kb_type="milvus"), True)))
     record = KnowledgeFile(file_id="file", kb_id="kb", filename="source.md", status="parsed", markdown_file="minio://parsed/source.md")
-    monkeypatch.setattr("yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository.get_by_file_id", AsyncMock(return_value=record))
+    monkeypatch.setattr("zs.modules.knowledge.repositories.files.KnowledgeFileRepository.get_by_file_id", AsyncMock(return_value=record))
     monkeypatch.setattr(documents, "read_minio_bytes", AsyncMock(return_value=b"first\nsecond\nthird"))
     result = await manager.open_document("kb", "file", offset=1, limit=1)
     assert result["content"] == "     2\tsecond"

@@ -41,7 +41,7 @@ Input 接收、附件就绪、消费与 Run 投递分别拥有明确提交点；
 
 未显式命名的新会话在首次聊天执行时，先保存首条用户文本的前 30 字作为临时标题，再由 worker 并行调用系统 `fast_model` 概括主题。输入最多 2000 字符，整个附属任务最多等待 8 秒。失败或进程退出保留临时标题，不重试，不影响聊天结果；纯图片输入保留默认标题。没有自动命名资格的已有会话与协作子会话不补生成标题。
 
-显式指定标题或手动改名会取消自动命名资格，迟到的模型结果不能覆盖用户修改。标题保存在 Session，前端通过已有详情读取和侧栏同步显示。实现见[标题服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/titles.py)。
+显式指定标题或手动改名会取消自动命名资格，迟到的模型结果不能覆盖用户修改。标题保存在 Session，前端通过已有详情读取和侧栏同步显示。实现见[标题服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/titles.py)。
 
 ## 回答来源标注
 
@@ -51,7 +51,7 @@ completed Turn 的最终回答存在有效知识库或网页检索内容时，We
 
 最终回答 Message 的 `extra_metadata.references` 保存标注、回答内容 hash、来源工具记录、文档代次、模型、用量和生成时间。Web 通过内部 GET 读取同一份持久结果，Public Turn metadata 不包含引用；来源读取和重新展示按当前知识库权限过滤。前端在对应 Markdown 块尾显示域名或文件名胶囊，同段多个来源合并为 `+N`。悬浮或聚焦展开来源卡片，显示完整标题、证据、知识库原文行号，并可切换来源；正文仅在查看来源时轻量高亮。向下键进入卡片，Escape 关闭并返回胶囊。单来源点击直接打开，多个来源在卡片中选择。支持文档的知识库来源打开文件预览，Dify、Notion 等只读检索连接器显示证据片段；网页来源打开 HTTP(S) 地址。知识库行号属于完整解析文本；文档代次变化或原文窗口无法核验时，预览提示位置失效并禁用旧行号高亮。回答保留原始空行与 SVG/HTML 预览，引用按原始 Markdown 范围匹配。
 
-同一 Turn 的标注请求由 PostgreSQL 事务锁拒绝并发重复调用，成功结果直接复用，刷新页面后恢复。独立调用最多等待 90 秒，回答与来源 JSON 输入最多 60000 字符；超预算、模型调用失败和无效输出明确返回错误，失败结果不保存为成功标注，用户可以重试。源码由 [引用用例](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/references.py) 与 [来源查询](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/repositories/references.py) 拥有；验证入口是 [HTTP 与 PostgreSQL 集成测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_turn_references.py) 和 [真实页面检查](https://github.com/xerrors/Yuxi/blob/main/frontend/test/browser/turnReferences.js)。
+同一 Turn 的标注请求由 PostgreSQL 事务锁拒绝并发重复调用，成功结果直接复用，刷新页面后恢复。独立调用最多等待 90 秒，回答与来源 JSON 输入最多 60000 字符；超预算、模型调用失败和无效输出明确返回错误，失败结果不保存为成功标注，用户可以重试。源码由 [引用用例](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/references.py) 与 [来源查询](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/repositories/references.py) 拥有；验证入口是 [HTTP 与 PostgreSQL 集成测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_turn_references.py) 和 [真实页面检查](https://github.com/xerrors/Yuxi/blob/main/frontend/test/browser/turnReferences.js)。
 
 ## 配置和运行态的区别
 
@@ -104,7 +104,7 @@ Token 趋势按 Run 创建时间归入上海时区的十四个小时、日或周
 
 有上报的快照累加观测值；未上报保留 `null`，部分缺报返回已知部分并标记 `token_usage_complete=false`。全缺报不能显示成零，明确上报的零才是零消耗；没有运行的趋势区间返回零并显示无运行记录。会话没有 Run 快照时审计返回未知。页面在部分缺报时将汇总标为“已报”，图表保留未知间隙。
 
-“上报完整”只表示当前采集范围没有缺报，不代表完整费用：统计覆盖主 Agent 模型调用，内部摘要、标题、来源标注、知识处理等独立模型调用不计入；不可信供应商用量的排除规则由[中间件](../agents/middleware.md#token-用量)维护。供应商账单仍是费用对账依据。聚合和证据入口见 [Dashboard repository](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/system/repositories/dashboard.py) 与[真实 HTTP 用量回归](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_dashboard_usage.py)。
+“上报完整”只表示当前采集范围没有缺报，不代表完整费用：统计覆盖主 Agent 模型调用，内部摘要、标题、来源标注、知识处理等独立模型调用不计入；不可信供应商用量的排除规则由[中间件](../agents/middleware.md#token-用量)维护。供应商账单仍是费用对账依据。聚合和证据入口见 [Dashboard repository](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/system/repositories/dashboard.py) 与[真实 HTTP 用量回归](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_dashboard_usage.py)。
 
 ## 用户定时 Agent
 
@@ -112,7 +112,7 @@ Token 趋势按 Run 创建时间归入上海时区的十四个小时、日或周
 
 任务 API 只返回当前用户拥有且未删除的任务，并在创建、更新和触发时重新校验 Project 归属与 Agent 可见性。停用或任务软删除只阻止未来触发；账号软删除在同一事务删除任务及 occurrence。任务支持 Run now、5 段 cron 和 IANA 时区，数据库保存 UTC 下一次触发时间；错过多个周期只合并一次，已有非终态执行时记录 skipped。
 
-任务详情按每页十条查看全部运行历史，包含失败原因、跳过及排队状态，有对应会话时可跳转。`GET /api/scheduled-tasks/{job_id}/runs` 是产品内部接口，按当前用户归属查询，支持 `limit`（1–100，默认 10）与非负 `offset`，返回 `items/total/limit/offset`；未知、其他用户及已软删除任务均返回 404。排序使用计划触发时间和 ID 倒序；新记录可能使相邻 offset 页移动，刷新从第一页重读，不承诺跨请求快照。历史读取不改变调度或执行状态。实现与验证见 [repository](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/schedules/repository.py) 和[HTTP 分页回归](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_scheduled_agent_history.py)。
+任务详情按每页十条查看全部运行历史，包含失败原因、跳过及排队状态，有对应会话时可跳转。`GET /api/scheduled-tasks/{job_id}/runs` 是产品内部接口，按当前用户归属查询，支持 `limit`（1–100，默认 10）与非负 `offset`，返回 `items/total/limit/offset`；未知、其他用户及已软删除任务均返回 404。排序使用计划触发时间和 ID 倒序；新记录可能使相邻 offset 页移动，刷新从第一页重读，不承诺跨请求快照。历史读取不改变调度或执行状态。实现与验证见 [repository](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/schedules/repository.py) 和[HTTP 分页回归](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_scheduled_agent_history.py)。
 
 ## 恢复和失败
 
@@ -126,11 +126,11 @@ worker 读取 Input 的完整配置快照，为当前 Run 重新准备工作区�
 
 ## 源码和验证入口
 
-- [Context 与资源归一化](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/context.py)
-- [BaseAgent](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/base.py)
-- [Chatbot graph](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/agent_backends/chatbot/graph.py)
-- [会话协作 middleware](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/middlewares/cooperation.py)
-- [Memory middleware](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/middlewares/memory.py)
+- [Context 与资源归一化](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/context.py)
+- [BaseAgent](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/base.py)
+- [Chatbot graph](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/agent_backends/chatbot/graph.py)
+- [会话协作 middleware](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/middlewares/cooperation.py)
+- [Memory middleware](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/middlewares/memory.py)
 - [运行时上下文 unit](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/agents)
 - [Agent 主链路 E2E](https://github.com/xerrors/Yuxi/tree/main/backend/test/e2e)
 

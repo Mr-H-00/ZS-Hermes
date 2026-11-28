@@ -4,7 +4,7 @@
 类型：bug-fix
 Owner：backend/test/integration/conftest.py
 
-实现位置更新：模型注册现由 `backend/yuxi/infrastructure/postgres/models.py` 拥有，见 [2026-10-21 后端边界收敛](./2026-10-21-backend-boundary-and-provider-catalog.md)。本记录保留当次测试装配与证据。
+实现位置更新：模型注册现由 `backend/zs/infrastructure/postgres/models.py` 拥有，见 [2026-10-21 后端边界收敛](./2026-10-21-backend-boundary-and-provider-catalog.md)。本记录保留当次测试装配与证据。
 
 ## 问题
 

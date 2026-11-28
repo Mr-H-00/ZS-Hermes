@@ -9,13 +9,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import delete
 
-from yuxi.modules.knowledge.evaluation.service import EvaluationService
-from yuxi.modules.knowledge.repositories.evaluation import EvaluationRepository
-from yuxi.modules.background_jobs.repository import BackgroundJobRepository
-import yuxi.modules.background_jobs.dispatch as job_service
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.models import KnowledgeBase
+from zs.modules.knowledge.evaluation.service import EvaluationService
+from zs.modules.knowledge.repositories.evaluation import EvaluationRepository
+from zs.modules.background_jobs.repository import BackgroundJobRepository
+import zs.modules.background_jobs.dispatch as job_service
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.models import KnowledgeBase
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

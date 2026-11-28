@@ -23,9 +23,9 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
 async def test_reasoning_stream_matches_persisted_history(e2e_client, e2e_headers, e2e_agent_context):
     """无工具的单次编码问答完成后，SSE 原文必须等于同一 Run 的持久化推理。"""
-    spec = os.getenv("YUXI_REASONING_E2E_MODEL")
+    spec = os.getenv("ZS_REASONING_E2E_MODEL")
     if not spec:
-        pytest.skip("显式配置 YUXI_REASONING_E2E_MODEL 后才调用真实模型")
+        pytest.skip("显式配置 ZS_REASONING_E2E_MODEL 后才调用真实模型")
     client, headers = e2e_client, e2e_headers
     slug = f"e2e-async-agent-reasoning-{uuid4().hex[:8]}"
     response = await client.post(
@@ -90,7 +90,7 @@ async def test_reasoning_stream_matches_persisted_history(e2e_client, e2e_header
                                 ],
                             }
                         ],
-                        "yuxi": {"mode": "follow_up"},
+                        "zs": {"mode": "follow_up"},
                     }
                 ],
             },
@@ -103,7 +103,7 @@ async def test_reasoning_stream_matches_persisted_history(e2e_client, e2e_header
             """只收集本 Run 的 Public SSE 推理增量。"""
             parts: list[str] = []
             async for event in iter_public_thread_events(client, headers, thread_id):
-                if event["type"] == "yuxi.session.turn.reasoning.delta" and event.get("yuxi", {}).get("run_id") == run_id:
+                if event["type"] == "zs.session.turn.reasoning.delta" and event.get("zs", {}).get("run_id") == run_id:
                     parts.append(event["delta"])
                 if event["turn_id"] == turn_id and event["type"] in {
                     "agent.session.turn.completed",
@@ -118,21 +118,21 @@ async def test_reasoning_stream_matches_persisted_history(e2e_client, e2e_header
         assert turn_response.status_code == 200, turn_response.text
         turn = turn_response.json()
         assert turn["status"] == "completed", turn
-        assert turn["yuxi"]["result_run_id"] == run_id, turn
+        assert turn["zs"]["result_run_id"] == run_id, turn
         reasoning = "".join(reasoning_parts)
         history = await client.get(f"/api/v1/agents/sessions/{thread_id}/items?order=asc&limit=100", headers=headers)
         assert history.status_code == 200
         messages = [
-            m for m in history.json()["data"] if m["type"] == "message" and m["role"] == "assistant" and m["yuxi"]["run_id"] == run_id
+            m for m in history.json()["data"] if m["type"] == "message" and m["role"] == "assistant" and m["zs"]["run_id"] == run_id
         ]
         assert len(messages) == 1
-        assert "".join(messages[0]["yuxi"].get("reasoning", {}).values()) == reasoning
+        assert "".join(messages[0]["zs"].get("reasoning", {}).values()) == reasoning
         assert "".join(part["text"] for part in messages[0]["content"]).strip()
         conn = await asyncpg.connect(postgres_dsn())
         try:
             row = await conn.fetchrow(
                 "SELECT content, extra_metadata FROM messages WHERE id=$1 AND run_id=$2",
-                messages[0]["yuxi"]["message_id"],
+                messages[0]["zs"]["message_id"],
                 run_id,
             )
             metadata = json.loads(row["extra_metadata"]) if isinstance(row["extra_metadata"], str) else row["extra_metadata"]

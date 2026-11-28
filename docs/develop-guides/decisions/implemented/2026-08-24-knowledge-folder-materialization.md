@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/knowledge/services/imports.py
+Owner：backend/zs/modules/knowledge/services/imports.py
 
 ## 问题
 

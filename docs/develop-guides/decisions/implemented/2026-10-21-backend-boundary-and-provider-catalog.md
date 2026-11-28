@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/infrastructure/postgres/models.py
+Owner：backend/zs/infrastructure/postgres/models.py
 
 ## 问题
 

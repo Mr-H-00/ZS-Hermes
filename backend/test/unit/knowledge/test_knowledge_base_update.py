@@ -3,8 +3,8 @@ from collections import Counter
 from unittest.mock import AsyncMock
 
 from test.unit.support.knowledge import FakeKnowledgeBase, make_knowledge_file_record
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.read_models import KnowledgeBaseDetail
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.read_models import KnowledgeBaseDetail
 
 
 class FakeKnowledgeBaseRepository:
@@ -17,7 +17,7 @@ class FakeKnowledgeBaseRepository:
 
     async def refresh_stats(self, kb_id: str):
         assert kb_id == "db"
-        from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
+        from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
 
         stats = await KnowledgeFileRepository().get_kb_file_stats(kb_id)
         self.update_calls.append({"stats": stats})
@@ -105,7 +105,7 @@ async def test_create_knowledge_base_persists_allowed_record_fields(tmp_path, mo
             raise AssertionError("create_knowledge_base should insert new knowledge_base metadata")
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
         FakeKnowledgeBaseRepository,
     )
 
@@ -124,13 +124,13 @@ async def test_create_knowledge_base_persists_allowed_record_fields(tmp_path, mo
     monkeypatch.setattr(
         manager, "_get_or_create_kb_instance", AsyncMock(side_effect=AssertionError("metadata must not construct executor"))
     )
-    monkeypatch.setattr("yuxi.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class", lambda _: type(kb))
+    monkeypatch.setattr("zs.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class", lambda _: type(kb))
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         classmethod(lambda cls, _kb_type: True),
     )
     monkeypatch.setattr(
-        "yuxi.modules.models.providers.cache.model_cache.get_model_info",
+        "zs.modules.models.providers.cache.model_cache.get_model_info",
         lambda _spec: types.SimpleNamespace(model_type="embedding"),
     )
 
@@ -188,11 +188,11 @@ async def test_manager_refresh_knowledge_base_stats_persists_metadata(tmp_path, 
     kb_repo = FakeKnowledgeBaseRepository()
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository",
+        "zs.modules.knowledge.repositories.files.KnowledgeFileRepository",
         lambda: file_repo,
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
         lambda: kb_repo,
     )
 

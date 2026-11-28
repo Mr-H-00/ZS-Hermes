@@ -6,8 +6,8 @@ from uuid import uuid4
 import pytest
 from test.live_api_cleanup import make_test_session_title
 
-from yuxi.infrastructure.minio import ObjectSizeLimitError, get_minio_client
-from yuxi.shared.files import MAX_FILE_PREVIEW_BYTES
+from zs.infrastructure.minio import ObjectSizeLimitError, get_minio_client
+from zs.shared.files import MAX_FILE_PREVIEW_BYTES
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

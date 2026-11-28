@@ -16,7 +16,7 @@ const knowledgeRef = ref(null)
       <PageHeader title="知识库" :loading="knowledgeRef?.loading || false" :show-border="true" />
       <div class="resource-content">
         <DataBaseView v-if="userStore.isAdmin" ref="knowledgeRef" embedded />
-        <a-empty v-else description="知识库管理仅管理员可用" />
+        <a-empty v-else description="仅管理员可管理知识库" />
       </div>
     </template>
     <router-view v-else :key="route.path" />

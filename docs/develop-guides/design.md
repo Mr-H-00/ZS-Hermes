@@ -359,7 +359,7 @@ AI agent 修改或生成 Yuxi UI 时，优先按这一节执行。
 
 ## 头像组件
 
-智能体、会话与用户使用共享 [FallbackAvatar](https://github.com/xerrors/Yuxi/blob/main/frontend/src/shared/ui/FallbackAvatar.vue)。调用方传入 kind、稳定实体 seed、自定义图片 src 与展示尺寸；自定义图片优先。agent 默认 Lorelei 配合 soft 背景预设，user 默认 Notionists；会话树、协作工具结果和会话面板标签使用 session 类型及 Gaze 风格，以会话 ID 作为 seed。输入框、正文与候选列表中的会话引用使用描边的对话气泡加标题，沿用普通引用图标尺寸；会话树、协作结果与面板标签保持 18px。生成器随前端本地交付，不请求外部头像 API，Gaze 保持透明背景。
+智能体、会话与用户使用共享 [FallbackAvatar](https://github.com/xerrors/Yuxi/blob/main/frontend/src/shared/ui/FallbackAvatar.vue)。调用方传入 kind、稳定实体 seed、自定义图片 src 与展示尺寸。自定义图片优先。智能体默认使用深青底的机器人头像，用户默认使用线描头像。显式指定 style 或 preset 时，组件在本地生成头像。会话树、协作工具结果和会话面板标签使用 session 类型及透明背景的 Gaze 风格，以会话 ID 作为 seed。输入框、正文与候选列表中的会话引用使用描边的对话气泡加标题，沿用普通引用图标尺寸。会话树、协作结果与面板标签保持 18px。
 
 组件支持 style 为 lorelei、notionists、gaze、glyphs、clay、shape-grid；preset 缺省时，智能体使用 soft，用户与会话使用 default；调用方可显式选择 default、studio、heritage、soft，每套色卡都有日间与夜间版本。Notionists 从预设背景色组中稳定选色，人物底纸、墨色与背景在深浅主题下保持一致；Lorelei 只应用预设背景色组，脸色、头发与线条保留上游黑白原色，深浅主题使用相同颜色。其他风格明暗共用主体色，底纸与墨色可独立调整；default 保留各风格上游主体与对比色，夜间仅调整 Glyphs 与 Clay 的底纸，Shape Grid 保留彩色背景。dark 为 on、off、auto，auto 跟随 Yuxi 的主题 Store；circle、square、rounded 分别提供圆形、直角方形和圆角方形。颜色配置由 [共享色卡](https://github.com/xerrors/Yuxi/blob/main/frontend/src/shared/lib/avatar/presets.js) 拥有，几何与表情随稳定 seed 固定。
 

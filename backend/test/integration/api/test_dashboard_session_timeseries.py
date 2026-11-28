@@ -8,12 +8,12 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.identity.models import User
-from yuxi.modules.system.repositories.dashboard import DashboardRepository
-from yuxi.modules.workspace.models import Project
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.sessions import Session
+from zs.modules.identity.models import User
+from zs.modules.system.repositories.dashboard import DashboardRepository
+from zs.modules.workspace.models import Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

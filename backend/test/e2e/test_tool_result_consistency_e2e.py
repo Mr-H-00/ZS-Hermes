@@ -23,8 +23,8 @@ from test.e2e.e2e_helpers import (
 from test.integration.api.helpers import get_thread_workdir_path
 from test.live_api_cleanup import make_test_session_title
 from test.support.openai_replay_server import serve_replay_handler
-from yuxi.modules.agents.runtime.sandbox.backend import UserSandboxBackend
-from yuxi.modules.workspace.filesystem import Workspace
+from zs.modules.agents.runtime.sandbox.backend import UserSandboxBackend
+from zs.modules.workspace.filesystem import Workspace
 
 pytestmark = [pytest.mark.e2e, pytest.mark.asyncio, pytest.mark.self_managed_resources, pytest.mark.timeout(240)]
 
@@ -34,7 +34,7 @@ async def test_worker_persists_knowledge_error_and_consistent_grep(e2e_client, e
     suffix = uuid.uuid4().hex
     provider_id = f"p2-replay-{suffix[:8]}"
     slug = f"p2-tools-{suffix[:8]}"
-    guest_path = f"/tmp/yuxi-p2-{suffix}.txt"
+    guest_path = f"/tmp/zs-p2-{suffix}.txt"
     observed = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -131,11 +131,11 @@ async def test_worker_persists_knowledge_error_and_consistent_grep(e2e_client, e
             assert response.status_code == 201, response.text
             thread_id = response.json()["id"]
             workdir = await get_thread_workdir_path(thread_id)
-            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["yuxi"]["receipt"])
+            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["zs"]["receipt"])
             turn_id = accepted["turn_id"]
             turn = await wait_for_terminal_turn(e2e_client, e2e_headers, thread_id, turn_id)
             assert turn["status"] == "completed", turn
-            assert "P2_CONSISTENCY_OK" in output_text(turn["yuxi"]["output"])
+            assert "P2_CONSISTENCY_OK" in output_text(turn["zs"]["output"])
             assert set(observed) == {f"call-p2-{index}" for index in range(6)}
             for index, count, truncated in [(1, 2, False), (2, 2, False), (3, 1, True), (4, 1, True)]:
                 text = str(observed[f"call-p2-{index}"])

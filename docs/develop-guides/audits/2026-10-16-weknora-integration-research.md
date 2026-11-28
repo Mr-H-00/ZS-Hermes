@@ -6,7 +6,7 @@
 
 ## 结论与适用假设
 
-可以接入。若目标是“在 Yuxi 知识库列表选择 WeKnora，并让现有 Agent 用同一套知识检索与片段引用能力”，推荐增加调用 WeKnora REST API 的只读知识库连接器。若目标是“先让某个 Agent 使用一组 WeKnora 工具”，现有出站 MCP 可连接其原生 Streamable HTTP 服务，适合先验证效果。两种路径都需要 WeKnora 独立运行。[Yuxi 连接器入口](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/factory.py)、[WeKnora API 选择](https://github.com/Tencent/WeKnora/blob/main/website-docs/04-api/01-api-overview.md)、[WeKnora 原生 MCP](https://github.com/Tencent/WeKnora/blob/main/website-docs/03-features/08-mcp.md)分别拥有这些事实。
+可以接入。若目标是“在 Yuxi 知识库列表选择 WeKnora，并让现有 Agent 用同一套知识检索与片段引用能力”，推荐增加调用 WeKnora REST API 的只读知识库连接器。若目标是“先让某个 Agent 使用一组 WeKnora 工具”，现有出站 MCP 可连接其原生 Streamable HTTP 服务，适合先验证效果。两种路径都需要 WeKnora 独立运行。[Yuxi 连接器入口](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/factory.py)、[WeKnora API 选择](https://github.com/Tencent/WeKnora/blob/main/website-docs/04-api/01-api-overview.md)、[WeKnora 原生 MCP](https://github.com/Tencent/WeKnora/blob/main/website-docs/03-features/08-mcp.md)分别拥有这些事实。
 
 本建议假设文档上传、解析、索引和数据源同步由 WeKnora 管理，Yuxi 消费检索结果。用 WeKnora 替换 Yuxi 的内置知识引擎、让 Yuxi 上传并管理 WeKnora 文档、或让两边同时维护同一份知识，是不同范围；只读连接器与 MCP 配置均不会自动完成这些目标。这里的推荐是基于当前契约的推断（`Inferred`），需要后文的真实联调才能形成实施决定。
 
@@ -62,21 +62,21 @@ MCP 认证后合成的是端点机器主体，附带由端点工具与知识库�
 
 ### 知识库连接器：复用目录、可见范围与引用
 
-当前知识库 factory 注册 `milvus`、`dify` 和 `notion`。`DifyKB` 是可参考的现有 REST 连接器：提供创建参数 Schema，通过异步 HTTP 获取远端结果，归一正文、分数和文件/分块标识。Manager 的 `retrieve` 调用 executor `aquery` 并构造统一搜索输出。新增 WeKnora 类型可以沿用这一扩展边界；它仍需实现 API 请求和结果映射，配置现有 Dify 类型无法直接调用 WeKnora。[factory](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/factory.py)、[Dify 连接器](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/implementations/dify.py)、[manager](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/manager.py)。
+当前知识库 factory 注册 `milvus`、`dify` 和 `notion`。`DifyKB` 是可参考的现有 REST 连接器：提供创建参数 Schema，通过异步 HTTP 获取远端结果，归一正文、分数和文件/分块标识。Manager 的 `retrieve` 调用 executor `aquery` 并构造统一搜索输出。新增 WeKnora 类型可以沿用这一扩展边界；它仍需实现 API 请求和结果映射，配置现有 Dify 类型无法直接调用 WeKnora。[factory](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/factory.py)、[Dify 连接器](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/implementations/dify.py)、[manager](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/manager.py)。
 
-`ReadOnlyConnectors` 的 `supports_documents=False`，不承载上传、解析、索引和原文下载。Manager 的原文阅读/查找入口检查此能力，所以继承它只能获得检索型知识来源；WeKnora 的文档阅读 API、原文件下载、图谱和评估不会自动出现在 Yuxi。前端类型和创建表单消费 factory 的动态 Schema，品牌显示还有 `kb_utils.js` 映射。[只读能力契约](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/implementations/read_only_connectors.py)、[前端知识库映射](https://github.com/xerrors/Yuxi/blob/main/frontend/src/modules/knowledge/model/kb_utils.js)。
+`ReadOnlyConnectors` 的 `supports_documents=False`，不承载上传、解析、索引和原文下载。Manager 的原文阅读/查找入口检查此能力，所以继承它只能获得检索型知识来源；WeKnora 的文档阅读 API、原文件下载、图谱和评估不会自动出现在 Yuxi。前端类型和创建表单消费 factory 的动态 Schema，品牌显示还有 `kb_utils.js` 映射。[只读能力契约](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/implementations/read_only_connectors.py)、[前端知识库映射](https://github.com/xerrors/Yuxi/blob/main/frontend/src/modules/knowledge/model/kb_utils.js)。
 
-本地 `visible_knowledge_bases` 用当前用户权限与 Agent 选择的知识库求交集，知识工具在执行时复查。正式连接器应把一个本地 `kb_id` 映射到固定远端 KB ID，并由后端强制把该 ID 写入请求，模型不能随意传入其他远端库。REST Key 仍是机器凭据，本地授权与上游 Key 白名单共同形成范围；REST 协议本身不负责同步权限。[可见性服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/services/access.py)、[知识工具服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/services/tools.py)。
+本地 `visible_knowledge_bases` 用当前用户权限与 Agent 选择的知识库求交集，知识工具在执行时复查。正式连接器应把一个本地 `kb_id` 映射到固定远端 KB ID，并由后端强制把该 ID 写入请求，模型不能随意传入其他远端库。REST Key 仍是机器凭据，本地授权与上游 Key 白名单共同形成范围；REST 协议本身不负责同步权限。[可见性服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/services/access.py)、[知识工具服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/services/tools.py)。
 
-Agent 的引用收集只识别 `query_kb`、`open_kb_document`、`find_kb_document`、`web_search`，知识引用还受当前可见 KB 集合限制。因此 REST 连接器经 `query_kb` 输出规范片段，可以复用片段引用校验与撤权过滤；这不等价于完整的原文预览和定位。普通外部 MCP 工具结果没有自动进入这条引用链。[引用 Owner](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/references.py)。
+Agent 的引用收集只识别 `query_kb`、`open_kb_document`、`find_kb_document`、`web_search`，知识引用还受当前可见 KB 集合限制。因此 REST 连接器经 `query_kb` 输出规范片段，可以复用片段引用校验与撤权过滤；这不等价于完整的原文预览和定位。普通外部 MCP 工具结果没有自动进入这条引用链。[引用 Owner](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/references.py)。
 
 ### 出站 MCP：现有运行时能连接，知识库契约仍需另接
 
-Yuxi MCP 配置保存 URL、固定 headers、超时、enabled 和禁用工具列表，支持 `sse` 与 `streamable_http`，拒绝 stdio 和进程启动字段。运行时使用 `MultiServerMCPClient.get_tools`，按服务 slug 和配置 hash 缓存工具；Agent 显式选择 MCP 或经已授权 Skill 声明依赖后加载。连接 WeKnora 原生端点在配置与传输层面匹配，实际 SDK 协议协商仍需联调。[配置模型](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/mcp/models.py)、[管理服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/mcp/service.py)、[运行时](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/mcp/runtime.py)。
+Yuxi MCP 配置保存 URL、固定 headers、超时、enabled 和禁用工具列表，支持 `sse` 与 `streamable_http`，拒绝 stdio 和进程启动字段。运行时使用 `MultiServerMCPClient.get_tools`，按服务 slug 和配置 hash 缓存工具；Agent 显式选择 MCP 或经已授权 Skill 声明依赖后加载。连接 WeKnora 原生端点在配置与传输层面匹配，实际 SDK 协议协商仍需联调。[配置模型](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/mcp/models.py)、[管理服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/mcp/service.py)、[运行时](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/mcp/runtime.py)。
 
-执行授权会重查 Agent、账号、MCP 启用状态、禁用工具与 Skill 授权；当前没有把 Yuxi 用户 ID 动态换成 WeKnora 主体，也没有为 MCP 服务套用知识库 `share_config`。同一服务配置的使用者共享固定远端凭据权限。给部门私有知识配置全空间 MCP 端点会绕开预期的本地知识库隔离模型，应先按授权域限制端点范围与使用者。[执行授权中间件](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/middlewares/authorization.py)、[MCP 管理服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/mcp/service.py)。
+执行授权会重查 Agent、账号、MCP 启用状态、禁用工具与 Skill 授权；当前没有把 Yuxi 用户 ID 动态换成 WeKnora 主体，也没有为 MCP 服务套用知识库 `share_config`。同一服务配置的使用者共享固定远端凭据权限。给部门私有知识配置全空间 MCP 端点会绕开预期的本地知识库隔离模型，应先按授权域限制端点范围与使用者。[执行授权中间件](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/middlewares/authorization.py)、[MCP 管理服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/mcp/service.py)。
 
-工具元数据会记录 MCP 服务标识，但真实工具名保持上游名称；本地与其他 MCP 工具同名时运行时显式失败。WeKnora 的 `read_document`、`search_knowledge` 等名称需在目标 Agent 的最终工具集合中检查，不能假设服务 slug 自动加前缀。Yuxi 自己的入站 `/api/mcp` 用于给外部客户端读取 Yuxi 知识库，与这里的出站接入属于两个方向。[工具合并 Owner](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/tools/runtime.py)、[入站知识 MCP](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/public_v1/knowledge_mcp.py)。
+工具元数据会记录 MCP 服务标识，但真实工具名保持上游名称；本地与其他 MCP 工具同名时运行时显式失败。WeKnora 的 `read_document`、`search_knowledge` 等名称需在目标 Agent 的最终工具集合中检查，不能假设服务 slug 自动加前缀。Yuxi 自己的入站 `/api/mcp` 用于给外部客户端读取 Yuxi 知识库，与这里的出站接入属于两个方向。[工具合并 Owner](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/tools/runtime.py)、[入站知识 MCP](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/public_v1/knowledge_mcp.py)。
 
 ## 如何选，以及首期做到哪里
 

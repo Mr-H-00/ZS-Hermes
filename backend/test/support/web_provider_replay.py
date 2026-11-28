@@ -23,7 +23,7 @@ def create_test_certificate(directory: Path) -> ssl.SSLContext:
     """生成仅供隔离重放拓扑信任的临时证书，不提交私钥。"""
     directory.mkdir(parents=True, exist_ok=True)
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Yuxi test replay")])
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "ZS test replay")])
     now = datetime.now(UTC)
     certificate = (
         x509.CertificateBuilder()

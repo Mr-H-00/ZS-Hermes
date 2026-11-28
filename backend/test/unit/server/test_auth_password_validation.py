@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from yuxi.api.routers.identity.departments import DepartmentCreate
-from yuxi.api.routers.identity.auth import InitializeAdmin, UserCreate, UserUpdate
+from zs.api.routers.identity.departments import DepartmentCreate
+from zs.api.routers.identity.auth import InitializeAdmin, UserCreate, UserUpdate
 
 
 @pytest.mark.parametrize(

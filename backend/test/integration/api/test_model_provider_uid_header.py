@@ -11,12 +11,12 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.main import app
-import yuxi.api.routers.models as model_provider_router
-from yuxi.api.dependencies.auth import get_superadmin_user, get_db
-from yuxi.infrastructure.postgres.manager import PostgresManager
-from yuxi.migrations.schema import create_business_tables
-from yuxi.modules.models.tables import ModelProvider
+from zs.api.main import app
+import zs.api.routers.models as model_provider_router
+from zs.api.dependencies.auth import get_superadmin_user, get_db
+from zs.infrastructure.postgres.manager import PostgresManager
+from zs.migrations.schema import create_business_tables
+from zs.modules.models.tables import ModelProvider
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -70,12 +70,12 @@ async def test_provider_uid_header_http_round_trip_and_rejections(monkeypatch):
 
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            monkeypatch.delenv("YUXI_UID_SIGNATURE_SECRET", raising=False)
+            monkeypatch.delenv("ZS_UID_SIGNATURE_SECRET", raising=False)
             missing_secret = await client.post(path, json={**provider, "include_user_uid": True})
             assert missing_secret.status_code == 400
-            assert "YUXI_UID_SIGNATURE_SECRET" in missing_secret.json()["detail"]
+            assert "ZS_UID_SIGNATURE_SECRET" in missing_secret.json()["detail"]
 
-            monkeypatch.setenv("YUXI_UID_SIGNATURE_SECRET", "integration-test-signing-secret")
+            monkeypatch.setenv("ZS_UID_SIGNATURE_SECRET", "integration-test-signing-secret")
             invalid_type = await client.post(path, json={**provider, "provider_id": f"pytest-invalid-{uid}", "include_user_uid": "true"})
             assert invalid_type.status_code == 422
 

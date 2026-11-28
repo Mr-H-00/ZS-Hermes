@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from yuxi.modules.agents.runtime.checkpoint_cleanup import cancel_waitpoint_checkpoint
+from zs.modules.agents.runtime.checkpoint_cleanup import cancel_waitpoint_checkpoint
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

@@ -3,7 +3,7 @@
 import pytest
 
 from test.integration.services.agent_input_fixtures import SCOPE
-from yuxi.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]

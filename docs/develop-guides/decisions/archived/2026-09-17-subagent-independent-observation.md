@@ -2,7 +2,7 @@
 
 状态：archived
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/cooperation.py
+Owner：backend/zs/modules/agents/services/cooperation.py
 
 该记录由[统一 Session 协作](../implemented/2026-10-03-session-cooperation.md)取代，保留历史取舍。
 

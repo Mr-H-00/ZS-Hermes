@@ -1,23 +1,21 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, provide, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
-  BarChart3,
+  Bot,
+  CalendarClock,
   ClipboardList,
+  Gauge,
   LibraryBig,
-  Box,
-  Clock3,
-  Unplug,
-  Wrench,
+  MessagesSquare,
   PanelLeft,
   PanelLeftOpen,
-  MessageCircle,
-  SquarePen,
   Search,
+  ServerCog,
+  Wrench,
 } from '@lucide/vue'
 
-import NetDiskIcon from '@/shared/ui/NetDiskIcon.vue'
 import { healthApi } from '@/apis/system_api'
 import { useConfigStore } from '@/modules/settings/model/config'
 import { useAgentStore } from '@/modules/agents/model/agent'
@@ -54,7 +52,7 @@ const settingsInitialTab = ref('')
 const route = useRoute()
 const router = useRouter()
 const isAgentView = computed(() => ['AgentComp', 'AgentCompWithThreadId'].includes(route.name))
-const { sidebarCollapsed, lastThreadId, sessionsPinned, sessionPeekOpen } = storeToRefs(chatUIStore)
+const { sidebarCollapsed, sessionsPinned, sessionPeekOpen } = storeToRefs(chatUIStore)
 const normalNavigationRef = ref(null)
 const sessionsVisible = computed(
   () => !sidebarCollapsed.value || (isAgentView.value && (sessionsPinned.value || sessionPeekOpen.value))
@@ -148,71 +146,22 @@ const sessionRouteCache = createSessionRouteCache(router)
 onUnmounted(sessionRouteCache.dispose)
 
 const activeJobCount = computed(() => activeCountRef.value || 0)
-const productName = computed(() => infoStore.branding.name || 'Yuxi')
+const productName = computed(() => infoStore.branding.name || 'ZS')
 
-// 下面是导航菜单部分，添加智能体项
 const mainList = computed(() => {
-  const items = [
-    {
-      name: '新对话',
-      path: lastThreadId.value
-        ? router.resolve({ name: 'AgentCompWithThreadId', params: { thread_id: lastThreadId.value } }).path
-        : '/agent',
-      activePaths: ['/agent'],
-      icon: MessageCircle,
-      activeIcon: MessageCircle
-    }
-  ]
-
-  items.push({ name: '定时任务', path: '/schedules', icon: Clock3, activeIcon: Clock3 })
-
-  items.push({
-    name: '智能体',
-    path: '/agent-manage',
-    icon: Box,
-    activeIcon: Box
-  })
-
-  items.push({
-    name: '知识库',
-    path: '/extensions',
-    activePaths: ['/extensions'],
-    icon: LibraryBig,
-    activeIcon: LibraryBig
-  })
-
-  items.push({
-    name: '网盘',
-    path: '/workspace',
-    icon: NetDiskIcon,
-    activeIcon: NetDiskIcon
-  })
-
-  items.push({ name: '技能・工具・MCP', path: '/capabilities', icon: Wrench, activeIcon: Wrench })
-  if (userStore.isAdmin) items.push({ name: 'API服务', path: '/api-services', icon: Unplug, activeIcon: Unplug })
-
-  if (userStore.isSuperAdmin) {
-    items.push({
-      name: '数据总览',
-      path: '/dashboard',
-      icon: BarChart3,
-      activeIcon: BarChart3
-    })
-  }
+  const items = []
+  if (userStore.isSuperAdmin) items.push({ name: '驾驶舱', path: '/dashboard', icon: Gauge })
+  items.push(
+    { name: '会话管理', path: '/agent', icon: MessagesSquare },
+    { name: '知识库', path: '/extensions', icon: LibraryBig },
+    { name: '智能体', path: '/agent-manage', icon: Bot },
+    { name: '定时任务', path: '/schedules', icon: CalendarClock },
+    { name: '技能与工具', path: '/capabilities', icon: Wrench }
+  )
+  if (userStore.isAdmin) items.push({ name: '模型服务', path: '/api-services', icon: ServerCog })
 
   return items
 })
-
-const primaryNavItem = computed(() => mainList.value[0] || null)
-const secondaryNavItems = computed(() => mainList.value.slice(1))
-
-const isNavItemActive = (item) => {
-  const activePaths = item.activePaths || [item.path]
-  if (item.exactActive) {
-    return activePaths.some((path) => route.path === path)
-  }
-  return activePaths.some((path) => route.path === path || route.path.startsWith(`${path}/`))
-}
 
 const setSidebarCollapsed = (collapsed) => {
   sidebarCollapsed.value = collapsed
@@ -301,56 +250,21 @@ provide('settingsModal', {
         </div>
       </div>
       <div class="nav">
-        <div v-if="primaryNavItem" class="primary-nav-row">
-          <RouterLink
-            :to="primaryNavItem.path"
-            class="nav-item"
-            :class="{ active: isNavItemActive(primaryNavItem) }"
-            :aria-label="primaryNavItem.name"
-            :active-class="primaryNavItem.action ? '' : 'active'"
-            @click.stop
-          >
-            <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
-              <template #title>{{ primaryNavItem.name }}</template>
-              <component
-                class="icon"
-                :is="
-                  isNavItemActive(primaryNavItem) ? primaryNavItem.activeIcon : primaryNavItem.icon
-                "
-                size="18"
-                aria-hidden="true"
-              />
-            </a-tooltip>
-            <span class="nav-text">{{ primaryNavItem.name }}</span>
-          </RouterLink>
-          <RouterLink
-            v-if="!sidebarCollapsed"
-            :to="{ name: 'AgentComp' }"
-            class="primary-new-chat"
-            active-class=""
-            aria-label="新建对话"
-            title="新建对话"
-          >
-            <SquarePen :size="16" aria-hidden="true" />
-          </RouterLink>
-        </div>
-
         <RouterLink
-          v-for="(item, index) in secondaryNavItems"
-          :key="index"
+          v-for="item in mainList"
+          :key="item.path"
           :to="item.path"
-          v-show="!item.hidden"
           class="nav-item"
-          :class="{ active: isNavItemActive(item) }"
+          :class="{ active: route.path === item.path || route.path.startsWith(item.path + '/') }"
           :aria-label="item.name"
-          :active-class="item.action ? '' : 'active'"
+          active-class="active"
           @click.stop
         >
           <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
             <template #title>{{ item.name }}</template>
             <component
               class="icon"
-              :is="isNavItemActive(item) ? item.activeIcon : item.icon"
+              :is="item.icon"
               size="18"
               aria-hidden="true"
             />
@@ -610,48 +524,6 @@ div.header,
     }
   }
 
-  .primary-nav-row {
-    position: relative;
-
-    .nav-item {
-      padding-right: 38px;
-    }
-
-    &:hover .primary-new-chat,
-    &:has(:focus-visible) .primary-new-chat {
-      opacity: 1;
-      pointer-events: auto;
-    }
-  }
-
-  .primary-new-chat {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--gray-600);
-    opacity: 0;
-    pointer-events: none;
-    transition: color 0.15s ease;
-
-    &:hover,
-    &:focus-visible {
-      color: var(--gray-1000);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--main-color);
-      outline-offset: -2px;
-    }
-  }
-
   .nav-item {
     display: flex;
     align-items: center;
@@ -678,6 +550,10 @@ div.header,
       flex: 0 0 @sidebar-icon-size;
       width: @sidebar-icon-size;
       height: @sidebar-icon-size;
+    }
+
+    .lucide-book-open-text {
+      color: var(--gray-10000);
     }
 
     .nav-text {
@@ -897,10 +773,6 @@ div.header,
           display: block;
         }
       }
-    }
-
-    .primary-nav-row {
-      width: @sidebar-item-height;
     }
 
     .nav {

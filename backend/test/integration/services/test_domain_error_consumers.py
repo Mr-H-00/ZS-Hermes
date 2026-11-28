@@ -13,16 +13,16 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from test.integration.services.agent_input_fixtures import create_input_schema, drop_input_schema, start_input_run
 
 from test.integration.support.module_audit import isolated_audit_store
-from yuxi.infrastructure.redis import create_arq_redis_pool
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.identity.models import User
-from yuxi.modules.schedules import service
-from yuxi.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.datetime import utc_now
+from zs.infrastructure.redis import create_arq_redis_pool
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.identity.models import User
+from zs.modules.schedules import service
+from zs.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
+from zs.modules.workspace.models import Project
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.self_managed_resources]
 
@@ -114,7 +114,7 @@ async def test_arq_worker_persists_domain_rejection_without_http_prefix():
             sys.executable,
             "-c",
             _WORKER_SCRIPT,
-            env={**os.environ, "YUXI_TEST_SCHEMA": schema, "YUXI_TEST_QUEUE": queue},
+            env={**os.environ, "ZS_TEST_SCHEMA": schema, "ZS_TEST_QUEUE": queue},
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -150,15 +150,15 @@ _WORKER_SCRIPT = """
 import asyncio
 import os
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.workers.arq import YuxiWorker
-from yuxi.workers.settings import WorkerSettings
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.workers.arq import ZSWorker
+from zs.workers.settings import WorkerSettings
 
 async def startup(ctx):
     "将数据库连接限定到用例自有 Schema。"
     pg_manager.async_engine = create_async_engine(
         os.environ["POSTGRES_URL"],
-        connect_args={"server_settings": {"search_path": os.environ["YUXI_TEST_SCHEMA"]}},
+        connect_args={"server_settings": {"search_path": os.environ["ZS_TEST_SCHEMA"]}},
     )
     pg_manager.AsyncSession = async_sessionmaker(pg_manager.async_engine, expire_on_commit=False)
     pg_manager._initialized = True
@@ -169,11 +169,11 @@ async def shutdown(ctx):
 
 async def main():
     "通过正式 ARQ 任务与 worker 执行失败路径。"
-    worker = YuxiWorker(
+    worker = ZSWorker(
         functions=[next(function for function in WorkerSettings.functions if function.name == "process_agent_run")],
         redis_settings=WorkerSettings.redis_settings,
-        queue_name=os.environ["YUXI_TEST_QUEUE"],
-        health_check_key=os.environ["YUXI_TEST_QUEUE"] + ":health",
+        queue_name=os.environ["ZS_TEST_QUEUE"],
+        health_check_key=os.environ["ZS_TEST_QUEUE"] + ":health",
         burst=True,
         max_jobs=1,
         poll_delay=0.01,

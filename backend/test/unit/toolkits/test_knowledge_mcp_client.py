@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from mcp import types
 
-from yuxi.modules.knowledge.mcp import client
+from zs.modules.knowledge.mcp import client
 
 pytestmark = pytest.mark.asyncio
 

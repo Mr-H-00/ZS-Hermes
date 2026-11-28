@@ -8,7 +8,7 @@ async (page) => {
   if (await realPanel.locator('.token-usage-context-card').getAttribute('aria-expanded') === 'false') await realPanel.locator('.token-usage-context-card').click()
   await realPanel.getByRole('button', { name: '压缩上下文', exact: true }).waitFor({ state: 'visible' })
   check(await realPanel.locator('.token-usage-model-item').count() > 0, '真实回复缺少累计模型用量')
-  await page.screenshot({ path: '/tmp/yuxi-session-context-panel.png', animations: 'disabled' })
+  await page.screenshot({ path: '/tmp/zs-session-context-panel.png', animations: 'disabled' })
 
   await page.evaluate(async () => {
     const mainSource = await (await fetch('/src/app/main.js')).text()

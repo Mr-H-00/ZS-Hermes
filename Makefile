@@ -21,8 +21,8 @@ reset:
 		echo "Error: .env file not found. Please create it from .env.template"; \
 		exit 1; \
 	fi
-	@if [ -n "$$YUXI_STATE_DIR" ] || grep -Eq '^[[:space:]]*YUXI_STATE_DIR[[:space:]]*=[[:space:]]*[^[:space:]#]' .env; then \
-		echo "Refusing to delete an external YUXI_STATE_DIR; stop the slot and remove its exact state directory explicitly." >&2; \
+	@if [ -n "$$ZS_STATE_DIR" ] || grep -Eq '^[[:space:]]*ZS_STATE_DIR[[:space:]]*=[[:space:]]*[^[:space:]#]' .env; then \
+		echo "Refusing to delete an external ZS_STATE_DIR; stop the slot and remove its exact state directory explicitly." >&2; \
 		exit 1; \
 	fi
 	$(COMPOSE) down
@@ -46,17 +46,17 @@ seed:
 ######################
 
 format:
-	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff format yuxi
-	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check yuxi --fix
-	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check --select I yuxi --fix
+	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff format zs
+	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check zs --fix
+	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check --select I zs --fix
 	cd frontend && pnpm run format
 	cd frontend && pnpm run lint
 
 # 只检查不修改，供提交前与 CI 使用（与 ruff.yml 的命令保持一致）
 lint:
-	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check yuxi
-	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff format yuxi --check
-	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check --select I yuxi
+	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check zs
+	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff format zs --check
+	cd backend && UV_PYTHON=$(BACKEND_PYTHON) uv run ruff check --select I zs
 	cd frontend && pnpm run lint:check
 
 # 后端单元测试（不依赖 docker 服务）；integration/e2e 需在容器环境运行
@@ -69,12 +69,12 @@ verify-trust:
 
 audit-dependencies:
 	cd backend && uv audit --locked --no-dev
-	cd packages/yuxi-cli && npm audit --audit-level=high --omit=dev
+	cd packages/zs-cli && npm audit --audit-level=high --omit=dev
 	cd frontend && pnpm audit --audit-level=high --prod
 	cd docs && pnpm audit --audit-level=high --prod
-	@if uv audit --script scripts/ci/dependency-audit-fixtures/vulnerable.py > /tmp/yuxi-python-audit-negative.log 2>&1; then echo "Expected the vulnerable Python fixture to fail"; exit 1; fi
-	grep -q "aiohttp 3.14.1 has" /tmp/yuxi-python-audit-negative.log
-	grep -q "GHSA-cq5v-8q36-5273" /tmp/yuxi-python-audit-negative.log
+	@if uv audit --script scripts/ci/dependency-audit-fixtures/vulnerable.py > /tmp/zs-python-audit-negative.log 2>&1; then echo "Expected the vulnerable Python fixture to fail"; exit 1; fi
+	grep -q "aiohttp 3.14.1 has" /tmp/zs-python-audit-negative.log
+	grep -q "GHSA-cq5v-8q36-5273" /tmp/zs-python-audit-negative.log
 	bash scripts/ci/dependency-audit-fixtures/run-node-negative-control.sh
 
 audit-licenses:

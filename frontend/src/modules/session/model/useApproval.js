@@ -109,7 +109,7 @@ export function useApproval({ getThreadState, fetchThreadMessages, getVisibleThr
   }
 
   const processApprovalInStream = (event, threadId) => {
-    if (event.type !== 'yuxi.session.turn.waiting') return false
+    if (event.type !== 'zs.session.turn.waiting') return false
     const threadState = getThreadState(threadId)
     if (!threadState) return false
     const pendingInterrupt = pendingInterruptFromWaitpoint(event.waitpoint, threadId)

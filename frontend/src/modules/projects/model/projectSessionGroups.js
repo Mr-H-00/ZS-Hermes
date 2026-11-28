@@ -5,7 +5,7 @@ const sessionTimestamp = (session) => {
 
 const sortSidebarSessions = (sessions) =>
   [...sessions].sort((left, right) => {
-    if (left.yuxi.is_pinned !== right.yuxi.is_pinned) return left.yuxi.is_pinned ? -1 : 1
+    if (left.zs.is_pinned !== right.zs.is_pinned) return left.zs.is_pinned ? -1 : 1
     return sessionTimestamp(right) - sessionTimestamp(left)
   })
 
@@ -16,7 +16,7 @@ export const deriveProjectWorkStatus = (sessions) =>
 
 export const buildProjectSessionGroups = (projects, sessions) => {
   const sortedSessions = sortSidebarSessions(sessions)
-  const pinnedSessions = sortedSessions.filter((session) => session.yuxi.is_pinned)
+  const pinnedSessions = sortedSessions.filter((session) => session.zs.is_pinned)
   const activeProjects = projects.filter(
     (project) => project.status !== 'deleted' && project.selection_status === 'selectable'
   )
@@ -24,10 +24,10 @@ export const buildProjectSessionGroups = (projects, sessions) => {
   const otherSessions = []
 
   sortedSessions.forEach((session) => {
-    const projectSessions = sessionsByProject.get(session.yuxi.project_id)
+    const projectSessions = sessionsByProject.get(session.zs.project_id)
     if (projectSessions) {
       projectSessions.push(session)
-    } else if (!session.yuxi.is_pinned) {
+    } else if (!session.zs.is_pinned) {
       otherSessions.push(session)
     }
   })
@@ -38,9 +38,9 @@ export const buildProjectSessionGroups = (projects, sessions) => {
       const projectSessions = sessionsByProject.get(project.id)
       return {
         project,
-        sessions: projectSessions.filter((session) => !session.yuxi.is_pinned),
+        sessions: projectSessions.filter((session) => !session.zs.is_pinned),
         status: deriveProjectWorkStatus(projectSessions),
-        unread: projectSessions.some((session) => session.yuxi.unread)
+        unread: projectSessions.some((session) => session.zs.unread)
       }
     }),
     otherSessions

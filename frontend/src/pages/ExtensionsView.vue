@@ -3,11 +3,11 @@
     <PageHeader
       v-if="!isDetailPage"
       v-model:active-key="activeTab"
-      title="技能・工具・MCP"
+      title="技能与工具"
       :tabs="extensionTabs"
       :loading="activeChildLoading"
       :show-border="true"
-      aria-label="技能・工具・MCP视图切换"
+      aria-label="技能与工具视图切换"
     />
 
     <div v-if="!isDetailPage" class="extensions-content">
@@ -39,6 +39,9 @@ import { useUserStore } from '@/modules/identity/model/user'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+// 布局按路径缓存列表和详情，只有当前列表实例可以同步标签参数。
+const listPath = route.name === 'CapabilitiesComp' ? route.path : null
+const isCurrentList = computed(() => route.name === 'CapabilitiesComp' && route.path === listPath)
 const activeTab = ref(null)
 const skillsRef = ref(null)
 const mcpRef = ref(null)
@@ -89,8 +92,10 @@ const activeChildLoading = computed(() => {
 })
 
 watch(
-  () => [route.query.tab, userStore.isAdmin],
-  ([tab]) => {
+  () => isCurrentList.value ? [route.query.tab, userStore.isAdmin] : null,
+  (selection) => {
+    if (!selection) return
+    const [tab] = selection
     const nextTab = normalizeTab(tab)
     if (activeTab.value !== nextTab) activeTab.value = nextTab
     if (tab && tab !== nextTab) {
@@ -102,7 +107,7 @@ watch(
 )
 
 watch(activeTab, (tab) => {
-  if (!tab) return
+  if (!isCurrentList.value || !tab) return
   const nextTab = normalizeTab(tab)
   if (nextTab !== tab) {
     activeTab.value = nextTab

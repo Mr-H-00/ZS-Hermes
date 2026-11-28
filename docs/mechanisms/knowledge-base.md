@@ -195,24 +195,24 @@ Agent 的 `knowledges` 只能缩小用户已有权限。协作成员沿用执行
 
 | 维护任务 | 起点与职责 | 继续追踪 |
 | --- | --- | --- |
-| 管理配置、文件列表和检索调度 | [Manager](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/manager.py) 读取配置、查询可见性并选择 executor | repositories 拥有持久查询；base 与 implementations 拥有文件处理和具体存储操作 |
-| 暂存上传、URL 和工作区原件 | [原件暂存 service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/services/uploads.py) 计算内容指纹并写入独立对象和原始名称元数据 | 路由校验权限并适配响应；管理用例调用工作区安全读取入口，正式文件、目录、导入回执和后台作业由导入 service 登记 |
-| 异步导入、解析、索引和图谱构建 | [知识库作业 service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/services/background_jobs.py) 组织领域动作、进度和失败结论 | background_jobs registry/worker 拥有调度与 lease；文档处理由 Manager 分派，图谱构建直接调用 KnowledgeGraphService |
-| 删除与旧代次投影清理 | [投影清理 service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/services/projection_cleanup.py) 定时消费持久 outbox | 清理独立于 BackgroundJobContext；事件行锁与知识库投影锁保护外部删除，提交 applied 后才完成 |
-| Agent 知识能力与委托 | [Knowledge 客户端](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/mcp/client.py) 提供内部认证连接与产品读取；[Knowledge MCP 服务端](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/mcp/server.py) 验证身份、选择范围与工具权限 | 访问 service 查询实时可见性；工具 service 校验目标并组织领域操作 |
-| Public API 的知识能力 | [访问 service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/services/access.py) 查询当前 Key 用户的可读范围；[工具 service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/services/tools.py) 组织领域工具操作 | Public 路由适配响应，执行时复查可见性与文档归属 |
+| 管理配置、文件列表和检索调度 | [Manager](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/manager.py) 读取配置、查询可见性并选择 executor | repositories 拥有持久查询；base 与 implementations 拥有文件处理和具体存储操作 |
+| 暂存上传、URL 和工作区原件 | [原件暂存 service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/services/uploads.py) 计算内容指纹并写入独立对象和原始名称元数据 | 路由校验权限并适配响应；管理用例调用工作区安全读取入口，正式文件、目录、导入回执和后台作业由导入 service 登记 |
+| 异步导入、解析、索引和图谱构建 | [知识库作业 service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/services/background_jobs.py) 组织领域动作、进度和失败结论 | background_jobs registry/worker 拥有调度与 lease；文档处理由 Manager 分派，图谱构建直接调用 KnowledgeGraphService |
+| 删除与旧代次投影清理 | [投影清理 service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/services/projection_cleanup.py) 定时消费持久 outbox | 清理独立于 BackgroundJobContext；事件行锁与知识库投影锁保护外部删除，提交 applied 后才完成 |
+| Agent 知识能力与委托 | [Knowledge 客户端](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/mcp/client.py) 提供内部认证连接与产品读取；[Knowledge MCP 服务端](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/mcp/server.py) 验证身份、选择范围与工具权限 | 访问 service 查询实时可见性；工具 service 校验目标并组织领域操作 |
+| Public API 的知识能力 | [访问 service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/services/access.py) 查询当前 Key 用户的可读范围；[工具 service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/services/tools.py) 组织领域工具操作 | Public 路由适配响应，执行时复查可见性与文档归属 |
 
 Agent Context 中的资源选项查询用于配置界面；执行权限仍由访问 service 与实际读取边界核验。增加用例时沿上述 Owner 修改，状态与持久化查询继续留在其负责的领域实现。
 
-- [知识库路由](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/knowledge/management.py)：权限、上传、任务和状态筛选
-- [KnowledgeBaseManager](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/manager.py)：配置回源、可见性和 executor 调度
-- [知识库基类](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/base.py)：文件状态和解析流程
-- [Milvus executor](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/implementations/milvus.py)：分块、双写、检索和重索引
-- [只读连接器](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/implementations/read_only_connectors.py)：Dify/Notion 能力边界
-- [JobTracker](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/background_jobs/service.py)：任务登记、进度观察与取消请求
-- [后台作业 worker](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/workers/background_jobs.py)：Handler 执行、lease 与领域终态 Hook
-- [作业 Handler registry](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/background_jobs/registry.py)：领域 Handler 注册和惰性加载
-- [Knowledge MCP](https://github.com/xerrors/Yuxi/tree/main/backend/yuxi/modules/knowledge/mcp)：服务端、内部认证、产品读取及知识引用转换
+- [知识库路由](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/knowledge/management.py)：权限、上传、任务和状态筛选
+- [KnowledgeBaseManager](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/manager.py)：配置回源、可见性和 executor 调度
+- [知识库基类](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/base.py)：文件状态和解析流程
+- [Milvus executor](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/implementations/milvus.py)：分块、双写、检索和重索引
+- [只读连接器](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/implementations/read_only_connectors.py)：Dify/Notion 能力边界
+- [JobTracker](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/background_jobs/service.py)：任务登记、进度观察与取消请求
+- [后台作业 worker](https://github.com/xerrors/Yuxi/blob/main/backend/zs/workers/background_jobs.py)：Handler 执行、lease 与领域终态 Hook
+- [作业 Handler registry](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/background_jobs/registry.py)：领域 Handler 注册和惰性加载
+- [Knowledge MCP](https://github.com/xerrors/Yuxi/tree/main/backend/zs/modules/knowledge/mcp)：服务端、内部认证、产品读取及知识引用转换
 - [知识库 unit tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/knowledge)
 - [权限与路由 tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/routers)
 - [知识库 HTTP integration](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_knowledge_router.py)

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from yuxi.modules.agents.services import thread_access
+from zs.modules.agents.services import thread_access
 from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.agents.services.compression as service
-from yuxi.modules.agents.runtime.context import BaseContext
-from yuxi.shared.errors import DomainError, ResourceNotFoundError, StateConflictError
+import zs.modules.agents.services.compression as service
+from zs.modules.agents.runtime.context import BaseContext
+from zs.shared.errors import DomainError, ResourceNotFoundError, StateConflictError
 
 _Context = BaseContext
 

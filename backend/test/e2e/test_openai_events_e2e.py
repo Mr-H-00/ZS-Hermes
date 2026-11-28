@@ -78,7 +78,7 @@ async def test_default_message_keeps_batch_across_concurrent_steer_and_retry(e2e
                         {
                             "type": "agent.session.input.message",
                             "input": [_message(OUTPUT)],
-                            "yuxi": {"mode": "follow_up"},
+                            "zs": {"mode": "follow_up"},
                         }
                     ]
                 },
@@ -164,7 +164,7 @@ async def test_default_cancel_target_is_fixed_for_idempotent_retry(e2e_client, e
                 },
             )
             assert created.status_code == 201, created.text
-            consumed = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["yuxi"]["receipt"])
+            consumed = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["zs"]["receipt"])
             thread_id, turn_id = consumed["session_id"], consumed["turn_id"]
             await wait_for_blocked_response(replay, gate)
             url = f"/api/v1/agents/sessions/{thread_id}/events"
@@ -217,7 +217,7 @@ async def test_cancel_preserves_displayed_partial_text_in_public_history(e2e_cli
                 },
             )
             assert created.status_code == 201, created.text
-            consumed = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["yuxi"]["receipt"])
+            consumed = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["zs"]["receipt"])
             thread_id, turn_id = consumed["session_id"], consumed["turn_id"]
             async with asyncio.timeout(30):
                 async with e2e_client.stream("GET", f"/api/v1/agents/sessions/{thread_id}/events", headers=e2e_headers) as stream:

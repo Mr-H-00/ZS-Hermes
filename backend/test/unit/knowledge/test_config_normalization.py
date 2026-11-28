@@ -2,13 +2,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.knowledge.config_normalization import (
+from zs.modules.knowledge.config_normalization import (
     is_bge_m3_embedding_model_spec,
     normalize_knowledge_additional_params,
     normalize_query_params,
 )
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.config_normalization import resolve_feature_processing_params as resolve_processing_params
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.config_normalization import resolve_feature_processing_params as resolve_processing_params
 
 
 @pytest.mark.parametrize(
@@ -282,9 +282,9 @@ def test_query_params_hide_inactive_fields_but_validate_supplied_values() -> Non
 
 def test_milvus_retrieval_config_defines_parent_child_fusion_and_rrf_fields(monkeypatch) -> None:
     """验证 Milvus 参数定义发布新增字段、边界和条件显示规则。"""
-    from yuxi.modules.knowledge.implementations.milvus import MilvusKB
+    from zs.modules.knowledge.implementations.milvus import MilvusKB
 
-    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.model_cache.get_all_specs", lambda _type: [])
+    monkeypatch.setattr("zs.modules.knowledge.implementations.milvus.model_cache.get_all_specs", lambda _type: [])
     config = MilvusKB.__new__(MilvusKB).get_query_params_config()
     options = {option["key"]: option for option in config["options"]}
 
@@ -328,12 +328,12 @@ async def test_manager_returns_normalized_effective_config(monkeypatch, tmp_path
         assert kb_id == "kb_1"
         return snapshot
 
-    monkeypatch.setattr("yuxi.modules.knowledge.manager.get_cached_kb_config", get_cached_config)
+    monkeypatch.setattr("zs.modules.knowledge.manager.get_cached_kb_config", get_cached_config)
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         classmethod(lambda cls, kb_type: kb_type == "milvus"),
     )
-    monkeypatch.setattr("yuxi.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class", lambda _type: executor)
+    monkeypatch.setattr("zs.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class", lambda _type: executor)
 
     config = await manager.get_kb_config("kb_1")
 

@@ -2,8 +2,8 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
+from zs.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.read_models import KnowledgeBaseConfig
 
 EMBEDDING_MODEL_SPEC = "test-provider:test-embedding"
 
@@ -65,7 +65,7 @@ class FakeCollection:
 def make_kb(collection: FakeCollection) -> MilvusKB:
     """构造使用指定假集合的轻量 Milvus 知识库。"""
     kb = MilvusKB.__new__(MilvusKB)
-    from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+    from zs.modules.knowledge.graphs.service import KnowledgeGraphService
 
     kb.graph_service = KnowledgeGraphService(graph_vector_store=SimpleNamespace())
     kb._delete_kb_child_chunks_from_all_collections = AsyncMock()
@@ -97,6 +97,6 @@ def make_kb(collection: FakeCollection) -> MilvusKB:
 def fake_milvus_embedding(monkeypatch):
     """检索单测注入固定编码器；真实模型协议由 E2E 覆盖。"""
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.implementations.milvus.get_embedding_function",
+        "zs.modules.knowledge.implementations.milvus.get_embedding_function",
         lambda spec, **kwargs: lambda texts: [[0.1, 0.2] for _ in texts],
     )

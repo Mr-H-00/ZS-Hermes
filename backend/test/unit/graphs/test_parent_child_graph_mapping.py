@@ -3,14 +3,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from yuxi.modules.knowledge.graphs.extractors import normalize_extraction_result
-from yuxi.modules.knowledge.graphs.graph_utils import (
+from zs.modules.knowledge.graphs.extractors import normalize_extraction_result
+from zs.modules.knowledge.graphs.graph_utils import (
     ParentChildGraphMappingError,
     expand_parent_scores_to_child_candidates,
     validate_parent_child_graph_mapping,
 )
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-import yuxi.modules.knowledge.graphs.service as graph_service_module
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+import zs.modules.knowledge.graphs.service as graph_service_module
 
 
 def _parent(**overrides):

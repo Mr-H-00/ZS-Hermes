@@ -10,9 +10,9 @@ import uuid
 import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.shared.datetime import utc_now
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.sessions import Session
+from zs.shared.datetime import utc_now
 
 from test.live_api_cleanup import make_test_session_title
 
@@ -24,7 +24,7 @@ async def test_dashboard_vm_stats_match_live_control_plane(test_client, admin_he
     """真实 HTTP 计数与节点只读列表一致，不依赖数据库登记状态。"""
     import httpx
 
-    from yuxi.modules.agents.runtime.sandbox.cube import CubeAdapter
+    from zs.modules.agents.runtime.sandbox.cube import CubeAdapter
 
     adapter = CubeAdapter()
     headers = {"X-API-Key": adapter.config.api_key} if adapter.config.api_key else {}
@@ -285,8 +285,8 @@ async def test_dashboard_http_counts_all_sessions_and_excludes_deleted(test_clie
 async def test_dashboard_http_reads_run_token_totals(test_client, admin_headers):
     """真实 HTTP 返回 PostgreSQL 同会话 Run 用量和缺失标记。"""
     from sqlalchemy import select
-    from yuxi.modules.agents.models.runs import AgentRun
-    from yuxi.modules.agents.models.turns import AgentTurn
+    from zs.modules.agents.models.runs import AgentRun
+    from zs.modules.agents.models.turns import AgentTurn
 
     default_agent = await test_client.get("/api/agent/default", headers=admin_headers)
     assert default_agent.status_code == 200

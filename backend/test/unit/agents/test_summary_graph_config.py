@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
-from yuxi.modules.agents.runtime.middlewares import summary as summary_module
+from zs.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
+from zs.modules.agents.runtime.middlewares import summary as summary_module
 
 
 def _context(summary_threshold: int = 123) -> SimpleNamespace:
@@ -143,8 +143,8 @@ async def test_graph_rejects_mcp_tools_that_shadow_middleware(monkeypatch, tool_
     """远端工具经过真实 loader 后不能覆盖文件和协作工具。"""
     from langchain_core.tools import StructuredTool
 
-    from yuxi.modules.extensions.mcp import service as mcp_service
-    from yuxi.modules.extensions.tools.builtin import BASE_TOOL_NAMES
+    from zs.modules.extensions.mcp import service as mcp_service
+    from zs.modules.extensions.tools.builtin import BASE_TOOL_NAMES
 
     assert tool_name not in BASE_TOOL_NAMES
     context = _context()
@@ -185,7 +185,7 @@ async def test_checkpoint_cleanup_preserves_original_tasks_and_state(monkeypatch
     from langchain_core.messages import AIMessage
     from langgraph.checkpoint.memory import InMemorySaver
 
-    from yuxi.modules.agents.runtime.checkpoint_cleanup import CheckpointCleanupModel, cancel_waitpoint_checkpoint
+    from zs.modules.agents.runtime.checkpoint_cleanup import CheckpointCleanupModel, cancel_waitpoint_checkpoint
 
     context = _context()
     context.thread_id, context.uid = "cleanup-thread", "deleted-user"
@@ -247,8 +247,8 @@ async def test_image_fallback_uses_authorized_tools_from_shipping_middleware_ord
     """生产装配下，图片回退与实际模型看到的授权工具集一致。"""
     from langchain.agents.middleware.types import ModelRequest
     from langchain_core.messages import ToolMessage
-    from yuxi.modules.agents.runtime.middlewares import authorization
-    from yuxi.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
+    from zs.modules.agents.runtime.middlewares import authorization
+    from zs.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
 
     context = _context()
     context.tools = ["ocr_parse_file"] if enabled else []
@@ -305,8 +305,8 @@ async def test_usage_counts_actual_authorized_and_bridged_model_request(monkeypa
     from langchain.agents.middleware.types import ModelRequest, ModelResponse
     from langchain_core.messages import AIMessage, ToolMessage
     from langchain_openai import ChatOpenAI
-    from yuxi.modules.agents.runtime.middlewares import authorization
-    from yuxi.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
+    from zs.modules.agents.runtime.middlewares import authorization
+    from zs.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
 
     context = _context()
     context.tools, context.mcps = [], []
@@ -345,7 +345,7 @@ async def test_usage_counts_actual_authorized_and_bridged_model_request(monkeypa
 
     image = ToolMessage(content_blocks=[{"type": "image", "base64": "abc", "mime_type": "image/png"}], tool_call_id="image")
     request = ModelRequest(
-        model=ChatOpenAI(model="fixture", api_key="test", metadata={"yuxi_provider_id": "fixture"}),
+        model=ChatOpenAI(model="fixture", api_key="test", metadata={"zs_provider_id": "fixture"}),
         tools=[ocr_parse_file],
         messages=[image],
         runtime=SimpleNamespace(context=context),

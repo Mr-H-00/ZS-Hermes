@@ -17,7 +17,7 @@ class EngineeringContractVerifierTest(unittest.TestCase):
         self.root = Path(self.tempdir.name)
         self._write("owner.md", "owner\n")
         self._write(
-            "backend/yuxi/api/routers/valid_router.py",
+            "backend/zs/api/routers/valid_router.py",
             "async def route():\n    return None\n",
         )
         self._write(
@@ -389,7 +389,7 @@ Owner 与 gate 必须在同一变更中保持一致。
 
     def test_router_sqlalchemy_query_builder_is_rejected(self) -> None:
         self._write(
-            "backend/yuxi/api/routers/invalid_router.py",
+            "backend/zs/api/routers/invalid_router.py",
             "from sqlalchemy import select\n",
         )
 
@@ -402,7 +402,7 @@ Owner 与 gate 必须在同一变更中保持一致。
 
     def test_router_execute_and_delete_are_rejected(self) -> None:
         self._write(
-            "backend/yuxi/api/routers/invalid_router.py",
+            "backend/zs/api/routers/invalid_router.py",
             """async def route(db, user):
     await db.execute('query')
     await db.delete(user)
@@ -429,15 +429,15 @@ Owner 与 gate 必须在同一变更中保持一致。
     def test_service_workspace_host_path_bypasses_are_rejected(self) -> None:
         cases = (
             (
-                "from yuxi.modules.workspace.paths import user_workdir_host_dir\n",
+                "from zs.modules.workspace.paths import user_workdir_host_dir\n",
                 "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path",
             ),
             (
-                "import yuxi.modules.workspace.paths as workspace_paths\n",
+                "import zs.modules.workspace.paths as workspace_paths\n",
                 "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path",
             ),
             (
-                "from yuxi.infrastructure.runtime_settings import get_user_data_dir\n"
+                "from zs.infrastructure.runtime_settings import get_user_data_dir\n"
                 "def scan():\n"
                 "    return list((get_user_data_dir() / 'shared').iterdir())\n",
                 "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path",
@@ -445,11 +445,11 @@ Owner 与 gate 必须在同一变更中保持一致。
             (
                 "import os\nfrom pathlib import Path\n"
                 "def scan():\n"
-                "    return list(Path(os.environ['YUXI_USER_DATA_DIR']).iterdir())\n",
+                "    return list(Path(os.environ['ZS_USER_DATA_DIR']).iterdir())\n",
                 "不得读取 UserWorkspace 宿主根环境变量",
             ),
         )
-        path = "backend/yuxi/modules/agents/services/invalid_service.py"
+        path = "backend/zs/modules/agents/services/invalid_service.py"
         for source, expected_error in cases:
             with self.subTest(source=source):
                 self._write(path, source)
@@ -461,13 +461,13 @@ Owner 与 gate 必须在同一变更中保持一致。
         self,
     ) -> None:
         """个人 Skill 文件 Owner 可定位用户根，其余 Service 仍被拒绝。"""
-        source = "from yuxi.modules.workspace.paths import user_workspace_dir\n"
-        self._write("backend/yuxi/modules/extensions/skills/personal.py", source)
+        source = "from zs.modules.workspace.paths import user_workspace_dir\n"
+        self._write("backend/zs/modules/extensions/skills/personal.py", source)
         self.assertFalse(
             any("UserWorkspace 宿主 Path" in error for error in self._errors())
         )
 
-        self._write("backend/yuxi/modules/extensions/skills/other.py", source)
+        self._write("backend/zs/modules/extensions/skills/other.py", source)
         self.assertTrue(
             any("UserWorkspace 宿主 Path" in error for error in self._errors())
         )

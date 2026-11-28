@@ -78,7 +78,13 @@ async page => {
   await page.goto(`${origin}/agent`)
   await page.locator('.chat-greeting-input').waitFor()
   const projectSelector = page.getByRole('region', { name: '新对话项目' })
-  await projectSelector.getByRole('button', { name: '选择项目', exact: true }).click()
+  await page.locator('.input-actions-left [data-session-agent-picker]').waitFor()
+  const toolbarLabels = await page.locator('.input-actions-left button[aria-expanded]').evaluateAll(
+    buttons => buttons.map(button => button.getAttribute('aria-label'))
+  )
+  check(toolbarLabels[0] === agent.name && toolbarLabels[1] === '项目' &&
+    ['请求审批', '完全信任'].includes(toolbarLabels[2]), '工具栏顺序应为智能体、项目、审批')
+  await projectSelector.getByRole('button', { name: '项目', exact: true }).click()
   await page.getByRole('button', { name: '新建项目', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '选择项目目录' })
   const open = dialog.locator('.directory-open')
@@ -95,7 +101,7 @@ async page => {
   await row('existing').waitFor()
   check(await dialog.locator('.directory-column').count() === 2, '选择目录后应显示两列')
   check(await open.isEnabled(), '选中已有目录后可以打开')
-  await page.screenshot({ path: '/tmp/yuxi-project-directory-light.png' })
+  await page.screenshot({ path: '/tmp/zs-project-directory-light.png' })
   for (const width of [1024, 768]) {
     await page.setViewportSize({ width, height: 800 })
     const box = await dialog.boundingBox()
@@ -103,7 +109,7 @@ async page => {
   }
   await page.evaluate(async () => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme('dark'); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))) })
   await page.locator('.directory-open').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)))
-  await page.screenshot({ path: '/tmp/yuxi-project-directory-dark-768.png' })
+  await page.screenshot({ path: '/tmp/zs-project-directory-dark-768.png' })
   await page.evaluate(async () => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme('light'); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))) })
   await page.setViewportSize({ width: 1440, height: 1000 })
   await row('编辑目录路径').click()
@@ -117,7 +123,7 @@ async page => {
   await row('projects').waitFor()
   await row('notes').waitFor()
   check(await open.isDisabled() && await row('新建文件夹').isDisabled(), '未匹配时回到主目录且操作禁用')
-  await page.screenshot({ path: '/tmp/yuxi-project-directory-unmatched.png' })
+  await page.screenshot({ path: '/tmp/zs-project-directory-unmatched.png' })
   delayDirectory = true
   await input.fill('/projects/existing/')
   for (let i = 0; i < 100 && !delayedStarted; i++) await page.waitForTimeout(20)
@@ -151,7 +157,7 @@ async page => {
   check(await folderDialog.getByRole('alert').innerText() === '目录已存在', '应展示文件夹创建错误')
   check(await folderInput.inputValue() === '重复目录' && projectRequests.length === 0, '创建失败时应保留输入且不创建项目')
   await folderInput.fill('新建目录')
-  await page.screenshot({ path: '/tmp/yuxi-project-directory-create-folder.png' })
+  await page.screenshot({ path: '/tmp/zs-project-directory-create-folder.png' })
   await folderDialog.getByRole('button', { name: '创 建' }).click()
   await folderDialog.waitFor({ state: 'hidden' })
   await idle()
@@ -217,5 +223,5 @@ async page => {
   await dialog.waitFor({ state: 'hidden' })
   check(projectRequests[4].name === longName && projectRequests[4].workdir.path === `notes/${longName}`, '长目录名必须完整用于项目名称')
   await projectSelector.getByRole('button', { name: longName, exact: true }).waitFor()
-  return { navigation: true, hiddenFolders: true, pathMatchingAndRace: true, folderFailureAndSelection: true, projectCreationRetryAndRename: true, longFolderName: true, missingHistoryDirectory: true, screenshots: ['/tmp/yuxi-project-directory-light.png', '/tmp/yuxi-project-directory-dark-768.png', '/tmp/yuxi-project-directory-unmatched.png', '/tmp/yuxi-project-directory-create-folder.png'] }
+  return { navigation: true, hiddenFolders: true, pathMatchingAndRace: true, folderFailureAndSelection: true, projectCreationRetryAndRename: true, longFolderName: true, missingHistoryDirectory: true, screenshots: ['/tmp/zs-project-directory-light.png', '/tmp/zs-project-directory-dark-768.png', '/tmp/zs-project-directory-unmatched.png', '/tmp/zs-project-directory-create-folder.png'] }
 }

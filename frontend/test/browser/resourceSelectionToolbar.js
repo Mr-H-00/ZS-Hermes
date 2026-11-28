@@ -60,7 +60,7 @@ async page => {
       const button = await field.getByRole('button', { name: '选择全部', exact: true }).boundingBox()
       check(button.x > status.x + status.width, '全选操作必须位于状态右侧')
     }
-    await page.locator('#resource-selection-check').screenshot({ path: '/tmp/yuxi-selection-manual.png' })
+    await page.locator('#resource-selection-check').screenshot({ path: '/tmp/zs-selection-manual.png' })
     await page.evaluate(() => { window.__resourceSelection.config.value.knowledges = ['kb-a', 'hidden-kb'] })
     await knowledge.locator('.option-card').click()
     check(await page.evaluate(() => JSON.stringify(window.__resourceSelection.config.value.knowledges)) === '["hidden-kb"]', '局部编辑必须保留不可见引用')
@@ -73,7 +73,7 @@ async page => {
       await page.evaluate(mode => window.__resourceSelection.theme.setTheme(mode), mode)
       const overflow = await page.locator('#resource-selection-check').evaluate(host => host.scrollWidth > host.clientWidth)
       check(!overflow, `${mode}/${width} 选择器横向溢出`)
-      await page.locator('#resource-selection-check').screenshot({ path: `/tmp/yuxi-selection-${mode}-${width}.png` })
+      await page.locator('#resource-selection-check').screenshot({ path: `/tmp/zs-selection-${mode}-${width}.png` })
     }
     await page.evaluate(() => { window.__resourceSelection.readonly.value = true })
     check(await page.locator('#resource-selection-check button').count() === 0, '只读配置不得展示修改操作')

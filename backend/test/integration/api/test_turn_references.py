@@ -14,11 +14,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from test.live_api_cleanup import delete_test_session_rows, make_test_session_title
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.knowledge.models import KnowledgeBase
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.knowledge.models import KnowledgeBase
 
 # 本文件只创建快照，不执行 worker 或沙盒；fixture 逐项清理自己创建的资源。
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
@@ -196,7 +196,7 @@ async def reference_turn(test_client, admin_headers, reference_replay):
                         "role": "assistant",
                         "content": [{"type": "output_text", "text": ANSWER}],
                         "status": "completed",
-                        "yuxi": {"run_id": result_id, "message_id": output.id, "output_index": 0},
+                        "zs": {"run_id": result_id, "message_id": output.id, "output_index": 0},
                     }
                 },
             }
@@ -209,7 +209,7 @@ async def reference_turn(test_client, admin_headers, reference_replay):
                         "role": "assistant",
                         "content": [{"type": "output_text", "text": "NEIGHBOR_ANSWER"}],
                         "status": "completed",
-                        "yuxi": {"run_id": neighbor_run_id, "message_id": neighbor_output.id, "output_index": 0},
+                        "zs": {"run_id": neighbor_run_id, "message_id": neighbor_output.id, "output_index": 0},
                     }
                 }
             }
@@ -372,10 +372,10 @@ async def test_reference_round_trip_uses_final_answer_and_same_turn_sources(
     assert reread.json()["references"] == saved
     turn = await test_client.get(target.path, headers=admin_headers)
     assert "references" not in turn.json().get("metadata", {})
-    assert turn.json()["yuxi"]["output"][0]["content"][0]["text"] == ANSWER
+    assert turn.json()["zs"]["output"][0]["content"][0]["text"] == ANSWER
     neighbor = await test_client.get(target.path.replace(target.turn_id, target.neighbor_id), headers=admin_headers)
     assert neighbor.status_code == 200, neighbor.text
-    assert neighbor.json()["yuxi"]["output"][0]["content"][0]["text"] == "NEIGHBOR_ANSWER"
+    assert neighbor.json()["zs"]["output"][0]["content"][0]["text"] == "NEIGHBOR_ANSWER"
     denied = await test_client.post(url, headers=standard_user["headers"])
     assert denied.status_code == 404
 

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/api/routers/public_v1/agents/auth.py
+Owner：backend/zs/api/routers/public_v1/agents/auth.py
 
 ## 问题
 

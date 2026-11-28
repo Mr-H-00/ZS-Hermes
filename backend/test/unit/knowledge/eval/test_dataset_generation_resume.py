@@ -6,10 +6,10 @@ import pytest
 
 from conftest import NoQueryKnowledgeBase, TrackingLlm
 
-from yuxi.modules.knowledge.evaluation import benchmark_generation
-from yuxi.modules.knowledge.evaluation import service as eval_service_module
-from yuxi.modules.knowledge.evaluation.benchmark_generation import iter_generated_benchmark_items
-from yuxi.modules.knowledge.evaluation.service import EvaluationService
+from zs.modules.knowledge.evaluation import benchmark_generation
+from zs.modules.knowledge.evaluation import service as eval_service_module
+from zs.modules.knowledge.evaluation.benchmark_generation import iter_generated_benchmark_items
+from zs.modules.knowledge.evaluation.service import EvaluationService
 
 pytestmark = pytest.mark.usefixtures("fake_chunk_repository")
 

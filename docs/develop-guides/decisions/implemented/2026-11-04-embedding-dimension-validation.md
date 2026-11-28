@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/models/embed.py
+Owner：backend/zs/modules/models/embed.py
 
 ## 问题
 

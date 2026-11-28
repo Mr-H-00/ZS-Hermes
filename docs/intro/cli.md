@@ -7,7 +7,7 @@
 从仓库根目录构建并安装本地包：
 
 ```bash
-cd packages/yuxi-cli
+cd packages/zs-cli
 npm ci
 npm test
 npm pack
@@ -180,7 +180,7 @@ yuxi kb find --kb-id <kb-id> --file-id <file-id> --pattern "年假"
 ```bash
 which yuxi
 yuxi --version
-cd packages/yuxi-cli
+cd packages/zs-cli
 npm run typecheck
 npm test
 npm run build

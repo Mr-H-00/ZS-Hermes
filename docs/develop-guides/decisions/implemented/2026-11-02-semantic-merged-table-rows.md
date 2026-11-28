@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/knowledge/chunking/ragflow_like/utils/table_utils.py
+Owner：backend/zs/modules/knowledge/chunking/ragflow_like/utils/table_utils.py
 
 ## 问题
 

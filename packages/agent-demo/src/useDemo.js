@@ -78,7 +78,7 @@ export function useDemo() {
   let api;
   let threadApi;
   const items = computed(() => orderedItems(state.projection));
-  const turn = computed(() => state.snapshot?.yuxi.current_turn);
+  const turn = computed(() => state.snapshot?.zs.current_turn);
   const waitpoint = computed(() =>
     turn.value?.status === "requires_action" ? turn.value.waitpoint : null,
   );
@@ -243,7 +243,7 @@ export function useDemo() {
     if (!current(owner)) return;
     const request = ++historyRequest;
     const previousIds = new Set(Object.keys(state.projection.items));
-    const previousTurnId = turnId || state.snapshot?.yuxi.current_turn?.id;
+    const previousTurnId = turnId || state.snapshot?.zs.current_turn?.id;
     const session = await threadApi.session(state.threadId);
     if (!current(owner) || request !== historyRequest) return;
     const previous = waitpoint.value?.id;
@@ -259,14 +259,14 @@ export function useDemo() {
       state.itemPage.after = page.last_id;
       state.itemPage.hasMore = page.has_more;
     }
-    const id = previousTurnId || session.yuxi.current_turn?.id;
+    const id = previousTurnId || session.zs.current_turn?.id;
     if (id && !more) {
       const target = await threadApi.turn(state.threadId, id);
       if (!current(owner) || request !== historyRequest) return;
-      mergeSnapshot(state.projection, target.yuxi.output);
+      mergeSnapshot(state.projection, target.zs.output);
       state.runError = target.error?.message || "";
-      if (session.yuxi?.current_turn?.id === target.id) {
-        session.yuxi.current_turn.cancellation_pending = Boolean(target.yuxi?.cancellation_pending);
+      if (session.zs?.current_turn?.id === target.id) {
+        session.zs.current_turn.cancellation_pending = Boolean(target.zs?.cancellation_pending);
       }
       if (turnId || ["queued", "in_progress", "requires_action"].includes(target.status)) {
         let cursor;
@@ -321,7 +321,7 @@ export function useDemo() {
             { kind: "event", type: event.type, data: event },
             activeApp.value.key,
           );
-          if (event.type === "yuxi.session.resync") {
+          if (event.type === "zs.session.resync") {
             await refreshHistory(owner, { turnId: event.turn_id });
           } else {
             applyEvent(state.projection, event);
@@ -329,7 +329,7 @@ export function useDemo() {
               /^agent\.session\.turn\.(created|in_progress|completed|failed|cancelled)$/.test(
                 event.type,
               ) ||
-              ["yuxi.session.turn.waiting", "yuxi.session.turn.state"].includes(
+              ["zs.session.turn.waiting", "zs.session.turn.state"].includes(
                 event.type,
               )
             ) {
@@ -450,7 +450,7 @@ export function useDemo() {
           {
             type: "agent.session.input.message",
             input,
-            yuxi: { mode: "follow_up", attachment_file_ids: fileIds },
+            zs: { mode: "follow_up", attachment_file_ids: fileIds },
           },
         ],
       };
@@ -460,7 +460,7 @@ export function useDemo() {
         agent_id: state.agentId,
         title: text.slice(0, 40),
         input,
-        yuxi: { attachment_file_ids: fileIds },
+        zs: { attachment_file_ids: fileIds },
       };
     }
     return runCommand(command);
@@ -536,7 +536,7 @@ export function useDemo() {
       response = { type: "approval", decisions };
     } else return;
     return submitEvent({
-      type: "yuxi.session.input.resume",
+      type: "zs.session.input.resume",
       turn_id: turn.value.id,
       waitpoint_id: point.id,
       response,
@@ -653,12 +653,12 @@ export function useDemo() {
     cancel: () =>
       submitEvent({
         type: "agent.session.input.cancel",
-        yuxi: {
+        zs: {
           turn_id: turn.value.id,
           expected_run_id: turn.value.current_run_id,
         },
       }),
-    continueQueue: () => submitEvent({ type: "yuxi.session.input.continue" }),
+    continueQueue: () => submitEvent({ type: "zs.session.input.continue" }),
     refresh: async () => {
       const owner = token();
       if (!state.threadId) return;

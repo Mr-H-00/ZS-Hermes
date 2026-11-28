@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/knowledge/repositories/files.py
+Owner：backend/zs/modules/knowledge/repositories/files.py
 
 ## 问题
 

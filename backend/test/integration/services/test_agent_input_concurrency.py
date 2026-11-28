@@ -10,10 +10,10 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-import yuxi.modules.agents.services.run_lifecycle as lifecycle
-import yuxi.modules.agents.services.scheduler as scheduler
-import yuxi.modules.agents.services.threads as threads
-import yuxi.modules.agents.services.turns as turns
+import zs.modules.agents.services.run_lifecycle as lifecycle
+import zs.modules.agents.services.scheduler as scheduler
+import zs.modules.agents.services.threads as threads
+import zs.modules.agents.services.turns as turns
 from test.integration.services.agent_input_fixtures import (
     create_input_schema as _create_schema,
 )
@@ -26,16 +26,16 @@ from test.integration.services.agent_input_fixtures import (
 from test.integration.services.agent_input_fixtures import (
     queue_inputs as _queue_inputs,
 )
-from yuxi.modules.agents.services.run_lifecycle import settle_run
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.shared.errors import StateConflictError
+from zs.modules.agents.services.run_lifecycle import settle_run
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.scope import ActorScope
+from zs.shared.errors import StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -276,8 +276,8 @@ async def test_cancel_partial_snapshot_only_updates_existing_public_message(case
     """取消快照保留可见正文；失效 owner、新 item 与工具写入均在真实 PG 边界拒绝。"""
     from datetime import timedelta
 
-    from yuxi.modules.agents.repositories.public_items import PublicItemRepository
-    from yuxi.shared.datetime import utc_now
+    from zs.modules.agents.repositories.public_items import PublicItemRepository
+    from zs.shared.datetime import utc_now
 
     schema, admin_engine, engine = await _create_schema()
     try:

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/agents/services/checkpoint_messages.py
+Owner：backend/zs/modules/agents/services/checkpoint_messages.py
 
 ## 问题
 

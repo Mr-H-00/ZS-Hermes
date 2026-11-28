@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.services.execution import (
+from zs.modules.agents.services.execution import (
     _build_ask_user_question_payload,
     _build_tool_approval_payload,
 )
-import yuxi.modules.agents.services.execution as svc
+import zs.modules.agents.services.execution as svc
 
 
 def test_build_tool_approval_payload_rejects_mismatched_lists():

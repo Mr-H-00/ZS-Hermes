@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/infrastructure/document_parsing/engines/rapid_ocr.py
+Owner：backend/zs/infrastructure/document_parsing/engines/rapid_ocr.py
 
 ## 问题
 

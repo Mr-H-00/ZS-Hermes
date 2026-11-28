@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-from yuxi.modules.agents.services.input_config import resolve_agent_context_snapshot
-from yuxi.modules.models.providers.cache import model_cache
-from yuxi.shared.errors import DomainError, InvalidInputError
+from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+from zs.modules.agents.services.input_config import resolve_agent_context_snapshot
+from zs.modules.models.providers.cache import model_cache
+from zs.shared.errors import DomainError, InvalidInputError
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -57,7 +57,7 @@ async def test_snapshot_requires_resolvable_chat_model(monkeypatch):
 
 async def test_explicit_blank_model_cannot_reset_to_configured_or_system_default():
     """显式空白模型是无效请求，不能复用 Agent 留空选择默认的语义。"""
-    from yuxi.modules.agents.services.input_config import resolve_agent_run_model_spec
+    from zs.modules.agents.services.input_config import resolve_agent_run_model_spec
 
     with pytest.raises(DomainError) as error:
         await resolve_agent_run_model_spec("   ", "valid:model")

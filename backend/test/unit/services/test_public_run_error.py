@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.services.public_items import serialize_public_run
-from yuxi.modules.agents.services import public_resources
+from zs.modules.agents.services.public_items import serialize_public_run
+from zs.modules.agents.services import public_resources
 
 pytestmark = pytest.mark.unit
 

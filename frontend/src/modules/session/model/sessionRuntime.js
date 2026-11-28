@@ -89,7 +89,7 @@ export const useSessionRuntimeStore = defineStore('sessionRuntime', () => {
         while (true) {
           if (!isCurrentThreadState(threadId, state)) return
           mergeItemSnapshot(projection, page.data)
-          for (const run of page.yuxi.runs) runs.set(run.id, run)
+          for (const run of page.zs.runs) runs.set(run.id, run)
           after = page.last_id
           pagesRead++
           // 恢复目标轮次读取完整页；Session 刷新读到已加载区域即可。
@@ -98,12 +98,12 @@ export const useSessionRuntimeStore = defineStore('sessionRuntime', () => {
           if (!page.has_more || (!turnId && !recoverGap && pagesRead >= 3)) break
           page = await agentApi.getSessionItems(threadId, { after, turnId, limit: 100 })
         }
-        const target = turnId || session.yuxi.current_turn?.id
+        const target = turnId || session.zs.current_turn?.id
         if (target && !more) {
           const turn = await agentApi.getThreadTurn(threadId, target)
           if (!isCurrentThreadState(threadId, state)) return
-          mergeItemSnapshot(projection, turn.yuxi.output)
-          for (const run of turn.yuxi.runs || []) runs.set(run.id, run)
+          mergeItemSnapshot(projection, turn.zs.output)
+          for (const run of turn.zs.runs || []) runs.set(run.id, run)
         }
         if (!turnId && (more || !paging.after || !page.has_more)) {
           paging.after = page.last_id
@@ -122,7 +122,7 @@ export const useSessionRuntimeStore = defineStore('sessionRuntime', () => {
           fresh
         )
         threadRuns.value[threadId] = [...runs.values()]
-        if (!state.isStreaming) state.turnStatus = session.yuxi.current_turn?.status || null
+        if (!state.isStreaming) state.turnStatus = session.zs.current_turn?.status || null
         chatThreads.upsertThread(session)
       } catch (error) {
         handleChatError(error, 'load')
@@ -214,7 +214,7 @@ export const useSessionRuntimeStore = defineStore('sessionRuntime', () => {
           waiting?.status !== 'requires_action'
         )
           return
-        state.pendingInterrupt = pendingInterruptFromWaitpoint(waiting.yuxi.waitpoint, threadId)
+        state.pendingInterrupt = pendingInterruptFromWaitpoint(waiting.zs.waitpoint, threadId)
         notify('onInterruptDetected', { threadId })
       })().catch((error) => console.warn('Failed to restore Turn waitpoint:', error))
       void resumeQueuedInputs(threadId)

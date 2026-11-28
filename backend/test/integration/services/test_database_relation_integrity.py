@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager as _create_isolated_manager
 from test.integration.support.postgres_schema import drop_isolated_schema as _drop_isolated_schema
-from yuxi.migrations.schema import create_business_tables, create_knowledge_tables, ensure_business_schema
-from yuxi.modules.knowledge.models import KnowledgeChunk, KnowledgeGraphEntity, KnowledgeGraphTriple
+from zs.migrations.schema import create_business_tables, create_knowledge_tables, ensure_business_schema
+from zs.modules.knowledge.models import KnowledgeChunk, KnowledgeGraphEntity, KnowledgeGraphTriple
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -266,8 +266,8 @@ async def test_graph_mentions_reject_wrong_file_inside_same_knowledge_base():
 
 async def test_killed_fresh_initializer_is_recoverable_without_adopting_old_data(monkeypatch):
     """真实终止建表后的进程，持久初始化标记使第二次运行可安全重试。"""
-    from yuxi.migrations import main as migration
-    from yuxi.infrastructure.postgres.schema import (
+    from zs.migrations import main as migration
+    from zs.infrastructure.postgres.schema import (
         get_schema_versions,
         BUSINESS_SCHEMA_VERSION,
         KNOWLEDGE_SCHEMA_VERSION,
@@ -277,8 +277,8 @@ async def test_killed_fresh_initializer_is_recoverable_without_adopting_old_data
     code = textwrap.dedent("""
         import asyncio, os
         from sqlalchemy.ext.asyncio import create_async_engine
-        from yuxi.infrastructure.postgres.manager import PostgresManager
-        from yuxi.migrations import main
+        from zs.infrastructure.postgres.manager import PostgresManager
+        from zs.migrations import main
         manager = PostgresManager()
         manager.async_engine = create_async_engine(os.environ['POSTGRES_URL'], connect_args={'server_settings': {'search_path': os.environ['INITIALIZER_TEST_SCHEMA']}})
         manager._initialized = True
@@ -320,7 +320,7 @@ async def test_persisted_timestamps_keep_the_same_instant_across_session_timezon
     """所有业务时间列带时区；带偏移写入不受数据库 session 时区影响。"""
     from datetime import UTC, datetime, timedelta, timezone
 
-    from yuxi.modules.identity.models import User
+    from zs.modules.identity.models import User
 
     schema, admin, engine, manager = await _create_isolated_manager("pytest_utc")
     instant = datetime(2026, 10, 4, 10, 30, tzinfo=timezone(timedelta(hours=8)))
@@ -355,8 +355,8 @@ async def test_persisted_timestamps_keep_the_same_instant_across_session_timezon
 
 async def test_job_and_cleanup_intent_reject_unknown_states():
     """未知状态不能绕过任务恢复或清理扫描；合法状态仍可写入。"""
-    from yuxi.modules.knowledge.models import KnowledgeProjectionOutbox
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.models import KnowledgeProjectionOutbox
+    from zs.modules.background_jobs.models import BackgroundJobRecord
 
     schema, admin, engine, manager = await _create_isolated_manager("pytest_states")
     job = insert(BackgroundJobRecord).values(id="job", name="fixture", type="fixture")

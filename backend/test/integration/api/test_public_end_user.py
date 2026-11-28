@@ -9,7 +9,7 @@ import uuid
 import asyncpg
 import pytest
 
-from yuxi.modules.identity.security import AuthUtils
+from zs.modules.identity.security import AuthUtils
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

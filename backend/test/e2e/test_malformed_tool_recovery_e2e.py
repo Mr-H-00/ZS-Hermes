@@ -94,7 +94,7 @@ async def test_malformed_tool_fails_and_same_session_can_continue(e2e_client, e2
             )
             assert created.status_code == 201, created.text
             thread_id = created.json()["id"]
-            receipt = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["yuxi"]["receipt"])
+            receipt = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["zs"]["receipt"])
             turn_id = receipt["turn_id"]
             failed = await wait_for_terminal_turn(e2e_client, e2e_headers, thread_id, turn_id)
             assert failed["status"] == "failed", failed
@@ -118,12 +118,12 @@ async def test_malformed_tool_fails_and_same_session_can_continue(e2e_client, e2
             turn_id = receipt["turn_id"]
             completed = await wait_for_terminal_turn(e2e_client, e2e_headers, thread_id, turn_id)
             assert completed["status"] == "completed", completed
-            assert "SAME_SESSION_RECOVERED" in output_text(completed["yuxi"]["output"])
+            assert "SAME_SESSION_RECOVERED" in output_text(completed["zs"]["output"])
             assert len(observed) == 2
             assert "工具调用失败" in json.dumps(observed[1], ensure_ascii=False)
             assert not any(m.get("role") == "tool" for m in observed[1])
-            from yuxi.infrastructure.postgres.checkpointer import get_langgraph_checkpointer
-            from yuxi.infrastructure.postgres.manager import pg_manager
+            from zs.infrastructure.postgres.checkpointer import get_langgraph_checkpointer
+            from zs.infrastructure.postgres.manager import pg_manager
 
             pg_manager.initialize()
             saved = await get_langgraph_checkpointer(pg_manager).aget_tuple({"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}})

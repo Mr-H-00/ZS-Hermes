@@ -4,13 +4,13 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-import yuxi.api.dependencies.knowledge as knowledge_permissions
-import yuxi.api.routers.knowledge.evaluation as knowledge_eval_router
-import yuxi.api.routers.knowledge.management as knowledge_router
-from yuxi.api.dependencies.auth import get_required_user
-from yuxi.api.responses.knowledge import serialize_knowledge_base
-from yuxi.modules.knowledge.read_models import KnowledgeBaseSummary
-from yuxi.modules.identity.permissions import ResourcePermission
+import zs.api.dependencies.knowledge as knowledge_permissions
+import zs.api.routers.knowledge.evaluation as knowledge_eval_router
+import zs.api.routers.knowledge.management as knowledge_router
+from zs.api.dependencies.auth import get_required_user
+from zs.api.responses.knowledge import serialize_knowledge_base
+from zs.modules.knowledge.read_models import KnowledgeBaseSummary
+from zs.modules.identity.permissions import ResourcePermission
 
 
 def test_serialize_knowledge_base_redacts_credentials_from_compatibility_fields():

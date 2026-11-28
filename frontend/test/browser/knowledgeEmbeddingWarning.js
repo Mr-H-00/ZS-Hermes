@@ -109,9 +109,9 @@ async page => {
             check(a.x + a.width <= b.x + 1 || b.x + b.width <= a.x + 1 || a.y + a.height <= b.y + 1 || b.y + b.height <= a.y + 1, '配置入口与文件统计按钮重叠')
           }
         }
-        await host.screenshot({ path: `/tmp/yuxi-embedding-toolbar-${mode}-${width}.png`, animations: 'disabled' })
+        await host.screenshot({ path: `/tmp/zs-embedding-toolbar-${mode}-${width}.png`, animations: 'disabled' })
         if (mode === 'dark' && width === 1440) {
-          await toolbar.screenshot({ path: '/tmp/yuxi-embedding-toolbar-dark.png', animations: 'disabled' })
+          await toolbar.screenshot({ path: '/tmp/zs-embedding-toolbar-dark.png', animations: 'disabled' })
         }
         await trigger.click()
         await waitForDialog('visible', `${mode}/${width} 点击配置入口后未打开详情`)
@@ -125,9 +125,9 @@ async page => {
           const bounds = el.getBoundingClientRect()
           return bounds.left >= 0 && bounds.right <= innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1
         }), '配置详情弹窗横向溢出')
-        await page.screenshot({ path: `/tmp/yuxi-embedding-dialog-${mode}-${width}.png`, animations: 'disabled' })
+        await page.screenshot({ path: `/tmp/zs-embedding-dialog-${mode}-${width}.png`, animations: 'disabled' })
         if (mode === 'dark' && width === 1440) {
-          await modalContent.screenshot({ path: '/tmp/yuxi-embedding-dialog-dark.png', animations: 'disabled' })
+          await modalContent.screenshot({ path: '/tmp/zs-embedding-dialog-dark.png', animations: 'disabled' })
         }
         await dialog.locator('.ant-modal-footer').getByRole('button').click()
         await waitForDialog('hidden', `${mode}/${width} 点击关闭后详情仍显示`)
@@ -176,7 +176,7 @@ async page => {
     const card = host.locator('.info-card').filter({ hasText: '知识库配置检查' })
     await card.waitFor()
     check(!(await card.textContent()).includes('未配置 Embedding 模型'), '知识库外层卡片仍显示模型告警')
-    await card.screenshot({ path: '/tmp/yuxi-embedding-catalog.png', animations: 'disabled' })
+    await card.screenshot({ path: '/tmp/zs-embedding-catalog.png', animations: 'disabled' })
     return { compactEntry: true, modalDetails: true, keyboardDismissal: true, readonlyDetails: true, configuredModelHidden: true, connectorsHidden: true, staleSnapshotHidden: true, catalogWarningRemoved: true, layouts: 6 }
   } finally {
     await page.evaluate(() => { window.embeddingFixture.app.unmount(); window.embeddingFixture.host.remove(); delete window.embeddingFixture })

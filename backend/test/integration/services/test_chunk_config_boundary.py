@@ -18,14 +18,14 @@ from fastapi import FastAPI
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.routers.knowledge import management as router
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.background_jobs import dispatch
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeFile
-from yuxi.modules.knowledge.repositories import bases as bases_repository
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.api.routers.knowledge import management as router
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.background_jobs import dispatch
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeFile
+from zs.modules.knowledge.repositories import bases as bases_repository
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -227,7 +227,7 @@ async def test_empty_claim_patch_preserves_current_chunk_configuration(boundary)
 @pytest.mark.parametrize("invalid", [False, 0, []])
 async def test_invalid_claim_patch_leaves_persisted_configuration_unchanged(boundary, invalid):
     """假值非法补丁也必须拒绝，不能被空值继承逻辑忽略。"""
-    from yuxi.modules.knowledge.chunking.presets import ChunkConfigError
+    from zs.modules.knowledge.chunking.presets import ChunkConfigError
 
     _, factory = boundary
     original = {"chunk_preset_id": "book"}

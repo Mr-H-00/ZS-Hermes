@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from yuxi.modules.agents.runtime.context import BaseContext
+from zs.modules.agents.runtime.context import BaseContext
 
 import asyncio
 from contextlib import aclosing
@@ -9,8 +9,8 @@ import pytest
 from langchain_core.messages import AIMessageChunk, ToolMessage
 from langgraph.types import Command
 
-from yuxi.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
-from yuxi.modules.agents.services.message_recorder import tool_event_output
+from zs.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
+from zs.modules.agents.services.message_recorder import tool_event_output
 
 
 @pytest.mark.asyncio
@@ -142,7 +142,7 @@ async def test_stream_with_state_preserves_protocol_sequence_and_timestamp():
                         "timestamp": 1_777_000_123_790,
                         "namespace": ["tools:abc"],
                         "data": {
-                            "type": "yuxi.tool_lifecycle",
+                            "type": "zs.tool_lifecycle",
                             "data": {"event": "tool-finished", "tool_call_id": "call-1", "output": "result"},
                         },
                     },

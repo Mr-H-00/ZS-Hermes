@@ -42,14 +42,14 @@ const sessionTrigger = ref(null)
 const sessionSearchOpen = ref(false)
 const isAgentView = computed(() => ['AgentComp', 'AgentCompWithThreadId'].includes(route.name))
 const activeSessionThreadId = computed(() => (isAgentView.value ? currentThreadId.value : null))
-const productName = computed(() => infoStore.branding.name || 'Yuxi')
+const productName = computed(() => infoStore.branding.name || 'ZS')
 const visible = computed(() =>
   props.panel ? props.active && (sessionsPinned.value || sessionPeekOpen.value) : props.visible
 )
 /** 侧栏与搜索只列顶层且未归档的会话；归档会话仍可经 URL 打开。 */
 const visibleThreads = computed(() =>
   hasLoadedThreads.value
-    ? threads.value.filter((thread) => !thread.yuxi?.parent_session_id && !thread.yuxi?.archived)
+    ? threads.value.filter((thread) => !thread.zs?.parent_session_id && !thread.zs?.archived)
     : []
 )
 const chatsLoading = computed(() => !hasLoadedThreads.value && !threadsLoadError.value)
@@ -224,7 +224,7 @@ const handleTogglePinChat = async (threadId) => {
   const thread = threads.value.find((item) => item.id === threadId)
   if (!thread) return
   try {
-    await chatThreadsStore.updateThread(threadId, null, !thread.yuxi.is_pinned)
+    await chatThreadsStore.updateThread(threadId, null, !thread.zs.is_pinned)
     await chatThreadsStore.loadThreads()
   } catch (error) {
     console.warn('更新置顶状态失败:', error)

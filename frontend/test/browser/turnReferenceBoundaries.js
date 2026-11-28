@@ -24,7 +24,7 @@ async (page) => {
   check(await dialog.getByText('知识库证据', { exact: true }).isVisible(), '远端文档必须显示证据片段')
   check(await dialog.getByText('此来源暂不支持原文行定位。', { exact: true }).isVisible(), '不能伪造远端文档行号')
   check(await dialog.getByText('文件加载失败', { exact: false }).count() === 0, '只读连接器不能进入本地文档读取错误')
-  await page.screenshot({ path: '/tmp/yuxi-turn-refs-connector.png', fullPage: true })
+  await page.screenshot({ path: '/tmp/zs-turn-refs-connector.png', fullPage: true })
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByRole('button', { name: '隐藏标注', exact: true }).first().click()
   await badges.first().waitFor({ state: 'detached' })
@@ -34,6 +34,6 @@ async (page) => {
   await page.getByRole('button', { name: '显示标注', exact: true }).first().click()
   await badges.first().waitFor()
   check(await topCode.getAttribute('data-source-start') === '15', '旧围栏源码保留原始行映射')
-  await page.screenshot({ path: '/tmp/yuxi-turn-refs-rich-answer.png', fullPage: true })
+  await page.screenshot({ path: '/tmp/zs-turn-refs-rich-answer.png', fullPage: true })
   return { rawLines: [5, 19], svg: true, legacyHtmlAsCode: true, mixedHierarchy: true, readonlyConnector: 'snippet' }
 }

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from yuxi.modules.knowledge.base import KnowledgeExecutor
+from zs.modules.knowledge.base import KnowledgeExecutor
 
 
 class FakeKnowledgeBase(KnowledgeExecutor):

@@ -3,29 +3,29 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from yuxi.modules.agents.services import thread_access
+from zs.modules.agents.services import thread_access
 from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-import yuxi.modules.agents.services.threads as thread_service
+import zs.modules.agents.services.threads as thread_service
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.sessions import UNVIEWED_RUN_MARKER, SessionRepository
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services.threads import (
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.sessions import UNVIEWED_RUN_MARKER, SessionRepository
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services.threads import (
     archive_thread,
     get_session_resource,
     list_session_page,
     mark_thread_viewed,
 )
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.errors import DomainError, ResourceNotFoundError, StateConflictError
+from zs.modules.workspace.models import Project
+from zs.shared.errors import DomainError, ResourceNotFoundError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 SCOPE = ActorScope(uid="user-1", app_id=None)
@@ -118,7 +118,7 @@ async def test_public_list_maps_run_states_and_enforces_scope(session):
     await session.commit()
 
     items = (await list_session_page(db=session, scope=SCOPE, agent_slug=None, after=None, limit=50, order="desc"))[0]
-    status_by_id = {item["id"]: (item["status"], item["yuxi"]["unread"]) for item in items}
+    status_by_id = {item["id"]: (item["status"], item["zs"]["unread"]) for item in items}
     assert status_by_id == {
         "thread-running": ("in_progress", False),
         "thread-ready": ("completed", True),
@@ -141,7 +141,7 @@ async def test_sidebar_waiting_activity_survives_viewed_interrupted_run(session,
     assert listed[0]["status"] == expected
     await mark_thread_viewed(db=session, scope=SCOPE, thread_id=thread.thread_id)
     viewed = await get_session_resource(db=session, scope=SCOPE, thread_id=thread.thread_id)
-    assert viewed["status"] == expected and viewed["yuxi"]["unread"] is False
+    assert viewed["status"] == expected and viewed["zs"]["unread"] is False
 
 
 async def test_latest_run_wins_and_viewed_mark_tracks_exact_run(session):
@@ -153,10 +153,10 @@ async def test_latest_run_wins_and_viewed_mark_tracks_exact_run(session):
     await session.commit()
 
     before = (await list_session_page(db=session, scope=SCOPE, agent_slug=None, after=None, limit=50, order="desc"))[0]
-    assert before[0]["yuxi"]["unread"] is True
+    assert before[0]["zs"]["unread"] is True
     await mark_thread_viewed(db=session, thread_id=thread.thread_id, scope=SCOPE)
     after = (await list_session_page(db=session, scope=SCOPE, agent_slug=None, after=None, limit=50, order="desc"))[0]
-    assert after[0]["yuxi"]["unread"] is False
+    assert after[0]["zs"]["unread"] is False
     assert thread.last_viewed_run_id == "run-new"
 
 
@@ -168,8 +168,8 @@ async def test_viewed_mark_does_not_complete_active_run(session):
 
     await mark_thread_viewed(db=session, thread_id=thread.thread_id, scope=SCOPE)
     snapshot = await get_session_resource(db=session, scope=SCOPE, thread_id=thread.thread_id)
-    assert snapshot["status"] == "in_progress" and snapshot["yuxi"]["unread"] is False
-    assert snapshot["yuxi"]["current_turn"] == {
+    assert snapshot["status"] == "in_progress" and snapshot["zs"]["unread"] is False
+    assert snapshot["zs"]["current_turn"] == {
         "id": "turn-run-active",
         "status": "in_progress",
         "current_run_id": "run-active",

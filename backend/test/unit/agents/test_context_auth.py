@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.agents.runtime import context as context_module
-from yuxi.modules.knowledge.read_models import KnowledgeBaseSummary
-from yuxi.modules.workspace.paths import ensure_user_workspace
+from zs.modules.agents.runtime import context as context_module
+from zs.modules.knowledge.read_models import KnowledgeBaseSummary
+from zs.modules.workspace.paths import ensure_user_workspace
 
 
 def _knowledge_summary(kb_id: str) -> KnowledgeBaseSummary:
@@ -179,7 +179,7 @@ async def test_resolve_agent_resource_options_empty_fields_loads_nothing(monkeyp
 
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.knowledge.mcp.client",
+        "zs.modules.knowledge.mcp.client",
         types.SimpleNamespace(knowledge_resource_options=fail_if_loaded, KnowledgeMCPError=RuntimeError, KnowledgeMCPUnavailable=RuntimeError),
     )
 
@@ -208,7 +208,7 @@ async def test_normalize_agent_context_config_defaults_mcps_off_and_filters_expl
 
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.tools.catalog",
+        "zs.modules.extensions.tools.catalog",
         types.SimpleNamespace(
             get_tool_metadata=lambda category=None: [
                 {"slug": "ask_user_question", "name": "Ask User", "description": ""},
@@ -218,7 +218,7 @@ async def test_normalize_agent_context_config_defaults_mcps_off_and_filters_expl
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.knowledge.mcp.client",
+        "zs.modules.knowledge.mcp.client",
         types.SimpleNamespace(
             knowledge_resource_options=fake_get_knowledge_bases_by_user,
             KnowledgeMCPError=RuntimeError,
@@ -227,17 +227,17 @@ async def test_normalize_agent_context_config_defaults_mcps_off_and_filters_expl
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.mcp.repository",
+        "zs.modules.extensions.mcp.repository",
         types.SimpleNamespace(get_all_mcp_servers=fake_get_all_mcp_servers),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.mcp.service",
+        "zs.modules.extensions.mcp.service",
         types.SimpleNamespace(get_enabled_mcp_servers=fake_get_enabled_mcp_servers),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.skills.repository",
+        "zs.modules.extensions.skills.repository",
         types.SimpleNamespace(
             SkillRepository=lambda db: types.SimpleNamespace(list_enabled_readable=lambda user: fake_list_skills(db, user))
         ),
@@ -318,7 +318,7 @@ async def test_normalize_agent_context_config_defaults_mcps_off_and_filters_expl
 
 @pytest.mark.asyncio
 async def test_prepare_agent_runtime_context_filters_resources_and_derives_runtime_scope(monkeypatch):
-    from yuxi.modules.agents.runtime import context as context_module
+    from zs.modules.agents.runtime import context as context_module
 
     monkeypatch.setattr(context_module, "_load_workspace_agent_context", lambda uid: "workspace policy")
 
@@ -386,31 +386,31 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
 
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.skills.runtime",
+        "zs.modules.extensions.skills.runtime",
         types.SimpleNamespace(
             resolve_runtime_skills_for_context=fake_resolve_runtime_skills_for_context,
         ),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.identity.repositories.users",
+        "zs.modules.identity.repositories.users",
         types.SimpleNamespace(UserRepository=FakeUserRepository),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.infrastructure.postgres.manager",
+        "zs.infrastructure.postgres.manager",
         types.SimpleNamespace(pg_manager=types.SimpleNamespace(get_async_session_context=lambda: FakeSessionContext())),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.tools.catalog",
+        "zs.modules.extensions.tools.catalog",
         types.SimpleNamespace(
             get_tool_metadata=lambda category=None: [{"slug": "ask_user_question", "name": "Ask User", "description": ""}]
         ),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.knowledge.mcp.client",
+        "zs.modules.knowledge.mcp.client",
         types.SimpleNamespace(
             knowledge_resource_options=fake_get_knowledge_bases_by_user,
             KnowledgeMCPError=RuntimeError,
@@ -419,17 +419,17 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.mcp.repository",
+        "zs.modules.extensions.mcp.repository",
         types.SimpleNamespace(get_all_mcp_servers=fake_get_all_mcp_servers),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.mcp.service",
+        "zs.modules.extensions.mcp.service",
         types.SimpleNamespace(get_enabled_mcp_servers=fake_get_enabled_mcp_servers),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.skills.repository",
+        "zs.modules.extensions.skills.repository",
         types.SimpleNamespace(
             SkillRepository=lambda db: types.SimpleNamespace(list_enabled_readable=lambda user: fake_list_skills(db, user))
         ),
@@ -463,7 +463,7 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
         AsyncMock(side_effect=AssertionError("同次执行不得再次规范化")),
     )
     monkeypatch.setattr(
-        sys.modules["yuxi.modules.extensions.skills.runtime"],
+        sys.modules["zs.modules.extensions.skills.runtime"],
         "resolve_runtime_skills_for_context",
         AsyncMock(side_effect=AssertionError("同次执行不得重新读取 Skill")),
     )
@@ -475,7 +475,7 @@ async def test_prepare_agent_runtime_context_filters_resources_and_derives_runti
 
 @pytest.mark.asyncio
 async def test_prepare_agent_runtime_context_clears_resources_for_missing_user(monkeypatch):
-    from yuxi.modules.agents.runtime import context as context_module
+    from zs.modules.agents.runtime import context as context_module
 
     monkeypatch.setattr(context_module, "_load_workspace_agent_context", lambda uid: "")
 
@@ -498,17 +498,17 @@ async def test_prepare_agent_runtime_context_clears_resources_for_missing_user(m
 
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.extensions.skills.runtime",
+        "zs.modules.extensions.skills.runtime",
         types.SimpleNamespace(resolve_runtime_skills_for_context=lambda _context, db=None, user=None: None),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.modules.identity.repositories.users",
+        "zs.modules.identity.repositories.users",
         types.SimpleNamespace(UserRepository=FakeUserRepository),
     )
     monkeypatch.setitem(
         sys.modules,
-        "yuxi.infrastructure.postgres.manager",
+        "zs.infrastructure.postgres.manager",
         types.SimpleNamespace(pg_manager=types.SimpleNamespace(get_async_session_context=lambda: FakeSessionContext())),
     )
 
@@ -527,7 +527,7 @@ async def test_prepare_agent_runtime_context_clears_resources_for_missing_user(m
 
 def test_persistent_config_cannot_replace_runtime_identity():
     """接入与执行共用的配置装载只接受可配置字段。"""
-    from yuxi.modules.agents.runtime.context import BaseContext
+    from zs.modules.agents.runtime.context import BaseContext
 
     context = BaseContext(uid="owner", worker_id="worker")
     context.update_config({"uid": "forged", "worker_id": "forged", "model": "chosen:model", "update": None})
@@ -540,8 +540,8 @@ def test_persistent_config_cannot_replace_runtime_identity():
 @pytest.mark.asyncio
 async def test_normalized_persistent_config_drops_subagent_runtime_flags():
     """状态查询与主动压缩的配置归一化不接受运行标记。"""
-    from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-    from yuxi.modules.agents.runtime.context import normalize_agent_context_config
+    from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+    from zs.modules.agents.runtime.context import normalize_agent_context_config
 
     normalized = await normalize_agent_context_config(
         {
@@ -626,13 +626,13 @@ async def test_resource_field_declarations_drive_write_runtime_and_schema(monkey
     """新增声明自动参与写入校验和展开，普通列表保持原样。"""
     from types import SimpleNamespace
 
-    from yuxi.modules.agents.services.configuration import merge_agent_config_json, prepare_agent_config_write
+    from zs.modules.agents.services.configuration import merge_agent_config_json, prepare_agent_config_write
 
     async def options(names, **kwargs):
         return {name: [{"key": "visible"}] for name in names}
 
     monkeypatch.setattr(context_module, "resolve_agent_resource_options", options)
-    monkeypatch.setattr("yuxi.modules.agents.services.configuration.resolve_agent_resource_options", options)
+    monkeypatch.setattr("zs.modules.agents.services.configuration.resolve_agent_resource_options", options)
     context = ResourceFieldContext()
     with pytest.raises(ValueError, match="selected_tools"):
         context.update_config({"selected_tools": None})
@@ -687,7 +687,7 @@ async def test_workspace_prompt_excludes_memory_from_shared_context(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     ensure_user_workspace("user-1")
     agents_dir = tmp_path / "threads" / "shared" / "user-1" / "workspace" / "agents"
     (agents_dir / "AGENTS.md").write_text("行为约束", encoding="utf-8")
@@ -716,8 +716,8 @@ async def test_workspace_prompt_appends_only_available_agent_context(monkeypatch
 @pytest.mark.asyncio
 async def test_refresh_does_not_pair_replaced_bound_skill_with_old_body(monkeypatch):
     """专属 Skill 同名替换后，新身份必须对应新正文。"""
-    from yuxi.modules.agents.runtime import context as context_module
-    from yuxi.modules.extensions.skills import runtime as skill_runtime
+    from zs.modules.agents.runtime import context as context_module
+    from zs.modules.extensions.skills import runtime as skill_runtime
 
     context = context_module.BaseContext()
     context.skill_runtime_snapshot = {

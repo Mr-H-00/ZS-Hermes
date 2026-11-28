@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from yuxi.modules.knowledge.chunking.ragflow_like.parsers import semantic
+from zs.modules.knowledge.chunking.ragflow_like.parsers import semantic
 
 
 def test_empty_heading_preserves_current_title_context():

@@ -7,7 +7,7 @@ import httpx
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from yuxi.modules.models.chat import ChatCompletionsAdapter
+from zs.modules.models.chat import ChatCompletionsAdapter
 
 
 @pytest.mark.asyncio

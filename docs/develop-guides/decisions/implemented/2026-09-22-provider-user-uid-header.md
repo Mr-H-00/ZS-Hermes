@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/models/chat.py
+Owner：backend/zs/modules/models/chat.py
 
 ## 问题
 
@@ -42,12 +42,12 @@ Owner：backend/yuxi/modules/models/chat.py
 
 | 验收主张 | 失败面 | 语义 Owner | 直接证据 / 命令 | 负向案例 | 当前结果 |
 |---|---|---|---|---|---|
-| 开关开启且调用方传入 uid 时，聊天请求头包含 `x-yuxi-uid` 且值等于该 uid | 开关形同虚设，或写入错误/空值 | `backend/yuxi/modules/models/chat.py` | `pytest test/unit/services/test_model_selectors.py -k uid`：MockTransport 捕获流式与非流式出站请求头 | 恢复“不注入”后 `test_load_chat_model_user_uid_header_follows_opt_in` 与 `test_user_uid_header_reaches_real_stream_and_regular_requests` 失败 | Passed |
-| 开关关闭、uid 为空或调用方未传 uid 时不注入该头 | 关闭的 provider 也带头，泄露用户身份 | `backend/yuxi/modules/models/chat.py` | 同一测试文件内三条负向断言 | 移除开关或空值条件后负向用例失败 | Passed |
-| 含 CR/LF 等头注入字符的 uid 显式失败，不发出畸形请求 | uid 含换行导致请求畸形或被注入伪造头 | `backend/yuxi/modules/models/chat.py` | `test_load_chat_model_rejects_header_unsafe_uid` | 去掉字符校验后该测试失败 | Passed |
-| 开启后追加时间戳与 HMAC-SHA256 签名，且签名可被独立重算复现 | 签名与约定格式不一致，网关无法验签 | `backend/yuxi/modules/models/chat.py` | `pytest test/unit/services/test_model_selectors.py -k uid`：`test_load_chat_model_signs_user_uid_header`、`test_user_uid_header_reaches_real_stream_and_regular_requests` 断言三头与按 `uid=<uid>\nts=<ts>` 重算的签名 | 修改规范化消息或头名后重算失配 | Passed |
+| 开关开启且调用方传入 uid 时，聊天请求头包含 `x-yuxi-uid` 且值等于该 uid | 开关形同虚设，或写入错误/空值 | `backend/zs/modules/models/chat.py` | `pytest test/unit/services/test_model_selectors.py -k uid`：MockTransport 捕获流式与非流式出站请求头 | 恢复“不注入”后 `test_load_chat_model_user_uid_header_follows_opt_in` 与 `test_user_uid_header_reaches_real_stream_and_regular_requests` 失败 | Passed |
+| 开关关闭、uid 为空或调用方未传 uid 时不注入该头 | 关闭的 provider 也带头，泄露用户身份 | `backend/zs/modules/models/chat.py` | 同一测试文件内三条负向断言 | 移除开关或空值条件后负向用例失败 | Passed |
+| 含 CR/LF 等头注入字符的 uid 显式失败，不发出畸形请求 | uid 含换行导致请求畸形或被注入伪造头 | `backend/zs/modules/models/chat.py` | `test_load_chat_model_rejects_header_unsafe_uid` | 去掉字符校验后该测试失败 | Passed |
+| 开启后追加时间戳与 HMAC-SHA256 签名，且签名可被独立重算复现 | 签名与约定格式不一致，网关无法验签 | `backend/zs/modules/models/chat.py` | `pytest test/unit/services/test_model_selectors.py -k uid`：`test_load_chat_model_signs_user_uid_header`、`test_user_uid_header_reaches_real_stream_and_regular_requests` 断言三头与按 `uid=<uid>\nts=<ts>` 重算的签名 | 修改规范化消息或头名后重算失配 | Passed |
 | 同一模型实例跨越验签窗口后再次发送时重新生成时间戳与签名，覆盖流式、非流式与重试 | 长任务后续请求带过期签名被网关拒绝 | `models/chat.py` 的 `_get_request_payload` 注入 `extra_headers` | `test_user_uid_signature_refreshed_after_window_expiry`（MockTransport 连发两次、时钟 +301 秒）、`test_anthropic_model_signs_user_uid_at_every_send_boundary`（anthropic 家族载荷层）、`test_anthropic_model_without_uid_switch_sends_no_extra_headers` | 去掉 `_attach_user_uid_headers` 后断言"第二次时间戳与签名均刷新"、"anthropic 载荷含新签名"的用例失败 | Passed |
-| 签名密钥环境变量缺失时运行期显式失败，不降级为未签名 | 密钥被移除后静默发裸头，网关收到可伪造身份 | `backend/yuxi/modules/models/chat.py` | `test_load_chat_model_rejects_signing_without_secret`（构图期）、`test_user_uid_signing_fails_closed_when_secret_removed_after_load`（构图后删除密钥的发送期） | 删除构图期或发送期密钥校验后对应测试失败 | Passed |
+| 签名密钥环境变量缺失时运行期显式失败，不降级为未签名 | 密钥被移除后静默发裸头，网关收到可伪造身份 | `backend/zs/modules/models/chat.py` | `test_load_chat_model_rejects_signing_without_secret`（构图期）、`test_user_uid_signing_fails_closed_when_secret_removed_after_load`（构图后删除密钥的发送期） | 删除构图期或发送期密钥校验后对应测试失败 | Passed |
 | 签名绑定 uid 与时间戳，任一侧篡改即失配 | 签名不覆盖 uid，攻击者可改写 uid 仍通过验签 | 规范化消息契约 | `test_user_uid_signature_binds_uid_and_timestamp`（网关侧重算比对） | 篡改 uid 或 ts 后 `hmac.compare_digest` 为 False | Passed |
 | 保存期校验：开关开启而密钥缺失时创建与更新均被拒绝并给出指引；partial 更新按 DB 现值判定 | 漏传开关字段绕过校验，保存后请求才失败 | `providers/service.py` | `test_create_provider_config_rejects_uid_header_without_signature_secret`、`test_update_provider_config_checks_effective_uid_header_flag`、`test_provider_uid_header_save_passes_when_signature_secret_present` | 去掉保存期校验或改用 payload 现值后测试失败 | Passed |
 | provider 创建、编辑接口可读写 `include_user_uid`，默认关闭且只接受 JSON 布尔值；Gemini 与缺少密钥的设置被拒绝 | 字符串或数字被 HTTP schema 强制转换为 true，或不支持的配置静默保存 | `providers/service.py`、`model_provider_router.py` | `test/integration/api/test_model_provider_uid_header.py`：ASGI HTTP + PostgreSQL 往返 | 非布尔值得到 422、Gemini 与缺少密钥得到 400，且未创建 provider | Passed |

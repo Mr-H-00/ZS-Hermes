@@ -6,9 +6,9 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from yuxi.api.dependencies.auth import get_admin_user, get_db, get_required_user
+from zs.api.dependencies.auth import get_admin_user, get_db, get_required_user
 
-agent_router_module = importlib.import_module("yuxi.api.routers.agents.management")
+agent_router_module = importlib.import_module("zs.api.routers.agents.management")
 
 
 def _user(role: str = "admin"):

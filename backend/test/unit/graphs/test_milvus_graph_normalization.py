@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 
 
-from yuxi.modules.knowledge.graphs.extractors import normalize_extraction_result
-from yuxi.modules.knowledge.graphs.extractors.base import (
+from zs.modules.knowledge.graphs.extractors import normalize_extraction_result
+from zs.modules.knowledge.graphs.extractors.base import (
     MAX_ENTITY_LABEL_LENGTH,
     MAX_ENTITY_NAME_LENGTH,
     MAX_RELATION_TYPE_LENGTH,
 )
-from yuxi.modules.knowledge.models import KnowledgeGraphEntity, KnowledgeGraphTriple
+from zs.modules.knowledge.models import KnowledgeGraphEntity, KnowledgeGraphTriple
 
 pytestmark = pytest.mark.usefixtures("milvus_graph_projection_lock")
 
@@ -216,7 +216,7 @@ def test_normalize_extraction_result_rejects_invalid_payload(payload):
 
 def test_normalized_relations_deduplicate_only_same_direction_and_label():
     """实体别名合并属性，重复关系去重，反向和不同类型保持独立。"""
-    from yuxi.modules.knowledge.graphs.graph_utils import build_graph_payload
+    from zs.modules.knowledge.graphs.graph_utils import build_graph_payload
 
     result = normalize_extraction_result(
         {

@@ -66,7 +66,7 @@ async page => {
     check(await page.evaluate(() => window.__antButtonFixture.state.clicks) === 0, '禁用按钮不应触发事件')
     await page.locator('#fixture-default').click()
     check(await page.evaluate(() => window.__antButtonFixture.state.clicks) === 1, '普通按钮应保留点击行为')
-    await page.locator('#ant-button-icon-fixture').screenshot({ path: '/tmp/yuxi-ant-button-icons-idle.png', animations: 'disabled' })
+    await page.locator('#ant-button-icon-fixture').screenshot({ path: '/tmp/zs-ant-button-icons-idle.png', animations: 'disabled' })
     await page.evaluate(() => { window.__antButtonFixture.state.loading = true })
     await page.locator('#fixture-default .ant-btn-loading-icon').waitFor()
     // 无原图标的按钮使用 Ant 进出动画，等待布局完成再核对间距。
@@ -84,7 +84,7 @@ async page => {
     check(iconOnly.gap === null && iconOnly.iconWidth > 0, '纯图标加载状态应居中且没有空白间距')
     await page.locator('#fixture-default').click({ force: true })
     check(await page.evaluate(() => window.__antButtonFixture.state.clicks) === 1, '加载期间不应触发事件')
-    await page.locator('#ant-button-icon-fixture').screenshot({ path: '/tmp/yuxi-ant-button-icons-loading.png', animations: 'disabled' })
+    await page.locator('#ant-button-icon-fixture').screenshot({ path: '/tmp/zs-ant-button-icons-loading.png', animations: 'disabled' })
     await page.evaluate(() => { window.__antButtonFixture.state.loading = false })
     await page.locator('#fixture-default > .lucide').waitFor()
     const restored = await measure()

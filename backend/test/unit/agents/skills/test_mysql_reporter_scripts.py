@@ -10,8 +10,8 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from yuxi.modules.extensions.skills.builtin import BUILTIN_SKILLS_DIR
-from yuxi.modules.extensions.skills.package import copy_skill_tree_no_symlinks
+from zs.modules.extensions.skills.builtin import BUILTIN_SKILLS_DIR
+from zs.modules.extensions.skills.package import copy_skill_tree_no_symlinks
 
 
 def _mysql_reporter_dir() -> Path:

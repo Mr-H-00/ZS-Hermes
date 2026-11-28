@@ -13,17 +13,17 @@ export function useAgentStreamHandler({
     if (!state) return false
     const type = event.type
     if (
-      type === 'yuxi.session.turn.state' &&
+      type === 'zs.session.turn.state' &&
       state.activeRunId &&
-      event.yuxi?.run_id !== state.activeRunId
+      event.zs?.run_id !== state.activeRunId
     )
       return false
     const itemAlreadyKnown = event.item && state.itemState.items[event.item.id]
     const applied = applyAgentEvent(state.itemState, event)
     const item = state.itemState.items[event.item_id || event.item?.id]
-    if (applied && item?.yuxi?.run_id === state.activeRunId) {
+    if (applied && item?.zs?.run_id === state.activeRunId) {
       const active = state.activeReasoning
-      if (type === 'yuxi.session.turn.reasoning.delta' && event.delta) {
+      if (type === 'zs.session.turn.reasoning.delta' && event.delta) {
         if (!state.hiddenReasoningParts.has(`${item.id}:${event.content_index}`)) {
           if (active && (active.itemId !== item.id || active.contentIndex !== event.content_index)) {
             state.hiddenReasoningParts.add(`${active.itemId}:${active.contentIndex}`)
@@ -51,14 +51,14 @@ export function useAgentStreamHandler({
     if (type === 'agent.session.turn.failed') {
       message.error(event.turn?.error?.message || '本次运行失败，请检查模型配置后重试')
     }
-    if (type === 'yuxi.session.turn.state') {
+    if (type === 'zs.session.turn.state') {
       state.agentStateRequestVersion = (state.agentStateRequestVersion || 0) + 1
       state.agentState = event.agent_state
-    } else if (type === 'yuxi.session.turn.context_compression') {
+    } else if (type === 'zs.session.turn.context_compression') {
       state.contextCompressing = event.compression?.status === 'started'
-    } else if (type === 'yuxi.session.turn.waiting') {
+    } else if (type === 'zs.session.turn.waiting') {
       state.currentTurnId = event.turn_id
-      state.activeRunId = event.yuxi.run_id
+      state.activeRunId = event.zs.run_id
       state.turnStatus = event.turn.status
       state.replyLoadingVisible = false
       return processApprovalInStream?.(event, threadId) || false

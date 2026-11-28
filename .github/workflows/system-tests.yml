@@ -7,7 +7,7 @@ on:
     branches: [main, 'develop/**']
     paths:
       - '.env.template'
-      - 'backend/yuxi/**'
+      - 'backend/zs/**'
       - 'backend/pyproject.toml'
       - 'backend/uv.lock'
       - 'backend/test/integration/**'
@@ -419,7 +419,7 @@ jobs:
           done
           exit 1
       - name: Verify worker shipping health
-        run: docker compose exec -T worker uv run --no-sync --no-dev arq --check yuxi.workers.main.WorkerSettings
+        run: docker compose exec -T worker uv run --no-sync --no-dev arq --check zs.workers.main.WorkerSettings
       - name: Verify worker can write personal Skill UserWorkspace
         run: |
           docker compose exec -T -e E2E_USERNAME worker uv run --no-sync --no-dev python - <<'PY'
@@ -437,8 +437,8 @@ jobs:
           PY
       - name: Verify worker health leases are expiring runtime facts
         run: |
-          worker_ttl=$(docker compose exec -T redis redis-cli PTTL yuxi:worker:health:agent-run-v1)
-          reconciliation_ttl=$(docker compose exec -T redis redis-cli PTTL yuxi:worker:health:agent-run-v1:lease-reconciliation)
+          worker_ttl=$(docker compose exec -T redis redis-cli PTTL zs:worker:health:agent-run-v1)
+          reconciliation_ttl=$(docker compose exec -T redis redis-cli PTTL zs:worker:health:agent-run-v1:lease-reconciliation)
           test "$worker_ttl" -gt 0 && test "$worker_ttl" -le 6000
           test "$reconciliation_ttl" -gt 0 && test "$reconciliation_ttl" -le 65000
       - name: Verify dead worker removes API readiness

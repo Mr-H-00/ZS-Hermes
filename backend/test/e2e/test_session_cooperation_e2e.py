@@ -36,10 +36,10 @@ from test.live_api_cleanup import (
     make_test_session_title,
     validate_test_runs_terminal,
 )
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.agents.runtime.sandbox import UserSandboxBackend, get_sandbox_provider
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.agents.runtime.sandbox import UserSandboxBackend, get_sandbox_provider
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.timeout(240)]
 OUTPUT = "DETERMINISTIC_AGENT_E2E_OK"
@@ -120,7 +120,7 @@ async def test_sessions_use_public_state_and_shared_sandbox(e2e_client, e2e_head
                                 f"COOP_RUNTIME:{runtime_probe}{question_marker}{selection_marker}"
                             )
                         ],
-                        "yuxi": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
+                        "zs": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
                     }
                 ]
             },
@@ -136,7 +136,7 @@ async def test_sessions_use_public_state_and_shared_sandbox(e2e_client, e2e_head
                 if (
                     (parallel_question or cancel_wait)
                     and turn["status"] == ("requires_action" if parallel_question else "in_progress")
-                    and (turn["yuxi"]["waitpoint"] or {}).get("kind") == ("answer" if parallel_question else "cooperation")
+                    and (turn["zs"]["waitpoint"] or {}).get("kind") == ("answer" if parallel_question else "cooperation")
                 ):
                     await _assert_thread_activity(
                         e2e_client,
@@ -157,7 +157,7 @@ async def test_sessions_use_public_state_and_shared_sandbox(e2e_client, e2e_head
                             cancelled = await e2e_client.post(
                                 f"/api/v1/agents/sessions/{thread_id}/events",
                                 headers={**e2e_headers, "Idempotency-Key": str(uuid.uuid4())},
-                                json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id}}]},
+                                json={"events": [{"type": "agent.session.input.cancel", "zs": {"turn_id": turn_id}}]},
                             )
                             assert cancelled.status_code == 202, cancelled.text
                             snapshot = await e2e_client.get(f"/api/v1/agents/sessions/{thread_id}/turns/{turn_id}", headers=e2e_headers)
@@ -180,9 +180,9 @@ async def test_sessions_use_public_state_and_shared_sandbox(e2e_client, e2e_head
                         json={
                             "events": [
                                 {
-                                    "type": "yuxi.session.input.resume",
+                                    "type": "zs.session.input.resume",
                                     "turn_id": turn_id,
-                                    "waitpoint_id": turn["yuxi"]["waitpoint"]["id"],
+                                    "waitpoint_id": turn["zs"]["waitpoint"]["id"],
                                     "response": {
                                         "type": "answer",
                                         "answers": [{"question_id": "confirm", "answer": "继续"}],
@@ -196,7 +196,7 @@ async def test_sessions_use_public_state_and_shared_sandbox(e2e_client, e2e_head
                     break
                 await asyncio.sleep(0.2)
         assert turn["status"] == "completed", turn
-        assert output_text(turn["yuxi"]["output"]) == OUTPUT
+        assert output_text(turn["zs"]["output"]) == OUTPUT
         assert await conn.fetchval("SELECT count(*) FROM sessions WHERE parent_thread_id=$1", thread_id) == 1
         child = await conn.fetchrow("SELECT * FROM sessions WHERE parent_thread_id=$1", thread_id)
         assert child and child["status"] == "active"
@@ -222,7 +222,7 @@ async def test_sessions_use_public_state_and_shared_sandbox(e2e_client, e2e_head
         assert "output" not in member and member["result_run_id"] == run["id"]
         assert (user_workspace_dir(uid) / root["workdir_path"] / "cooperation.txt").read_text() == "cooperation verified"
         child_turn = await e2e_client.get(f"/api/v1/agents/sessions/{child['thread_id']}/turns/{run['turn_id']}", headers=e2e_headers)
-        assert child_turn.status_code == 200 and output_text(child_turn.json()["yuxi"]["output"]) == OUTPUT
+        assert child_turn.status_code == 200 and output_text(child_turn.json()["zs"]["output"]) == OUTPUT
         assert json.loads(child["config_snapshot"])["system_prompt"].count("用户工作区 agents/AGENTS.md") == 0
         provider = get_sandbox_provider()
         backend = UserSandboxBackend(uid=uid, workdir_path=root["workdir_path"])
@@ -320,7 +320,7 @@ async def test_parallel_wait_inputs_keep_both_interrupts_and_resume_exact_result
                     {
                         "type": "agent.session.input.message",
                         "input": [_message(f"COOP_PARALLEL_WAIT_ROOT PRIVATE_ROOT_HISTORY WAIT_GATE:{gate_path}")],
-                        "yuxi": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
+                        "zs": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
                     }
                 ]
             },
@@ -359,7 +359,7 @@ async def test_parallel_wait_inputs_keep_both_interrupts_and_resume_exact_result
 
         release_gate(gates[0])
         first = await wait_for_terminal_turn(e2e_client, e2e_headers, children[0]["thread_id"], children[0]["turn_id"], timeout=60)
-        assert first["status"] == "completed" and output_text(first["yuxi"]["output"]) == "PARALLEL_CHILD_RESULT_0", first
+        assert first["status"] == "completed" and output_text(first["zs"]["output"]) == "PARALLEL_CHILD_RESULT_0", first
         second_entry = next(entry for entry in entries if entry["target_inputs"] == [children[1]["input_id"]])
         async with asyncio.timeout(90):
             while True:
@@ -373,7 +373,7 @@ async def test_parallel_wait_inputs_keep_both_interrupts_and_resume_exact_result
         assert not gates[1].exists()
         release_gate(gates[1])
         final = await wait_for_terminal_turn(e2e_client, e2e_headers, root_id, root_turn, timeout=120)
-        assert final["status"] == "completed" and output_text(final["yuxi"]["output"]) == OUTPUT, final
+        assert final["status"] == "completed" and output_text(final["zs"]["output"]) == OUTPUT, final
         runs = await conn.fetch(
             "SELECT id,status,run_type,input_message_id FROM agent_runs WHERE turn_id=$1 ORDER BY created_at", root_turn
         )
@@ -412,11 +412,11 @@ async def test_parallel_wait_inputs_keep_both_interrupts_and_resume_exact_result
                 streamed.append(event)
                 if event["type"] == "agent.session.turn.completed" and event["turn_id"] == root_turn:
                     break
-        assert streamed[-1]["yuxi"]["run_id"] == runs[-1]["id"]
+        assert streamed[-1]["zs"]["run_id"] == runs[-1]["id"]
         assert {
-            event["yuxi"]["run_id"]
+            event["zs"]["run_id"]
             for event in streamed
-            if event["type"] == "yuxi.session.run.settled" and event["status"] == "interrupted"
+            if event["type"] == "zs.session.run.settled" and event["status"] == "interrupted"
         } == {run["id"] for run in runs[:-1]}
         await validate_test_runs_terminal({root_id, *(child["thread_id"] for child in children)})
     finally:
@@ -453,7 +453,7 @@ async def test_parallel_wait_inputs_keep_both_interrupts_and_resume_exact_result
 @pytest.mark.parametrize("stop_tree", [False, True])
 async def test_full_tree_capacity_control_and_sibling_tools(e2e_client, e2e_headers, stop_tree, actors):
     """真实 worker 满槽等待推进；兄弟工具与持久整树控制不串轮次。"""
-    from yuxi.modules.agents.services.cooperation import reconcile_stopped_trees
+    from zs.modules.agents.services.cooperation import reconcile_stopped_trees
 
     await _provider(e2e_client, e2e_headers, base_url=os.environ["COOPERATION_REPLAY_URL"], provider_id="cooperation-replay")
     # list_sessions 按账户列出历史记录；独立身份把本例列表固定在当前六名成员内。
@@ -504,7 +504,7 @@ async def test_full_tree_capacity_control_and_sibling_tools(e2e_client, e2e_head
             {
                 "type": "agent.session.input.message",
                 "input": [_message(f"COOP_CAPACITY_ROOT PRIVATE_ROOT_HISTORY CAP_GATE:{gate_path}")],
-                "yuxi": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
+                "zs": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
             },
         )
         root_turn = (await wait_for_consumed_input(e2e_client, e2e_headers, accepted))["turn_id"]
@@ -540,11 +540,11 @@ async def test_full_tree_capacity_control_and_sibling_tools(e2e_client, e2e_head
                 {
                     "type": "agent.session.input.message",
                     "input": [_message("COOP_CAPACITY_FOLLOWUP")],
-                    "yuxi": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
+                    "zs": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
                 },
             )
             assert queued["turn_id"] is None
-            await event(root_id, {"type": "yuxi.session.tree.stop"})
+            await event(root_id, {"type": "zs.session.tree.stop"})
             # 独立测试进程重读持久停止意图，与真实 worker 同时重复执行恢复。
             load_models()
             pg_manager.initialize()
@@ -582,7 +582,7 @@ async def test_full_tree_capacity_control_and_sibling_tools(e2e_client, e2e_head
             )
             assert await conn.fetchval("SELECT status FROM agent_inputs WHERE id=$1", queued["input_id"]) == "pending"
             await _assert_thread_activity(e2e_client, e2e_headers, root_id, "cancelled")
-            await event(root_id, {"type": "yuxi.session.tree.continue"})
+            await event(root_id, {"type": "zs.session.tree.continue"})
             async with asyncio.timeout(60):
                 while True:
                     resumed = await conn.fetchrow("SELECT turn_id,status FROM agent_inputs WHERE id=$1", queued["input_id"])
@@ -623,7 +623,7 @@ async def test_full_tree_capacity_control_and_sibling_tools(e2e_client, e2e_head
                     for pending in queue.json()["inputs"]:
                         await event(
                             member["session_id"],
-                            {"type": "yuxi.session.input.cancel_input", "input_id": pending["input_id"]},
+                            {"type": "zs.session.input.cancel_input", "input_id": pending["input_id"]},
                         )
                     try:
                         await archive_public_thread(e2e_client, e2e_headers, member["session_id"], turn_id=member["turn_id"])
@@ -732,7 +732,7 @@ async def test_worker_rejects_third_cooperation_depth_and_commits_only_allowed_m
                     break
                 await asyncio.sleep(0.5)
         assert turn["status"] == "completed", turn
-        assert output_text(turn["yuxi"]["output"]) == OUTPUT
+        assert output_text(turn["zs"]["output"]) == OUTPUT
         rows = await conn.fetch("SELECT thread_id, cooperation_path FROM sessions WHERE tree_root_thread_id=$1", thread_id)
         assert {row["cooperation_path"] for row in rows} == {"/root", "/root/depth-1", "/root/depth-1/depth-2"}
         count = await conn.fetchval("SELECT count(*) FROM agent_inputs WHERE thread_id=ANY($1::text[])", [row["thread_id"] for row in rows])
@@ -801,13 +801,13 @@ async def test_independent_root_cooperation_uses_real_worker_and_persisted_origi
         accepted = await e2e_client.post(
             f"/api/v1/agents/sessions/{root_id}/events",
             headers={**e2e_headers, "Idempotency-Key": str(uuid.uuid4())},
-            json={"events": [{"type": "agent.session.input.message", "input": [_message(marker)], "yuxi": {"mode": "follow_up"}}]},
+            json={"events": [{"type": "agent.session.input.message", "input": [_message(marker)], "zs": {"mode": "follow_up"}}]},
         )
         assert accepted.status_code == 202, accepted.text
         turn_id = (await wait_for_consumed_input(e2e_client, e2e_headers, accepted.json()))["turn_id"]
         terminal = await wait_for_terminal_turn(e2e_client, e2e_headers, root_id, turn_id, timeout=180)
         assert terminal["status"] == "completed", terminal
-        assert output_text(terminal["yuxi"]["output"]) == OUTPUT
+        assert output_text(terminal["zs"]["output"]) == OUTPUT
         if different_project:
             target = await conn.fetchrow("SELECT * FROM sessions WHERE thread_id=$1", target_id)
         else:

@@ -11,8 +11,8 @@ async def test_file_graph_build_status_counts_only_current_pending_chunks(
 
     from sqlalchemy import select
 
-    from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
-    from yuxi.shared.datetime import utc_now
+    from zs.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
+    from zs.shared.datetime import utc_now
 
     kb_id = knowledge_base_resource["kb_id"]
     other_kb, target, other, foreign, folder, deleted = [uuid4().hex for _ in range(6)]
@@ -100,8 +100,8 @@ async def test_graph_build_rejections_do_not_create_jobs(test_client, admin_head
     """真实 HTTP 拒绝未锁配置和非法范围，独立 PG 连接确认没有执行意图。"""
     from sqlalchemy import select
 
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.knowledge.graphs.service import GRAPH_TASK_TYPE
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.graphs.service import GRAPH_TASK_TYPE
 
     kb_id = knowledge_base_resource["kb_id"]
     base = f"/api/knowledge/knowledge-bases/{kb_id}/graph-build"
@@ -134,10 +134,10 @@ async def test_active_graph_job_blocks_requests_without_resetting(
 
     from sqlalchemy import select
 
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.knowledge.graphs.service import GRAPH_TASK_TYPE
-    from yuxi.modules.knowledge.models import KnowledgeBase
-    from yuxi.shared.datetime import utc_now
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.graphs.service import GRAPH_TASK_TYPE
+    from zs.modules.knowledge.models import KnowledgeBase
+    from zs.shared.datetime import utc_now
 
     kb_id = knowledge_base_resource["kb_id"]
     job_id = uuid4().hex
@@ -189,7 +189,7 @@ async def test_graph_request_records_payload_and_worker_consumes_once(
 
     from sqlalchemy import select
 
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.background_jobs.models import BackgroundJobRecord
 
     kb_id = knowledge_base_resource["kb_id"]
     base = f"/api/knowledge/knowledge-bases/{kb_id}/graph-build"
@@ -232,8 +232,8 @@ async def test_file_graph_build_validates_scope_and_persists_generation(
 
     from sqlalchemy import delete, select
 
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
 
     kb_id = knowledge_base_resource["kb_id"]
     other_kb, target, empty, folder, foreign = [uuid4().hex for _ in range(5)]
@@ -397,8 +397,8 @@ async def test_reparse_rejects_invalid_params_before_any_persistent_intent(
 
     from sqlalchemy import insert, select
 
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.knowledge.models import KnowledgeFile
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.models import KnowledgeFile
 
     kb_id, file_id = knowledge_base_resource["kb_id"], uuid4().hex
     async with postgres_sessions() as session:
@@ -450,8 +450,8 @@ async def test_markdown_rejects_invalid_content_and_stale_revision_before_persis
 
     from sqlalchemy import select
 
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.knowledge.models import KnowledgeFile
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.models import KnowledgeFile
 
     kb_id, file_id = knowledge_base_resource["kb_id"], uuid4().hex
     async with postgres_sessions() as session:

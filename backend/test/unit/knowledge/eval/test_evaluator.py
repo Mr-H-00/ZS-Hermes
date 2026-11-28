@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from yuxi.modules.knowledge.evaluation import evaluator
-from yuxi.modules.knowledge.evaluation.evaluator import (
+from zs.modules.knowledge.evaluation import evaluator
+from zs.modules.knowledge.evaluation.evaluator import (
     aggregate_metrics,
     build_answer_prompt,
     evaluate_question,

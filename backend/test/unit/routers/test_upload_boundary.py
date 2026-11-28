@@ -10,10 +10,10 @@ import pytest
 from fastapi import FastAPI, UploadFile
 from fastapi.testclient import TestClient
 
-from yuxi.api.uploads import prepare_upload_files, read_upload_with_limit
-from yuxi.api.routers.workspace import workspace as workspace_router
-from yuxi.api.routers.workspace import viewer as viewer_router
-from yuxi.shared.files import FileInput
+from zs.api.uploads import prepare_upload_files, read_upload_with_limit
+from zs.api.routers.workspace import workspace as workspace_router
+from zs.api.routers.workspace import viewer as viewer_router
+from zs.shared.files import FileInput
 
 
 @pytest.mark.asyncio
@@ -148,7 +148,7 @@ def test_workspace_upload_route_passes_relative_paths_in_file_order(monkeypatch)
 
 def test_uploadfile_is_only_used_in_api_layer():
     """恢复任何非 API 层 UploadFile 使用都会违反协议边界。"""
-    root = Path(__file__).resolve().parents[3] / "yuxi"
+    root = Path(__file__).resolve().parents[3] / "zs"
     violations = []
     for path in root.rglob("*.py"):
         if path.relative_to(root).parts[0] == "api":

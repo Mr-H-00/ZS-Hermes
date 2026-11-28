@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/identity/services/users.py
+Owner：backend/zs/modules/identity/services/users.py
 
 ## 问题
 

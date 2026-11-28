@@ -1,4 +1,4 @@
-# Yuxi 轻量沙盒镜像：单租户、非 root、按 Run 用完即弃。
+# ZS 轻量沙盒镜像：单租户、非 root、按 Run 用完即弃。
 FROM node:24-bullseye-slim AS node-runtime
 
 FROM python:3.13-slim

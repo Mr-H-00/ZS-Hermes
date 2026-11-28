@@ -10,13 +10,13 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from test.live_api_cleanup import delete_test_session_resources, make_test_session_title
-from yuxi.modules.agents.models.feedback import AgentFeedbackRecord
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
+from zs.modules.agents.models.feedback import AgentFeedbackRecord
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

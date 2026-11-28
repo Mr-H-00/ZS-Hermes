@@ -19,10 +19,10 @@
         <div class="header__left">
           <slot name="header-left"></slot>
           <div
-            v-if="currentThread?.yuxi.title && currentThread.yuxi.title !== '新的对话'"
+            v-if="currentThread?.zs.title && currentThread.zs.title !== '新的对话'"
             class="session-title"
           >
-            {{ currentThread.yuxi.title }}
+            {{ currentThread.zs.title }}
           </div>
         </div>
         <div class="header__right">
@@ -91,6 +91,7 @@
             ref="chatMainRef"
             :class="{
               'is-loading-history': earlierMessagesLoading,
+              'is-start-screen': showStartScreen,
               'has-embedded-state': statePanelOpen && statePanelPlacement.mode === 'embedded'
             }"
           >
@@ -223,10 +224,10 @@
                     重试发送
                   </button>
                 </div>
-                <!-- 打招呼区域 - 在输入框上方 -->
-                <div v-if="showStartScreen" class="chat-greeting-input">
-                  <h1>{{ randomGreeting }}</h1>
-                </div>
+                <header v-if="showStartScreen" class="chat-greeting-input">
+                  <img src="/icons/default-agent.svg" alt="" width="44" height="44" />
+                  <h1>今天想完成什么？</h1>
+                </header>
 
                 <section
                   v-if="visibleQueuedInputs.length"
@@ -350,20 +351,11 @@
                       :send-button-disabled="isSendButtonDisabled"
                       :mention="mentionConfig"
                       :thread-id="currentChatId"
-                      :show-extra="showStartScreen"
                       :attachments="currentPendingThreadAttachments"
                       @send="handleSendOrStop"
                       @upload-attachment="handleAttachmentUpload"
                       @remove-attachment="handleAttachmentRemove"
                     >
-                      <template #extra>
-                        <ProjectSelectionSection
-                          upward
-                          v-if="showStartScreen"
-                          v-model="selectedProjectId"
-                          :disabled="threadCreationInFlight"
-                        />
-                      </template>
                       <template #actions-left-extra>
                         <slot
                           name="input-actions-left"
@@ -371,6 +363,13 @@
                           :has-active-thread="!!currentChatId"
                           :is-creating-thread="threadCreationInFlight"
                         ></slot>
+                        <ProjectSelectionSection
+                          v-if="showStartScreen"
+                          v-model="selectedProjectId"
+                          upward
+                          empty-label="项目"
+                          :disabled="threadCreationInFlight"
+                        />
                         <ToolApprovalModeSelector
                           upward
                           :model-value="currentToolApprovalMode"
@@ -894,18 +893,6 @@ const sendCooldownActive = ref(false)
 const cancellingInputIds = reactive(new Set())
 const promotingInputIds = reactive(new Set())
 let sendCooldownTimer = null
-// 预设的打招呼文本
-const greetingMessages = [
-  '你好，今天有什么可以帮你？',
-  '与智枢智能体对话，让想法更进一步',
-  '答案藏在知识里，我来找',
-  '与知识对话，与答案相遇',
-  '你负责提问，我负责寻找'
-]
-
-// 随机选择一个打招呼文本
-const randomGreeting = greetingMessages[Math.floor(Math.random() * greetingMessages.length)]
-
 const sessionRuntime = useSessionRuntimeStore()
 const {
   getThreadState,
@@ -1289,7 +1276,7 @@ const { status: sessionAgentStatus, refresh: refreshSessionAgent } = useSessionA
   currentThreadId, (agentId) => agentStore.fetchAgentDetail(agentId, true, { notify: false })
 )
 /** 归档会话只读：后端会拒绝新输入，前端同步禁用而不是让发送失败。 */
-const threadArchived = computed(() => currentThread.value?.yuxi?.archived === true)
+const threadArchived = computed(() => currentThread.value?.zs?.archived === true)
 
 const agentExecutionAvailable = computed(() =>
   !threadArchived.value &&
@@ -1374,7 +1361,7 @@ const handleModelSelect = (spec) => {
 const currentToolApprovalMode = computed(() =>
   resolveToolApprovalMode({
     hasThread: Boolean(currentChatId.value),
-    threadMode: currentThread.value?.yuxi.tool_approval_mode,
+    threadMode: currentThread.value?.zs.tool_approval_mode,
     savedMode: savedToolApprovalMode.value
   })
 )
@@ -1388,14 +1375,14 @@ const handleToolApprovalModeSelect = async (mode) => {
     return
   }
 
-  const previousMode = thread.yuxi.tool_approval_mode
-  thread.yuxi.tool_approval_mode = mode
+  const previousMode = thread.zs.tool_approval_mode
+  thread.zs.tool_approval_mode = mode
   try {
     await chatThreadsStore.updateThread(thread.id, null, undefined, mode)
     savedToolApprovalMode.value = mode
     writeToolApprovalModePreference(mode)
   } catch {
-    thread.yuxi.tool_approval_mode = previousMode
+    thread.zs.tool_approval_mode = previousMode
     message.error('审批模式保存失败')
   }
 }
@@ -2949,7 +2936,7 @@ const buildExportPayload = () => {
   }
 
   const payload = {
-    chatTitle: currentThread.value?.yuxi.title || '新对话',
+    chatTitle: currentThread.value?.zs.title || '新对话',
     agentName: currentAgentName.value || currentAgent.value?.name || '智能助手',
     agentDescription: agentDescription || currentAgent.value?.description || '',
     messages: runGroups.value ? JSON.parse(JSON.stringify(runGroups.value)) : [],
@@ -3529,14 +3516,34 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .chat-greeting-input {
-  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 30px;
   text-align: center;
-  margin-bottom: 7vh;
+
+  img {
+    border: 1px solid color-mix(in srgb, var(--main-color) 35%, transparent);
+    border-radius: 13px;
+  }
 
   h1 {
-    font-size: 1.4rem;
-    color: var(--gray-1000);
     margin: 0;
+    color: var(--gray-1000);
+    font-size: clamp(26px, 2.5vw, 36px);
+    font-weight: 600;
+    line-height: 1.25;
+  }
+}
+
+.chat-main.is-start-screen {
+  background:
+    radial-gradient(ellipse 460px 310px at 50% 25%, color-mix(in srgb, var(--main-color) 7%, transparent), transparent),
+    var(--bg-page);
+
+  > .chat-box {
+    flex: 0 0 clamp(42px, 22vh, 205px);
   }
 }
 
@@ -4004,17 +4011,39 @@ watch(currentChatId, (threadId, oldThreadId) => {
   }
 
   &.start-screen {
-    position: absolute;
-    top: 45%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    position: relative;
     bottom: auto;
-    max-width: 800px;
-    width: 90%;
+    display: flex;
+    flex: 1 0 auto;
+    width: min(744px, calc(100% - 40px));
+    margin-bottom: clamp(24px, 8dvh, 96px);
     background: transparent;
     padding: 0;
-    border-top: none;
-    z-index: 100; /* Ensure it's above other elements */
+    z-index: 100;
+
+    .message-input-wrapper {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .message-input-stage {
+      margin-top: auto;
+    }
+
+    :deep(.input-box:not(.dragging-files)) {
+      min-height: 124px;
+      padding: 14px;
+      border-color: var(--gray-200);
+      border-radius: 18px;
+
+      &:focus-within {
+        border-color: var(--main-color);
+      }
+    }
+
+    :deep(.user-input:empty::before) {
+      color: var(--gray-600);
+    }
   }
 }
 

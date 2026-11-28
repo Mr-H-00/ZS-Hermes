@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from yuxi.modules.knowledge import parent_child_cache as cache
+from zs.modules.knowledge import parent_child_cache as cache
 
 
 class _Redis:
@@ -32,8 +32,8 @@ class _Redis:
 
 def test_parent_child_cache_keys_include_scope_and_identity():
     """缓存 key 必须包含 kb_id、version_id 和对象身份。"""
-    assert cache.parent_cache_key("kb", "version", "parent") == "yuxi:parent-child:parent:kb:version:parent"
-    assert cache.query_cache_key("kb", "version", "query") == "yuxi:parent-child:query:kb:version:query"
+    assert cache.parent_cache_key("kb", "version", "parent") == "zs:parent-child:parent:kb:version:parent"
+    assert cache.query_cache_key("kb", "version", "query") == "zs:parent-child:query:kb:version:query"
     assert cache.query_fingerprint("hello", {"top_k_parent": 2}) == cache.query_fingerprint(
         "hello", {"top_k_parent": 2}
     )

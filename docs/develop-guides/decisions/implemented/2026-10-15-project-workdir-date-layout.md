@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/workspace/paths.py
+Owner：backend/zs/modules/workspace/paths.py
 
 ## 问题
 

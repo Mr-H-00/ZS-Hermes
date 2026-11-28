@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/workspace/models.py
+Owner：backend/zs/modules/workspace/models.py
 
 ## 问题
 

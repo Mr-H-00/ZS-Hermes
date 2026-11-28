@@ -7,7 +7,7 @@ async page => {
   const origin = page.url().split('/').slice(0, 3).join('/')
   const agent = { agent_id: 'restore-agent', name: '路由恢复智能体', can_run: true, config_json: { context: {} }, configurable_items: {}, metadata: {} }
   const sessions = id => ({ id, object: 'agent.session', status: 'completed', agent: { id: agent.agent_id }, metadata: {}, created_at: 1793400000,
-    yuxi: { title: id === 'restore-root' ? '根会话' : id, context: {}, config: {}, current_turn: null, project_id: null } })
+    zs: { title: id === 'restore-root' ? '根会话' : id, context: {}, config: {}, current_turn: null, project_id: null } })
   const delayed = new Map()
   await page.route('https://api.github.com/**', route => route.fulfill({ json: {} }))
   await page.route('**/api/**', async route => {
@@ -24,7 +24,7 @@ async page => {
     const session = path.match(/^\/api\/v1\/agents\/sessions\/([^/]+)$/)
     if (session) json = sessions(session[1])
     if (path.endsWith('/viewed')) json = sessions(path.split('/').at(-2))
-    if (path.endsWith('/items')) json = { data: [], has_more: false, yuxi: { runs: [] } }
+    if (path.endsWith('/items')) json = { data: [], has_more: false, zs: { runs: [] } }
     if (path.endsWith('/state')) json = { agent_state: {}, interrupt: null }
     if (path.endsWith('/queue')) json = { inputs: [], status: 'ready', queue_paused: false }
     if (path.endsWith('/cooperation')) json = { sessions: [], members: [], edges: [] }
@@ -78,7 +78,7 @@ async page => {
     delayed.get('external')()
     await page.getByText('加载对话失败: 会话不属于当前主页面', { exact: true }).waitFor()
     check(await page.locator('.panel-session-chat:visible').count() === 0, '外根成员不能在当前根打开')
-    await page.screenshot({ path: '/tmp/yuxi-ordinary-route-rejected.png' })
+    await page.screenshot({ path: '/tmp/zs-ordinary-route-rejected.png' })
     return { latestMemberOnly: true, memberQueryPreserved: true, closedPanelStaysClosed: true,
       clearedMemberStaysCleared: true, foreignRootRejected: true }
   } finally {

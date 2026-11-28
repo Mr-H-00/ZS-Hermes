@@ -256,7 +256,7 @@ test('失败 Tool 审计展示错误而不把 running wall-clock 推算成耗时
       run_id: 'run-1',
       operation_id: 'call-error',
       tool_name: 'search',
-      tool_input: { q: 'Yuxi' },
+      tool_input: { q: 'ZS' },
       error_message: 'provider unavailable',
       execution_status: 'failed'
     }

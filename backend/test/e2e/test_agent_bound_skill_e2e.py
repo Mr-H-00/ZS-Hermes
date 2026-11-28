@@ -26,8 +26,8 @@ from e2e_helpers import (
 )
 
 from test.live_api_cleanup import make_test_session_title
-from yuxi.infrastructure.runtime_settings import get_skill_data_dir
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir
+from zs.infrastructure.runtime_settings import get_skill_data_dir
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.timeout(360)]
 
@@ -221,7 +221,7 @@ async def test_preloaded_skill_edit_is_loaded_by_the_worker(
                                 ],
                             }
                         ],
-                        "yuxi": {"mode": "follow_up"},
+                        "zs": {"mode": "follow_up"},
                     }
                 ]
             },
@@ -262,7 +262,7 @@ async def test_preloaded_skill_edit_is_loaded_by_the_worker(
         )
         assert turn.status_code == 200, turn.text
         assert turn.json()["status"] == "completed", turn.text
-        assert turn.json()["yuxi"]["result_run_id"] == run_id, turn.text
+        assert turn.json()["zs"]["result_run_id"] == run_id, turn.text
         if edit_during_run:
             detail = await e2e_client.get(f"/api/system/skills/{slug}", headers=e2e_headers)
             assert (get_skill_data_dir() / detail.json()["data"]["dir_path"] / "SKILL.md").read_text() == changed

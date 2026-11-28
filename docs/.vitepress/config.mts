@@ -5,27 +5,24 @@ import markdownItTaskCheckbox from 'markdown-it-task-checkbox'
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   lang: 'zh-CN',
-  title: "Yuxi",
-  description: "Yuxi 是一个可私有部署的知识智能体平台，支持文档检索、知识图谱、协作会话、MCP/Skills、持久执行环境与团队权限管理。",
-  base: '/Yuxi/',
+  title: "ZS",
+  description: "ZS 是一个可私有部署的知识智能体平台，支持文档检索、知识图谱、协作会话、MCP/Skills、持久执行环境与团队权限管理。",
+  base: '/ZS/',
   srcExclude: ['vibe/**'],
-  sitemap: {
-    hostname: 'https://xerrors.github.io/Yuxi/'
-  },
   head: [
-    ['link', { rel: 'icon', href: '/Yuxi/favicon.svg' }],
-    ['link', { rel: 'alternate icon', href: '/Yuxi/favicon.ico' }],
+    ['link', { rel: 'icon', href: '/ZS/favicon.svg' }],
+    ['link', { rel: 'alternate icon', href: '/ZS/favicon.ico' }],
     ['meta', { name: 'theme-color', content: '#F3BA32' }],
-    ['meta', { name: 'keywords', content: 'Yuxi, AI Agent, RAG, knowledge graph, LangGraph, MCP, self-hosted, multi-agent, knowledge base' }],
+    ['meta', { name: 'keywords', content: 'ZS, AI Agent, RAG, knowledge graph, LangGraph, MCP, self-hosted, multi-agent, knowledge base' }],
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:site_name', content: 'Yuxi' }],
-    ['meta', { property: 'og:title', content: 'Yuxi · 让知识真正参与每一次行动' }],
+    ['meta', { property: 'og:site_name', content: 'ZS' }],
+    ['meta', { property: 'og:title', content: 'ZS · 让知识真正参与每一次行动' }],
     ['meta', { property: 'og:description', content: '可私有部署的知识智能体平台，统一文档检索、工具执行、文件产物与团队权限。' }],
     ['meta', { property: 'og:image', content: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/github/yuxi/docs/home/yuxi-web-og-1200x630-v1.0.0.png' }],
     ['meta', { property: 'og:image:width', content: '1200' }],
     ['meta', { property: 'og:image:height', content: '630' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:title', content: 'Yuxi · Self-hosted knowledge agent platform' }],
+    ['meta', { name: 'twitter:title', content: 'ZS · Self-hosted knowledge agent platform' }],
     ['meta', { name: 'twitter:description', content: 'RAG, knowledge graphs, multi-agent execution, MCP/Skills, sandboxed artifacts, and access control in one workspace.' }],
     ['meta', { name: 'twitter:image', content: 'https://xerrors.oss-cn-shanghai.aliyuncs.com/github/yuxi/docs/home/yuxi-web-og-1200x630-v1.0.0.png' }]
   ],
@@ -51,7 +48,7 @@ export default defineConfig({
         text: '简介',
         link: '/intro/',
         items: [
-          { text: '认识 Yuxi', link: '/intro/project-overview' },
+          { text: '认识 ZS', link: '/intro/project-overview' },
           { text: '快速开始', link: '/intro/quick-start' },
           { text: '模型配置', link: '/intro/model-config' },
           { text: '知识库入门', link: '/intro/knowledge-base' },
@@ -121,7 +118,7 @@ export default defineConfig({
           { text: '参与贡献', link: '/develop-guides/contributing' },
           { text: '测试规范', link: '/develop-guides/testing-guidelines' },
           { text: 'Agents API 维护索引', link: '/develop-guides/agents-api-alignment-plan' },
-          { text: 'Yuxi Spec Loop', link: '/develop-guides/spec-loop' },
+          { text: 'ZS Spec Loop', link: '/develop-guides/spec-loop' },
           { text: '工程信任系统', link: '/develop-guides/engineering-trust' },
           { text: '并行 worktree 环境', link: '/develop-guides/parallel-worktree-environments' },
           {
@@ -148,8 +145,8 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/xerrors/Yuxi' },
-      { icon: { svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10zM2 12h20"/></svg>' }, link: 'https://github.com/xerrors/Yuxi/blob/main/README.en.md', ariaLabel: 'English' }
+      { icon: 'github', link: 'https://github.com/Mr-H-00/ZS-Hermes' },
+      { icon: { svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10zM2 12h20"/></svg>' }, link: 'https://github.com/Mr-H-00/ZS-Hermes/blob/main/README.en.md', ariaLabel: 'English' }
     ],
 
     footer: {
@@ -158,7 +155,7 @@ export default defineConfig({
     },
 
     editLink: {
-      pattern: 'https://github.com/xerrors/Yuxi/edit/main/docs/:path',
+      pattern: 'https://github.com/Mr-H-00/ZS-Hermes/edit/main/docs/:path',
       text: '在 GitHub 上编辑此页'
     },
 

@@ -37,7 +37,7 @@ class TestCIReporting(unittest.TestCase):
             "CALL_LOG": str(self.path / "calls"),
             "POSTGRES_URL": "isolated",
             "REDIS_URL": "isolated",
-            "YUXI_SKILL_DATA_DIR": str(self.path),
+            "ZS_SKILL_DATA_DIR": str(self.path),
         }
         self.env.pop("CI_TEST_REPORT_DIR", None)
 

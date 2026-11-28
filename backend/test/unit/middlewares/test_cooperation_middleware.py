@@ -13,8 +13,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 from pydantic import ValidationError
 
-from yuxi.modules.agents.runtime.middlewares.cooperation import CooperationMiddleware
-from yuxi.modules.agents.services.execution import _extract_interrupts
+from zs.modules.agents.runtime.middlewares.cooperation import CooperationMiddleware
+from zs.modules.agents.services.execution import _extract_interrupts
 
 pytestmark = pytest.mark.unit
 
@@ -22,8 +22,8 @@ pytestmark = pytest.mark.unit
 @pytest.mark.asyncio
 async def test_identity_prompt_uses_persisted_member_and_refreshes_for_new_run(monkeypatch):
     """身份来自持久成员，同 Run 复用，换 Run 后更新父子身份。"""
-    from yuxi.modules.agents.runtime.middlewares import cooperation
-    from yuxi.modules.agents.services.cooperation import SessionCooperationService
+    from zs.modules.agents.runtime.middlewares import cooperation
+    from zs.modules.agents.services.cooperation import SessionCooperationService
 
     @asynccontextmanager
     async def database():
@@ -45,7 +45,7 @@ async def test_identity_prompt_uses_persisted_member_and_refreshes_for_new_run(m
         tree_root_thread_id="root-id",
         project_id="project-id",
     )
-    from yuxi.modules.agents.repositories.input import AgentInputRepository
+    from zs.modules.agents.repositories.input import AgentInputRepository
 
     monkeypatch.setattr(
         AgentInputRepository, "input_ids_for_runs", AsyncMock(side_effect=[{"run-1": ["input-1"]}, {"run-2": ["input-2", "input-3"]}])
@@ -93,8 +93,8 @@ async def test_identity_prompt_uses_persisted_member_and_refreshes_for_new_run(m
 @pytest.mark.asyncio
 async def test_identity_lookup_failure_does_not_call_model(monkeypatch):
     """执行身份失效时保留来源错误，不调用模型或缓存伪造身份。"""
-    from yuxi.modules.agents.runtime.middlewares import cooperation
-    from yuxi.modules.agents.services.cooperation import SessionCooperationService
+    from zs.modules.agents.runtime.middlewares import cooperation
+    from zs.modules.agents.services.cooperation import SessionCooperationService
 
     @asynccontextmanager
     async def database():
@@ -181,9 +181,9 @@ def test_create_session_tool_arguments_accept_local_names(name):
 @pytest.mark.parametrize("known", [True, False])
 async def test_create_session_exposes_only_owned_depth_denial_as_error_tool_result(monkeypatch, known):
     """有明确来源的深度拒绝可给模型，其他异常继续由通用保护层脱敏。"""
-    from yuxi.modules.agents.runtime.middlewares import cooperation
-    from yuxi.modules.agents.services.cooperation import SessionCooperationService
-    from yuxi.shared.errors import InvalidOperationError
+    from zs.modules.agents.runtime.middlewares import cooperation
+    from zs.modules.agents.services.cooperation import SessionCooperationService
+    from zs.shared.errors import InvalidOperationError
 
     @asynccontextmanager
     async def database():
@@ -212,8 +212,8 @@ async def test_create_session_exposes_only_owned_depth_denial_as_error_tool_resu
 @pytest.mark.parametrize("tool_name", ["wait_inputs", "wait_sessions"])
 async def test_parallel_wait_tools_preserve_deadline_and_fixed_resume_result(monkeypatch, tool_name):
     """真实图重放不能延长另一等待的 deadline，也不能用迟到查询替换已固定的超时结果。"""
-    from yuxi.modules.agents.runtime.middlewares import cooperation
-    from yuxi.modules.agents.services.cooperation import SessionCooperationService
+    from zs.modules.agents.runtime.middlewares import cooperation
+    from zs.modules.agents.services.cooperation import SessionCooperationService
 
     class WaitState(TypedDict):
         """独立保存两个工具的返回值。"""

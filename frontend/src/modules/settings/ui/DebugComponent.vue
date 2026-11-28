@@ -650,7 +650,7 @@
           <a-input
             v-model:value="state.modalStorageKey"
             :disabled="state.storageModalMode === 'view' || state.storageModalMode === 'edit'"
-            placeholder="例如: theme / yuxi_custom_config"
+            placeholder="例如: theme / zs_custom_config"
           />
         </div>
 
@@ -927,7 +927,7 @@ function downloadLogs() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `yuxi-api-log-${dayjs().format('YYYYMMDD_HHmmss')}.log`
+  a.download = `zs-api-log-${dayjs().format('YYYYMMDD_HHmmss')}.log`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -1125,7 +1125,7 @@ const copyConfigJson = async () => {
 }
 
 // ==================== LOCALSTORAGE TAB LOGIC ====================
-const systemKeyPrefixes = ['user_token', 'yuxi_', 'theme', 'vueuse', 'loglevel']
+const systemKeyPrefixes = ['user_token', 'zs_', 'theme', 'vueuse', 'loglevel']
 
 const formatBytes = (bytes) => {
   if (bytes === 0) return '0 B'

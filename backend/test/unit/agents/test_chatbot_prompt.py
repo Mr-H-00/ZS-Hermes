@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.runtime.agent_backends.chatbot.prompt import PROMPT, build_prompt_with_context
+from zs.modules.agents.runtime.agent_backends.chatbot.prompt import PROMPT, build_prompt_with_context
 
 
 @pytest.mark.parametrize("custom_prompt", ["", "用户补充规则\n保留第二行"])

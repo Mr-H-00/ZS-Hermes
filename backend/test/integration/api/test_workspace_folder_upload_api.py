@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from yuxi.modules.workspace import paths as workspace_paths
+from zs.modules.workspace import paths as workspace_paths
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

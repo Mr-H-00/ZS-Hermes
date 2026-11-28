@@ -105,7 +105,7 @@ async page => {
       for (const width of [1440, 768]) {
         await page.setViewportSize({ width, height: 900 })
         check(!await popup.evaluate(node => node.scrollWidth > node.clientWidth), '添加菜单横向溢出')
-        await host.screenshot({ path: `/tmp/yuxi-composer-add-${dark ? 'dark' : 'light'}-${width}.png` })
+        await host.screenshot({ path: `/tmp/zs-composer-add-${dark ? 'dark' : 'light'}-${width}.png` })
       }
     }
     await editor.fill('保留正文 @不存在的查询')

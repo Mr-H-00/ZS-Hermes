@@ -10,10 +10,10 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from starlette.testclient import TestClient
 
-from yuxi.api.dependencies import auth
-from yuxi.api.routers.public_v1.knowledge_mcp import create_knowledge_mcp
-from yuxi.modules.knowledge.base import KBNotFoundError
-from yuxi.modules.knowledge.mcp import server as knowledge_mcp
+from zs.api.dependencies import auth
+from zs.api.routers.public_v1.knowledge_mcp import create_knowledge_mcp
+from zs.modules.knowledge.base import KBNotFoundError
+from zs.modules.knowledge.mcp import server as knowledge_mcp
 
 HEADERS = {"Authorization": "Bearer yxkey_alice", "Accept": "application/json, text/event-stream"}
 
@@ -207,7 +207,7 @@ def test_http_transport_boundary(client, headers, status):
 @pytest.mark.asyncio
 async def test_api_lifespan_starts_mcp_and_cleans_up_after_failure(monkeypatch):
     """MCP 启动失败阻止接流量，且已有 API 资源仍被清理。"""
-    from yuxi.api import lifespan as lifecycle
+    from zs.api import lifespan as lifecycle
 
     released = []
 
@@ -243,7 +243,7 @@ def test_removed_download_is_not_discoverable_or_callable(client):
 
 def test_api_key_rejection_preserves_response_and_never_enters_mcp(client, monkeypatch):
     """API 认证失败的状态、正文和响应头原样传出，协议执行器不能被调用。"""
-    from yuxi.api.routers.public_v1 import knowledge_mcp as api_adapter
+    from zs.api.routers.public_v1 import knowledge_mcp as api_adapter
 
     monkeypatch.setattr(
         api_adapter,

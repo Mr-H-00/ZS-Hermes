@@ -5,10 +5,10 @@ from sqlalchemy import func, select
 
 from test.integration.services.agent_input_fixtures import SCOPE
 from test.integration.services.agent_input_fixtures import sessions as sessions
-from yuxi.modules.agents.input_messages import build_chat_input_message
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.services.inputs import accept_message
-from yuxi.shared.errors import StateConflictError
+from zs.modules.agents.input_messages import build_chat_input_message
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.services.inputs import accept_message
+from zs.shared.errors import StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

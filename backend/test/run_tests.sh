@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-echo "Yuxi 测试运行器"
+echo "ZS 测试运行器"
 echo "========================"
 
 PYTEST_CMD=(

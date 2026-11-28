@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.exceptions import ModelError
 
-from yuxi.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware, _is_network_error
+from zs.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware, _is_network_error
 
 pytestmark = [pytest.mark.unit]
 
@@ -140,7 +140,7 @@ async def test_non_retryable_model_error_propagates():
 @pytest.mark.asyncio
 async def test_network_budget_honored_and_fails_explicitly(monkeypatch):
     """持续网络错误下，单中间件按预算退避重试，耗尽后显式抛出而非"假完成"。"""
-    import yuxi.modules.agents.runtime.middlewares.network_retry as module
+    import zs.modules.agents.runtime.middlewares.network_retry as module
 
     clock = {"t": 0.0}
     sleeps: list[float] = []
@@ -210,7 +210,7 @@ async def test_network_then_non_network_error_routes_to_parent_retry():
 @pytest.mark.asyncio
 async def test_network_budget_survives_parent_retry(monkeypatch):
     """网络异常 → 非网络异常 → 网络异常：预算起点跨父类重试保持，不被重置放大。"""
-    import yuxi.modules.agents.runtime.middlewares.network_retry as module
+    import zs.modules.agents.runtime.middlewares.network_retry as module
 
     clock = {"t": 0.0}
     sleeps: list[float] = []
@@ -332,7 +332,7 @@ async def test_invalid_model_request_with_timeout_text_is_not_retried():
 @pytest.mark.parametrize("error_kind", ["python", "domain"])
 async def test_permission_error_with_network_cause_is_never_retried(error_kind):
     """权限拒绝即使带有网络原因也只能发送一次请求。"""
-    from yuxi.shared.errors import PermissionDeniedError
+    from zs.shared.errors import PermissionDeniedError
 
     middleware = NetworkRetryMiddleware(max_retries=2, network_budget_seconds=30, network_initial_delay=0)
     error_type = PermissionError if error_kind == "python" else PermissionDeniedError

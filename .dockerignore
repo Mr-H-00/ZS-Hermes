@@ -9,7 +9,7 @@
 **/.env
 **/.env.*
 !**/.env.template
-.yuxi/
+.zs/
 .playwright*/
 docs/vibe/
 tmp/

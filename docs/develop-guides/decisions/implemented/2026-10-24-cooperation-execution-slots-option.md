@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/repositories/cooperation.py
+Owner：backend/zs/modules/agents/repositories/cooperation.py
 
 ## 问题
 

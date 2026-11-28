@@ -16,7 +16,7 @@ SUPERADMIN_UID = "zwj"
 SUPERADMIN_NAME = "张文杰"
 SUPERADMIN_PHONE_NUMBER = "15251638888"
 SUPERADMIN_PASSWORD = "zwj12138"
-DEFAULT_USER_PASSWORD = "yuxi123456"
+DEFAULT_USER_PASSWORD = "zs123456"
 
 
 class DepartmentSeed(TypedDict):
@@ -44,7 +44,7 @@ def load_project_env() -> None:
 
 
 async def ensure_uninitialized(session) -> None:
-    from yuxi.modules.identity.models import User
+    from zs.modules.identity.models import User
 
     user_count = await session.scalar(select(func.count(User.id)))
     if user_count:
@@ -57,17 +57,17 @@ async def ensure_uninitialized(session) -> None:
 
 async def seed_initial_users() -> None:
     """注册完整模型并向尚未初始化的当前 Schema 写入种子用户。"""
-    from yuxi.infrastructure.postgres.manager import pg_manager
-    from yuxi.infrastructure.postgres.models import load_models
-    from yuxi.modules.identity.models import Department, User
-    from yuxi.modules.identity.security import AuthUtils
-    from yuxi.shared.datetime import utc_now
+    from zs.infrastructure.postgres.manager import pg_manager
+    from zs.infrastructure.postgres.models import load_models
+    from zs.modules.identity.models import Department, User
+    from zs.modules.identity.security import AuthUtils
+    from zs.shared.datetime import utc_now
 
     try:
         load_models()
         pg_manager.initialize()
         # Schema 由 Compose 中的 app-init 独占创建，这里只校验版本后写入种子数据。
-        from yuxi.infrastructure.postgres.schema import require_current_schema
+        from zs.infrastructure.postgres.schema import require_current_schema
 
         await require_current_schema(pg_manager)
 
@@ -138,7 +138,7 @@ def main() -> int:
 
     print(f"初始化完成：已创建超级管理员 {SUPERADMIN_NAME}（{SUPERADMIN_UID}）、3 个部门、6 个部门管理员和 14 个普通用户。")
     print("超级管理员密码：zwj12138")
-    print("部门管理员和普通用户默认密码：yuxi123456")
+    print("部门管理员和普通用户默认密码：zs123456")
     return 0
 
 

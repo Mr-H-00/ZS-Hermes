@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.runtime.sandbox.download import (
+from zs.modules.agents.runtime.sandbox.download import (
     MAX_SANDBOX_TREE_BYTES,
     MAX_SANDBOX_TREE_DEPTH,
     MAX_SANDBOX_TREE_ENTRIES,
@@ -119,7 +119,7 @@ def test_download_sandbox_directory_rejects_actual_size_over_limit(monkeypatch, 
         entries=[{"path": f"{REMOTE_DIR}/SKILL.md", "is_dir": False, "size": 1}],
         download=lambda _paths: [SimpleNamespace(error=None, content=b"oversized")],
     )
-    monkeypatch.setattr("yuxi.modules.agents.runtime.sandbox.download.MAX_SANDBOX_TREE_BYTES", 5)
+    monkeypatch.setattr("zs.modules.agents.runtime.sandbox.download.MAX_SANDBOX_TREE_BYTES", 5)
     target = tmp_path / "skill"
 
     with pytest.raises(ValueError, match="总大小超过限制"):

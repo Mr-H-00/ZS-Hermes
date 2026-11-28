@@ -14,13 +14,13 @@ from langchain.messages import HumanMessage, ToolMessage
 from langgraph.types import Command
 from test.unit.support.agent_context_fixtures import prepared_execution
 from test.support.agent_stream_fixtures import FinalAnswerModel, native
-from yuxi.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
-from yuxi.modules.agents.runtime.context import BaseContext
-from yuxi.modules.agents.runtime.middlewares.steer import SteerMiddleware
-import yuxi.modules.agents.services.execution as svc
-from yuxi.modules.agents.services.execution import RunExecutionResult
-from yuxi.modules.agents.input_messages import build_chat_input_message
-from yuxi.modules.agents.services.tracing import LangfuseRunContext
+from zs.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
+from zs.modules.agents.runtime.context import BaseContext
+from zs.modules.agents.runtime.middlewares.steer import SteerMiddleware
+import zs.modules.agents.services.execution as svc
+from zs.modules.agents.services.execution import RunExecutionResult
+from zs.modules.agents.input_messages import build_chat_input_message
+from zs.modules.agents.services.tracing import LangfuseRunContext
 
 
 class _FakeSession:
@@ -67,7 +67,7 @@ def _patch_stream_scaffolding(monkeypatch, *, agent, supply_checkpoint=True, **_
             **deepcopy(item),
             "id": f"{operation}:{role}:{key}",
             "turn_id": adapter.turn_id,
-            "yuxi": {**item.get("yuxi", {}), "run_id": adapter.run_id, "output_index": 0, "message_id": 1},
+            "zs": {**item.get("zs", {}), "run_id": adapter.run_id, "output_index": 0, "message_id": 1},
         }
 
     @asynccontextmanager
@@ -158,7 +158,7 @@ def text_events(text="hello", metadata=None):
 
 async def test_execution_keeps_attachments_on_each_inputs_message(monkeypatch):
     """各 Input 的附件只补入自己的末条消息，保留正文和图片。"""
-    from yuxi.shared.datetime import utc_now
+    from zs.shared.datetime import utc_now
 
     agent = FakeAgent()
     _patch_stream_scaffolding(monkeypatch, agent=agent)
@@ -234,7 +234,7 @@ async def test_cancelled_steer_continues_real_graph_without_replaying_input(monk
     from langchain.tools import tool
     from langchain_core.outputs import ChatGeneration, ChatResult
     from langgraph.checkpoint.memory import InMemorySaver
-    from yuxi.modules.agents.services import runs
+    from zs.modules.agents.services import runs
 
     cancelled = False
     tool_calls = 0
@@ -313,7 +313,7 @@ async def test_cancelled_steer_continues_real_graph_without_replaying_input(monk
     assert len(checkpoints) == (1 if boundary == "after_model" else 2)
     assert model.call_count == (2 if boundary == "after_tools" else 1)
     assert tool_calls == (1 if boundary == "after_tools" else 0)
-    assert all(state.metadata["yuxi_run_id"] == "run-1" and "run_id" not in state.metadata for state in checkpoints)
+    assert all(state.metadata["zs_run_id"] == "run-1" and "run_id" not in state.metadata for state in checkpoints)
     messages = results[0].checkpoint.values["messages"]
     assert [message.content for message in messages if isinstance(message, HumanMessage)] == ["hello"]
     assert len([message for message in messages if isinstance(message, AIMessage)]) == model.call_count
@@ -336,7 +336,7 @@ async def test_cancelled_steer_continuation_keeps_extension_event_ids_unique(mon
                 "method": "custom",
                 "seq": 2,
                 "params": {
-                    "data": {"type": "yuxi.context_compression", "summary": f"segment-{self.calls}"},
+                    "data": {"type": "zs.context_compression", "summary": f"segment-{self.calls}"},
                 },
             }
             yield GraphExecutionResult(checkpoint=SimpleNamespace(values=state, tasks=()), steer_before_model=self.calls == 1)
@@ -513,7 +513,7 @@ async def test_partial_failure_saves_displayed_text_and_trace_before_done(monkey
 )
 async def test_cancel_close_preserves_only_owned_requested_partial(monkeypatch, mode, close_path, status, worker_id, expected_snapshot):
     """两种关闭异常保留已展示正文，普通关闭和错误 Owner 不写取消快照。"""
-    import yuxi.modules.agents.services.openai_events as events_module
+    import zs.modules.agents.services.openai_events as events_module
 
     waiting = asyncio.Event()
     persisted = {}
@@ -589,15 +589,15 @@ async def test_values_and_custom_events_use_explicit_extensions(monkeypatch):
     """状态白名单与压缩通知保持来源顺序，不泄漏 checkpoint 内容。"""
     events = [
         native(1, {"artifacts": ["result.txt"], "todos": [{"task": "legacy"}], "messages": ["private prompt"]}, "values"),
-        native(2, {"type": "yuxi.context_compression", "status": "started"}, "custom"),
+        native(2, {"type": "zs.context_compression", "status": "started"}, "custom"),
     ]
     events[0]["params"]["namespace"] = []
     agent = FakeAgent(events)
     _patch_stream_scaffolding(monkeypatch, agent=agent)
     output = [event async for event in execute()]
     assert [event["type"] for event in output[:-1]] == [
-        "yuxi.session.turn.state",
-        "yuxi.session.turn.context_compression",
+        "zs.session.turn.state",
+        "zs.session.turn.context_compression",
     ]
     assert output[0]["agent_state"]["artifacts"] == ["result.txt"]
     assert "todos" not in output[0]["agent_state"]
@@ -651,8 +651,8 @@ async def test_service_consumer_cancel_closes_real_graph(monkeypatch, mode):
     from langgraph.config import get_stream_writer
     from langgraph.graph import END, START, MessagesState, StateGraph
     from langgraph.types import interrupt
-    from yuxi.modules.agents.runtime.base import BaseAgent
-    from yuxi.modules.agents.services.runner import RunContext, _consume_stream_with_cancel
+    from zs.modules.agents.runtime.base import BaseAgent
+    from zs.modules.agents.services.runner import RunContext, _consume_stream_with_cancel
 
     consuming, release, closed = (asyncio.Event() for _ in range(3))
     effects, runs = [], []
@@ -662,7 +662,7 @@ async def test_service_consumer_cancel_closes_real_graph(monkeypatch, mode):
         if mode == "resume":
             interrupt("continue")
         try:
-            get_stream_writer()({"type": "yuxi.context_compression", "stage": "waiting"})
+            get_stream_writer()({"type": "zs.context_compression", "stage": "waiting"})
             await release.wait()
             effects.append("late write")
             return {"messages": []}
@@ -720,7 +720,7 @@ async def test_service_consumer_cancel_closes_real_graph(monkeypatch, mode):
         """精确在真实节点产生的事件处停止消费。"""
         async with aclosing(_consume_stream_with_cancel(stream, RunContext("run", "owner"))) as chunks:
             async for chunk in chunks:
-                if isinstance(chunk, dict) and chunk["type"] == "yuxi.session.turn.context_compression":
+                if isinstance(chunk, dict) and chunk["type"] == "zs.session.turn.context_compression":
                     consuming.set()
                     await asyncio.Event().wait()
 

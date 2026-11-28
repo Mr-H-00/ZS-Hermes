@@ -19,7 +19,7 @@ async function setupSubmission(t, { accepted = false } = {}) {
     threadId: 'thread', runtime: { startRunStream: () => { markStreamStarted(); return pending } }
   })
   t.mock.method(agentApi, 'getThreadTurn', async () => ({
-    status: 'requires_action', yuxi: { current_run_id: 'run-A', waitpoint: {
+    status: 'requires_action', zs: { current_run_id: 'run-A', waitpoint: {
       id: 'wait-A', run_id: 'run-A', questions: original.questions
     } }
   }))

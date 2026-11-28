@@ -1,7 +1,7 @@
 import pytest
 
-from yuxi.infrastructure.neo4j import close_shared_neo4j_connection, safe_neo4j_label
-from yuxi.infrastructure.neo4j import manager as neo4j_manager
+from zs.infrastructure.neo4j import close_shared_neo4j_connection, safe_neo4j_label
+from zs.infrastructure.neo4j import manager as neo4j_manager
 
 
 @pytest.mark.parametrize("label", ["kb_test", "MilvusKB", "_internal_1"])

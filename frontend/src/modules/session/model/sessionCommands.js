@@ -4,10 +4,10 @@ import { agentApi } from '@/apis'
 export async function resumeSessionWaitpoint({ threadId, turnId, runId, kind, answer }) {
   if (!turnId) throw new Error('当前线程没有等待中的 Turn')
   const turn = await agentApi.getThreadTurn(threadId, turnId)
-  const waitpoint = turn.yuxi.waitpoint
+  const waitpoint = turn.zs.waitpoint
   if (
     turn.status !== 'requires_action' ||
-    turn.yuxi.current_run_id !== runId ||
+    turn.zs.current_run_id !== runId ||
     !waitpoint?.id ||
     waitpoint.run_id !== runId
   ) {

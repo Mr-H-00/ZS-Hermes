@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException, UploadFile
 
-import yuxi.api.routers.knowledge.management as knowledge_router
-import yuxi.modules.knowledge.services.background_jobs as knowledge_job_service
-import yuxi.modules.knowledge.services.document_actions as document_actions
-from yuxi.modules.knowledge.read_models import KnowledgeBaseDetail
-from yuxi.modules.knowledge.services import graph_build, uploads
+import zs.api.routers.knowledge.management as knowledge_router
+import zs.modules.knowledge.services.background_jobs as knowledge_job_service
+import zs.modules.knowledge.services.document_actions as document_actions
+from zs.modules.knowledge.read_models import KnowledgeBaseDetail
+from zs.modules.knowledge.services import graph_build, uploads
 
 pytestmark = pytest.mark.asyncio
 

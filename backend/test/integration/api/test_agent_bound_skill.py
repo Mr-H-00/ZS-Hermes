@@ -14,10 +14,10 @@ import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.extensions.skills.models import Skill, SkillVersion
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir, refresh_user_skill_projection_async
-from yuxi.modules.extensions.skills.shared import get_skills_root_dir
-from yuxi.infrastructure.runtime_settings import get_skill_data_dir
+from zs.modules.extensions.skills.models import Skill, SkillVersion
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir, refresh_user_skill_projection_async
+from zs.modules.extensions.skills.shared import get_skills_root_dir
+from zs.infrastructure.runtime_settings import get_skill_data_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -26,7 +26,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 async def close_projection_pool():
     """投影用例的连接池在所属测试事件循环退出前关闭。"""
     yield
-    from yuxi.infrastructure.postgres.manager import pg_manager
+    from zs.infrastructure.postgres.manager import pg_manager
 
     await pg_manager.close()
 
@@ -256,7 +256,7 @@ async def test_bound_permission_follows_agent_and_removes_revoked_projection(tes
 
 async def test_private_agent_sharing_rolls_back_when_bound_dependency_is_restricted(test_client, admin_headers):
     """扩大共享范围不能绕过专属依赖授权，失败保留定义和绑定内容。"""
-    from yuxi.modules.agents.models.definitions import Agent
+    from zs.modules.agents.models.definitions import Agent
 
     suffix = uuid.uuid4().hex[:8]
     agent_slug, dependency_slug = f"pytest-promote-{suffix}", f"pytest-restricted-{suffix}"
@@ -327,11 +327,11 @@ async def test_private_agent_sharing_rolls_back_when_bound_dependency_is_restric
 async def test_bound_runtime_uses_app_agent_visibility_without_management(test_client, admin_headers, standard_user):
     """Key 所属账号的显式范围允许 APP 自动加载绑定，不借用管理员治理权。"""
     from sqlalchemy import delete
-    from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-    from yuxi.modules.extensions.skills.runtime import resolve_runtime_skills_for_context
-    from yuxi.modules.identity.models import User
-    from yuxi.modules.identity.permissions import ResourcePermission, resolve_skill_permission
-    from yuxi.modules.identity.repositories.users import UserRepository
+    from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+    from zs.modules.extensions.skills.runtime import resolve_runtime_skills_for_context
+    from zs.modules.identity.models import User
+    from zs.modules.identity.permissions import ResourcePermission, resolve_skill_permission
+    from zs.modules.identity.repositories.users import UserRepository
 
     slug = f"pytest-bound-app-{uuid.uuid4().hex[:8]}"
     app_id = f"pytest-bound-{uuid.uuid4().hex}"
@@ -391,9 +391,9 @@ async def test_bound_runtime_uses_app_agent_visibility_without_management(test_c
 
 async def test_binding_added_after_preparation_waits_for_next_context(test_client, admin_headers):
     """运行准备后新增绑定不改写旧范围，下一执行准备自动加载。"""
-    from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-    from yuxi.modules.extensions.skills.runtime import resolve_runtime_skills_for_context
-    from yuxi.modules.identity.models import User
+    from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+    from zs.modules.extensions.skills.runtime import resolve_runtime_skills_for_context
+    from zs.modules.identity.models import User
 
     slug = f"pytest-bound-late-{uuid.uuid4().hex[:8]}"
     created = await test_client.post("/api/agent", headers=admin_headers, json={"slug": slug, "name": slug})
@@ -428,8 +428,8 @@ async def test_binding_added_after_preparation_waits_for_next_context(test_clien
 
 async def test_package_compensation_respects_commit_point(test_client, admin_headers, monkeypatch):
     """提交前失败恢复文件，提交后清理失败保留已持久化的包。"""
-    from yuxi.modules.extensions.skills import content as content_service
-    from yuxi.modules.identity.models import User
+    from zs.modules.extensions.skills import content as content_service
+    from zs.modules.identity.models import User
 
     slug = f"pytest-bound-compensation-{uuid.uuid4().hex[:8]}"
     created = await test_client.post("/api/agent", headers=admin_headers, json={"slug": slug, "name": slug})
@@ -639,8 +639,8 @@ async def test_save_release_restore_delete_complete_package(test_client, admin_h
 
 async def test_save_release_commit_failure_keeps_old_reference(test_client, admin_headers, bound_version_skill, monkeypatch):
     """真实 PG 提交失败，旧引用和字节保持有效，新包与历史均不留下。"""
-    from yuxi.modules.extensions.skills.content import save_skill_content
-    from yuxi.modules.identity.models import User
+    from zs.modules.extensions.skills.content import save_skill_content
+    from zs.modules.identity.models import User
 
     _, slug = bound_version_skill
     before = (await test_client.get(f"/api/system/skills/{slug}/content", headers=admin_headers)).json()["data"]
@@ -750,9 +750,9 @@ async def test_concurrent_content_save_only_one_commits(test_client, admin_heade
 
 async def test_content_save_does_not_refresh_all_users(test_client, admin_headers, bound_version_skill, monkeypatch):
     """普通内容变更保持现有投影，执行准备从当前持久引用刷新。"""
-    from yuxi.modules.extensions.skills.content import save_skill_content
-    from yuxi.modules.extensions.skills import projection
-    from yuxi.modules.identity.models import User
+    from zs.modules.extensions.skills.content import save_skill_content
+    from zs.modules.extensions.skills import projection
+    from zs.modules.identity.models import User
 
     _, slug = bound_version_skill
     me = (await test_client.get("/api/auth/me", headers=admin_headers)).json()
@@ -870,8 +870,8 @@ async def test_restore_revalidates_dependencies_against_current_agent_scope(test
 async def test_release_collision_preserves_existing_history(test_client, admin_headers, bound_version_skill, monkeypatch):
     """相同版本标识被唯一约束拒绝，不删除已发布内容。"""
     from types import SimpleNamespace
-    from yuxi.modules.extensions.skills import content
-    from yuxi.modules.identity.models import User
+    from zs.modules.extensions.skills import content
+    from zs.modules.identity.models import User
 
     _, slug = bound_version_skill
     data = (await test_client.get(f"/api/system/skills/{slug}/content", headers=admin_headers)).json()["data"]
@@ -910,8 +910,8 @@ async def test_release_collision_preserves_existing_history(test_client, admin_h
 
 async def test_committed_response_survives_following_save_prune(test_client, admin_headers, bound_version_skill, monkeypatch):
     """暂停首笔提交后，让第二笔保存清理旧包，首笔仍准确返回成功。"""
-    from yuxi.modules.extensions.skills import content
-    from yuxi.modules.identity.models import User
+    from zs.modules.extensions.skills import content
+    from zs.modules.identity.models import User
 
     _, slug = bound_version_skill
     data = (await test_client.get(f"/api/system/skills/{slug}/content", headers=admin_headers)).json()["data"]

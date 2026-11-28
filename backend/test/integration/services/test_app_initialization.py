@@ -16,11 +16,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.bootstrap import app as app_init
-from yuxi.infrastructure.postgres import manager as manager_module
-from yuxi.infrastructure.postgres.connection import postgres_conninfo
-from yuxi.infrastructure.postgres.schema import get_schema_versions
-from yuxi.modules.extensions.skills.builtin.sync import list_builtin_skill_specs
+from zs.bootstrap import app as app_init
+from zs.infrastructure.postgres import manager as manager_module
+from zs.infrastructure.postgres.connection import postgres_conninfo
+from zs.infrastructure.postgres.schema import get_schema_versions
+from zs.modules.extensions.skills.builtin.sync import list_builtin_skill_specs
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -40,7 +40,7 @@ async def isolated_app(monkeypatch, tmp_path):
     monkeypatch.setattr(manager, "close", AsyncMock())
     monkeypatch.setattr(app_init, "pg_manager", manager)
     monkeypatch.setattr(manager_module, "pg_manager", manager)
-    monkeypatch.setenv("YUXI_SKILL_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ZS_SKILL_DATA_DIR", str(tmp_path))
     try:
         await pool.open()
         yield manager, engine, tmp_path
@@ -135,8 +135,8 @@ async def test_existing_schema_initializes_in_a_cold_process(isolated_app):
         import asyncio
         import os
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-        from yuxi.bootstrap import app as initializer
-        from yuxi.infrastructure.postgres.manager import pg_manager
+        from zs.bootstrap import app as initializer
+        from zs.infrastructure.postgres.manager import pg_manager
 
         async def run():
             pg_manager.initialize()
@@ -265,7 +265,7 @@ async def test_invalid_legacy_mineru_config_fails_without_replacing_value(isolat
 
 async def test_retired_pp_structure_config_is_removed_without_redirecting_to_cloud(isolated_app):
     """删除失效服务配置，保留旧选择为显式错误，云端三模型共用既有凭据。"""
-    from yuxi.modules.documents.service import resolve_parse_options
+    from zs.modules.documents.service import resolve_parse_options
 
     manager, engine, _ = isolated_app
     await app_init.main()

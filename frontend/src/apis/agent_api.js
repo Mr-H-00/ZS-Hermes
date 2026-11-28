@@ -13,13 +13,13 @@ import { getApiAuthHeaders } from './auth_context'
 
 /** Web 来源与公开 item 分开读取，持久输入身份是唯一关联键。 */
 async function attachInputOrigins(threadId, items) {
-  const inputIds = [...new Set(items.filter((item) => item.role === 'user').map((item) => item.yuxi?.input_id).filter(Boolean))]
+  const inputIds = [...new Set(items.filter((item) => item.role === 'user').map((item) => item.zs?.input_id).filter(Boolean))]
   if (!inputIds.length) return
   const params = new URLSearchParams()
   for (const id of inputIds) params.append('input_ids', id)
   const { origins } = await apiGet(`/api/agent/threads/${encodeURIComponent(threadId)}/input-origins?${params}`)
   for (const item of items) {
-    if (item.role === 'user') item.yuxi.input_origin = origins[item.yuxi.input_id] || null
+    if (item.role === 'user') item.zs.input_origin = origins[item.zs.input_id] || null
   }
 }
 
@@ -94,7 +94,7 @@ export const agentApi = {
   controlSessionTree: (threadId, stopped, idempotencyKey) =>
     apiPost(
       `/api/v1/agents/sessions/${threadId}/events`,
-      { events: [{ type: stopped ? 'yuxi.session.tree.stop' : 'yuxi.session.tree.continue' }] },
+      { events: [{ type: stopped ? 'zs.session.tree.stop' : 'zs.session.tree.continue' }] },
       { headers: { 'Idempotency-Key': idempotencyKey } }
     ),
 
@@ -138,7 +138,7 @@ export const agentApi = {
           {
             type: 'agent.session.input.message',
             input: [{ role: 'user', content }],
-            yuxi: {
+            zs: {
               mode: data.mode,
               attachment_file_ids: data.attachment_file_ids || [],
               ...(data.mode !== 'steer'
@@ -161,7 +161,7 @@ export const agentApi = {
       {
         events: [
           {
-            type: 'yuxi.session.input.resume',
+            type: 'zs.session.input.resume',
             turn_id: data.turn_id,
             waitpoint_id: data.waitpoint_id,
             response: data.response
@@ -178,7 +178,7 @@ export const agentApi = {
         events: [
           {
             type: 'agent.session.input.cancel',
-            yuxi: { turn_id: turnId, ...(expectedRunId ? { expected_run_id: expectedRunId } : {}) }
+            zs: { turn_id: turnId, ...(expectedRunId ? { expected_run_id: expectedRunId } : {}) }
           }
         ]
       },
@@ -228,7 +228,7 @@ export const agentApi = {
   continueThreadQueue: (threadId, idempotencyKey) =>
     apiPost(
       `/api/v1/agents/sessions/${threadId}/events`,
-      { events: [{ type: 'yuxi.session.input.continue' }] },
+      { events: [{ type: 'zs.session.input.continue' }] },
       { headers: { 'Idempotency-Key': idempotencyKey } }
     ),
 
@@ -238,14 +238,14 @@ export const agentApi = {
   promoteThreadInput: (threadId, inputId, idempotencyKey) =>
     apiPost(
       `/api/v1/agents/sessions/${threadId}/events`,
-      { events: [{ type: 'yuxi.session.input.promote', input_id: inputId }] },
+      { events: [{ type: 'zs.session.input.promote', input_id: inputId }] },
       { headers: { 'Idempotency-Key': idempotencyKey } }
     ),
 
   cancelThreadInput: (threadId, inputId, idempotencyKey) =>
     apiPost(
       `/api/v1/agents/sessions/${threadId}/events`,
-      { events: [{ type: 'yuxi.session.input.cancel_input', input_id: inputId }] },
+      { events: [{ type: 'zs.session.input.cancel_input', input_id: inputId }] },
       { headers: { 'Idempotency-Key': idempotencyKey } }
     ),
 
@@ -362,7 +362,7 @@ export const threadApi = {
     apiRequest(`/api/v1/agents/sessions/${threadId}`, {
       method: 'POST',
       body: JSON.stringify({
-        yuxi: { title, is_pinned, tool_approval_mode: toolApprovalMode },
+        zs: { title, is_pinned, tool_approval_mode: toolApprovalMode },
         ...(modelSpec ? { agent: { model: modelSpec } } : {})
       })
     }),

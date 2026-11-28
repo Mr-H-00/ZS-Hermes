@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/api/routers/agents/references.py
+Owner：backend/zs/api/routers/agents/references.py
 
 ## 问题
 

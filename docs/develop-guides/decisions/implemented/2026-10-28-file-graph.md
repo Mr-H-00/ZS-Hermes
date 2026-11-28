@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/knowledge/graphs/service.py
+Owner：backend/zs/modules/knowledge/graphs/service.py
 
 ## 问题
 

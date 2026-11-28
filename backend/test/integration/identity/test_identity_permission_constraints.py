@@ -7,7 +7,7 @@ import uuid
 import asyncpg
 import pytest
 
-from yuxi.migrations.schema import IDENTITY_PERMISSION_STATEMENTS
+from zs.migrations.schema import IDENTITY_PERMISSION_STATEMENTS
 
 
 @pytest.mark.asyncio

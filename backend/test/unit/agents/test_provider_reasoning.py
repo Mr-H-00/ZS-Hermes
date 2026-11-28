@@ -7,10 +7,10 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
-from yuxi.modules.models.chat import load_chat_model
-from yuxi.modules.models.utils import parse_assistant_message_body
-from yuxi.modules.models.providers.cache import ModelInfo
-from yuxi.modules.agents.services.openai_events import OpenAIEventAdapter
+from zs.modules.models.chat import load_chat_model
+from zs.modules.models.utils import parse_assistant_message_body
+from zs.modules.models.providers.cache import ModelInfo
+from zs.modules.agents.services.openai_events import OpenAIEventAdapter
 
 REASONING = " First\nthen check. "
 TOOL = {"type": "function", "function": {"name": "inspect_code", "parameters": {"type": "object", "properties": {}}}}
@@ -92,7 +92,7 @@ def make_model(monkeypatch, provider, field="reasoning_content", *, enabled=True
         return httpx.Response(200, json={**base, "choices": [{"index": 0, "message": message, "finish_reason": finish}]})
 
     info = ModelInfo(provider, "test", "chat", "Test", "test-key", "https://example.com/v1", "openai")
-    monkeypatch.setattr("yuxi.modules.models.chat.model_cache.get_model_info", lambda _: info)
+    monkeypatch.setattr("zs.modules.models.chat.model_cache.get_model_info", lambda _: info)
     transport = httpx.MockTransport(respond)
     model = load_chat_model(
         info.spec,
@@ -157,7 +157,7 @@ async def test_real_v3_reasoning_projection_and_checkpoint(monkeypatch):
             **item,
             "id": key,
             "turn_id": "turn",
-            "yuxi": {**item.get("yuxi", {}), "output_index": 0, "run_id": "r"},
+            "zs": {**item.get("zs", {}), "output_index": 0, "run_id": "r"},
         }
 
     monkeypatch.setattr(adapter, "_save", save)
@@ -165,7 +165,7 @@ async def test_real_v3_reasoning_projection_and_checkpoint(monkeypatch):
     async for event in run:
         if event["method"] == "messages":
             emitted.extend(await adapter.consume(event))
-    assert "".join(e["delta"] for e in emitted if e["type"] == "yuxi.session.turn.reasoning.delta") == REASONING
+    assert "".join(e["delta"] for e in emitted if e["type"] == "zs.session.turn.reasoning.delta") == REASONING
     assert any(
         e["type"] == "agent.session.turn.item.added" and e["item"]["type"] == "function_call" and e["item"]["call_id"] == "call-test"
         for e in emitted

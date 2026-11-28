@@ -10,10 +10,10 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import yuxi.modules.workspace.paths as paths
-import yuxi.modules.workspace.services.projects as projects
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
+import zs.modules.workspace.paths as paths
+import zs.modules.workspace.services.projects as projects
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

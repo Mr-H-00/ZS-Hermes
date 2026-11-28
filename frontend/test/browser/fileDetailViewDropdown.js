@@ -90,7 +90,7 @@ async page => {
       check(await menu.getByRole('menuitem', { name: '下载 Markdown' }).isEnabled(), 'Markdown 下载不可用')
       check(await host.getByRole('button', { name: '下载', exact: true }).count() === 0, '存在重复的下载按钮')
       await page.locator('.knowledge-file-actions:visible').evaluate(async el => { await Promise.allSettled(el.getAnimations().map(animation => animation.finished)) })
-      await page.screenshot({ path: `/tmp/yuxi-file-view-dropdown-${mode}.png` })
+      await page.screenshot({ path: `/tmp/zs-file-view-dropdown-${mode}.png` })
       await trigger.click()
       await host.evaluate(el => { el.style.width = '500px' })
       const compactTrigger = host.getByRole('button', { name: '更多文件操作', exact: true })
@@ -98,7 +98,7 @@ async page => {
       const compact = page.locator('.knowledge-file-actions:visible').last()
       await checkDivider(compact)
       await compact.evaluate(async el => { await Promise.allSettled(el.getAnimations().map(animation => animation.finished)) })
-      await page.screenshot({ path: `/tmp/yuxi-file-view-dropdown-compact-${mode}.png` })
+      await page.screenshot({ path: `/tmp/zs-file-view-dropdown-compact-${mode}.png` })
       await compactTrigger.click()
       await compact.waitFor({ state: 'hidden', timeout: 4000 })
       await host.evaluate(el => { el.style.width = '800px' })
@@ -124,7 +124,7 @@ async page => {
       check(surfaces.card !== surfaces.content && surfaces.selection === 'none' && surfaces.sidebarBorderWidth === '1px', `暗色分块区分不足：${JSON.stringify(surfaces)}`)
       check(surfaces.card !== surfaces.title, `暗色选中分块与标题区分不足：${JSON.stringify(surfaces)}`)
       check(surfaces.left >= 0 && surfaces.right <= width, `文件详情超出视口：${JSON.stringify(surfaces)}`)
-      await page.screenshot({ path: `/tmp/yuxi-file-detail-dark-${width}.png` })
+      await page.screenshot({ path: `/tmp/zs-file-detail-dark-${width}.png` })
     }
     await page.setViewportSize({ width: 1024, height: 800 })
     await host.evaluate(el => { el.style.width = '800px' })
@@ -221,7 +221,7 @@ async page => {
       await page.setViewportSize({ width, height: 800 })
       const bounds = await modal.boundingBox()
       check(bounds.x >= 0 && bounds.x + bounds.width <= width, `弹窗超出 ${width}px 视口`)
-      await page.screenshot({ path: `/tmp/yuxi-file-modal-dark-${width}.png` })
+      await page.screenshot({ path: `/tmp/zs-file-modal-dark-${width}.png` })
     }
     return { views: 4, themes: 2, compact: true, single: true, noView: true, downloads: 2, modalWidths: [1024, 768] }
   } finally {

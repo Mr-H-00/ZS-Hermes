@@ -2,7 +2,7 @@
 
 状态：proposed
 类型：feature
-Owner：backend/yuxi/modules/extensions/web/services.py
+Owner：backend/zs/modules/extensions/web/services.py
 
 ## 问题
 

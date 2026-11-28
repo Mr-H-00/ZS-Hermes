@@ -64,11 +64,11 @@ Thread SSE 把输入接收、Input 消费、Run 结束、Turn 结束和短期增
 
 接收、配置治理、交互恢复和 checkpoint 结算各由所属 service 提交或回滚，仓储只查询、锁定或 flush。幂等指纹保留接收时的规范 JSON 字节；同命令同意图才重放，用户、APP、Thread 和键的唯一约束仍由 PG 拥有。锁前快速重放与锁后复查保留在各命令入口，权限和资源删除语义由所属用例决定。Run 创建在已有 Thread 锁内固定当前 Turn、冻结配置、Input 与恢复 Message；提交后通过 scheduler 投递同一个 Run。
 
-[Message 仓储](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/repositories/messages.py)拥有正式消息的共同写入和读取，工具执行只保存在 `tool_audit` Message 中；Input 消费、模型/工具审计与公开 item 仓储分别拥有原始来源投影、执行事实与公开快照的原子更新。[checkpoint 消息结算](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/checkpoint_messages.py)显式接收 AsyncSession，在同一事务对账这些事实并结算 Run/Turn。`run_lifecycle` 拥有 Thread→Turn→Input→Run 的共同结算锁序、steer 裁决及 Run/Turn 投影，继续检查 current Run 与 lease；checkpoint 用例在同一事务对账输出并显式提交。最终回答由 `result_run_id` 明确绑定。终态提交后释放运行清理责任，再发布公开事件；协作通知与业务状态在同一 PG 事务写入，观察与恢复可补读。[事件订阅](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/subscriptions.py)消费持久生命周期和 Redis 投影，[审计读取](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/message_audits.py)只组装已授权持久事实。
+[Message 仓储](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/repositories/messages.py)拥有正式消息的共同写入和读取，工具执行只保存在 `tool_audit` Message 中；Input 消费、模型/工具审计与公开 item 仓储分别拥有原始来源投影、执行事实与公开快照的原子更新。[checkpoint 消息结算](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/checkpoint_messages.py)显式接收 AsyncSession，在同一事务对账这些事实并结算 Run/Turn。`run_lifecycle` 拥有 Thread→Turn→Input→Run 的共同结算锁序、steer 裁决及 Run/Turn 投影，继续检查 current Run 与 lease；checkpoint 用例在同一事务对账输出并显式提交。最终回答由 `result_run_id` 明确绑定。终态提交后释放运行清理责任，再发布公开事件；协作通知与业务状态在同一 PG 事务写入，观察与恢复可补读。[事件订阅](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/subscriptions.py)消费持久生命周期和 Redis 投影，[审计读取](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/message_audits.py)只组装已授权持久事实。
 
 执行服务在进入模型流前提交 runtime、附件与追踪准备事务，禁用追踪时也经过此提交点；准备或提交失败会回滚、结束 observation 并进入失败收敛，图不执行。
 
-协作树和用户环境维护使用[运行锁键](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime_locks.py)。消费、输出和恢复仓储各自维护行锁次序，Input 行锁先于 Run 终态更新；新增路径需沿相同 owning transaction 检查锁序。
+协作树和用户环境维护使用[运行锁键](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime_locks.py)。消费、输出和恢复仓储各自维护行锁次序，Input 行锁先于 Run 终态更新；新增路径需沿相同 owning transaction 检查锁序。
 
 ## 工具声明与执行事实
 
@@ -93,7 +93,7 @@ flowchart LR
 
 Public 身份在 HTTP 边界变为包含 `uid`、`app_id` 的作用域；接收、查询及副作用用例在 Thread 和相关记录上再次校验。归档 Thread 拒绝活跃 Turn 或待处理 Input，并保留历史。Project 删除在同一事务检查这些条件后归档所属 Thread，不修改 Workdir 字节。
 
-入口位于 [Public Agent router](https://github.com/xerrors/Yuxi/tree/main/backend/yuxi/api/routers/public_v1/agents)，接收与优先调度分别由 [inputs](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/inputs.py) 和 [scheduler](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/scheduler.py) 拥有；[turns](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/turns.py)、[runs](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/runs.py) 与 [worker](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/workers/settings.py) 拥有控制和执行收敛。真实 PostgreSQL/HTTP 与 worker 测试位于 `backend/test/integration`、`backend/test/e2e`；验收需回读 Input、Turn、Run、消息、checkpoint 和产物，不能只以 `202` 或 SSE 结束判定成功。
+入口位于 [Public Agent router](https://github.com/xerrors/Yuxi/tree/main/backend/zs/api/routers/public_v1/agents)，接收与优先调度分别由 [inputs](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/inputs.py) 和 [scheduler](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/scheduler.py) 拥有；[turns](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/turns.py)、[runs](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/runs.py) 与 [worker](https://github.com/xerrors/Yuxi/blob/main/backend/zs/workers/settings.py) 拥有控制和执行收敛。真实 PostgreSQL/HTTP 与 worker 测试位于 `backend/test/integration`、`backend/test/e2e`；验收需回读 Input、Turn、Run、消息、checkpoint 和产物，不能只以 `202` 或 SSE 结束判定成功。
 
 ## 独立委派
 

@@ -37,7 +37,7 @@ async page => {
     check(await card.getByLabel('API 地址', { exact: true }).count() === 1, '共享地址字段不唯一')
     check(await card.getByLabel('Access Token', { exact: true }).count() === 1, '共享凭据字段不唯一')
     check(await card.evaluate(el => el.scrollWidth <= el.clientWidth), '共享配置卡片横向溢出')
-    const path = `/tmp/yuxi-paddleocr-options-${theme}-${width}.png`
+    const path = `/tmp/zs-paddleocr-options-${theme}-${width}.png`
     await card.screenshot({ path })
     screenshots.push(path)
     await card.getByRole('button', { name: /^取\s*消$/ }).click()

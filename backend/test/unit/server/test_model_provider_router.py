@@ -1,7 +1,7 @@
 import pytest
 
-import yuxi.api.routers.models as model_provider_router
-from yuxi.api.routers.models import ModelProviderPayload
+import zs.api.routers.models as model_provider_router
+from zs.api.routers.models import ModelProviderPayload
 
 
 @pytest.mark.parametrize("value", ["true", "false", 1, 0])

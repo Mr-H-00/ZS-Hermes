@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/api/routers/public_v1/knowledge_mcp.py
+Owner：backend/zs/api/routers/public_v1/knowledge_mcp.py
 
 ## 问题
 

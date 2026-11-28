@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.agents.runtime.context import BaseContext
-import yuxi.modules.agents.services.configuration as agent_config_service
+from zs.modules.agents.runtime.context import BaseContext
+import zs.modules.agents.services.configuration as agent_config_service
 
 pytestmark = pytest.mark.unit
 

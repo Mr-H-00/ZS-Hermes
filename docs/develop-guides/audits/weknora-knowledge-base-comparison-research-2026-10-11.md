@@ -218,4 +218,4 @@ WeKnora 是"知识库即产品":在摄取→分块→溯源→集成这条用户
 - 企业能力:README_CN.md、官方安装文档 https://weknora.weixin.qq.com/docs/01-getting-started/02-installation
 - 短板 issues:#13(竞品对比)、#414(roadmap)、#4084(跨空间共享)、#4092(SSRF)、#4106(Helm RWO)、#4064(VLM 429 静默)、#4077(PG crash)
 - 安全披露:OPSWAT Unit 515(https://chinese.opswat.com)、SentinelOne 漏洞库(CVE-2026-30247/30857/30858/30860/30861)
-- Yuxi 侧证据:见正文各表 `file:line`,关键文件 `backend/yuxi/modules/knowledge/`(models/chunking/implementations/milvus.py)、`backend/yuxi/infrastructure/document_parsing/`、`backend/yuxi/modules/agents/services/references.py`、`backend/yuxi/modules/extensions/tools/knowledge/tools.py`
+- Yuxi 侧证据:见正文各表 `file:line`,关键文件 `backend/zs/modules/knowledge/`(models/chunking/implementations/milvus.py)、`backend/zs/infrastructure/document_parsing/`、`backend/zs/modules/agents/services/references.py`、`backend/zs/modules/extensions/tools/knowledge/tools.py`

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/presets/knowledge_base_qa.py
+Owner：backend/zs/modules/agents/presets/knowledge_base_qa.py
 
 ## 问题
 

@@ -43,9 +43,9 @@ HTTP 查询、worker 准备、定时触发、等待恢复、模型和工具边�
 
 ## 源码定位与验证
 
-- [权限解析](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/permissions/resource_permission.py)拥有角色上限、范围关系和私有可见性；[Agent repository](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/repositories/definitions.py)拥有定义写入和共享定义授权事务。
-- [用户用例](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/services/users.py)拥有成员与资料事务；[系统资源治理](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/system/services/resource_ownership.py)编排跨域所有权转移，Agent 与 Skill 保留各自的投影发布入口。
-- [身份 schema](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/migrations/schema.py)拥有角色与有效系统管理员约束；[授权中间件](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/middlewares/authorization.py)拥有模型和工具执行边界。
+- [权限解析](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/permissions/resource_permission.py)拥有角色上限、范围关系和私有可见性；[Agent repository](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/repositories/definitions.py)拥有定义写入和共享定义授权事务。
+- [用户用例](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/services/users.py)拥有成员与资料事务；[系统资源治理](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/system/services/resource_ownership.py)编排跨域所有权转移，Agent 与 Skill 保留各自的投影发布入口。
+- [身份 schema](https://github.com/xerrors/Yuxi/blob/main/backend/zs/migrations/schema.py)拥有角色与有效系统管理员约束；[授权中间件](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/middlewares/authorization.py)拥有模型和工具执行边界。
 - [HTTP 验收](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_permission_convergence.py)回读定义与账号；[身份并发测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/identity/test_identity_permission_constraints.py)使用两个 PostgreSQL 连接；[撤权 E2E](https://github.com/xerrors/Yuxi/blob/main/backend/test/e2e/test_permission_revocation_e2e.py)回读运行终态、工具结果和文件。
 
 权限持久状态使用全新 schema 初始化；部署和隔离环境选择见[并行工作树与隔离运行环境](../develop-guides/parallel-worktree-environments.md)。测试命令由[测试规范](../develop-guides/testing-guidelines.md)维护。

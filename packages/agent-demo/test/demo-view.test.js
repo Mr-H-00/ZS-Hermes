@@ -53,7 +53,7 @@ export function useDemo() {
     userId: "",
     users: [{ id: "", name: "默认用户" }],
   }));
-  const turn = computed(() => state.snapshot?.yuxi.current_turn ?? null);
+  const turn = computed(() => state.snapshot?.zs.current_turn ?? null);
   const waitpoint = computed(() =>
     turn.value?.status === "requires_action" ? turn.value.waitpoint : null,
   );
@@ -134,7 +134,7 @@ test("暂停不禁用发送；有选项渲染选项，无选项保留文本框�
     const render = () => renderToString(createSSRApp(App));
 
     view.snapshot = {
-      yuxi: {
+      zs: {
         queue_paused: true,
         queued_input_count: 2,
         title: "对话",
@@ -156,7 +156,7 @@ test("暂停不禁用发送；有选项渲染选项，无选项保留文本框�
     assert.equal(composer(html).includes("disabled"), true);
 
     view.connected = true;
-    view.snapshot.yuxi.current_turn = {
+    view.snapshot.zs.current_turn = {
       id: "turn-1",
       status: "requires_action",
       waitpoint: {
@@ -176,7 +176,7 @@ test("暂停不禁用发送；有选项渲染选项，无选项保留文本框�
     assert.doesNotMatch(textPanel, /type="radio"/u);
     assert.equal(composer(html).includes("disabled"), true);
 
-    view.snapshot.yuxi.current_turn.waitpoint = {
+    view.snapshot.zs.current_turn.waitpoint = {
       id: "wait-choice",
       kind: "answer",
       questions: [
@@ -206,12 +206,12 @@ test("暂停不禁用发送；有选项渲染选项，无选项保留文本框�
     html = await render();
     assert.match(panel(html), /请输入其他答案/);
 
-    view.snapshot.yuxi.current_turn.waitpoint.questions[0].allow_other = false;
+    view.snapshot.zs.current_turn.waitpoint.questions[0].allow_other = false;
     view.otherSelected = {};
     html = await render();
     assert.doesNotMatch(panel(html), /其他/);
 
-    view.snapshot.yuxi.current_turn.waitpoint = {
+    view.snapshot.zs.current_turn.waitpoint = {
       id: "wait-multi",
       kind: "answer",
       questions: [
@@ -234,7 +234,7 @@ test("暂停不禁用发送；有选项渲染选项，无选项保留文本框�
     assert.match(multiPanel, /value="lead"/u);
     assert.doesNotMatch(multiPanel, /type="radio"/u);
 
-    view.snapshot.yuxi.current_turn.waitpoint = {
+    view.snapshot.zs.current_turn.waitpoint = {
       id: "wait-approval",
       kind: "approval",
       calls: [

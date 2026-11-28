@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[3] / "yuxi"
+PACKAGE_ROOT = Path(__file__).resolve().parents[3] / "zs"
 
 
 @pytest.mark.parametrize(
     ("relative_path", "forbidden"),
     [
-        ("infrastructure/oidc/client.py", ("yuxi.modules",)),
-        ("migrations/main.py", ("yuxi.bootstrap",)),
-        ("migrations/schema.py", ("yuxi.bootstrap",)),
-        ("modules/system/options.py", ("yuxi.modules.extensions",)),
+        ("infrastructure/oidc/client.py", ("zs.modules",)),
+        ("migrations/main.py", ("zs.bootstrap",)),
+        ("migrations/schema.py", ("zs.bootstrap",)),
+        ("modules/system/options.py", ("zs.modules.extensions",)),
     ],
 )
 def test_layering_edges_do_not_regress(relative_path: str, forbidden: tuple[str, ...]) -> None:

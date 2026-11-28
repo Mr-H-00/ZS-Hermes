@@ -7,9 +7,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
 
-from yuxi.modules.extensions.mcp.service import ensure_builtin_mcp_servers_in_db, get_mcp_tools
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.extensions.mcp.models import MCPServer
+from zs.modules.extensions.mcp.service import ensure_builtin_mcp_servers_in_db, get_mcp_tools
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.extensions.mcp.models import MCPServer
 
 pytestmark = pytest.mark.e2e
 
@@ -17,7 +17,7 @@ pytestmark = pytest.mark.e2e
 @pytest_asyncio.fixture
 async def current_loop_pg_manager():
     """让全局 PostgreSQL 引擎绑定到当前测试事件循环。"""
-    from yuxi.infrastructure.postgres.models import load_models
+    from zs.infrastructure.postgres.models import load_models
 
     load_models()
     if pg_manager.async_engine is not None:
@@ -88,7 +88,7 @@ async def test_deepwiki_registered_from_remote_manifest(current_loop_pg_manager)
 
 async def test_official_builtin_preserves_user_deepwiki(current_loop_pg_manager):
     """官方内置标识不占用已有用户 deepwiki 配置。"""
-    from yuxi.modules.extensions.mcp.service import get_enabled_mcp_server_config, is_builtin_mcp_server
+    from zs.modules.extensions.mcp.service import get_enabled_mcp_server_config, is_builtin_mcp_server
 
     async with current_loop_pg_manager.get_async_session_context() as db:
         assert await db.scalar(select(MCPServer.id).where(MCPServer.slug == "deepwiki")) is None, (

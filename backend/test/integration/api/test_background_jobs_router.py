@@ -19,9 +19,9 @@ async def test_missing_embedding_failure_through_http_worker_and_postgres(test_c
     """模拟历史缺失配置，经真实 HTTP 和 worker 后独立回读任务与文件事实。"""
     from sqlalchemy import delete, select, update
 
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.knowledge.cache import delete_cached_kb_config
-    from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.cache import delete_cached_kb_config
+    from zs.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
 
     response = await test_client.post(
         "/api/knowledge/knowledge-bases",
@@ -223,10 +223,10 @@ async def test_cancel_http_records_intent_before_execution_confirmation(test_cli
     """取消回执只登记请求，执行方确认之后详情才显示取消终态。"""
     from datetime import timedelta
 
-    from yuxi.infrastructure.postgres.manager import pg_manager
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.background_jobs.repository import BackgroundJobRepository
-    from yuxi.shared.datetime import utc_now
+    from zs.infrastructure.postgres.manager import pg_manager
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.background_jobs.repository import BackgroundJobRepository
+    from zs.shared.datetime import utc_now
 
     job_id = uuid.uuid4().hex
     owner = "pytest-http-cancel-owner"

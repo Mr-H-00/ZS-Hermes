@@ -34,7 +34,7 @@ const toolSettled = computed(
   () => Boolean(props.output) && props.output.status !== "in_progress",
 );
 const reasoning = computed(() =>
-  Object.values(props.item.yuxi?.reasoning || {}).join(""),
+  Object.values(props.item.zs?.reasoning || {}).join(""),
 );
 const user = computed(() => props.item.role === "user");
 const tool = computed(() => props.item.type === "function_call");
@@ -116,14 +116,14 @@ function followLink(event) {
         <p v-if="!content.length && item.status === 'in_progress'" class="typing">•••</p>
       </div>
       <div class="message-meta">
-        <span v-if="item.yuxi?.created_at">{{
-          new Date(item.yuxi.created_at).toLocaleTimeString("zh-CN", {
+        <span v-if="item.zs?.created_at">{{
+          new Date(item.zs.created_at).toLocaleTimeString("zh-CN", {
             hour: "2-digit",
             minute: "2-digit",
           })
         }}</span>
-        <span v-if="item.yuxi?.delivery_status === 'failed'">发送失败</span>
-        <span v-else-if="item.yuxi?.delivery_status === 'cancelled'"
+        <span v-if="item.zs?.delivery_status === 'failed'">发送失败</span>
+        <span v-else-if="item.zs?.delivery_status === 'cancelled'"
           >已取消</span
         >
         <CheckCheck v-else-if="user" :size="13" />

@@ -11,14 +11,14 @@ import pytest
 import yaml
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yuxi.modules.extensions.skills.repository import SkillRepository
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir, sync_user_accessible_skills
-from yuxi.modules.extensions.skills.shared import (
+from zs.modules.extensions.skills.repository import SkillRepository
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir, sync_user_accessible_skills
+from zs.modules.extensions.skills.shared import (
     lock_accessible_shared_skills_for_runtime,
 )
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.infrastructure.runtime_settings import get_skill_data_dir
-from yuxi.modules.identity.models import User
+from zs.modules.extensions.skills.models import Skill
+from zs.infrastructure.runtime_settings import get_skill_data_dir
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -247,7 +247,7 @@ async def test_unquoted_multiline_description_can_be_saved_through_http(test_cli
 
 async def test_delete_cleanup_preserves_reinstalled_same_slug(test_client, admin_headers, monkeypatch):
     """删除提交后的旧目录清理不能删除随后同 slug 安装的新包。"""
-    from yuxi.modules.extensions.skills import shared
+    from zs.modules.extensions.skills import shared
 
     slug = f"pytest-reinstall-{uuid.uuid4().hex[:10]}"
     root = f"---\nname: {slug}\nslug: {slug}\ndescription: old\n---\nold"

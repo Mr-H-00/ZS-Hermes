@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/workspace/workdir.py
+Owner：backend/zs/modules/workspace/workdir.py
 
 ## 问题
 

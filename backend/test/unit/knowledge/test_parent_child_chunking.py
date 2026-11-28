@@ -6,7 +6,7 @@ import importlib
 
 import pytest
 
-from yuxi.modules.knowledge.chunking.ragflow_like.parent_child import (
+from zs.modules.knowledge.chunking.ragflow_like.parent_child import (
     TokenizerUnavailableError,
     chunk_parent_child,
     resolve_tokenizer,

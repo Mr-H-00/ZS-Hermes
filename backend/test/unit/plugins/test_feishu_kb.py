@@ -6,9 +6,9 @@ from dataclasses import replace
 import httpx
 import pytest
 
-from yuxi.modules.knowledge.implementations.feishu import FeishuKB
-from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
-from yuxi.shared.errors import UpstreamError
+from zs.modules.knowledge.implementations.feishu import FeishuKB
+from zs.modules.knowledge.read_models import KnowledgeBaseConfig
+from zs.shared.errors import UpstreamError
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def install_transport(monkeypatch, handler):
     """在 HTTP wire 边界替换远端，保留真实请求序列化与响应解析。"""
     client_type = httpx.AsyncClient
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.implementations.feishu.httpx.AsyncClient",
+        "zs.modules.knowledge.implementations.feishu.httpx.AsyncClient",
         lambda **kwargs: client_type(transport=httpx.MockTransport(handler), **kwargs),
     )
 
@@ -198,8 +198,8 @@ async def test_remote_domain_error_reaches_http_error_adapter(monkeypatch, route
     import json
     from types import SimpleNamespace
 
-    from yuxi.api.errors import domain_error_handler
-    from yuxi.api.routers.knowledge import management
+    from zs.api.errors import domain_error_handler
+    from zs.api.routers.knowledge import management
 
     async def fail(*args, **kwargs):
         """模拟已脱敏的上游失败。"""

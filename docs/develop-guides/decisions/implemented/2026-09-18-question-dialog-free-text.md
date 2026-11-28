@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/extensions/tools/builtin/ask_user_question.py
+Owner：backend/zs/modules/extensions/tools/builtin/ask_user_question.py
 
 ## 问题
 

@@ -206,15 +206,15 @@ Yuxi 锁定的 LangChain 1.3.17 已经包含这条路径，不需要额外依赖
 
 ### Yuxi 当前事实
 
-Yuxi 的 Agent backend 是 `UserSandboxBackend`，继承 DeepAgents `BaseSandbox`，通过 `CubeSandboxProvider` 把命令发到每用户持久 Cube VM；`create_agent_composite_backend()` 把它作为 `CompositeBackend.default`，`routes={}`，并设置 `artifacts_root`。`backend/yuxi/modules/agents/runtime/sandbox/backend.py`、`backend/yuxi/modules/agents/runtime/sandbox/provider.py`
+Yuxi 的 Agent backend 是 `UserSandboxBackend`，继承 DeepAgents `BaseSandbox`，通过 `CubeSandboxProvider` 把命令发到每用户持久 Cube VM；`create_agent_composite_backend()` 把它作为 `CompositeBackend.default`，`routes={}`，并设置 `artifacts_root`。`backend/zs/modules/agents/runtime/sandbox/backend.py`、`backend/zs/modules/agents/runtime/sandbox/provider.py`
 
-`execute` 工具由 `FilesystemMiddleware` 在检测到 backend 实现 `SandboxBackendProtocol` 后提供；Yuxi 的 `YuxiFilesystemMiddleware` 只额外处理大工具结果驱逐，并显式保留 `ls/read_file/write_file/edit_file/glob/grep/execute`，排除 `delete`。`backend/yuxi/modules/agents/runtime/middlewares/filesystem.py`、`backend/yuxi/modules/agents/runtime/agent_backends/chatbot/graph.py`
+`execute` 工具由 `FilesystemMiddleware` 在检测到 backend 实现 `SandboxBackendProtocol` 后提供；Yuxi 的 `YuxiFilesystemMiddleware` 只额外处理大工具结果驱逐，并显式保留 `ls/read_file/write_file/edit_file/glob/grep/execute`，排除 `delete`。`backend/zs/modules/agents/runtime/middlewares/filesystem.py`、`backend/zs/modules/agents/runtime/agent_backends/chatbot/graph.py`
 
 文件边界是混合的：`/home/user/workspace` 和 `~/workspace` 由宿主 UserWorkspace 直接读写，`/home/user/skills` 是只读共享投影，其他路径通过 Cube VM 的普通账号进程访问；模型不能指定执行账号。[sandbox.md](../../mechanisms/sandbox.md)
 
 生命周期是每用户一个持久 VM：PostgreSQL 保存实例引用、代次和凭据；用户锁协调创建/恢复/休眠/重建；命令句柄保存 Run/attempt、进程组和清理状态；空闲默认 300 秒暂停；API/worker 重启不删除环境；重建保留 Workspace/Skills，清除 Home 和软件。[sandbox.md](../../mechanisms/sandbox.md)、[sandbox-operations.md](../../advanced/sandbox-operations.md)
 
-标准部署需要专用 Linux/KVM 节点和 Cube 控制面；模板固定为 `CUBE_TEMPLATE_ID`（默认 `yuxi-user`），每个用户 VM 只挂载自己的 Workspace 子目录和只读 Skills，平台来源目录、数据库目录、`.env`、Docker socket 都不挂载。[sandbox-operations.md](../../advanced/sandbox-operations.md)、`backend/yuxi/modules/agents/runtime/sandbox/cube.py`
+标准部署需要专用 Linux/KVM 节点和 Cube 控制面；模板固定为 `CUBE_TEMPLATE_ID`（默认 `yuxi-user`），每个用户 VM 只挂载自己的 Workspace 子目录和只读 Skills，平台来源目录、数据库目录、`.env`、Docker socket 都不挂载。[sandbox-operations.md](../../advanced/sandbox-operations.md)、`backend/zs/modules/agents/runtime/sandbox/cube.py`
 
 ### 选项 A：Docker/Podman 的透明 `SandboxBackendProtocol`（推荐作为第一步）
 

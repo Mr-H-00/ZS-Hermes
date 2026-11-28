@@ -7,10 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yuxi.infrastructure.document_parsing.engines as engines
-import yuxi.infrastructure.document_parsing.parser as parser_unified
-from yuxi.infrastructure.document_parsing import ParseOptions
-from yuxi.modules.documents.service import parse
+import zs.infrastructure.document_parsing.engines as engines
+import zs.infrastructure.document_parsing.parser as parser_unified
+from zs.infrastructure.document_parsing import ParseOptions
+from zs.modules.documents.service import parse
 
 PARSER_FIXTURES = Path(__file__).parents[2] / "data"
 
@@ -63,7 +63,7 @@ async def _parse_markdown(source, params=None, db=None):
 
 def test_pdfreader_preserves_page_order_blank_pages_and_trimming(tmp_path: Path):
     """文本提取保留空页分隔并去除逐页首尾空白。"""
-    from yuxi.infrastructure.document_parsing.parser import _parse_ocr
+    from zs.infrastructure.document_parsing.parser import _parse_ocr
 
     file_path = tmp_path / "pages.pdf"
     _build_pdf(file_path, ["  First page  ", "", "Last page"])
@@ -73,7 +73,7 @@ def test_pdfreader_preserves_page_order_blank_pages_and_trimming(tmp_path: Path)
 def test_pdfreader_rejects_corrupt_pdf(tmp_path: Path):
     """损坏 PDF 显式失败，不返回伪成功空文本。"""
     from pypdf.errors import PdfReadError
-    from yuxi.infrastructure.document_parsing.parser import _parse_ocr
+    from zs.infrastructure.document_parsing.parser import _parse_ocr
 
     file_path = tmp_path / "broken.pdf"
     file_path.write_bytes(b"%PDF-1.4\ninvalid")
@@ -246,8 +246,8 @@ async def test_default_engine_resolves_system_ocr_config_before_conversion(tmp_p
         captured.update(engine=engine_id, kwargs=kwargs)
         return SimpleNamespace(process_file=lambda *args: "configured OCR text")
 
-    monkeypatch.setattr("yuxi.modules.system.services.options.Option.get", config)
-    monkeypatch.setattr("yuxi.modules.documents.service._build_processor_kwargs", kwargs)
+    monkeypatch.setattr("zs.modules.system.services.options.Option.get", config)
+    monkeypatch.setattr("zs.modules.documents.service._build_processor_kwargs", kwargs)
     monkeypatch.setattr(engines, "get_engine", get_engine)
     result = await parse(str(source), tmp_path / "parsed", db=object())
     assert result.markdown_path.read_text() == "configured OCR text"

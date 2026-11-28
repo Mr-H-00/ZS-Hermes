@@ -7,13 +7,13 @@ import pytest
 from sqlalchemy import delete, select
 
 from test.integration.services.agent_input_fixtures import SCOPE, start_input_run
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun, AgentRunAttempt
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.services import preparation, run_lifecycle, runner
-from yuxi.modules.identity.models import User
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun, AgentRunAttempt
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.services import preparation, run_lifecycle, runner
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]

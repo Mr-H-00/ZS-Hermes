@@ -45,7 +45,6 @@
     <KeepAlive>
       <DeliverablesBrowser v-if="activeTab === 'deliverables'" />
     </KeepAlive>
-    <WPSCloudDrive v-if="activeTab === 'cloud'" />
   </div>
 </template>
 
@@ -56,19 +55,17 @@ import { CircleHelp, Search } from '@lucide/vue'
 import PageHeader from '@/shared/ui/PageHeader.vue'
 import WorkspaceBrowser from '@/modules/workspace/ui/WorkspaceBrowser.vue'
 import DeliverablesBrowser from '@/modules/workspace/ui/DeliverablesBrowser.vue'
-import WPSCloudDrive from '@/modules/workspace/ui/WPSCloudDrive.vue'
 
 const route = useRoute()
 const router = useRouter()
 const workspaceBrowserRef = ref(null)
 const spaceTabs = [
   { key: 'deliverables', label: '我的成果' },
-  { key: 'workspace', label: '工作区' },
-  { key: 'cloud', label: '我的云盘' }
+  { key: 'workspace', label: '工作区' }
 ]
 const activeTab = computed({
   // 旧链接和文件搜索入口继续打开工作区。
-  get: () => (['deliverables', 'cloud'].includes(route.query.tab) ? route.query.tab : 'workspace'),
+  get: () => (route.query.tab === 'deliverables' ? 'deliverables' : 'workspace'),
   // 切换页签时移除一次性文件打开参数，保留其他查询条件。
   set: (tab) => {
     const query = { ...route.query }

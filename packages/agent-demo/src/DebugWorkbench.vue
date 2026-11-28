@@ -193,7 +193,7 @@ async function copyLogs() {
           </button>
         </form>
         <p class="local-note">
-          配置仅保存于当前浏览器，包含 API Key。对话记录保存在 Yuxi 服务端。
+          配置仅保存于当前浏览器，包含 API Key。对话记录保存在 ZS 服务端。
         </p>
       </div>
       <div v-else-if="tab === 'users'" class="users-panel">
@@ -257,13 +257,13 @@ async function copyLogs() {
           <dt>Thread</dt>
           <dd>{{ state.threadId || "—" }}</dd>
           <dt>Turn</dt>
-          <dd>{{ state.snapshot?.yuxi.current_turn?.id || "—" }}</dd>
+          <dd>{{ state.snapshot?.zs.current_turn?.id || "—" }}</dd>
           <dt>Run</dt>
-          <dd>{{ state.snapshot?.yuxi.current_turn?.current_run_id || "—" }}</dd>
+          <dd>{{ state.snapshot?.zs.current_turn?.current_run_id || "—" }}</dd>
           <dt>Result Run</dt>
-          <dd>{{ state.snapshot?.yuxi.current_turn?.result_run_id || "—" }}</dd>
+          <dd>{{ state.snapshot?.zs.current_turn?.result_run_id || "—" }}</dd>
           <dt>状态</dt>
-          <dd>{{ state.snapshot?.yuxi.current_turn?.status || "idle" }}</dd>
+          <dd>{{ state.snapshot?.zs.current_turn?.status || "idle" }}</dd>
           <dt>事件流</dt>
           <dd>{{ state.stream }}</dd>
         </dl>

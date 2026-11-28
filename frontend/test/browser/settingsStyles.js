@@ -6,7 +6,7 @@ async page => {
   const origin = page.url().split('/').slice(0, 3).join('/')
   const originalViewport = page.viewportSize()
   const originalTheme = await page.evaluate(() => localStorage.getItem('theme'))
-  const artifactDirectory = '/tmp/yuxi-settings-style-artifacts'
+  const artifactDirectory = '/tmp/zs-settings-style-artifacts'
   const screenshots = []
   const failures = []
   const writes = []
@@ -15,7 +15,7 @@ async page => {
   const pending = new Map()
   const labels = {
     account: '账户设置', apiKeys: 'API Keys', base: '基本设置', ocr: 'OCR 配置',
-    webSearch: '网络搜索', user: '用户管理', department: '部门管理', agentEnv: 'Agent 环境'
+    webSearch: '网络搜索', user: '用户管理', department: '部门管理', agentEnv: '运行环境'
   }
   const selectors = {
     menu: '.user-info-component', account: '.account-settings', apiKeys: '.apikey-management', base: '.basic-settings-section',
@@ -333,9 +333,15 @@ async page => {
     /** 菜单分组线应在浮层底色上可见。 */
     const checkMenuDividers = async () => {
       const colors = await menu.evaluate(element => ({ background: getComputedStyle(element).backgroundColor, dividers: [...element.querySelectorAll('.ant-dropdown-menu-item-divider')].map(item => getComputedStyle(item).backgroundColor) }))
-      check(colors.dividers.length === 2 && colors.dividers.every(color => boundaryContrast(color, colors.background) >= 1.3), '账户菜单分组线不可见：'+JSON.stringify(colors))
+      check(colors.dividers.length === 3 && colors.dividers.every(color => boundaryContrast(color, colors.background) >= 1.3), '账户菜单分组线不可见：'+JSON.stringify(colors))
     }
     await checkMenuDividers()
+    const menuRows = await menu.locator(':scope > li').allTextContents()
+    check(
+      menuRows[1] === '' && menuRows[2] === '网盘' && menuRows[3] === '' &&
+        menuRows[4]?.startsWith('主题：'),
+      `网盘应单独分组，位于账户信息下方和主题上方：${JSON.stringify(menuRows)}`
+    )
     await screenshot('dark-account-menu-boundaries')
     const hiddenMenuLines = await page.addStyleTag({ content: '.user-account-menu .ant-dropdown-menu-item-divider {background:transparent!important}' })
     let hiddenMenuLinesRejected = false

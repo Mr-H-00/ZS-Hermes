@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace import paths as workspace_paths
-from yuxi.modules.workspace.services import files as workspace_files
-from yuxi.shared.errors import InvalidOperationError, PermissionDeniedError
+from zs.modules.identity.models import User
+from zs.modules.workspace import paths as workspace_paths
+from zs.modules.workspace.services import files as workspace_files
+from zs.shared.errors import InvalidOperationError, PermissionDeniedError
 
 
 @pytest.fixture

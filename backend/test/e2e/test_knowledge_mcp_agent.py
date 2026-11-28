@@ -24,12 +24,12 @@ from test.e2e.e2e_helpers import (
 )
 from test.live_api_cleanup import make_test_session_title
 from test.support.openai_replay_server import send_openai_sse_response, serve_replay_handler
-from yuxi.bootstrap.capabilities import knowledge_enabled
-from yuxi.infrastructure.minio import get_minio_client
-from yuxi.infrastructure.minio.client import MinIOClient
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.knowledge.models import KnowledgeFile
+from zs.bootstrap.capabilities import knowledge_enabled
+from zs.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio.client import MinIOClient
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.knowledge.models import KnowledgeFile
 
 pytestmark = [pytest.mark.e2e, pytest.mark.asyncio, pytest.mark.self_managed_resources, pytest.mark.timeout(300)]
 CONTENT = b"MCP transport proof.\nThe persistent needle belongs to this document.\n"
@@ -255,11 +255,11 @@ async def test_worker_uses_mcp_for_five_tools_and_preserves_sources(e2e_client, 
             )
             assert response.status_code == 201, response.text
             thread_id = response.json()["id"]
-            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["yuxi"]["receipt"])
+            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["zs"]["receipt"])
             turn_id = accepted["turn_id"]
             turn = await wait_for_terminal_turn(e2e_client, e2e_headers, thread_id, turn_id, timeout=120)
             assert turn["status"] == "completed", turn
-            assert "MCP_AGENT_OK" in output_text(turn["yuxi"]["output"])
+            assert "MCP_AGENT_OK" in output_text(turn["zs"]["output"])
             assert set(observed) == {f"call-mcp-{index}" for index in range(5)}
             assert {name for name, _ in calls}.issubset(advertised[0]), advertised[0]
             if skill_source != "builtin":
@@ -381,12 +381,12 @@ async def test_worker_preserves_selection_and_completes_after_knowledge_error(e2
             )
             assert response.status_code == 201, response.text
             thread_id = response.json()["id"]
-            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["yuxi"]["receipt"])
+            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["zs"]["receipt"])
             turn_id = accepted["turn_id"]
             turn = await wait_for_terminal_turn(e2e_client, e2e_headers, thread_id, turn_id)
             assert turn["status"] == "completed", turn
-            assert "KNOWLEDGE_FAILURE_HANDLED" in output_text(turn["yuxi"]["output"])
-            assert turn["yuxi"]["result_run_id"] == accepted["run_id"]
+            assert "KNOWLEDGE_FAILURE_HANDLED" in output_text(turn["zs"]["output"])
+            assert turn["zs"]["result_run_id"] == accepted["run_id"]
             assert advertised and all(("query_kb" in names) is knowledge_deployed for names in advertised), advertised
             assert len(observed) == 1, observed
             expected_error = "Knowledge tool failed (404)" if knowledge_deployed else "能力受限：当前调用者无权使用该工具。"
@@ -456,7 +456,7 @@ async def test_worker_preserves_selection_and_completes_after_knowledge_error(e2
                 async with AsyncPostgresSaver.from_conn_string(postgres_dsn()) as saver:
                     saved = await saver.aget_tuple({"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}})
                 assert saved is not None
-                assert saved.metadata["yuxi_run_id"] == accepted["run_id"]
+                assert saved.metadata["zs_run_id"] == accepted["run_id"]
                 assert saved.metadata["turn_id"] == turn_id
                 messages = saved.checkpoint["channel_values"]["messages"]
                 source_models = [message for message in messages if isinstance(message, AIMessage) and message.id == operation_id]

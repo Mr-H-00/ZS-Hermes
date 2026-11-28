@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/agents/services/openai_events.py
+Owner：backend/zs/modules/agents/services/openai_events.py
 
 ## 问题
 
@@ -51,7 +51,7 @@ Message 保存可公开 item 的稳定身份及索引，实时和历史复用公
 - `tmp/events/test test/integration/services/test_agent_input_schema.py test/integration/services/test_agent_input_concurrency.py test/integration/services/test_delegated_turn_cancellation.py -q`：18 passed。包含同键并发取消、有效取消快照及错误 Owner / 过期 lease / 新 item / 工具写入拒绝、跨 Turn 精确级联。
 - `tmp/events/test test/integration/api/test_public_agent_auth.py test/integration/api/test_turn_result_causality.py test/integration/api/test_subagent_state_recovery.py test/integration/api/test_chat_router.py -q`：29 passed。普通用户通过真实 worker 生成并回读公开工具参数与结果，审计仍为 403；跨用户 / APP / 结果归属覆盖真实 HTTP 与 PostgreSQL。
 - `tmp/events/compose exec -T frontend pnpm run test:unit`：381 passed；随后工具中断组件相关测试 16 passed。`pnpm run lint:check` 与 `pnpm run build` 通过；build 保留现有大 bundle 提示。
-- 在 `packages/yuxi-cli` 执行 `.venv/bin/python -m pytest tests -q`：115 passed，包含活动多块 resync、保留的迟到增量和 done 完整替换。
+- 在 `packages/zs-cli` 执行 `.venv/bin/python -m pytest tests -q`：115 passed，包含活动多块 resync、保留的迟到增量和 done 完整替换。
 - 工程契约、64 项脚本单测、文档相对链接及 VitePress build 已通过，最终决策状态检查与构建通过。
 - 真实浏览器验证聊天 / 刷新、父先结束后的子问答与工具审批恢复、断线与过期 Redis 重同步。最终补验附件回执 / 刷新均仅一张卡片、取消工具刷新显示“已中断”且无 spinner，页面脚本错误为空；截图保存在本地 `tmp/events/browser-*.png`。
 

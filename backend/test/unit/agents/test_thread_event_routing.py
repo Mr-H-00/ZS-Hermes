@@ -3,8 +3,8 @@ from contextlib import aclosing
 import pytest
 from langchain_core.messages import AIMessageChunk
 
-from yuxi.modules.agents.runtime.base import BaseAgent
-from yuxi.modules.agents.runtime.context import BaseContext
+from zs.modules.agents.runtime.base import BaseAgent
+from zs.modules.agents.runtime.context import BaseContext
 
 
 @pytest.mark.asyncio

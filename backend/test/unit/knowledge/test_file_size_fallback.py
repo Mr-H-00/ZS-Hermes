@@ -8,7 +8,7 @@ class TestMinIOClientStatFile:
     """Test MinIOClient.stat_file and astat_file methods."""
 
     def test_stat_file_returns_size(self):
-        from yuxi.infrastructure.minio.client import MinIOClient
+        from zs.infrastructure.minio.client import MinIOClient
 
         client = MinIOClient()
         mock_stat = MagicMock()
@@ -26,7 +26,7 @@ class TestMinIOClientStatFile:
         from minio.error import S3Error
         from urllib3 import HTTPResponse
 
-        from yuxi.infrastructure.minio.client import MinIOClient
+        from zs.infrastructure.minio.client import MinIOClient
 
         client = MinIOClient()
         client._client = MagicMock()
@@ -38,7 +38,7 @@ class TestMinIOClientStatFile:
 
     @pytest.mark.asyncio
     async def test_astat_file_returns_size(self):
-        from yuxi.infrastructure.minio.client import MinIOClient
+        from zs.infrastructure.minio.client import MinIOClient
 
         client = MinIOClient()
         mock_stat = MagicMock()

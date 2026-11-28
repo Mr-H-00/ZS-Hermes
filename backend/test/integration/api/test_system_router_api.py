@@ -12,10 +12,10 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yuxi.infrastructure.runtime_settings import get_runtime_dir
-from yuxi.modules.system.models import ConfigOption
-from yuxi.modules.system.repositories.options import get_option
-from yuxi.modules.system.services.options import invalidate_option_cache
+from zs.infrastructure.runtime_settings import get_runtime_dir
+from zs.modules.system.models import ConfigOption
+from zs.modules.system.repositories.options import get_option
+from zs.modules.system.services.options import invalidate_option_cache
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -28,7 +28,7 @@ async def test_health_endpoint_is_public(test_client):
 
 async def test_logs_endpoint_returns_only_api_process_log(test_client, admin_headers):
     """管理员日志接口应明确读取当前 API 进程拥有的日志文件。"""
-    from yuxi.infrastructure.observability.logging import LOG_FILE
+    from zs.infrastructure.observability.logging import LOG_FILE
 
     api_marker = f"api-log-contract-{uuid4()}"
     worker_marker = f"worker-log-contract-{uuid4()}"
@@ -275,7 +275,7 @@ async def test_ocr_health_is_available_to_logged_in_users_and_returns_all_method
         del db
         return {"rapid_ocr": {"status": "healthy", "message": "ok"}}
 
-    monkeypatch.setattr("yuxi.modules.documents.service.check_all_ocr_health", fake_health)
+    monkeypatch.setattr("zs.modules.documents.service.check_all_ocr_health", fake_health)
 
     response = await test_client.get("/api/system/ocr/health", headers=standard_user["headers"])
     assert response.status_code == 200, response.text

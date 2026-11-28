@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/api/routers/knowledge/management.py
+Owner：backend/zs/api/routers/knowledge/management.py
 
 ## 问题
 
@@ -44,7 +44,7 @@ Owner：backend/yuxi/api/routers/knowledge/management.py
 - 本分支 `pnpm --dir frontend run lint:check`、`pnpm --dir frontend run test:unit`、`pnpm --dir frontend run build` 通过；完整前端单测 521 项。
 - 独立 Compose 运行槽中，管理、评估、权限、文件预览、公开知识工具与 Public key 边界六个真实 HTTP integration 文件：59 passed。首次执行时 PostgreSQL 正在异常重启后的恢复，认证 setup 失败；ready 恢复后重新执行通过，异常重启根因未证实。
 - 同槽串行执行 `test/e2e/test_document_parsing_artifacts_e2e.py` 与 `test/e2e/test_milvus_text_retrieval_e2e.py`：3 passed，验证真实 API、worker、PostgreSQL、MinIO、Milvus 和 Neo4j。外部解析与 embedding 协议使用确定性 replay。
-- `backend/.venv/bin/ruff check backend/yuxi` 与修改源码的 `ruff format --check` 通过。测试文件原有 lint 问题未扩大处理；名称变长导致的三处新长行已修正。
+- `backend/.venv/bin/ruff check backend/zs` 与修改源码的 `ruff format --check` 通过。测试文件原有 lint 问题未扩大处理；名称变长导致的三处新长行已修正。
 - `playwright-cli -s=modules-naming --raw run-code --filename=frontend/test/browser/knowledgeBaseNaming.js` 通过：真实 UI 创建、name 请求字段、详情路由、文件夹持久化回读和评估空态，浅色/深色/375px 截图已生成，删除后回读确认探针知识库不存在。探针使用当前页面 origin，并等待创建弹窗关闭后选择列表项。
 - `pnpm --dir docs run build` 与 `git diff --check` 通过。
 

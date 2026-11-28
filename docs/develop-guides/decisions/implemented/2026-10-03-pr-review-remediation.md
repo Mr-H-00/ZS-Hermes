@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：packages/yuxi-cli/src/cli.ts
+Owner：packages/zs-cli/src/cli.ts
 
 ## 问题
 
@@ -24,7 +24,7 @@ CLI 对异常远程响应更早失败；知识库查询页面继续使用现有�
 
 ## 验证
 
-- `cd packages/yuxi-cli && npm test && npm run pack:check`：9 tests passed，npm dry-run 成功。
+- `cd packages/zs-cli && npm test && npm run pack:check`：9 tests passed，npm dry-run 成功。
 - `cd frontend && pnpm exec eslint ... && pnpm build`：通过。
 - `cd backend && uv run --group test pytest test/unit -m "not slow" -q`：2500 passed。
 - `cd backend && uv audit --locked --no-dev`：无已知漏洞。

@@ -14,14 +14,14 @@ from fastapi import FastAPI
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-import yuxi.modules.knowledge.repositories.bases as knowledge_base_repository
-import yuxi.modules.knowledge.repositories.files as knowledge_file_repository
-from yuxi.modules.knowledge.repositories.bases import KnowledgeBaseRepository
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
-from yuxi.infrastructure.redis import close_async_redis_client, get_async_redis_client
-import yuxi.api.routers.knowledge.management as knowledge_router
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+import zs.modules.knowledge.repositories.bases as knowledge_base_repository
+import zs.modules.knowledge.repositories.files as knowledge_file_repository
+from zs.modules.knowledge.repositories.bases import KnowledgeBaseRepository
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
+from zs.infrastructure.redis import close_async_redis_client, get_async_redis_client
+import zs.api.routers.knowledge.management as knowledge_router
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -65,7 +65,7 @@ async def stats_store(monkeypatch):
             )
         yield schema, sessions, redis
     finally:
-        await redis.delete(f"yuxi:kb_file_stats:{schema}", f"yuxi:knowledge_base:{schema}:lock")
+        await redis.delete(f"zs:kb_file_stats:{schema}", f"zs:knowledge_base:{schema}:lock")
         await close_async_redis_client()
         await engine.dispose()
         async with admin.begin() as connection:
@@ -80,7 +80,7 @@ async def test_operation_refresh_ignores_cached_stats(stats_store, tmp_path, fai
     cached = await KnowledgeFileRepository().get_kb_file_stats(kb_id)
     assert cached["pending_index_count"] == 1
     # 延长本测试缓存存活期，消除慢 CI 下自然过期导致的假通过。
-    await redis.expire(f"yuxi:kb_file_stats:{kb_id}", 300)
+    await redis.expire(f"zs:kb_file_stats:{kb_id}", 300)
     manager = KnowledgeBaseManager(str(tmp_path))
 
     async def operation():
@@ -156,7 +156,7 @@ async def test_knowledge_base_list_returns_fresh_persisted_stats(stats_store, tm
     kb_id, sessions, redis = stats_store
     cached = await KnowledgeFileRepository().get_kb_file_stats(kb_id)
     assert cached["pending_index_count"] == 1
-    await redis.expire(f"yuxi:kb_file_stats:{kb_id}", 300)
+    await redis.expire(f"zs:kb_file_stats:{kb_id}", 300)
     manager = KnowledgeBaseManager(str(tmp_path))
 
     async def operation():
@@ -211,7 +211,7 @@ async def test_second_file_immediately_refreshes_detail_and_file_list_stats(stat
     """旧统计已经缓存时，第二个文件提交后的详情与列表仍读取两个文件。"""
     kb_id, sessions, redis = stats_store
     assert (await KnowledgeFileRepository().get_kb_file_stats(kb_id))["file_count"] == 1
-    await redis.set(f"yuxi:kb_file_stats:{kb_id}", '{"file_count":1,"row_count":1}', ex=300)
+    await redis.set(f"zs:kb_file_stats:{kb_id}", '{"file_count":1,"row_count":1}', ex=300)
     manager = KnowledgeBaseManager(str(tmp_path))
 
     async def upload():

@@ -11,15 +11,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.runtime.sandbox import container as container_module
-from yuxi.modules.agents.runtime.sandbox import provider as provider_module
-from yuxi.modules.agents.runtime.sandbox.container import ContainerSandboxProvider, SandboxRunnerClient
-from yuxi.modules.agents.runtime.sandbox.context import sandbox_run_env, sandbox_run_owner
-from yuxi.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
-from yuxi.modules.agents.runtime.sandbox import validate_sandbox_configuration
-from yuxi.modules.workspace.paths import workspace_uid_dirname
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import StateConflictError, UpstreamError
+from zs.modules.agents.runtime.sandbox import container as container_module
+from zs.modules.agents.runtime.sandbox import provider as provider_module
+from zs.modules.agents.runtime.sandbox.container import ContainerSandboxProvider, SandboxRunnerClient
+from zs.modules.agents.runtime.sandbox.context import sandbox_run_env, sandbox_run_owner
+from zs.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
+from zs.modules.agents.runtime.sandbox import validate_sandbox_configuration
+from zs.modules.workspace.paths import workspace_uid_dirname
+from zs.shared.datetime import utc_now
+from zs.shared.errors import StateConflictError, UpstreamError
 
 
 class FakeRepository:
@@ -196,7 +196,7 @@ def test_cancel_failure_is_explicit():
 def test_status_reports_container_backend_without_persistent_vm(run_context):
     """状态接口保留前端字段，但语义改为任务级临时容器。"""
     client = FakeClient()
-    client.containers = [{"id": "cid", "state": "running", "labels": {"yuxi.uid": workspace_uid_dirname("one")}}]
+    client.containers = [{"id": "cid", "state": "running", "labels": {"zs.uid": workspace_uid_dirname("one")}}]
     provider = ContainerSandboxProvider(
         client=client,
         repository=FakeRepository(active_row(), runs=[{"id": "run-1", "thread_id": "t", "turn_id": "u", "status": "running"}]),
@@ -239,7 +239,7 @@ def test_maintain_removes_terminal_owner_changed_and_expired_containers():
         return {
             "id": container_id,
             "state": "running",
-            "labels": {"yuxi.run_id": run_id, "yuxi.uid": safe_uid, "yuxi.owner": owner, "yuxi.created_at": created},
+            "labels": {"zs.run_id": run_id, "zs.uid": safe_uid, "zs.owner": owner, "zs.created_at": created},
         }
 
     containers = [
@@ -253,7 +253,7 @@ def test_maintain_removes_terminal_owner_changed_and_expired_containers():
     creating["state"] = "created"
     stuck = container("stuck", "r7", "worker-1")
     stuck["state"] = "created"
-    stuck["labels"]["yuxi.created_at"] = str(int(time.time()) - 61)
+    stuck["labels"]["zs.created_at"] = str(int(time.time()) - 61)
     containers.extend([creating, stuck])
     client = FakeClient()
     client.containers = containers
@@ -281,7 +281,7 @@ def test_maintain_stale_snapshot_does_not_delete_replacement():
     old = {
         "id": "old-container",
         "state": "exited",
-        "labels": {"yuxi.run_id": "run-1", "yuxi.uid": "one", "yuxi.owner": "worker-1"},
+        "labels": {"zs.run_id": "run-1", "zs.uid": "one", "zs.owner": "worker-1"},
     }
     replacement = {**old, "id": "new-container", "state": "running"}
 
@@ -322,8 +322,8 @@ def test_factory_selects_backend_and_rejects_none(monkeypatch):
     monkeypatch.setattr(provider_module, "_sandbox_provider", None)
     monkeypatch.setenv("SANDBOX_BACKEND", "container")
     monkeypatch.setenv("SANDBOX_RUNNER_TOKEN", "t" * 32)
-    monkeypatch.setenv("SANDBOX_CONTAINER_IMAGE", "yuxi-sandbox:test")
-    monkeypatch.setenv("YUXI_ENV", "development")
+    monkeypatch.setenv("SANDBOX_CONTAINER_IMAGE", "zs-sandbox:test")
+    monkeypatch.setenv("ZS_ENV", "development")
     assert provider_module.get_sandbox_provider().backend == "container"
     monkeypatch.setattr(provider_module, "_sandbox_provider", None)
     monkeypatch.setenv("SANDBOX_BACKEND", "none")
@@ -359,7 +359,7 @@ def test_container_configuration_only_requires_client_credentials(monkeypatch):
     """业务进程只校验连接凭据，镜像和资源配置由 runner 拥有。"""
     monkeypatch.setenv("SANDBOX_BACKEND", "container")
     monkeypatch.delenv("SANDBOX_RUNNER_TOKEN", raising=False)
-    monkeypatch.setenv("YUXI_ENV", "production")
+    monkeypatch.setenv("ZS_ENV", "production")
     for name in ("SANDBOX_CONTAINER_IMAGE", "SANDBOX_CONTAINER_IMAGE_DIGEST", "SANDBOX_CONTAINER_MAX_LIFETIME_SECONDS"):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(RuntimeError, match="SANDBOX_RUNNER_TOKEN"):

@@ -151,9 +151,9 @@ export function useAgentRunStream({
     if (!ts || getThreadState(threadId) !== ts || ts.currentTurnId !== turnId) return true
     if (ts.runStateVersion !== version) return false
     ts.runStateVersion = (ts.runStateVersion || 0) + 1
-    const currentRunId = turn.yuxi.current_run_id || fallbackRunId
+    const currentRunId = turn.zs.current_run_id || fallbackRunId
     ts.cancellationPending =
-      cancellationRequests.has(turnId) || turn.yuxi.cancellation_pending === true
+      cancellationRequests.has(turnId) || turn.zs.cancellation_pending === true
     if (
       ['requires_action', 'completed', 'failed', 'cancelled'].includes(turn.status) &&
       !(turn.status === 'requires_action' && ts.cancellationPending)
@@ -162,7 +162,7 @@ export function useAgentRunStream({
       return true
     }
     ts.activeRunId = currentRunId
-    ts.cooperationWaiting = turn.yuxi.waitpoint?.kind === 'cooperation'
+    ts.cooperationWaiting = turn.zs.waitpoint?.kind === 'cooperation'
     ts.turnStatus = turn.status
     ts.isStreaming = true
     ts.activeRunSteerable = !ts.cooperationWaiting && !ts.cancellationPending
@@ -177,7 +177,7 @@ export function useAgentRunStream({
     const turnId =
       options.turnId ||
       ts.currentTurnId ||
-      (await agentApi.getPublicThread(threadId)).yuxi.current_turn?.id
+      (await agentApi.getPublicThread(threadId)).zs.current_turn?.id
     if (
       !turnId ||
       !isThreadActive(threadId) ||
@@ -217,7 +217,7 @@ export function useAgentRunStream({
         if (!data || controller.signal.aborted || ts.currentTurnId !== turnId) return
         ts.runReconnectAttempts = 0
         if (data.session_id !== threadId) return
-        if (data.type === 'yuxi.session.resync') {
+        if (data.type === 'zs.session.resync') {
           // 暂停消费，让 ReadableStream 缓冲新事件，快照应用后再继续合并。
           await fetchThreadMessages({ threadId, turnId, fresh: true })
           sawTurnEnd = await reconcileTurn(threadId, turnId, ts.activeRunId)
@@ -225,9 +225,9 @@ export function useAgentRunStream({
           return
         }
         if (
-          data.type === 'yuxi.session.input.accepted' &&
-          data.yuxi?.input_type === 'agent.session.input.cancel' &&
-          data.yuxi?.turn_id === turnId
+          data.type === 'zs.session.input.accepted' &&
+          data.zs?.input_type === 'agent.session.input.cancel' &&
+          data.zs?.turn_id === turnId
         ) {
           ts.runStateVersion = (ts.runStateVersion || 0) + 1
           ts.cancellationPending = true
@@ -243,21 +243,21 @@ export function useAgentRunStream({
           if (eventId) ts.threadCursor = String(eventId)
           return
         }
-        const owner = data.yuxi?.current_run_id || data.current_run_id
+        const owner = data.zs?.current_run_id || data.current_run_id
         if (
           ['requires_action', 'completed', 'failed', 'cancelled', 'in_progress', 'queued'].includes(
             status
           )
         ) {
-          if (owner && data.yuxi?.run_id !== owner) return
+          if (owner && data.zs?.run_id !== owner) return
           // 同一 SSE 会跨协作恢复的多个 Run，事件进展也必须使旧快照失效。
           ts.runStateVersion = (ts.runStateVersion || 0) + 1
           const eventVersion = ts.runStateVersion
-          if (data.yuxi?.run_id !== ts.activeRunId) {
+          if (data.zs?.run_id !== ts.activeRunId) {
             const turn = await agentApi.getThreadTurn(threadId, turnId)
             if (controller.signal.aborted || ts.runStateVersion !== eventVersion) return
-            ts.activeRunId = turn.yuxi.current_run_id
-            if (data.yuxi?.run_id !== turn.yuxi.current_run_id) return
+            ts.activeRunId = turn.zs.current_run_id
+            if (data.zs?.run_id !== turn.zs.current_run_id) return
           }
         }
         if (['in_progress', 'queued'].includes(status)) {
@@ -275,7 +275,7 @@ export function useAgentRunStream({
             threadId,
             turnId,
             status,
-            data.yuxi?.run_id || ts.activeRunId,
+            data.zs?.run_id || ts.activeRunId,
             new Set([threadId])
           )
         }
@@ -325,7 +325,7 @@ export function useAgentRunStream({
       ts.runStateVersion !== version
     )
       return false
-    const turnId = thread.yuxi.current_turn?.id
+    const turnId = thread.zs.current_turn?.id
     if (!turnId) {
       stopRunStreamSubscription(threadId)
       ts.cooperationWaiting = false
@@ -351,26 +351,26 @@ export function useAgentRunStream({
     if (ts.currentTurnId !== turnId) stopRunStreamSubscription(threadId)
     ts.runStateVersion = (ts.runStateVersion || 0) + 1
     ts.cancellationPending =
-      cancellationRequests.has(turnId) || turn.yuxi.cancellation_pending === true
+      cancellationRequests.has(turnId) || turn.zs.cancellation_pending === true
     ts.currentTurnId = turnId
-    ts.activeRunId = turn.yuxi.current_run_id
+    ts.activeRunId = turn.zs.current_run_id
     ts.turnStatus = turn.status
     if (
       ['queued', 'in_progress'].includes(turn.status) ||
       (turn.status === 'requires_action' && ts.cancellationPending)
     ) {
-      ts.cooperationWaiting = turn.yuxi.waitpoint?.kind === 'cooperation'
+      ts.cooperationWaiting = turn.zs.waitpoint?.kind === 'cooperation'
       ts.isStreaming = true
       ts.activeRunSteerable = !ts.cooperationWaiting && !ts.cancellationPending
       if (!ts.runStreamAbortController) {
-        void startRunStream(threadId, turn.yuxi.current_run_id, ts.threadCursor, { turnId })
+        void startRunStream(threadId, turn.zs.current_run_id, ts.threadCursor, { turnId })
       }
       const restoredVersion = ts.runStateVersion
       if (refreshHistory) await fetchThreadMessages({ threadId, fresh: true })
       return isThreadActive(threadId) && getThreadState(threadId) === ts &&
         ts.runStateVersion === restoredVersion
     }
-    return settleTurn(threadId, turnId, turn.status, turn.yuxi.current_run_id, new Set([threadId]), turn)
+    return settleTurn(threadId, turnId, turn.status, turn.zs.current_run_id, new Set([threadId]), turn)
   }
 
   const requestTurnCancellation = async (threadId) => {

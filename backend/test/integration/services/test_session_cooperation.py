@@ -14,27 +14,27 @@ from agent_run_test_helpers import cleanup_agent_run_threads, create_agent_run
 from sqlalchemy import delete, event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.agents.services.run_lifecycle import complete_run_runtime_cleanup, settle_run
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.agents.models.cooperation import CooperationEvent
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.cooperation import CooperationRepository
-from yuxi.modules.agents.repositories.definitions import DEFAULT_SHARE_CONFIG
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services.cooperation import SessionCooperationService, recover_cooperation_waits, tree_snapshot
-from yuxi.modules.agents.services.scheduler import deliver
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import DomainError, StateConflictError
+from zs.modules.agents.services.run_lifecycle import complete_run_runtime_cleanup, settle_run
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.agents.models.cooperation import CooperationEvent
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.cooperation import CooperationRepository
+from zs.modules.agents.repositories.definitions import DEFAULT_SHARE_CONFIG
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services.cooperation import SessionCooperationService, recover_cooperation_waits, tree_snapshot
+from zs.modules.agents.services.scheduler import deliver
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
+from zs.shared.datetime import utc_now
+from zs.shared.errors import DomainError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -54,20 +54,20 @@ async def tree(monkeypatch):
 
     monkeypatch.setattr(pg_manager, "get_async_session_context", transaction)
     monkeypatch.setattr(
-        "yuxi.modules.agents.services.run_lifecycle.get_sandbox_provider",
+        "zs.modules.agents.services.run_lifecycle.get_sandbox_provider",
         lambda: SimpleNamespace(cleanup_run=lambda *_: None),
     )
 
     monkeypatch.setattr(
-        "yuxi.modules.agents.services.input_config.model_cache.get_model_info",
+        "zs.modules.agents.services.input_config.model_cache.get_model_info",
         lambda spec: SimpleNamespace(model_type="chat"),
     )
     monkeypatch.setattr(
-        "yuxi.modules.agents.services.input_config.system_options",
+        "zs.modules.agents.services.input_config.system_options",
         SimpleNamespace(get=AsyncMock(return_value={"default_model": "test:mock"})),
     )
-    monkeypatch.setattr("yuxi.modules.agents.services.cooperation.deliver", AsyncMock())
-    monkeypatch.setattr("yuxi.modules.agents.services.scheduler.deliver", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.cooperation.deliver", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.scheduler.deliver", AsyncMock())
     run_id, thread_id, _message_id = await create_agent_run(
         factory,
         prefix="cooperation",
@@ -402,7 +402,7 @@ async def test_empty_selected_config_stays_frozen_when_target_changes(tree, monk
     """创建后修改目标配置，执行准备仍读取已持久化的空快照。"""
     from types import SimpleNamespace
 
-    from yuxi.modules.agents.services.preparation import prepare_run_execution
+    from zs.modules.agents.services.preparation import prepare_run_execution
 
     factory, run_id, _, uid = tree
     slug = await _define_target_agent(tree)
@@ -424,7 +424,7 @@ async def test_empty_selected_config_stays_frozen_when_target_changes(tree, monk
         context.skill_runtime_snapshot = {"preloaded_skills": [], "preloaded_skill_contents": {}, "skill_metadata": {}}
         return context
 
-    monkeypatch.setattr("yuxi.modules.agents.services.preparation.prepare_agent_runtime_context", prepare)
+    monkeypatch.setattr("zs.modules.agents.services.preparation.prepare_agent_runtime_context", prepare)
     async with factory() as db:
         run = await db.get(AgentRun, created["run_id"])
         member = await db.scalar(select(Session).where(Session.thread_id == created["session_id"]))
@@ -559,7 +559,7 @@ async def test_tree_summary_fails_closed_when_members_unreachable_from_root(tree
 async def test_whole_tree_shares_four_slots_and_recursive_creation(tree, monkeypatch):
     """名额共享语义固定在上限 4，不随共享库中保存的其他配置值漂移。"""
     monkeypatch.setattr(
-        "yuxi.modules.agents.repositories.cooperation.system_options",
+        "zs.modules.agents.repositories.cooperation.system_options",
         SimpleNamespace(get=AsyncMock(return_value={"max_cooperation_concurrency": 4})),
     )
     factory, _, _, uid = tree
@@ -597,7 +597,7 @@ async def test_execution_slot_limit_reads_system_option(tree, monkeypatch):
     factory, _, _, uid = tree
     member = await child(tree)
     monkeypatch.setattr(
-        "yuxi.modules.agents.repositories.cooperation.system_options",
+        "zs.modules.agents.repositories.cooperation.system_options",
         SimpleNamespace(get=AsyncMock(return_value={"max_cooperation_concurrency": 1})),
     )
     async with factory() as db:
@@ -682,7 +682,7 @@ async def test_busy_input_queues_but_human_wait_rejects(tree):
 
 async def test_dispatch_failure_after_persisted_accept_keeps_stable_receipt(tree, monkeypatch):
     """真实领取提交后发布失败，回执及补投保持同一 Input、Turn 和 Run。"""
-    from yuxi.modules.agents.services.scheduler import recover_pending_dispatches
+    from zs.modules.agents.services.scheduler import recover_pending_dispatches
 
     factory, run_id, _, uid = tree
     member = await child(tree)
@@ -692,9 +692,9 @@ async def test_dispatch_failure_after_persisted_accept_keeps_stable_receipt(tree
         """在已提交 Run 的真正发布点制造故障。"""
         raise ConnectionError("dispatch backend unavailable")
 
-    monkeypatch.setattr("yuxi.modules.agents.services.scheduler.deliver", deliver)
-    monkeypatch.setattr("yuxi.modules.agents.services.scheduler.ensure_bound_user_workdir", lambda *_args: None)
-    monkeypatch.setattr("yuxi.modules.agents.services.transport.enqueue_agent_run", broken_enqueue)
+    monkeypatch.setattr("zs.modules.agents.services.scheduler.deliver", deliver)
+    monkeypatch.setattr("zs.modules.agents.services.scheduler.ensure_bound_user_workdir", lambda *_args: None)
+    monkeypatch.setattr("zs.modules.agents.services.transport.enqueue_agent_run", broken_enqueue)
     async with factory() as db:
         service = SessionCooperationService(db, run_id=run_id, uid=uid, worker_id="root-worker")
         accepted = await service.submit_input(target=member["session_id"], description="FOLLOWUP", call_id="dispatch-fail")
@@ -708,7 +708,7 @@ async def test_dispatch_failure_after_persisted_accept_keeps_stable_receipt(tree
         assert turn.current_run_id == run.id == accepted["run_id"] and turn.id == accepted["turn_id"]
         assert await db.scalar(select(func.count()).select_from(AgentInput).where(AgentInput.thread_id == member["session_id"])) == 2
     enqueued = AsyncMock()
-    monkeypatch.setattr("yuxi.modules.agents.services.transport.enqueue_agent_run", enqueued)
+    monkeypatch.setattr("zs.modules.agents.services.transport.enqueue_agent_run", enqueued)
     await recover_pending_dispatches()
     enqueued.assert_awaited_once_with(accepted["run_id"])
     async with factory() as db:
@@ -727,7 +727,7 @@ async def test_accept_does_not_hide_dispatch_claim_failure(tree, monkeypatch):
         """制造领取事务中的业务错误，而非发布错误。"""
         raise ValueError("invalid claim configuration")
 
-    monkeypatch.setattr("yuxi.modules.agents.services.scheduler.claim_next_input", broken_claim)
+    monkeypatch.setattr("zs.modules.agents.services.scheduler.claim_next_input", broken_claim)
     async with factory() as db:
         service = SessionCooperationService(db, run_id=run_id, uid=uid, worker_id="root-worker")
         with pytest.raises(ValueError, match="invalid claim configuration"):
@@ -848,7 +848,7 @@ async def test_tool_side_effects_replay_across_resume_runs(tree):
 
 async def test_same_call_id_in_new_turn_creates_new_work(tree):
     """幂等只跨同 Turn 恢复，新轮次可以复用模型工具调用 ID。"""
-    from yuxi.modules.agents.repositories.turn import AgentTurnRepository
+    from zs.modules.agents.repositories.turn import AgentTurnRepository
 
     factory, run_id, root_id, uid = tree
     member = await child(tree)
@@ -888,10 +888,10 @@ async def test_same_call_id_in_new_turn_creates_new_work(tree):
 
 async def test_cancel_parent_preserves_descendants(tree, monkeypatch):
     """取消父轮次只取消指定 Run，后代的独立队列继续保留。"""
-    from yuxi.modules.agents.scope import ActorScope
-    from yuxi.modules.agents.services.turns import cancel_turn
+    from zs.modules.agents.scope import ActorScope
+    from zs.modules.agents.services.turns import cancel_turn
 
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
     factory, run_id, root_id, uid = tree
     member = await child(tree)
     async with factory() as db:
@@ -914,15 +914,15 @@ async def test_cancel_parent_preserves_descendants(tree, monkeypatch):
 
 async def test_user_message_after_tree_stop_resumes_only_target_queue(tree, monkeypatch):
     """整树收尾后，新消息优先恢复当前会话，旧子队列保持暂停。"""
-    from yuxi.modules.agents.input_messages import build_chat_input_message
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
-    from yuxi.modules.agents.services.cooperation import control_tree
-    from yuxi.modules.agents.services.inputs import accept_message
-    from yuxi.modules.agents.services.leases import complete_run_runtime_cleanup
+    from zs.modules.agents.input_messages import build_chat_input_message
+    from zs.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.services.cooperation import control_tree
+    from zs.modules.agents.services.inputs import accept_message
+    from zs.modules.agents.services.leases import complete_run_runtime_cleanup
 
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
     monkeypatch.setattr(
-        "yuxi.modules.agents.services.run_lifecycle.get_sandbox_provider",
+        "zs.modules.agents.services.run_lifecycle.get_sandbox_provider",
         lambda: type("Provider", (), {"cleanup_run": staticmethod(lambda *_: None)})(),
     )
     factory, run_id, root_id, uid = tree
@@ -965,13 +965,13 @@ async def test_tree_resume_requires_all_runtime_cleanup_and_replays_without_chan
     tree, monkeypatch, resume_entry, cleanup_owner
 ):
     """两种恢复均等待整树清理，拒绝不改事实，成功与重放保留各自队列语义。"""
-    from yuxi.modules.agents.input_messages import build_chat_input_message
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
-    from yuxi.modules.agents.models.inputs import AgentInputReceipt
-    from yuxi.modules.agents.services.cooperation import control_tree
-    from yuxi.modules.agents.services.inputs import accept_message
+    from zs.modules.agents.input_messages import build_chat_input_message
+    from zs.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.models.inputs import AgentInputReceipt
+    from zs.modules.agents.services.cooperation import control_tree
+    from zs.modules.agents.services.inputs import accept_message
 
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
     factory, run_id, root_id, uid = tree
     member = await child(tree)
     scope = ActorScope(uid=uid, app_id=None)
@@ -1071,11 +1071,11 @@ async def test_tree_resume_requires_all_runtime_cleanup_and_replays_without_chan
 
 async def test_tree_stop_pauses_idle_queues_before_user_can_resume(tree, monkeypatch):
     """停止扫描尚未遍历时，新用户恢复也不能唤醒其他成员的旧待办。"""
-    from yuxi.modules.agents.input_messages import build_chat_input_message
-    from yuxi.modules.agents.repositories.turn import AgentTurnRepository
-    from yuxi.modules.agents.services import cooperation
-    from yuxi.modules.agents.services.inputs import accept_message
-    from yuxi.modules.agents.services.scheduler import dispatch_next_input
+    from zs.modules.agents.input_messages import build_chat_input_message
+    from zs.modules.agents.repositories.turn import AgentTurnRepository
+    from zs.modules.agents.services import cooperation
+    from zs.modules.agents.services.inputs import accept_message
+    from zs.modules.agents.services.scheduler import dispatch_next_input
 
     factory, run_id, root_id, uid = tree
     member = await child(tree)
@@ -1133,10 +1133,10 @@ async def test_tree_stop_pauses_idle_queues_before_user_can_resume(tree, monkeyp
 
 async def test_old_stop_scan_cannot_repause_continued_tree(tree, monkeypatch):
     """让旧停止扫描晚于继续事务取得成员锁，验证不会重新暂停队列。"""
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
-    from yuxi.modules.agents.repositories.sessions import SessionRepository
-    from yuxi.modules.agents.scope import ActorScope
-    from yuxi.modules.agents.services.cooperation import control_tree, reconcile_stopped_trees
+    from zs.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.repositories.sessions import SessionRepository
+    from zs.modules.agents.scope import ActorScope
+    from zs.modules.agents.services.cooperation import control_tree, reconcile_stopped_trees
 
     factory, run_id, root_id, uid = tree
     async with factory() as db:
@@ -1160,7 +1160,7 @@ async def test_old_stop_scan_cannot_repause_continued_tree(tree, monkeypatch):
         return await original_lock(repo, thread_id)
 
     monkeypatch.setattr(SessionRepository, "lock_session_by_thread_id", delayed_lock)
-    monkeypatch.setattr("yuxi.modules.agents.services.scheduler.dispatch_next_input", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.scheduler.dispatch_next_input", AsyncMock())
     old_stop = asyncio.create_task(reconcile_stopped_trees())
     await asyncio.wait_for(scanned.wait(), 5)
     try:
@@ -1185,11 +1185,11 @@ async def test_lost_worker_publishes_failure_to_waiting_member(tree, monkeypatch
     """失联子 Run 的终态必须进入持久 mailbox，使协作等待可恢复。"""
     from datetime import timedelta
 
-    from yuxi.modules.agents.services.leases import reconcile_expired_run_leases
+    from zs.modules.agents.services.leases import reconcile_expired_run_leases
 
     factory, run_id, root_id, uid = tree
     member = await child(tree)
-    monkeypatch.setattr("yuxi.modules.agents.services.leases.reconcile_pending_runtime_cleanups", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.leases.reconcile_pending_runtime_cleanups", AsyncMock())
     async with factory() as db:
         _, acquired = await AgentRunRepository(db).mark_running(member["run_id"], worker_id="lost-worker", lease_seconds=120)
         assert acquired
@@ -1244,10 +1244,10 @@ async def test_wait_rejects_empty_and_self_targets(tree):
 
 async def test_stopped_member_at_model_boundary_requests_cancellation(tree, monkeypatch):
     """停止意图与逐成员取消之间的执行边界不能落为普通失败。"""
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.models.cooperation import CooperationRuntime
 
     factory, run_id, root_id, uid = tree
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
     async with factory() as db:
         (await db.get(CooperationRuntime, root_id)).stopped = True
         await db.commit()
@@ -1263,13 +1263,13 @@ async def test_stopped_member_at_model_boundary_requests_cancellation(tree, monk
 
 async def test_tree_stop_cancels_released_retry_without_lease_failure(tree, monkeypatch):
     """合法释放的重试 Run 应按取消收敛，并且继续队列不能复活它。"""
-    from yuxi.modules.agents.services.cooperation import control_tree
-    from yuxi.modules.agents.services.leases import reconcile_pending_runtime_cleanups
-    from yuxi.modules.agents.services.scheduler import Dispatch
+    from zs.modules.agents.services.cooperation import control_tree
+    from zs.modules.agents.services.leases import reconcile_pending_runtime_cleanups
+    from zs.modules.agents.services.scheduler import Dispatch
 
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
     delivery = AsyncMock()
-    monkeypatch.setattr("yuxi.modules.agents.services.scheduler.deliver", delivery)
+    monkeypatch.setattr("zs.modules.agents.services.scheduler.deliver", delivery)
     factory, run_id, root_id, uid = tree
     async with factory() as db:
         queued = await SessionCooperationService(db, run_id=run_id, uid=uid, worker_id="root-worker").submit_input(
@@ -1320,9 +1320,9 @@ async def test_resume_call_cannot_change_target_session(tree, monkeypatch, opera
     """恢复 Run 重放同一工具调用时，换目标不能产生第二份消息、输入或取消。"""
     from datetime import timedelta
 
-    from yuxi.shared.datetime import format_utc_datetime
+    from zs.shared.datetime import format_utc_datetime
 
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
     factory, run_id, root_id, uid = tree
     first = await child(tree)
     second = await child(tree, name="second", call_id="create-second")
@@ -1391,7 +1391,7 @@ async def test_resume_call_cannot_change_target_session(tree, monkeypatch, opera
 
 async def test_child_status_notification_preserves_self_and_parent_recipients(tree):
     """同一次子轮次状态分别进入自身和父收件箱，重复通知仍各只有一条。"""
-    from yuxi.modules.agents.services.cooperation_notifications import notify_turn_state
+    from zs.modules.agents.services.cooperation_notifications import notify_turn_state
 
     factory, _, root_id, _ = tree
     member = await child(tree)
@@ -1421,9 +1421,9 @@ async def test_child_status_notification_preserves_self_and_parent_recipients(tr
 
 async def test_cancelling_last_pending_run_keeps_tree_stop_state(tree):
     """取消 pending Run 持久化终态，不登记协作树沙盒回收计时。"""
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
-    from yuxi.modules.agents.services.leases import complete_run_runtime_cleanup
-    from yuxi.modules.agents.services.turns import cancel_turn
+    from zs.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.services.leases import complete_run_runtime_cleanup
+    from zs.modules.agents.services.turns import cancel_turn
 
     factory, run_id, root_id, uid = tree
     member = await child(tree)
@@ -1448,7 +1448,7 @@ async def test_cancelling_last_pending_run_keeps_tree_stop_state(tree):
 
 async def complete_member(factory, member, content):
     """持久化精确输出，供跨轮任务观察断言使用。"""
-    from yuxi.modules.agents.repositories.turn import AgentTurnRepository
+    from zs.modules.agents.repositories.turn import AgentTurnRepository
 
     async with factory() as db:
         repo = AgentRunRepository(db)
@@ -1473,7 +1473,7 @@ async def complete_member(factory, member, content):
 
 async def test_exact_result_survives_next_turn_and_queued_input_keeps_identity(tree):
     """A 完成且 B 已派发时，按 A 身份仍能读取 A 的输出。"""
-    from yuxi.modules.agents.services.scheduler import claim_next_input
+    from zs.modules.agents.services.scheduler import claim_next_input
 
     factory, run_id, _, uid = tree
     member = await child(tree)
@@ -1519,7 +1519,7 @@ async def test_exact_result_survives_next_turn_and_queued_input_keeps_identity(t
 
 async def test_input_wait_recovers_after_queued_input_cancelled(tree):
     """无 Turn 的排队 Input 取消后也能唤醒原有持久等待。"""
-    from yuxi.modules.agents.services import execution
+    from zs.modules.agents.services import execution
 
     factory, run_id, _, uid = tree
     member = await child(tree)
@@ -1640,8 +1640,8 @@ async def test_message_foreign_keys_do_not_deadlock_session_writers(tree, monkey
     """树通知与会话写入并发时，外键键共享锁不得形成反向等待。"""
     from sqlalchemy import text
 
-    from yuxi.modules.agents.repositories.turn import AgentTurnRepository
-    from yuxi.modules.agents.services.cooperation import control_tree
+    from zs.modules.agents.repositories.turn import AgentTurnRepository
+    from zs.modules.agents.services.cooperation import control_tree
 
     factory, run_id, root_id, uid = tree
     async with factory() as db:
@@ -1650,7 +1650,7 @@ async def test_message_foreign_keys_do_not_deadlock_session_writers(tree, monkey
         await AgentTurnRepository(db).set_terminal(await db.get(AgentTurn, run.turn_id), status="failed")
         await db.commit()
     await complete_run_runtime_cleanup(run)
-    monkeypatch.setattr("yuxi.modules.agents.services.scheduler.dispatch_next_input", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.scheduler.dispatch_next_input", AsyncMock())
     locked = asyncio.Event()
     tree_lock = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
     key = {"key": f"cooperation:{root_id}"}
@@ -1770,7 +1770,7 @@ async def test_expired_lease_failure_does_not_block_other_runs(tree, monkeypatch
     """单条失联收敛失败后，另一条 Run 的失败终态仍持久化。"""
     from datetime import timedelta
 
-    from yuxi.modules.agents.services.leases import reconcile_expired_run_leases
+    from zs.modules.agents.services.leases import reconcile_expired_run_leases
 
     factory, _, _, _ = tree
     bad = await child(tree, name="bad-lease", call_id="bad-lease")
@@ -1800,8 +1800,8 @@ async def test_expired_lease_failure_does_not_block_other_runs(tree, monkeypatch
 
 async def test_stopped_member_failure_does_not_block_other_members(tree, monkeypatch):
     """停止某个成员失败时，其他成员仍按已持久停止意图取消。"""
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
-    from yuxi.modules.agents.services.cooperation import reconcile_stopped_trees
+    from zs.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.services.cooperation import reconcile_stopped_trees
 
     factory, _, root_id, _ = tree
     member = await child(tree)
@@ -1860,7 +1860,7 @@ async def _define_target_agent(tree, *, suffix="target", visibility="private", o
 async def test_depth_limit_rejects_creation_without_session_or_input_side_effects(tree, monkeypatch, maximum):
     """根深度为零，允许边界内派发且超限不能留下会话或输入。"""
     monkeypatch.setattr(
-        "yuxi.modules.agents.services.cooperation.system_options",
+        "zs.modules.agents.services.cooperation.system_options",
         SimpleNamespace(get=AsyncMock(return_value={"max_cooperation_depth": maximum})),
         raising=False,
     )
@@ -1893,7 +1893,7 @@ async def test_existing_creation_replays_after_depth_limit_is_lowered(tree, monk
     """降低深度只限制新副作用，不破坏已经提交的幂等回执。"""
     created = await child(tree)
     monkeypatch.setattr(
-        "yuxi.modules.agents.services.cooperation.system_options",
+        "zs.modules.agents.services.cooperation.system_options",
         SimpleNamespace(get=AsyncMock(return_value={"max_cooperation_depth": 0})),
         raising=False,
     )
@@ -1902,7 +1902,7 @@ async def test_existing_creation_replays_after_depth_limit_is_lowered(tree, monk
 
 async def test_accept_rejects_late_submission_committed_during_stop(tree, monkeypatch):
     """入口检查与持久写入之间提交的整树停止，在写入边界拒绝迟到的提交。"""
-    from yuxi.modules.agents.services.cooperation import control_tree
+    from zs.modules.agents.services.cooperation import control_tree
 
     factory, run_id, root_id, uid = tree
     member = await child(tree)
@@ -1931,22 +1931,22 @@ async def test_accept_rejects_late_submission_committed_during_stop(tree, monkey
         assert isinstance(error.value, StateConflictError)
     async with factory() as db:
         assert await db.scalar(select(func.count()).select_from(AgentInput).where(AgentInput.thread_id == member["session_id"])) == 1
-        from yuxi.modules.agents.models.cooperation import CooperationRuntime
+        from zs.modules.agents.models.cooperation import CooperationRuntime
 
         assert (await db.get(CooperationRuntime, root_id)).stopped is True
 
 
 async def test_accept_rejects_old_run_after_stop_cleanup_and_user_restart(tree, monkeypatch):
     """停止已结束且新用户工作恢复整树时，旧工具调用仍不能写入。"""
-    from yuxi.modules.agents.input_messages import build_chat_input_message
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
-    from yuxi.modules.agents.services.cooperation import control_tree
-    from yuxi.modules.agents.services.inputs import accept_message
+    from zs.modules.agents.input_messages import build_chat_input_message
+    from zs.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.services.cooperation import control_tree
+    from zs.modules.agents.services.inputs import accept_message
 
     factory, run_id, root_id, uid = tree
     member = await child(tree)
     real_lock = SessionRepository.lock_session_by_thread_id
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
 
     async def restart_tree_then_lock(self, thread_id):
         """在旧工具入口检查后，完成停止清理和下一次用户接收。"""
@@ -1991,14 +1991,14 @@ async def test_stop_waits_for_inflight_child_creation_and_pauses_new_member(tree
     """新成员未提交时停止等待父行锁，提交后扫描仍覆盖该新成员。"""
     from sqlalchemy import text
 
-    from yuxi.modules.agents.models.cooperation import CooperationRuntime
-    from yuxi.modules.agents.services.cooperation import control_tree, dispatch_next_input
+    from zs.modules.agents.models.cooperation import CooperationRuntime
+    from zs.modules.agents.services.cooperation import control_tree, dispatch_next_input
 
     factory, run_id, root_id, uid = tree
     accepting, release_accept, stop_finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
     stop_pid = asyncio.get_running_loop().create_future()
     original_accept = SessionCooperationService._accept
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
 
     async def pause_before_accept(self, **kwargs):
         """在父锁已领取且子成员已 flush 的边界让出执行。"""
@@ -2027,7 +2027,7 @@ async def test_stop_waits_for_inflight_child_creation_and_pauses_new_member(tree
                 stop_finished.set()
 
     monkeypatch.setattr(SessionCooperationService, "_accept", pause_before_accept)
-    monkeypatch.setattr("yuxi.modules.agents.services.cooperation.dispatch_next_input", dispatch_after_stop)
+    monkeypatch.setattr("zs.modules.agents.services.cooperation.dispatch_next_input", dispatch_after_stop)
     creating = asyncio.create_task(child(tree, name="racing", call_id="racing-create"))
     stopping = None
     try:
@@ -2058,7 +2058,7 @@ async def test_parallel_cooperation_waits_resume_with_interrupt_id_mapping(tree)
     """同轮多个协作等待全部就绪后，按中断 ID 一次恢复并送达各自结果。"""
     from datetime import timedelta
 
-    from yuxi.shared.datetime import format_utc_datetime
+    from zs.shared.datetime import format_utc_datetime
 
     factory, run_id, _, uid = tree
     member = await child(tree)
@@ -2110,7 +2110,7 @@ async def test_parallel_wait_resumes_settled_entry_without_delaying_its_deadline
     """已完成或超时的等待立即按 ID 返回，其余挂起点交由 checkpoint 保留。"""
     from datetime import timedelta
 
-    from yuxi.shared.datetime import format_utc_datetime
+    from zs.shared.datetime import format_utc_datetime
 
     factory, run_id, _, _uid = tree
     member = await child(tree)
@@ -2243,7 +2243,7 @@ async def test_input_accept_holds_source_owner_until_receipt_commit(tree, monkey
     """来源检查通过后，retry 或取消必须等 Input/Receipt 同事务提交。"""
     from sqlalchemy import text
 
-    from yuxi.modules.agents.models.inputs import AgentInputReceipt
+    from zs.modules.agents.models.inputs import AgentInputReceipt
 
     factory, run_id, _, uid = tree
     member = await child(tree)
@@ -2413,12 +2413,12 @@ async def test_cancel_rechecks_source_owner_after_waiting_for_target_turn(tree, 
     """等待目标 Turn 锁期间来源被 retry 接管，旧调用不能取消目标。"""
     from sqlalchemy import text
 
-    from yuxi.modules.agents.models.inputs import AgentInputReceipt
+    from zs.modules.agents.models.inputs import AgentInputReceipt
 
     factory, run_id, _, uid = tree
     member = await child(tree)
     cancelling_pid = asyncio.get_running_loop().create_future()
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
 
     async def cancel():
         """独立连接等待真实目标 Turn 锁。"""
@@ -2456,8 +2456,8 @@ async def test_cancel_rechecks_source_owner_after_waiting_for_target_turn(tree, 
 
 async def test_members_cancelling_each_other_use_same_run_lock_order(tree, monkeypatch):
     """双方均已锁目标 Turn 时互相取消，Run 锁序仍收敛且只接受有效来源。"""
-    from yuxi.modules.agents.models.inputs import AgentInputReceipt
-    from yuxi.modules.agents.repositories.turn import AgentTurnRepository
+    from zs.modules.agents.models.inputs import AgentInputReceipt
+    from zs.modules.agents.repositories.turn import AgentTurnRepository
 
     factory, run_id, root_id, uid = tree
     member = await child(tree)
@@ -2488,7 +2488,7 @@ async def test_members_cancelling_each_other_use_same_run_lock_order(tree, monke
             )
 
     monkeypatch.setattr(AgentTurnRepository, "get_for_scope", meet_after_target_turn_lock)
-    monkeypatch.setattr("yuxi.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.services.turns.publish_cancel_signals", AsyncMock())
     cancelling_root = asyncio.create_task(cancel(member["run_id"], "child-worker", root_id, root_turn_id, "child-cancel-root"))
     cancelling_child = asyncio.create_task(cancel(run_id, "root-worker", member["session_id"], member["turn_id"], "root-cancel-child"))
     try:
@@ -2614,7 +2614,7 @@ async def test_cross_tree_input_wait_recovers_exact_result(tree):
 
 async def test_nonhuman_origins_use_persisted_input_and_filter_source_scope(tree):
     """来源只由 Input 决定；无权来源不泄露名称或链接。"""
-    from yuxi.modules.agents.services.message_origins import get_input_origins, get_session_navigation
+    from zs.modules.agents.services.message_origins import get_input_origins, get_session_navigation
 
     factory, run_id, root_id, uid = tree
     target = await child(tree)
@@ -2644,7 +2644,7 @@ async def test_nonhuman_origins_use_persisted_input_and_filter_source_scope(tree
 async def test_cross_tree_events_publish_in_commit_order(tree):
     """不同树共用可观察游标，后分配事件必须等待先前事务提交。"""
     from sqlalchemy import text
-    from yuxi.modules.agents.services.cooperation import read_updates
+    from zs.modules.agents.services.cooperation import read_updates
 
     factory, run_id, root_id, uid = tree
     async with factory() as db:

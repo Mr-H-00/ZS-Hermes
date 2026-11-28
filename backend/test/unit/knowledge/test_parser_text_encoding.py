@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.infrastructure.document_parsing.text_encoding import decode_user_text
-from yuxi.modules.documents.service import parse
+from zs.infrastructure.document_parsing.text_encoding import decode_user_text
+from zs.modules.documents.service import parse
 
 
 async def _parse_markdown(source, params=None, db=None):

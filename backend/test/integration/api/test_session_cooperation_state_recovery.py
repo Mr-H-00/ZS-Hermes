@@ -8,18 +8,18 @@ import uuid
 import pytest
 import pytest_asyncio
 
-from yuxi.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.models import load_models
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.modules.agents.models.cooperation import CooperationEvent, CooperationRuntime
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.datetime import utc_now
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.agents.models.cooperation import CooperationEvent, CooperationRuntime
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.models.sessions import Session
+from zs.modules.workspace.models import Project
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -204,7 +204,7 @@ async def test_cooperation_observation_and_root_archive_preserve_scope_and_live_
             await db.commit()
         archived = await test_client.post(archive_url, headers=cooperation_user["headers"])
         assert archived.status_code == 200, archived.text
-        assert archived.json()["yuxi"]["archived"] is True
+        assert archived.json()["zs"]["archived"] is True
         async with sessions() as db:
             assert (await db.scalar(select(Session).where(Session.thread_id == parent_thread))).status == "archived"
             assert (await db.scalar(select(Session).where(Session.thread_id == child_thread))).status == "active"
@@ -223,7 +223,7 @@ async def test_cooperation_observation_and_root_archive_preserve_scope_and_live_
         await engine.dispose()
 
 
-@pytest.mark.parametrize("event_type", ["yuxi.session.tree.continue", "agent.session.input.message"])
+@pytest.mark.parametrize("event_type", ["zs.session.tree.continue", "agent.session.input.message"])
 async def test_tree_resume_rejects_unconfirmed_cleanup_without_mutating_queue(test_client, cooperation_user, event_type):
     """两种 HTTP 恢复入口均拒绝尚未清理的失败 Run，并保留原队列与停止意图。"""
     uid = cooperation_user["user"]["uid"]

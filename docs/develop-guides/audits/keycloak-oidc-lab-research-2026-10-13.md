@@ -90,7 +90,7 @@ hostname v2 也支持公开前台 URL 与动态内部 backchannel，但最小实
 
 realm、client、user 和 credential 字段来自[Admin REST representations](https://www.keycloak.org/docs-api/latest/rest-api/index.html)，占位符来自[导入文档](https://www.keycloak.org/server/importExport)；两个 attributes 的键名由[26.8.0 OIDCConfigAttributes](https://github.com/keycloak/keycloak/blob/26.8.0/server-spi-private/src/main/java/org/keycloak/protocol/oidc/OIDCConfigAttributes.java)拥有。导入后需回读 client、用户和实际 profile/email scopes，不依赖导入日志判断成功。准确登记回调和 logout 返回地址；服务器兑换场景不需要为此开放任意 Web Origins 或使用全域通配符。
 
-PKCE 选项为空时，Keycloak 仅在 client 发来相应参数时应用 PKCE；设为 S256 后必须提供 challenge/verifier。当前 Yuxi OIDC 源码没有这些参数，直接使用此候选会让当前授权失败。当前实验范围为模拟真实 IdP 与现有 OIDC 互通，因此基线显式省去 `pkce.code.challenge.method`；S256 候选用于列明后续生产协议的适配条件，不要求本地互通任务扩展安全改造。基线结果不能写成 S256 验证通过。[PKCE client 设置](https://www.keycloak.org/docs/latest/server_admin/index.html)、[Yuxi 授权构造](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/oidc.py)、[Yuxi token 请求](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/infrastructure/oidc/client.py)
+PKCE 选项为空时，Keycloak 仅在 client 发来相应参数时应用 PKCE；设为 S256 后必须提供 challenge/verifier。当前 Yuxi OIDC 源码没有这些参数，直接使用此候选会让当前授权失败。当前实验范围为模拟真实 IdP 与现有 OIDC 互通，因此基线显式省去 `pkce.code.challenge.method`；S256 候选用于列明后续生产协议的适配条件，不要求本地互通任务扩展安全改造。基线结果不能写成 S256 验证通过。[PKCE client 设置](https://www.keycloak.org/docs/latest/server_admin/index.html)、[Yuxi 授权构造](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/oidc.py)、[Yuxi token 请求](https://github.com/xerrors/Yuxi/blob/main/backend/zs/infrastructure/oidc/client.py)
 
 ## 初始化与状态变更的自动化路径
 
@@ -117,11 +117,11 @@ Keycloak 授权码流程返回 access token、refresh token 和 ID Token。候�
 
 本地 HTTP 实验适配按 JWKS 验证 ID Token 签名并限制算法，核对 `iss` 等于配置的完整 issuer、`aud` 包含本 client、`exp` 未到期和 nonce 一致；按使用方式处理 `azp` 等字段。UserInfo `sub` 应与 ID Token `sub` 相同后再关联账号。OIDC Core 对直接 TLS token 响应有特定签名校验选择，本实验为 HTTP，因此不能用该条件省去签名检查。[ID Token Validation](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation)、[UserInfo Response](https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse)、[Keycloak JWKS endpoint](https://www.keycloak.org/securing-apps/oidc-layers)
 
-现有 Yuxi callback 只读 access token 和 UserInfo，未消费 ID Token、JWKS、issuer/audience/nonce 校验，且 state 与短期兑换 code 使用进程内存。它签发另一个 Yuxi 本地 JWT。因此基本互通、完整 OIDC 校验、多实例暂态和本地会话撤销需要分别验证，不能由 provider 正确签发推定应用已经执行校验。[现有协议客户端](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/infrastructure/oidc/client.py)、[授权暂态](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/oidc.py)、[HTTP callback](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/identity/oidc.py)、[本地 JWT 发布](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/services/oidc.py)
+现有 Yuxi callback 只读 access token 和 UserInfo，未消费 ID Token、JWKS、issuer/audience/nonce 校验，且 state 与短期兑换 code 使用进程内存。它签发另一个 Yuxi 本地 JWT。因此基本互通、完整 OIDC 校验、多实例暂态和本地会话撤销需要分别验证，不能由 provider 正确签发推定应用已经执行校验。[现有协议客户端](https://github.com/xerrors/Yuxi/blob/main/backend/zs/infrastructure/oidc/client.py)、[授权暂态](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/oidc.py)、[HTTP callback](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/identity/oidc.py)、[本地 JWT 发布](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/services/oidc.py)
 
 标准注销使用 discovery 的 `end_session_endpoint`。浏览器携带 `id_token_hint` 和准确登记的 `post_logout_redirect_uri`；Keycloak 要求返回地址与 client 的 Valid Post Logout Redirect URIs 匹配，使用返回地址时需有 client_id 或 id_token_hint。无 hint 时可以出现用户确认页。注销由应用先结束本地会话、再结束 IdP SSO 会话；一个 callback 地址不自动兼作合适的注销落地页。[RP-Initiated Logout](https://www.keycloak.org/docs/latest/server_admin/index.html#_oidc-logout)、[OIDC Logout 标准](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
 
-Yuxi 当前有 logout URL helper，但只读符号搜索没有发现被路由或前端调用，也没有保管 ID Token 用于 hint。需要真实浏览器验证注销后应用无本地会话、IdP 不再保持原 SSO，以及另一个 client 的注销传播。Keycloak backchannel logout 会向已登记的 client URL POST logout token，应用需自行验签并按会话标识结束本地会话；仅部署 Keycloak 不会新增该应用能力。[Yuxi helper](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/oidc.py)、[Keycloak backchannel logout](https://www.keycloak.org/docs/latest/server_admin/index.html#_oidc-logout)
+Yuxi 当前有 logout URL helper，但只读符号搜索没有发现被路由或前端调用，也没有保管 ID Token 用于 hint。需要真实浏览器验证注销后应用无本地会话、IdP 不再保持原 SSO，以及另一个 client 的注销传播。Keycloak backchannel logout 会向已登记的 client URL POST logout token，应用需自行验签并按会话标识结束本地会话；仅部署 Keycloak 不会新增该应用能力。[Yuxi helper](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/oidc.py)、[Keycloak backchannel logout](https://www.keycloak.org/docs/latest/server_admin/index.html#_oidc-logout)
 
 ## 禁用用户与已签发 JWT 的区别
 
@@ -129,7 +129,7 @@ Keycloak `enabled=false` 可以用于模拟冻结/停用，不需要删除测试
 
 已发 JWT 的签名和 `exp` 不会因远端账号字段更新而被修改。仅做离线签名/寿命验证的应用无法据此获得新的用户状态；官方也明确 Sign out all active sessions 不会使尚未到期的 access token 自然提前过期。introspection 是独立远端判定，只有 confidential client 可以调用。[用户会话与 access token 边界](https://www.keycloak.org/docs/latest/server_admin/index.html#managing-user-sessions)、[Introspection endpoint](https://www.keycloak.org/securing-apps/oidc-layers)
 
-Yuxi 登录后自行签发本地 JWT，后续请求不会自动再调用 Keycloak。因此“禁用成员后新的 Keycloak 登录拒绝”与“原 Yuxi 会话立即终止”是两个验收结果。当前互通实验应先记录实际结果；如要求后者，另需应用端持续状态校验、经过验证的 backchannel logout 或明确的本地撤销机制，这些不属于当前基线联调的默认实现范围。恢复 `enabled=true` 只恢复 IdP 成员可用性，不授权恢复被本地管理员停用的账号。[Yuxi 本地会话发布](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/identity/services/oidc.py)、[Keycloak logout 传播](https://www.keycloak.org/docs/latest/server_admin/index.html#_oidc-logout)
+Yuxi 登录后自行签发本地 JWT，后续请求不会自动再调用 Keycloak。因此“禁用成员后新的 Keycloak 登录拒绝”与“原 Yuxi 会话立即终止”是两个验收结果。当前互通实验应先记录实际结果；如要求后者，另需应用端持续状态校验、经过验证的 backchannel logout 或明确的本地撤销机制，这些不属于当前基线联调的默认实现范围。恢复 `enabled=true` 只恢复 IdP 成员可用性，不授权恢复被本地管理员停用的账号。[Yuxi 本地会话发布](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/identity/services/oidc.py)、[Keycloak logout 传播](https://www.keycloak.org/docs/latest/server_admin/index.html#_oidc-logout)
 
 ## 实验验收与本次检查
 

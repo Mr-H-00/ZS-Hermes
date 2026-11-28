@@ -57,7 +57,7 @@ class ApiProbe:
 
 def create_app():
     """包裹实际 FastAPI 应用，不改变其依赖和路由。"""
-    from yuxi.api.main import app
+    from zs.api.main import app
 
     if FINE:
         from .stage_probe import install
@@ -117,13 +117,13 @@ def wrap(owner, name):
 
 def run():
     """使用实际 ARQ worker，仅在进程入口安装诊断包装。"""
-    from yuxi.workers.arq import run_worker
-    from yuxi.workers.settings import WorkerSettings
-    from yuxi.modules.agents.runtime.agent_backends.chatbot import graph
-    from yuxi.modules.extensions.skills import projection as service
-    import yuxi.modules.agents.services.runner as worker
-    import yuxi.modules.agents.services.execution as execution
-    import yuxi.modules.agents.services.preparation as preparation
+    from zs.workers.arq import run_worker
+    from zs.workers.settings import WorkerSettings
+    from zs.modules.agents.runtime.agent_backends.chatbot import graph
+    from zs.modules.extensions.skills import projection as service
+    import zs.modules.agents.services.runner as worker
+    import zs.modules.agents.services.execution as execution
+    import zs.modules.agents.services.preparation as preparation
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
     if FINE:

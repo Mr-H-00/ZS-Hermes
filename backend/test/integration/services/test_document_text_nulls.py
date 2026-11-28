@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from yuxi.infrastructure.document_parsing.parser import parse
+from zs.infrastructure.document_parsing.parser import parse
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

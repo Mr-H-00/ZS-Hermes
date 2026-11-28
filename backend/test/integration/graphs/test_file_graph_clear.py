@@ -13,18 +13,18 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.infrastructure.neo4j import safe_neo4j_label
-from yuxi.migrations.schema import create_knowledge_tables
-from yuxi.modules.background_jobs import repository as job_repository
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.graphs.extractors import normalize_extraction_result
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.modules.knowledge.models import KnowledgeChunk
-from yuxi.modules.knowledge.repositories import bases, chunks, document_resets, graphs, projections
-from yuxi.modules.knowledge.services import background_jobs
-from yuxi.shared.errors import InvalidOperationError, ResourceNotFoundError, StateConflictError
-from yuxi.shared.datetime import utc_now
-from yuxi.workers.background_job_context import BackgroundJobContext
+from zs.infrastructure.neo4j import safe_neo4j_label
+from zs.migrations.schema import create_knowledge_tables
+from zs.modules.background_jobs import repository as job_repository
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.graphs.extractors import normalize_extraction_result
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.models import KnowledgeChunk
+from zs.modules.knowledge.repositories import bases, chunks, document_resets, graphs, projections
+from zs.modules.knowledge.services import background_jobs
+from zs.shared.errors import InvalidOperationError, ResourceNotFoundError, StateConflictError
+from zs.shared.datetime import utc_now
+from zs.workers.background_job_context import BackgroundJobContext
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

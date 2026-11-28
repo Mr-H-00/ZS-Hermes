@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.workers import background_jobs
+from zs.workers import background_jobs
 
 
 @pytest.mark.asyncio
@@ -38,14 +38,14 @@ async def test_disabled_knowledge_job_keeps_pending_intent_and_can_publish_after
 
     monkeypatch.setattr(background_jobs, "BackgroundJobRepository", Repository)
     monkeypatch.setattr(background_jobs, "publish_job", publish)
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "false")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "false")
 
     await background_jobs.process_background_job({}, record.id)
     assert await background_jobs.publish_pending_jobs() == []
     assert record.status == "pending"
     assert published == []
 
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "true")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "true")
     assert await background_jobs.publish_pending_jobs() == [record.id]
     assert record.status == "pending"
     assert published == [record.id]

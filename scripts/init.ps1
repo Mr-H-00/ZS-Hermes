@@ -1,5 +1,5 @@
-# Yuxi Initialization Script for PowerShell
-# This script helps set up the environment for the Yuxi project
+# ZS Initialization Script for PowerShell
+# This script helps set up the environment for the ZS project
 
 param([switch]$ValidateSecurityEnv)
 
@@ -128,15 +128,15 @@ function Ensure-JwtEnv {
     Ensure-SecuritySecret "JWT_SECRET_KEY"
     Ensure-SecuritySecret "API_KEY_DERIVATION_SECRET" @("JWT_SECRET_KEY")
 
-    if (-not (Test-EnvValue "YUXI_INSTANCE_ID")) {
-        Write-Host "YUXI_INSTANCE_ID is missing in .env." -ForegroundColor Yellow
-        $YUXI_INSTANCE_ID = Read-Host "Please enter your YUXI_INSTANCE_ID (press Enter to auto-generate)"
-        if ([string]::IsNullOrEmpty($YUXI_INSTANCE_ID)) {
-            $YUXI_INSTANCE_ID = "instance-$(New-RandomHex 8)"
-            Write-Host "Generated YUXI_INSTANCE_ID and saved it to .env." -ForegroundColor Green
+    if (-not (Test-EnvValue "ZS_INSTANCE_ID")) {
+        Write-Host "ZS_INSTANCE_ID is missing in .env." -ForegroundColor Yellow
+        $ZS_INSTANCE_ID = Read-Host "Please enter your ZS_INSTANCE_ID (press Enter to auto-generate)"
+        if ([string]::IsNullOrEmpty($ZS_INSTANCE_ID)) {
+            $ZS_INSTANCE_ID = "instance-$(New-RandomHex 8)"
+            Write-Host "Generated ZS_INSTANCE_ID and saved it to .env." -ForegroundColor Green
         }
 
-        Set-EnvValue "YUXI_INSTANCE_ID" $YUXI_INSTANCE_ID
+        Set-EnvValue "ZS_INSTANCE_ID" $ZS_INSTANCE_ID
     }
 }
 
@@ -159,7 +159,7 @@ function Test-SkipExistingImage($ImageTag) {
     return $true
 }
 
-Write-Host "🚀 Initializing Yuxi project..." -ForegroundColor Cyan
+Write-Host "🚀 Initializing ZS project..." -ForegroundColor Cyan
 Write-Host "==================================" -ForegroundColor Cyan
 
 # Check if .env file exists
@@ -189,10 +189,10 @@ if (Test-Path ".env") {
     $JWT_SECRET_KEY = Read-SecuritySecret "JWT_SECRET_KEY"
     $API_KEY_DERIVATION_SECRET = Read-SecuritySecret "API_KEY_DERIVATION_SECRET" @($JWT_SECRET_KEY)
 
-    $YUXI_INSTANCE_ID = Read-Host "Please enter your YUXI_INSTANCE_ID (press Enter to auto-generate)"
-    if ([string]::IsNullOrEmpty($YUXI_INSTANCE_ID)) {
-        $YUXI_INSTANCE_ID = "instance-$(New-RandomHex 8)"
-        Write-Host "Generated YUXI_INSTANCE_ID and saved it to .env." -ForegroundColor Green
+    $ZS_INSTANCE_ID = Read-Host "Please enter your ZS_INSTANCE_ID (press Enter to auto-generate)"
+    if ([string]::IsNullOrEmpty($ZS_INSTANCE_ID)) {
+        $ZS_INSTANCE_ID = "instance-$(New-RandomHex 8)"
+        Write-Host "Generated ZS_INSTANCE_ID and saved it to .env." -ForegroundColor Green
     }
 
 
@@ -218,7 +218,7 @@ SILICONFLOW_API_KEY=$apiKey
 # JWT security settings
 JWT_SECRET_KEY=$JWT_SECRET_KEY
 API_KEY_DERIVATION_SECRET=$API_KEY_DERIVATION_SECRET
-YUXI_INSTANCE_ID=$YUXI_INSTANCE_ID
+ZS_INSTANCE_ID=$ZS_INSTANCE_ID
 "@
 
     $envContent | Out-File -FilePath ".env" -Encoding UTF8
@@ -229,7 +229,7 @@ YUXI_INSTANCE_ID=$YUXI_INSTANCE_ID
     Remove-Variable -Name "apiKey" -ErrorAction SilentlyContinue
     Remove-Variable -Name "JWT_SECRET_KEY" -ErrorAction SilentlyContinue
     Remove-Variable -Name "API_KEY_DERIVATION_SECRET" -ErrorAction SilentlyContinue
-    Remove-Variable -Name "YUXI_INSTANCE_ID" -ErrorAction SilentlyContinue
+    Remove-Variable -Name "ZS_INSTANCE_ID" -ErrorAction SilentlyContinue
 }
 
 # 默认 container；已有显式后端和 runner 凭据保持不变。

@@ -6,10 +6,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.support.sqlite import create_utc_sqlite_engine
 
-from yuxi.api.routers.identity.users import get_user_config, update_user_config
-from yuxi.modules.identity.preferences import UserConfigSchema
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.identity.models import Department, User
+from zs.api.routers.identity.users import get_user_config, update_user_config
+from zs.modules.identity.preferences import UserConfigSchema
+from zs.infrastructure.postgres.base import Base
+from zs.modules.identity.models import Department, User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

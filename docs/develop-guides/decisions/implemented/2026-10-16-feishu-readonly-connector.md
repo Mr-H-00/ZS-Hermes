@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/knowledge/implementations/feishu.py
+Owner：backend/zs/modules/knowledge/implementations/feishu.py
 
 ## 问题
 

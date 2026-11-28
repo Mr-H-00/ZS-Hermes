@@ -12,12 +12,12 @@ import pytest_asyncio
 from fastapi import FastAPI
 from sqlalchemy import func, select
 
-from yuxi.api.routers.knowledge import management as router
-from yuxi.infrastructure.minio.client import get_minio_client
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.identity.models import User
-from yuxi.modules.knowledge.models import KnowledgeFile
+from zs.api.routers.knowledge import management as router
+from zs.infrastructure.minio.client import get_minio_client
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.identity.models import User
+from zs.modules.knowledge.models import KnowledgeFile
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -181,7 +181,7 @@ async def test_url_asgi_projection_uses_real_pg_and_minio(
         assert payload["status"] == "success" and payload["filename"] == original and payload["final_url"] == final
         assert payload["content_hash"] == digest and payload["size"] == len(content)
         assert payload["file_path"] == payload["minio_url"]
-        from yuxi.infrastructure.minio.object_urls import parse_minio_url
+        from zs.infrastructure.minio.object_urls import parse_minio_url
 
         _, key = parse_minio_url(payload["file_path"])
         assert key.startswith(f"{kb_id}/upload/") and key.endswith("/source.html")

@@ -5,8 +5,8 @@ from itertools import count
 import pytest
 from sqlalchemy import event
 
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.infrastructure.postgres.models import load_models
+from zs.modules.agents.models.runs import AgentRun
+from zs.infrastructure.postgres.models import load_models
 
 load_models()
 

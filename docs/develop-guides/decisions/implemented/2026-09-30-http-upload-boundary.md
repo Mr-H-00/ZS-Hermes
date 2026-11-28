@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/api/uploads.py
+Owner：backend/zs/api/uploads.py
 
 ## 问题
 

@@ -66,6 +66,6 @@
 
 ## 源码定位与验证
 
-[协作服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/cooperation.py)拥有创建、输入、通知与等待恢复，[协作 repository](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/repositories/cooperation.py)拥有树范围与并发领取，[leases](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/leases.py)拥有执行续租与空闲释放。持久结构由 Session、CooperationEvent 和 CooperationRuntime 的 Schema 约束。
+[协作服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/cooperation.py)拥有创建、输入、通知与等待恢复，[协作 repository](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/repositories/cooperation.py)拥有树范围与并发领取，[leases](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/leases.py)拥有执行续租与空闲释放。持久结构由 Session、CooperationEvent 和 CooperationRuntime 的 Schema 约束。
 
 真实 PostgreSQL 测试覆盖幂等、递归并发、跨用户和 APP 拒绝、跨树事件提交顺序、等待恢复及取消竞态；[确定性 E2E](https://github.com/xerrors/Yuxi/blob/main/backend/test/e2e/test_session_cooperation_e2e.py)回读公开 Turn、会话树与共享目录文件。取舍见[统一 Session 决策](../develop-guides/decisions/implemented/2026-10-03-session-cooperation.md)与[人工待办入口决策](../develop-guides/decisions/implemented/2026-10-10-cooperation-attention.md)。

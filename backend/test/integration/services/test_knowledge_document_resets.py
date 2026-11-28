@@ -9,16 +9,16 @@ import pytest
 from sqlalchemy import text
 
 from test.integration.graphs.test_file_graph_clear import graph_data as graph_data
-from yuxi.infrastructure.redis import close_async_redis_client
-from yuxi.modules.background_jobs import repository as job_repository
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-from yuxi.modules.knowledge.repositories import bases, files, graphs
-from yuxi.modules.knowledge.services import document_actions, imports
-from yuxi.modules.knowledge.services import document_resets as resets
-from yuxi.shared.errors import StateConflictError
-from yuxi.workers import background_jobs as worker
-from yuxi.workers.background_job_context import BackgroundJobContext
+from zs.infrastructure.redis import close_async_redis_client
+from zs.modules.background_jobs import repository as job_repository
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.repositories import bases, files, graphs
+from zs.modules.knowledge.services import document_actions, imports
+from zs.modules.knowledge.services import document_resets as resets
+from zs.shared.errors import StateConflictError
+from zs.workers import background_jobs as worker
+from zs.workers.background_job_context import BackgroundJobContext
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -278,7 +278,7 @@ async def test_parse_clear_drains_all_prefix_io_before_releasing_projection_lock
     import asyncio
     import threading
 
-    from yuxi.modules.knowledge.repositories.projections import knowledge_projection_lock
+    from zs.modules.knowledge.repositories.projections import knowledge_projection_lock
 
     data = document_data
     entered, released = asyncio.Event(), threading.Event()
@@ -345,7 +345,7 @@ async def test_reset_rejects_expired_owner_after_waiting_for_projection_lock(doc
     """真实租约已过期的撤销在拿锁后退出，不能先撤销读取再发现失去执行权。"""
     import asyncio
 
-    from yuxi.modules.knowledge.repositories.projections import knowledge_projection_lock
+    from zs.modules.knowledge.repositories.projections import knowledge_projection_lock
 
     data = document_data
     context = await _claim_reset(data)
@@ -465,7 +465,7 @@ async def markdown_data(document_data, monkeypatch, tmp_path):
         KB_BUCKETS={"parsed": "parsed", "images": "kb-images"}, adelete_objects_by_prefix=delete_prefix, adelete_file=delete_file
     )
     monkeypatch.setattr(resets, "get_minio_client", lambda: data.client)
-    monkeypatch.setattr("yuxi.modules.knowledge.base.get_minio_client", lambda: data.client)
+    monkeypatch.setattr("zs.modules.knowledge.base.get_minio_client", lambda: data.client)
     return data
 
 
@@ -606,7 +606,7 @@ async def test_markdown_stage_failure_never_withdraws_source_or_indices(markdown
 
 async def test_markdown_read_failure_is_not_empty_or_chunk_fallback(markdown_data, monkeypatch):
     """持久正文读取失败不得用仍有的分块或空串冒充可靠原文。"""
-    from yuxi.shared.errors import OperationFailedError
+    from zs.shared.errors import OperationFailedError
 
     data = markdown_data
     monkeypatch.setattr(resets.documents, "get_file_download", AsyncMock(side_effect=RuntimeError("missing object")))
@@ -653,7 +653,7 @@ async def test_markdown_publish_rejects_lost_owner_or_deleted_target_and_reclaim
     """副作用后失租或目标删除不能发布正文，暂存对象在退出投影锁之前被回收。"""
     import asyncio
 
-    from yuxi.shared.errors import ResourceNotFoundError
+    from zs.shared.errors import ResourceNotFoundError
 
     data = markdown_data
     revision = (await resets.read_markdown_for_edit(data.kb_id, "b"))["revision"]
@@ -765,7 +765,7 @@ async def test_parse_committed_publish_return_failure_preserves_markdown_and_ima
             raise RuntimeError("parse after commit")
         return result
 
-    monkeypatch.setattr("yuxi.modules.documents.service.parse_to_hosted_markdown", parse_source)
+    monkeypatch.setattr("zs.modules.documents.service.parse_to_hosted_markdown", parse_source)
     monkeypatch.setattr(files.KnowledgeFileRepository, "update_fields_if_status", publish_then_raise)
     monkeypatch.setattr(data.executor, "_cleanup_parse_attempt", cleanup)
     with pytest.raises(asyncio.CancelledError if failure == "cancel" else RuntimeError):

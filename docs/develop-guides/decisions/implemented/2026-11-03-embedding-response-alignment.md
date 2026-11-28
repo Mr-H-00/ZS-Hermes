@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/models/embed.py
+Owner：backend/zs/modules/models/embed.py
 
 ## 问题
 
@@ -12,7 +12,7 @@ Owner：backend/yuxi/modules/models/embed.py
 
 ### 实现方案
 
-[响应解析](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/models/embed.py)拥有逐条对应的校验。同步、异步 HTTP 入口传入请求条数（字符串计一条），解析函数拒绝条数不符、缺少向量或向量为 `null` 的响应。供应商提供索引时，使用索引到向量的映射独立检查整数类型、范围、重复及混合缺失，再按索引返回；不使用向量内容判断槽位是否占用，也不通过过滤修补结果。
+[响应解析](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/models/embed.py)拥有逐条对应的校验。同步、异步 HTTP 入口传入请求条数（字符串计一条），解析函数拒绝条数不符、缺少向量或向量为 `null` 的响应。供应商提供索引时，使用索引到向量的映射独立检查整数类型、范围、重复及混合缺失，再按索引返回；不使用向量内容判断槽位是否占用，也不通过过滤修补结果。
 
 无索引响应保持供应商顺序；所有索引为空时保留无索引兼容行为。批处理入口在累加前复用数量检查，防止子类返回部分批次。任何不满足约束的批次都抛出 `ValueError`，调用方拿不到部分结果。
 

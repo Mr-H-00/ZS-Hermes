@@ -8,16 +8,16 @@ from test.support.sqlite import create_utc_sqlite_engine
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yuxi.modules.identity.services.cli_auth import (
+from zs.modules.identity.services.cli_auth import (
     CLIAuthError,
     approve_cli_auth_session,
     create_cli_auth_session,
     exchange_cli_auth_token,
     get_cli_auth_session_for_user,
 )
-from yuxi.modules.identity.models import APIKey, Department, User
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.shared.datetime import utc_now
+from zs.modules.identity.models import APIKey, Department, User
+from zs.infrastructure.postgres.base import Base
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

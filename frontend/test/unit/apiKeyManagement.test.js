@@ -7,7 +7,7 @@ import { compileScript, parse } from 'vue/compiler-sfc'
 import { createRenderer, h, nextTick } from 'vue'
 import { createTestServer } from '../helpers/createTestServer.js'
 
-const storageKey = 'yuxi_pending_api_key_request_id'
+const storageKey = 'zs_pending_api_key_request_id'
 
 /** 完整编译组件，在 API 和浏览器边界替换依赖，通过表单事件观察实际提交。 */
 async function setupComponent({ storage = new Map(), keys = [], create, update } = {}) {

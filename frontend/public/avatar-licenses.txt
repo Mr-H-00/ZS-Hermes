@@ -1,17 +1,17 @@
-Yuxi Avatar notices
+ZS Avatar notices
 
 @dicebear/core 10.7.0: MIT
 @dicebear/styles 10.6.0:
 Glyphs: Abstract Avatars for All Creative Profile Use, Matt Houser; DiceBear remix.
 Original: https://www.figma.com/community/file/1249154526125777853
 License: CC BY 4.0 https://creativecommons.org/licenses/by/4.0/
-Yuxi modifications: project color palettes, Glyphs night paper color, canvas clipping.
+ZS modifications: project color palettes, Glyphs night paper color, canvas clipping.
 Clay, Shape Grid, Gaze artwork: DiceBear, CC0 1.0.
 Lorelei artwork: Lisa Wischofsky, CC0 1.0; DiceBear remix.
 Original: https://www.figma.com/community/file/1198749693280469639
 Notionists artwork: Zoish, CC0 1.0; DiceBear remix.
 Original: https://heyzoish.gumroad.com/l/notionists
-Yuxi modifications to Lorelei and Notionists: preset colors, backgrounds, canvas clipping.
+ZS modifications to Lorelei and Notionists: preset colors, backgrounds, canvas clipping.
 Generated SVGs retain original attribution and license metadata.
 
 MIT License

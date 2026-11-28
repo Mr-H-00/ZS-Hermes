@@ -25,7 +25,7 @@ async def test_container_cleanup_check_rejects_wrong_backend_instead_of_skipping
 @pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
 async def test_turn_wait_returns_the_owned_terminal_outcome(status):
     """等待只证明指定 Turn 终结，具体成功或取消仍由业务用例断言。"""
-    turn = {"id": "turn", "session_id": "thread", "status": status, "yuxi": {"current_run_id": "run"}}
+    turn = {"id": "turn", "session_id": "thread", "status": status, "zs": {"current_run_id": "run"}}
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json=turn)), base_url="http://test"
     ) as client:
@@ -36,7 +36,7 @@ async def test_turn_wait_returns_the_owned_terminal_outcome(status):
 @pytest.mark.parametrize("change", [{"id": "other-turn"}, {"session_id": "other-thread"}, {"http": 404}])
 async def test_turn_wait_rejects_wrong_or_missing_target(change):
     """其他 Turn 的完成和目标消失都不能冒充本次等待成功。"""
-    turn = {"id": "turn", "session_id": "thread", "status": "completed", "yuxi": {"current_run_id": "run"}, **change}
+    turn = {"id": "turn", "session_id": "thread", "status": "completed", "zs": {"current_run_id": "run"}, **change}
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda request: httpx.Response(change.get("http", 200), json=turn)), base_url="http://test"
     ) as client:
@@ -59,7 +59,7 @@ async def test_turn_wait_bounds_requests_and_reports_only_state(blocked_request)
                 "id": "turn",
                 "session_id": "thread",
                 "status": "in_progress",
-                "yuxi": {"current_run_id": "run", "output": "secret-body"},
+                "zs": {"current_run_id": "run", "output": "secret-body"},
             },
         )
 

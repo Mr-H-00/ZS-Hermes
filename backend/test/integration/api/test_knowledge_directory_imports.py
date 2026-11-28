@@ -9,9 +9,9 @@ import pytest_asyncio
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError
 
-from yuxi.infrastructure.minio.client import get_minio_client
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeFile, KnowledgeImport, KnowledgeProjectionOutbox
+from zs.infrastructure.minio.client import get_minio_client
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeFile, KnowledgeImport, KnowledgeProjectionOutbox
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -205,7 +205,7 @@ async def test_real_worker_uses_registered_file(test_client, admin_headers, dire
             await observer.scalars(select(KnowledgeFile).where(KnowledgeFile.kb_id == directory_kb, KnowledgeFile.is_folder.is_(False)))
         ).all()
         assert len(files) == 1 and files[0].file_id == result["items"][0]["file_id"] and files[0].status == "parsed"
-    from yuxi.infrastructure.minio.object_urls import parse_minio_url
+    from zs.infrastructure.minio.object_urls import parse_minio_url
 
     bucket, name = parse_minio_url(files[0].markdown_file)
     assert b"Hello real worker." in await get_minio_client().adownload_file(bucket, name)
@@ -214,7 +214,7 @@ async def test_real_worker_uses_registered_file(test_client, admin_headers, dire
 @pytest.mark.parametrize("name", ["a#b.txt", "a%20b.txt", "a?b.txt", "资" * 508 + ".txt"])
 async def test_reserved_url_characters_keep_registered_original(test_client, admin_headers, directory_kb, name):
     """合法逻辑名称通过 URL 编码回读同一对象，提交清理不能删除原件。"""
-    from yuxi.infrastructure.minio.object_urls import parse_minio_url
+    from zs.infrastructure.minio.object_urls import parse_minio_url
 
     p = await staged(test_client, admin_headers, directory_kb, name=name)
     result = await test_client.post(
@@ -230,7 +230,7 @@ async def test_reserved_url_characters_keep_registered_original(test_client, adm
 
 async def test_concurrent_same_receipt_and_explicit_new_import(test_client, admin_headers, directory_kb, postgres_sessions):
     """并发重放只登记一次；主动再导入独占原件，删除前一文件不影响后一文件。"""
-    from yuxi.infrastructure.minio.object_urls import parse_minio_url
+    from zs.infrastructure.minio.object_urls import parse_minio_url
 
     p = await staged(test_client, admin_headers, directory_kb)
     body = {**manifest([p]), "import_id": uuid4().hex}
@@ -303,9 +303,9 @@ async def test_initial_queue_failure_keeps_committed_import_and_real_worker_reco
     test_client, admin_headers, directory_kb, postgres_sessions, monkeypatch
 ):
     """首投失败不撤销文件，重放后重复投递仍只处理已登记身份。"""
-    from yuxi.infrastructure.postgres.manager import pg_manager
-    from yuxi.modules.background_jobs import dispatch
-    from yuxi.modules.knowledge.services.imports import register_import
+    from zs.infrastructure.postgres.manager import pg_manager
+    from zs.modules.background_jobs import dispatch
+    from zs.modules.knowledge.services.imports import register_import
 
     p = await staged(test_client, admin_headers, directory_kb, name="delivery.txt")
     body = manifest([p], ["docs/delivery.txt"])

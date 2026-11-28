@@ -5,9 +5,9 @@ from uuid import UUID
 
 import pytest
 
-import yuxi.modules.workspace.services.projects as svc
-from yuxi.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
-from yuxi.shared.errors import DomainError, InvalidInputError, InvalidOperationError, ResourceNotFoundError
+import zs.modules.workspace.services.projects as svc
+from zs.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
+from zs.shared.errors import DomainError, InvalidInputError, InvalidOperationError, ResourceNotFoundError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -41,7 +41,7 @@ class _Db:
 
 
 async def test_linked_project_accepts_existing_nested_directory(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("zs.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     target = user_workspace_dir("user-1") / "client" / "demo"
     target.mkdir(parents=True)
@@ -65,7 +65,7 @@ async def test_linked_project_accepts_existing_nested_directory(monkeypatch, tmp
 
 
 async def test_linked_project_accepts_directory_below_projects(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("zs.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     (user_workspace_dir("user-1") / "projects" / "manual").mkdir(parents=True)
 
@@ -84,7 +84,7 @@ async def test_linked_project_accepts_directory_below_projects(monkeypatch, tmp_
 
 @pytest.mark.parametrize("path", ["agents", "agents/skills", "projects"])
 async def test_linked_project_accepts_any_existing_non_root_directory(monkeypatch, tmp_path: Path, path: str):
-    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("zs.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     (user_workspace_dir("user-1") / path).mkdir(parents=True, exist_ok=True)
 
@@ -101,7 +101,7 @@ async def test_linked_project_accepts_any_existing_non_root_directory(monkeypatc
 
 
 async def test_multiple_projects_can_share_one_existing_directory(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("zs.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     target = user_workspace_dir("user-1") / "shared"
     target.mkdir()
@@ -129,9 +129,9 @@ async def test_multiple_projects_can_share_one_existing_directory(monkeypatch, t
 
 
 async def test_implicit_project_uses_date_grouped_managed_workdir(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("zs.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     monkeypatch.setattr(
-        "yuxi.modules.workspace.paths.shanghai_now",
+        "zs.modules.workspace.paths.shanghai_now",
         lambda: datetime.fromisoformat("2026-09-02T14:35:08+08:00"),
     )
     monkeypatch.setattr(svc.uuid, "uuid4", lambda: UUID("a1b2c3d4-e5f6-4789-8123-456789abcdef"))
@@ -164,7 +164,7 @@ async def test_manual_project_requires_selected_directory(directory_mode: str, w
 
 @pytest.mark.parametrize("path", ["/", "../outside", "/tmp/host"])
 async def test_linked_project_rejects_root_or_outside_paths(monkeypatch, tmp_path: Path, path: str):
-    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("zs.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
 
     with pytest.raises(DomainError) as exc:
@@ -181,7 +181,7 @@ async def test_linked_project_rejects_root_or_outside_paths(monkeypatch, tmp_pat
 
 
 async def test_linked_project_rejects_file_and_symlink(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("yuxi.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("zs.modules.workspace.paths.get_user_data_dir", lambda: tmp_path)
     ensure_user_workspace("user-1")
     workspace = user_workspace_dir("user-1")
     (workspace / "file.txt").write_text("x", encoding="utf-8")

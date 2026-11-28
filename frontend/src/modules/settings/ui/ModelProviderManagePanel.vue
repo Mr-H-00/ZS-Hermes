@@ -771,7 +771,7 @@ defineExpose({
     <PageShoulder v-model:search="searchQuery" search-placeholder="搜索供应商...">
       <template #actions>
         <a-button
-          class="yuxi-refresh-button lucide-icon-btn"
+          class="zs-refresh-button lucide-icon-btn"
           @click="loadProviders"
           :disabled="loading"
           aria-label="刷新供应商"
@@ -1076,7 +1076,7 @@ defineExpose({
             :title="
               providerForm.provider_type === 'gemini'
                 ? 'Gemini 供应商暂不支持请求携带用户 ID。'
-                : '开启后，智能体对话产生的聊天模型请求会携带带 HMAC 签名的 x-yuxi-uid 请求头（值为当前用户 UID），外部网关验签后即可按用户统计用量并防止伪造。需要先在 API/worker 环境变量配置 YUXI_UID_SIGNATURE_SECRET，保存时会校验；仅影响该供应商且仅在开启时生效。'
+                : '开启后，智能体对话产生的聊天模型请求会携带带 HMAC 签名的 x-zs-uid 请求头（值为当前用户 UID），外部网关验签后即可按用户统计用量并防止伪造。需要先在 API/worker 环境变量配置 ZS_UID_SIGNATURE_SECRET，保存时会校验；仅影响该供应商且仅在开启时生效。'
             "
           >
             <span>请求携带用户 ID</span>
@@ -1192,7 +1192,7 @@ defineExpose({
                   <LoaderCircle
                     v-if="isModelTesting(currentProviderForModels.provider_id, model.id)"
                     :size="13"
-                    class="yuxi-rotate"
+                    class="zs-rotate"
                   />
                   <Zap v-else :size="13" />
                 </a-button>
@@ -1268,7 +1268,7 @@ defineExpose({
                 @click="fetchRemoteModels(currentProviderForModels.provider_id)"
               >
                 <template #icon>
-                  <RefreshCw :size="14" :class="{ 'yuxi-rotate': remoteLoading }" aria-hidden="true" />
+                  <RefreshCw :size="14" :class="{ 'zs-rotate': remoteLoading }" aria-hidden="true" />
                 </template>
               </a-button>
             </div>

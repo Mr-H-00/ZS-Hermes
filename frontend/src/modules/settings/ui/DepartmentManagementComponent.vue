@@ -11,10 +11,10 @@
           @click="handleRefresh"
           :loading="departmentManagement.refreshing"
           title="刷新"
-          class="yuxi-refresh-button lucide-icon-btn"
+          class="zs-refresh-button lucide-icon-btn"
         >
           <template #icon
-            ><RefreshCw :size="16" :class="{ 'yuxi-rotate': departmentManagement.refreshing }"
+            ><RefreshCw :size="16" :class="{ 'zs-rotate': departmentManagement.refreshing }"
           /></template>
         </a-button>
         <a-button type="primary" @click="showAddDepartmentModal" class="lucide-icon-btn">
@@ -58,7 +58,7 @@
                       <a-button
                         type="text"
                         size="small"
-                        class="yuxi-table-action lucide-icon-btn"
+                        class="zs-table-action lucide-icon-btn"
                         @click="showEditDepartmentModal(record)"
                       >
                         <SquarePen :size="14" />
@@ -70,7 +70,7 @@
                         size="small"
                         danger
                         :disabled="record.id === 1"
-                        class="yuxi-table-action lucide-icon-btn"
+                        class="zs-table-action lucide-icon-btn"
                         @click="confirmDeleteDepartment(record)"
                       >
                         <Trash2 :size="14" />
@@ -136,10 +136,10 @@
               autocomplete="off"
               @blur="checkAdminUid"
             />
-            <div v-if="departmentManagement.form.uidError" class="yuxi-form-error">
+            <div v-if="departmentManagement.form.uidError" class="zs-form-error">
               {{ departmentManagement.form.uidError }}
             </div>
-            <div v-else class="yuxi-form-help">此 UID 将用于登录</div>
+            <div v-else class="zs-form-help">此 UID 将用于登录</div>
           </a-form-item>
 
           <a-form-item label="密码" required>
@@ -174,7 +174,7 @@
               name="new-department-admin-phone"
               autocomplete="off"
             />
-            <div v-if="departmentManagement.form.phoneError" class="yuxi-form-error">
+            <div v-if="departmentManagement.form.phoneError" class="zs-form-error">
               {{ departmentManagement.form.phoneError }}
             </div>
           </a-form-item>

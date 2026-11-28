@@ -2,8 +2,8 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/runtime/sandbox/backend.py
-辅助 Owner：backend/yuxi/api/routers/identity/auth.py（users/page 多选契约）
+Owner：backend/zs/modules/agents/runtime/sandbox/backend.py
+辅助 Owner：backend/zs/api/routers/identity/auth.py（users/page 多选契约）
 
 ## 问题
 

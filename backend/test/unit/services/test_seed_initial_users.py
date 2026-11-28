@@ -21,8 +21,8 @@ async def check_schema(manager):
     configure_mappers()
     raise RuntimeError("schema-gate-reached")
 
-with patch("yuxi.infrastructure.postgres.manager.pg_manager.initialize"), patch(
-    "yuxi.infrastructure.postgres.schema.require_current_schema", side_effect=check_schema
+with patch("zs.infrastructure.postgres.manager.pg_manager.initialize"), patch(
+    "zs.infrastructure.postgres.schema.require_current_schema", side_effect=check_schema
 ):
     try:
         asyncio.run(seed_initial_users())

@@ -196,7 +196,7 @@ async function toolResultImages(page) {
           .evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
         check(fits, `${dark ? '深色' : '浅色'} ${width}px 文本横向溢出`)
         await page.screenshot({
-          path: `/tmp/yuxi-tool-result-images-${dark ? 'dark' : 'light'}-${width}.png`
+          path: `/tmp/zs-tool-result-images-${dark ? 'dark' : 'light'}-${width}.png`
         })
       }
     }

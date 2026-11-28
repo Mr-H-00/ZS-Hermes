@@ -9,8 +9,8 @@ Yuxi 的品牌配置分为两部分：后端读取的站点信息，以及前端
 复制模板。`info.local.yaml` 通常是本地未跟踪文件；如果目标文件已经存在，不要覆盖它，直接编辑或先备份：
 
 ```bash
-cp -n backend/yuxi/modules/system/static/info.template.yaml \
-  backend/yuxi/modules/system/static/info.local.yaml
+cp -n backend/zs/modules/system/static/info.template.yaml \
+  backend/zs/modules/system/static/info.local.yaml
 ```
 
 在 `info.local.yaml` 中修改：
@@ -40,9 +40,9 @@ YUXI_BRAND_FILE_PATH=yuxi/modules/system/static/info.local.yaml
 
 ### 2. 重新加载
 
-品牌接口每次请求读取 YAML。开发环境的 API 直接挂载 `backend/yuxi`，修改 YAML 后刷新浏览器页面即可读取新配置；前端在同一个页面会话内缓存已成功读取的品牌信息。
+品牌接口每次请求读取 YAML。开发环境的 API 直接挂载 `backend/zs`，修改 YAML 后刷新浏览器页面即可读取新配置；前端在同一个页面会话内缓存已成功读取的品牌信息。
 
-生产 Compose 不挂载仓库源码，品牌 YAML 会在构建 API 镜像时复制进去。修改 `backend/yuxi/modules/system/static/info.local.yaml` 后，需要重新构建并创建 API/worker 容器：
+生产 Compose 不挂载仓库源码，品牌 YAML 会在构建 API 镜像时复制进去。修改 `backend/zs/modules/system/static/info.local.yaml` 后，需要重新构建并创建 API/worker 容器：
 
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml \

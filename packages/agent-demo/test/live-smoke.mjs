@@ -29,11 +29,11 @@ async function awaitResults() {
   while (Date.now() < deadline) {
     const session = await get(`/sessions/${threadId}`);
     const page = await get(`/sessions/${threadId}/items?limit=100`);
-    if (session.yuxi.current_turn?.status === "failed") {
+    if (session.zs.current_turn?.status === "failed") {
       const turn = await get(
-        `/sessions/${threadId}/turns/${session.yuxi.current_turn.id}`,
+        `/sessions/${threadId}/turns/${session.zs.current_turn.id}`,
       );
-      const failed = turn.yuxi.runs.find((run) => run.status === "failed");
+      const failed = turn.zs.runs.find((run) => run.status === "failed");
       const detail = String(failed?.error_message || "")
         .replaceAll(key, "[hidden]")
         .slice(0, 300);
@@ -44,8 +44,8 @@ async function awaitResults() {
     const final = page.data.filter((item) => item.phase === "final_answer");
     if (
       final.length >= 2 &&
-      session.yuxi.current_turn?.status === "completed" &&
-      !session.yuxi.queued_input_count
+      session.zs.current_turn?.status === "completed" &&
+      !session.zs.queued_input_count
     )
       return page;
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -56,7 +56,7 @@ async function awaitResults() {
 try {
   await page.addInitScript(
     (settings) =>
-      localStorage.setItem("yuxi-agent-demo:v1", JSON.stringify(settings)),
+      localStorage.setItem("zs-agent-demo:v1", JSON.stringify(settings)),
     {
       baseUrl,
       layout: "phone",
@@ -131,7 +131,7 @@ try {
   }
   await page.locator('input[type="file"]').first().setInputFiles({ name: "demo-live.txt", mimeType: "text/plain", buffer: Buffer.from("Demo attachment bytes") });
   await page.getByText("demo-live.txt", {exact:true}).waitFor();
-  const prompt = `YUXI_TEST_SESSION_DEMO_${crypto.randomUUID().slice(0, 8)} 请只回复 DEMO_FIRST_OK，不调用工具。`;
+  const prompt = `ZS_TEST_SESSION_DEMO_${crypto.randomUUID().slice(0, 8)} 请只回复 DEMO_FIRST_OK，不调用工具。`;
   const created = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
@@ -181,7 +181,7 @@ try {
   for (const item of finalItems) {
     const turn = await get(`/sessions/${threadId}/turns/${item.turn_id}`);
     assert.equal(turn.status, "completed");
-    assert.equal(turn.yuxi.result_run_id, item.yuxi.run_id);
+    assert.equal(turn.zs.result_run_id, item.zs.run_id);
   }
   await page.getByText(expected || "DEMO_SECOND_OK", { exact: true }).last().waitFor();
   await page.getByRole("tab", { name: "用户", exact: true }).click();
@@ -223,7 +223,7 @@ try {
     assert.equal(eventPosts, 1, "回执恢复不应重复 POST");
     assert.ok(receiptReads > 0 && lostResponse && brokenStream);
   }
-  await page.screenshot({path:"/tmp/yuxi-query-demo-final.png",fullPage:true});
+  await page.screenshot({path:"/tmp/zs-query-demo-final.png",fullPage:true});
   console.log(
     JSON.stringify({
       realApi: true,
@@ -237,7 +237,7 @@ try {
     }),
   );
 } catch (error) {
-  await page.screenshot({path:"/tmp/yuxi-query-demo-failure.png",fullPage:true});
+  await page.screenshot({path:"/tmp/zs-query-demo-failure.png",fullPage:true});
   throw error;
 } finally {
   await browser.close();
@@ -245,7 +245,7 @@ try {
     const snapshot = await get(`/sessions/${threadId}`);
     if (
       ["completed", "failed", "cancelled"].includes(
-        snapshot.yuxi.current_turn?.status,
+        snapshot.zs.current_turn?.status,
       )
     ) {
       await fetch(`${baseUrl}/api/v1/agents/sessions/${threadId}/archive`, {

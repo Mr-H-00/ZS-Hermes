@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.knowledge.services.document_resets import run_document_reset
+from zs.modules.knowledge.services.document_resets import run_document_reset
 
 
 @pytest.mark.asyncio

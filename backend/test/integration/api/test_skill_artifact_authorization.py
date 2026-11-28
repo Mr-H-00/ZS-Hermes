@@ -12,9 +12,9 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from test.integration.api.helpers import create_default_agent_thread
-from yuxi.modules.extensions.skills import shared as skill_service
-from yuxi.modules.extensions.skills import projection as projection_service
-from yuxi.modules.extensions.skills.models import Skill
+from zs.modules.extensions.skills import shared as skill_service
+from zs.modules.extensions.skills import projection as projection_service
+from zs.modules.extensions.skills.models import Skill
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

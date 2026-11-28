@@ -19,7 +19,7 @@ def isolated_environment():
 def run_init(tmp_path: Path, **overrides):
     """以关闭标准输入的真实 shell 入口初始化隔离环境。"""
     env = isolated_environment()
-    env.update(YUXI_ENV_FILE=".env.prod", YUXI_INIT_NON_INTERACTIVE="1", YUXI_INIT_SKIP_IMAGES="1")
+    env.update(ZS_ENV_FILE=".env.prod", ZS_INIT_NON_INTERACTIVE="1", ZS_INIT_SKIP_IMAGES="1")
     env.update(overrides)
     return subprocess.run(
         ["bash", str(project_root() / "scripts/init.sh")],
@@ -44,14 +44,14 @@ def test_env_overrides_create_selected_file_and_preserve_secrets_on_rerun(tmp_pa
     result = run_init(
         tmp_path,
         SILICONFLOW_API_KEY="test-api-key",
-        YUXI_INSTANCE_ID="Production",
+        ZS_INSTANCE_ID="Production",
         WEB_SEARCH_PROVIDER="tavily",
         TAVILY_API_KEY="test-search-key",
     )
     assert result.returncode == 0, result.stdout + result.stderr
     values = read_env(tmp_path)
     assert values["SILICONFLOW_API_KEY"] == "test-api-key"
-    assert values["YUXI_INSTANCE_ID"] == "Production"
+    assert values["ZS_INSTANCE_ID"] == "Production"
     assert values["TAVILY_API_KEY"] == "test-search-key"
     assert values["SANDBOX_BACKEND"] == "container"
     assert len(values["SANDBOX_RUNNER_TOKEN"]) >= 32
@@ -100,12 +100,12 @@ def test_invalid_existing_secret_is_not_rotated(tmp_path):
 
 def test_production_generates_credentials_and_requires_cube_address(tmp_path):
     """生产初始化生成服务凭据并要求执行节点地址。"""
-    result = run_init(tmp_path, YUXI_ENV="production", SANDBOX_BACKEND="cube", SILICONFLOW_API_KEY="test-key")
+    result = run_init(tmp_path, ZS_ENV="production", SANDBOX_BACKEND="cube", SILICONFLOW_API_KEY="test-key")
     assert result.returncode != 0
     assert "CUBE_API_URL" in result.stderr
     result = run_init(
         tmp_path,
-        YUXI_ENV="production",
+        ZS_ENV="production",
         CUBE_API_URL="http://node:3000",
         CUBE_PROXY_NODE_IP="node",
         CUBE_NODE_USER_DATA_DIR="/data/shared/production/threads",
@@ -115,7 +115,7 @@ def test_production_generates_credentials_and_requires_cube_address(tmp_path):
     values = read_env(tmp_path)
     for name in ["POSTGRES_PASSWORD", "NEO4J_PASSWORD", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"]:
         assert len(values[name]) >= 32
-    assert values["YUXI_ENV"] == "production"
+    assert values["ZS_ENV"] == "production"
     assert values["SANDBOX_BACKEND"] == "cube"
     assert "SANDBOX_RUNNER_TOKEN" not in values
 
@@ -137,7 +137,7 @@ def test_cube_compose_defaults_and_explicit_paths_after_init(tmp_path, filename,
         }
     result = run_init(
         tmp_path,
-        YUXI_ENV="production" if ".prod." in filename else "development",
+        ZS_ENV="production" if ".prod." in filename else "development",
         SANDBOX_BACKEND="cube",
         SILICONFLOW_API_KEY="test-key",
         CUBE_API_URL="http://node:3000",
@@ -148,7 +148,7 @@ def test_cube_compose_defaults_and_explicit_paths_after_init(tmp_path, filename,
     env_file = tmp_path / ".env.prod"
     rendered = subprocess.run(
         ["docker", "compose", "--env-file", str(env_file), "-f", str(project_root() / filename), "config", "--format", "json"],
-        env={**isolated_environment(), "YUXI_ENV_FILE": str(env_file)},
+        env={**isolated_environment(), "ZS_ENV_FILE": str(env_file)},
         capture_output=True,
         text=True,
         timeout=20,
@@ -157,10 +157,10 @@ def test_cube_compose_defaults_and_explicit_paths_after_init(tmp_path, filename,
     services = json.loads(rendered.stdout)["services"]
     for name in ("api", "worker", "app-init"):
         env = services[name]["environment"]
-        assert env["CUBE_NODE_USER_DATA_DIR"] == (f"{paths}/threads" if paths else "/data/shared/yuxi/threads")
-        assert env["CUBE_NODE_SKILL_PROJECTION_DIR"] == (f"{paths}/skills" if paths else "/data/shared/yuxi/skill-projections")
+        assert env["CUBE_NODE_USER_DATA_DIR"] == (f"{paths}/threads" if paths else "/data/shared/zs/threads")
+        assert env["CUBE_NODE_SKILL_PROJECTION_DIR"] == (f"{paths}/skills" if paths else "/data/shared/zs/skill-projections")
         assert env["CUBE_PROXY_PORT_HTTP"] == "80"
-        assert env["CUBE_TEMPLATE_ID"] == "yuxi-user"
+        assert env["CUBE_TEMPLATE_ID"] == "zs-user"
 
 
 def test_container_backend_generates_runner_token_in_development(tmp_path):
@@ -194,7 +194,7 @@ def test_default_container_initialization_renders_complete_compose(tmp_path):
             "--format",
             "json",
         ],
-        env={**isolated_environment(), "YUXI_ENV_FILE": str(env_file)},
+        env={**isolated_environment(), "ZS_ENV_FILE": str(env_file)},
         capture_output=True,
         text=True,
         check=True,
@@ -212,15 +212,15 @@ def test_default_container_initialization_renders_complete_compose(tmp_path):
 
 def test_production_container_backend_requires_runner_credentials(tmp_path):
     """生产 container 模式要求镜像 digest，并自动生成 runner token。"""
-    result = run_init(tmp_path, YUXI_ENV="production", SANDBOX_BACKEND="container", SILICONFLOW_API_KEY="test-key")
+    result = run_init(tmp_path, ZS_ENV="production", SANDBOX_BACKEND="container", SILICONFLOW_API_KEY="test-key")
     assert result.returncode != 0
     assert "SANDBOX_CONTAINER_IMAGE" in result.stderr
     result = run_init(
         tmp_path,
-        YUXI_ENV="production",
+        ZS_ENV="production",
         SANDBOX_BACKEND="container",
         SILICONFLOW_API_KEY="test-key",
-        SANDBOX_CONTAINER_IMAGE="registry.example/yuxi-sandbox:0.8.0",
+        SANDBOX_CONTAINER_IMAGE="registry.example/zs-sandbox:0.8.0",
         SANDBOX_CONTAINER_IMAGE_DIGEST="sha256:" + "a" * 64,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -234,7 +234,7 @@ def test_production_container_backend_requires_runner_credentials(tmp_path):
     [
         ({"SILICONFLOW_API_KEY": "key\nINJECTED=value"}, "single-line"),
         ({"WEB_SEARCH_PROVIDER": "unknown"}, "WEB_SEARCH_PROVIDER"),
-        ({"YUXI_INIT_NON_INTERACTIVE": "yes"}, "must be 0 or 1"),
+        ({"ZS_INIT_NON_INTERACTIVE": "yes"}, "must be 0 or 1"),
     ],
 )
 def test_invalid_configuration_fails_without_leaking_values(tmp_path, overrides, error):

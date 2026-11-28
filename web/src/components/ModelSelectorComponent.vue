@@ -183,7 +183,7 @@ const props = defineProps({
 
 const emit = defineEmits(['select-model'])
 const userStore = useUserStore()
-const MODEL_METADATA_NOTICE_DISMISSED_KEY = 'yuxi_model_metadata_notice_dismissed'
+const MODEL_METADATA_NOTICE_DISMISSED_KEY = 'zs_model_metadata_notice_dismissed'
 
 // v2 模型数据：每次展开下拉时实时从后端拉取
 const v2Models = ref({})

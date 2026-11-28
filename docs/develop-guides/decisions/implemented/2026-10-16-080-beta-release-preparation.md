@@ -53,8 +53,8 @@ Web 使用 markdown-it 15.0.2 修复[自动链接的二次复杂度问题](https
 - `bash backend/test/run_tests.sh e2e`：Passed，39 项、无跳过，624.33 秒；真实 API、worker、SSE、Cube、文件与最终持久结果。首轮因隔离目录不在嵌套节点实际共享的两项根内而失败并中止；修正本地测试挂载后，目标 2 项及完整集合通过，没有改 oracle 或放宽断言。
 - `docker compose exec -T api uv run --no-sync --group test pytest test/e2e/test_milvus_text_retrieval_e2e.py test/e2e/test_document_parsing_artifacts_e2e.py -q`：Passed，3 项、150.55 秒；真实 worker 索引、三种检索模式、来源行号、重建与删除，以及附件/知识解析资源的数据库、MinIO 和文件字节回读。
 - 独立候选 worktree 执行 `pnpm run lint:check`、`pnpm run test:unit`、`pnpm run build`：Passed，631 项；同时覆盖类型检查。`pnpm --dir docs run build` 通过，构建产物包含新页面、功能与候选状态；源码相对文件链接检查通过。
-- `cd packages/yuxi-cli && npm run typecheck && npm test && npm run pack:check`：Passed，15 项；打包检查不上传 npm。
-- 锁定 Ruff 0.16.4 的 `ruff check backend/yuxi`、`ruff check --select I backend/yuxi`、`ruff format backend/yuxi --check` 和 `git diff --check`：Passed；只整理本次触及测试的导入，不批量格式化无关源码。
+- `cd packages/zs-cli && npm run typecheck && npm test && npm run pack:check`：Passed，15 项；打包检查不上传 npm。
+- 锁定 Ruff 0.16.4 的 `ruff check backend/zs`、`ruff check --select I backend/zs`、`ruff format backend/zs --check` 和 `git diff --check`：Passed；只整理本次触及测试的导入，不批量格式化无关源码。
 - `docker build --file docker/api.Dockerfile --tag yuxi-beta1-validation-api:0.8.0.beta1 .`：Passed；空库实例 readiness 和包元数据回读为 `0.8.0b1`，Schema 回读为 business 4、knowledge 1。生产 Compose 的必填配置解析通过，未启动完整生产拓扑。
 
 依赖告警补充验证：`node --test test/unit/markdown_preview_fallback.test.js` 通过 7 项，覆盖行内和块级公式、源行定位、非法命令、禁用可信链接/图片及原型注入宏；相同测试在独立旧锁 worktree 的 KaTeX 0.16.47 上为 6 passed / 1 failed，注入宏被展开为 `POLLUTED`，在 0.18.4 上被拒绝。两组官方自动链接输入（邮件软换行、未知 scheme，各重复 20000）由独立 Node 子进程执行，旧 markdown-it 15.0.0 合计 7827ms，新 15.0.2 为 228ms，均核对邮件链接数 20000；该计时是本机复现结果，不是跨机器性能保证。补丁增量重新执行 `make audit-dependencies`（含负控）、上述 84 项脚本测试、后端 2764 项 unit、前端 lint / 631 项 unit / typecheck / build、docs build 与 `git diff --check`，均通过。候选前端仍在排除用户未提交修改的独立 worktree 中验证。

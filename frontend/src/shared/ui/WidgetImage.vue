@@ -107,7 +107,7 @@ watch(
 </script>
 
 <style lang="less">
-.yuxi-widget .widget-image {
+.zs-widget .widget-image {
   position: relative;
   width: 100%;
   max-width: 100%;
@@ -181,16 +181,16 @@ watch(
   }
 }
 
-.yuxi-widget:not(.widget-image-preview) .widget-image:not(.has-aspect-ratio) {
+.zs-widget:not(.widget-image-preview) .widget-image:not(.has-aspect-ratio) {
   max-width: min(100%, calc(400px * var(--widget-image-ratio)));
 }
 
-.yuxi-widget:not(.widget-image-preview) .widget-image,
-.yuxi-widget:not(.widget-image-preview) .widget-image img {
+.zs-widget:not(.widget-image-preview) .widget-image,
+.zs-widget:not(.widget-image-preview) .widget-image img {
   max-height: 400px;
 }
 
-.yuxi-widget .widget-imagegroup {
+.zs-widget .widget-imagegroup {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: max(120px, calc((100% - 32px) / 3));

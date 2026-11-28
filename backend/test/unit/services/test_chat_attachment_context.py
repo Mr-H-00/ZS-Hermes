@@ -1,6 +1,6 @@
 from langchain.messages import HumanMessage
 
-from yuxi.modules.agents.services.execution import _with_attachment_context
+from zs.modules.agents.services.execution import _with_attachment_context
 
 
 def test_attachment_context_is_added_only_to_model_message():

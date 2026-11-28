@@ -10,8 +10,8 @@ import {
 test('项目工作状态与未读独立，人工等待优先于执行中', () => {
   const projects = [{ id: 'project', status: 'active', selection_status: 'selectable' }]
   const sessions = [
-    { id: 'research', status: 'in_progress', yuxi: { project_id: 'project', unread: true } },
-    { id: 'approval', status: 'requires_action', yuxi: { project_id: 'project', unread: false } }
+    { id: 'research', status: 'in_progress', zs: { project_id: 'project', unread: true } },
+    { id: 'approval', status: 'requires_action', zs: { project_id: 'project', unread: false } }
   ]
   const group = buildProjectSessionGroups(projects, sessions).groups[0]
   assert.equal(group.status, 'requires_action')
@@ -23,20 +23,20 @@ test('项目工作状态与未读独立，人工等待优先于执行中', () =>
 
 test('项目视图按项目顺序分组并把 implicit 对话放在最后', () => {
   const projects = [
-    { id: 'project-a', name: 'Yuxi', selection_status: 'selectable', status: 'active' },
+    { id: 'project-a', name: 'ZS', selection_status: 'selectable', status: 'active' },
     { id: 'project-b', name: '论文', selection_status: 'selectable', status: 'active' },
     { id: 'deleted', name: '已删除', selection_status: 'selectable', status: 'deleted' }
   ]
   const sessions = [
-    { id: 'implicit', yuxi: { project_id: 'implicit-project' }, updated_at: '2026-08-30T12:00:00Z' },
-    { id: 'project-b-chat', yuxi: { project_id: 'project-b' }, updated_at: '2026-08-30T11:00:00Z' },
-    { id: 'project-a-old', yuxi: { project_id: 'project-a' }, updated_at: '2026-08-30T10:00:00Z' },
+    { id: 'implicit', zs: { project_id: 'implicit-project' }, updated_at: '2026-08-30T12:00:00Z' },
+    { id: 'project-b-chat', zs: { project_id: 'project-b' }, updated_at: '2026-08-30T11:00:00Z' },
+    { id: 'project-a-old', zs: { project_id: 'project-a' }, updated_at: '2026-08-30T10:00:00Z' },
     {
       id: 'project-a-pinned',
-      yuxi: { project_id: 'project-a', is_pinned: true },
+      zs: { project_id: 'project-a', is_pinned: true },
       updated_at: '2026-08-29T10:00:00Z'
     },
-    { id: 'deleted-chat', yuxi: { project_id: 'deleted' }, updated_at: '2026-08-30T09:00:00Z' }
+    { id: 'deleted-chat', zs: { project_id: 'deleted' }, updated_at: '2026-08-30T09:00:00Z' }
   ]
 
   const result = buildProjectSessionGroups(projects, sessions)
@@ -57,7 +57,7 @@ test('项目视图按项目顺序分组并把 implicit 对话放在最后', () =
 })
 
 test('无项目时全部对话仍可在最近分组读取', () => {
-  const sessions = [{ id: 'thread-1', yuxi: { project_id: 'implicit' }, created_at: 1788019200 }]
+  const sessions = [{ id: 'thread-1', zs: { project_id: 'implicit' }, created_at: 1788019200 }]
 
   const result = buildProjectSessionGroups([], sessions)
 
@@ -70,9 +70,9 @@ test('置顶项目与临时对话只展示一次，项目仍投影置顶对话�
     [{ id: 'project', status: 'active', selection_status: 'selectable' }],
     [
       { id: 'pinned-project', status: 'requires_action', created_at: 3,
-        yuxi: { project_id: 'project', is_pinned: true, unread: true } },
-      { id: 'pinned-other', created_at: 2, yuxi: { project_id: 'implicit', is_pinned: true } },
-      { id: 'ordinary-project', status: 'completed', created_at: 1, yuxi: { project_id: 'project' } }
+        zs: { project_id: 'project', is_pinned: true, unread: true } },
+      { id: 'pinned-other', created_at: 2, zs: { project_id: 'implicit', is_pinned: true } },
+      { id: 'ordinary-project', status: 'completed', created_at: 1, zs: { project_id: 'project' } }
     ]
   )
   assert.deepEqual(result.pinnedSessions.map((session) => session.id), ['pinned-project', 'pinned-other'])
@@ -85,12 +85,12 @@ test('置顶项目与临时对话只展示一次，项目仍投影置顶对话�
 test('最近分组保持按创建时间排序且不受更新时间影响', () => {
   const sessions = [
     {
-      id: 'older-renamed', yuxi: {},
+      id: 'older-renamed', zs: {},
       created_at: 1787997600,
       updated_at: '2026-09-01T10:00:00Z'
     },
     {
-      id: 'newer-created', yuxi: {},
+      id: 'newer-created', zs: {},
       created_at: 1788084000,
       updated_at: '2026-08-30T10:00:00Z'
     }

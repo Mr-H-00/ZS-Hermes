@@ -14,9 +14,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
 import pytest
-from yuxi.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider
+from zs.modules.identity.security import AuthUtils
+from zs.modules.workspace.paths import user_workspace_dir
 from test.e2e.e2e_helpers import wait_for_consumed_input, wait_model_provider_cache
 
 pytestmark = [pytest.mark.self_managed_resources, pytest.mark.e2e, pytest.mark.asyncio, pytest.mark.timeout(240)]
@@ -110,8 +110,8 @@ def start_test_worker(workers):
     owner_file = Path("/app/runtime/api") / ("cube-worker-" + uuid.uuid4().hex)
     code = (
         "from pathlib import Path; "
-        "from yuxi.workers.main import main; "
-        "from yuxi.modules.agents.services.leases import WORKER_ID; "
+        "from zs.workers.main import main; "
+        "from zs.modules.agents.services.leases import WORKER_ID; "
         f"Path({str(owner_file)!r}).write_text(WORKER_ID); main()"
     )
     process = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -231,12 +231,12 @@ async def test_agent_shared_vm_cancellation_preserves_other_run(execution_resour
                         "agent_id": slug,
                         "tool_approval_mode": "always_trust",
                         "input": marker,
-                        "title": "YUXI_TEST_SESSION_CUBE_" + marker,
+                        "title": "ZS_TEST_SESSION_CUBE_" + marker,
                     },
                 )
                 assert response.status_code == 201, response.text
                 thread_id = response.json()["id"]
-                sessions.append((thread_id, await wait_for_consumed_input(client, headers, response.json()["yuxi"]["receipt"])))
+                sessions.append((thread_id, await wait_for_consumed_input(client, headers, response.json()["zs"]["receipt"])))
             a, b = sessions
             async with asyncio.timeout(60):
                 while True:
@@ -255,7 +255,7 @@ async def test_agent_shared_vm_cancellation_preserves_other_run(execution_resour
             cancel = await client.post(
                 f"/api/v1/agents/sessions/{a[0]}/events",
                 headers={**headers, "Idempotency-Key": uuid.uuid4().hex},
-                json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": a[1]["turn_id"]}}]},
+                json={"events": [{"type": "agent.session.input.cancel", "zs": {"turn_id": a[1]["turn_id"]}}]},
             )
             assert cancel.status_code == 202, cancel.text
             final_a = await terminal(client, headers, a[0], a[1]["turn_id"])
@@ -281,11 +281,11 @@ async def test_agent_shared_vm_cancellation_preserves_other_run(execution_resour
                     "agent_id": slug,
                     "tool_approval_mode": "always_trust",
                     "input": "CUBE_THIRD",
-                    "title": "YUXI_TEST_SESSION_CUBE_THIRD",
+                    "title": "ZS_TEST_SESSION_CUBE_THIRD",
                 },
             )
             assert response.status_code == 201, response.text
-            third = (response.json()["id"], await wait_for_consumed_input(client, headers, response.json()["yuxi"]["receipt"]))
+            third = (response.json()["id"], await wait_for_consumed_input(client, headers, response.json()["zs"]["receipt"]))
             sessions.append(third)
             assert (await terminal(client, headers, third[0], third[1]["turn_id"]))["status"] == "completed"
             with repo.connect() as conn:
@@ -305,11 +305,11 @@ async def test_agent_shared_vm_cancellation_preserves_other_run(execution_resour
                             "agent_id": slug,
                             "tool_approval_mode": "always_trust",
                             "input": marker,
-                            "title": "YUXI_TEST_SESSION_CUBE_RECOVERY",
+                            "title": "ZS_TEST_SESSION_CUBE_RECOVERY",
                         },
                     )
                     assert response.status_code == 201, response.text
-                    item = (response.json()["id"], await wait_for_consumed_input(client, headers, response.json()["yuxi"]["receipt"]))
+                    item = (response.json()["id"], await wait_for_consumed_input(client, headers, response.json()["zs"]["receipt"]))
                     sessions.append(item)
                     return item
 
@@ -380,7 +380,7 @@ async def test_agent_shared_vm_cancellation_preserves_other_run(execution_resour
                 assert retired.status_code == 403, retired.text
         finally:
             if own_workers:
-                from yuxi.modules.agents.services.leases import reconcile_expired_run_leases, reconcile_pending_runtime_cleanups
+                from zs.modules.agents.services.leases import reconcile_expired_run_leases, reconcile_pending_runtime_cleanups
 
                 with repo.connect() as conn:
                     conn.execute(

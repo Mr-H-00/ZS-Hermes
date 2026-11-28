@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from yuxi.modules.extensions.tools import catalog as tool_service
+from zs.modules.extensions.tools import catalog as tool_service
 
 
 def test_get_tool_metadata_includes_config_guide(monkeypatch):
@@ -21,11 +21,11 @@ def test_get_tool_metadata_includes_config_guide(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "yuxi.modules.extensions.tools.registry.get_all_tool_instances",
+        "zs.modules.extensions.tools.registry.get_all_tool_instances",
         lambda: [fake_tool],
     )
     monkeypatch.setattr(
-        "yuxi.modules.extensions.tools.registry.get_all_extra_metadata",
+        "zs.modules.extensions.tools.registry.get_all_extra_metadata",
         lambda: {"demo_tool": fake_extra},
     )
 

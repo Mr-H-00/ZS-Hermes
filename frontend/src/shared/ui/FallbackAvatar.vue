@@ -34,6 +34,11 @@ import { Bot, User, Workflow } from '@lucide/vue'
 import { useThemeStore } from '@/shared/model/theme'
 import { defaultStyles, generate, imageUrl } from '@/shared/lib/avatar/generator'
 
+const defaultImages = {
+  agent: '/icons/default-agent.svg',
+  user: '/icons/default-user.svg'
+}
+
 const props = defineProps({
   src: { type: String, default: '' },
   name: { type: String, default: '' },
@@ -63,6 +68,8 @@ const attempt = ref(0)
 const source = computed(() => {
   const src = String(props.src || '').trim()
   if (src) return { url: src }
+  const defaultImage = defaultImages[props.kind]
+  if (defaultImage && !props.style && !props.preset) return { url: defaultImage }
   try {
     return {
       url: imageUrl(

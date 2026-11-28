@@ -21,7 +21,7 @@ from PIL import Image
 from test.e2e.e2e_helpers import archive_public_thread, wait_for_terminal_turn
 from test.integration.api.helpers import delete_created_threads
 from test.live_api_cleanup import make_test_session_title
-from yuxi.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio import get_minio_client
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -63,7 +63,7 @@ async def test_public_thread_endpoints_require_authentication(test_client):
         await test_client.get(f"/api/v1/agents/sessions/{thread_id}"),
         await test_client.post(
             f"/api/v1/agents/sessions/{thread_id}/events",
-            json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": str(uuid.uuid4())}}]},
+            json={"events": [{"type": "agent.session.input.cancel", "zs": {"turn_id": str(uuid.uuid4())}}]},
             headers=headers,
         ),
     ]
@@ -236,7 +236,7 @@ async def test_thread_message_audits_return_persisted_facts_without_leaking_into
                 {
                     "tool_call_id": "call-1",
                     "tool_name": "search",
-                    "input": {"q": "Yuxi"},
+                    "input": {"q": "ZS"},
                     "output": {"type": "tool", "content": "查询结果", "status": "success"},
                     "source_model_operation_id": "operation-1",
                     "finished_sequence": 7,
@@ -339,8 +339,8 @@ async def test_thread_message_audits_return_persisted_facts_without_leaking_into
     assert len(history_items) == 1
     failed_input = history_items[0]
     assert failed_input["type"] == "message" and failed_input["role"] == "user"
-    assert failed_input["yuxi"]["run_id"] == failed_run_id
-    assert failed_input["yuxi"]["delivery_status"] == "failed"
+    assert failed_input["zs"]["run_id"] == failed_run_id
+    assert failed_input["zs"]["delivery_status"] == "failed"
     assert "must-not-leak" not in history.text
 
 
@@ -416,7 +416,7 @@ async def test_thread_artifact_uses_image_signature_for_content_type(test_client
                     {
                         "type": "agent.session.input.message",
                         "input": [{"role": "user", "content": [{"type": "input_text", "text": "保存附件"}]}],
-                        "yuxi": {"mode": "follow_up", "attachment_file_ids": [uploaded["id"]]},
+                        "zs": {"mode": "follow_up", "attachment_file_ids": [uploaded["id"]]},
                     }
                 ]
             },
@@ -603,15 +603,15 @@ async def test_turn_pages_include_empty_turns_and_keep_viewed_explicit(test_clie
         assert prefix not in denied.text
         viewed = await test_client.post(f"/api/v1/agents/sessions/{thread_id}/viewed", headers=admin_headers)
         assert viewed.status_code == 200, viewed.text
-        assert viewed.json()["yuxi"]["unread"] is False
+        assert viewed.json()["zs"]["unread"] is False
         assert await conn.fetchval("SELECT last_viewed_run_id FROM sessions WHERE thread_id = $1", thread_id) == f"{prefix}-500"
         reread = await test_client.get(f"/api/v1/agents/sessions/{thread_id}", headers=admin_headers)
-        assert reread.json()["yuxi"]["unread"] is False
+        assert reread.json()["zs"]["unread"] is False
         deleted = await test_client.delete(f"/api/v1/agents/sessions/{thread_id}", headers=admin_headers)
         assert deleted.status_code == 405
         archived = await test_client.post(f"/api/v1/agents/sessions/{thread_id}/archive", headers=admin_headers)
         assert archived.status_code == 200, archived.text
-        assert archived.json()["yuxi"]["archived"] is True
+        assert archived.json()["zs"]["archived"] is True
         archived_history = await test_client.get(f"/api/v1/agents/sessions/{thread_id}/turns?limit=100", headers=admin_headers)
         assert archived_history.status_code == 200, archived_history.text
         assert len(archived_history.json()["data"]) == 100 and archived_history.json()["has_more"]
@@ -630,16 +630,16 @@ async def test_thread_tool_approval_mode_validates_and_persists(test_client, adm
     response = await test_client.post(
         f"/api/v1/agents/sessions/{thread_id}",
         headers=admin_headers,
-        json={"yuxi": {"tool_approval_mode": mode}},
+        json={"zs": {"tool_approval_mode": mode}},
     )
 
     assert response.status_code == expected_status, response.text
     if expected_status == 200:
-        assert response.json()["yuxi"]["tool_approval_mode"] == mode
+        assert response.json()["zs"]["tool_approval_mode"] == mode
         list_response = await test_client.get("/api/v1/agents/sessions", headers=admin_headers)
         assert list_response.status_code == 200, list_response.text
         thread = next(item for item in list_response.json()["data"] if item["id"] == thread_id)
-        assert thread["yuxi"]["tool_approval_mode"] == mode
+        assert thread["zs"]["tool_approval_mode"] == mode
 
 
 async def test_thread_list_exposes_work_status_and_unread(test_client, admin_headers):
@@ -648,7 +648,7 @@ async def test_thread_list_exposes_work_status_and_unread(test_client, admin_hea
     list_response = await test_client.get("/api/v1/agents/sessions", headers=admin_headers)
     assert list_response.status_code == 200, list_response.text
     thread = next(item for item in list_response.json()["data"] if item["id"] == thread_id)
-    assert thread["status"] == "idle" and thread["yuxi"]["unread"] is False
+    assert thread["status"] == "idle" and thread["zs"]["unread"] is False
 
 
 @pytest.mark.parametrize("owner_is_requester", [True, False], ids=["owner", "other-user"])
@@ -659,7 +659,7 @@ async def test_mark_thread_viewed_checks_ownership_and_returns_work_status(test_
     if owner_is_requester:
         assert response.status_code == 200, response.text
         payload = response.json()
-        assert payload["status"] == "idle" and payload["yuxi"]["unread"] is False
+        assert payload["status"] == "idle" and payload["zs"]["unread"] is False
     else:
         assert response.status_code == 404, response.text
 
@@ -912,7 +912,7 @@ async def test_public_input_rejects_unbound_attachment_without_persisting_receip
                             "content": [{"type": "input_text", "text": "read attachment"}],
                         }
                     ],
-                    "yuxi": {"mode": "follow_up", "attachment_file_ids": [file_id]},
+                    "zs": {"mode": "follow_up", "attachment_file_ids": [file_id]},
                 }
             ]
         }
@@ -922,7 +922,7 @@ async def test_public_input_rejects_unbound_attachment_without_persisting_receip
             )
             assert uploaded.status_code == 201, uploaded.text
             file_id = uploaded.json()["id"]
-            body["events"][0]["yuxi"]["attachment_file_ids"] = [file_id]
+            body["events"][0]["zs"]["attachment_file_ids"] = [file_id]
             owner_thread_id = await _create_thread_for_user(test_client, admin_headers)
             accepted = await test_client.post(
                 f"/api/v1/agents/sessions/{owner_thread_id}/events",
@@ -968,7 +968,7 @@ async def test_public_input_rejects_unbound_attachment_without_persisting_receip
             if owner_turn.json()["status"] not in {"completed", "failed", "cancelled"}:
                 cancelled = await test_client.post(
                     f"/api/v1/agents/sessions/{owner_thread_id}/events",
-                    json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id}}]},
+                    json={"events": [{"type": "agent.session.input.cancel", "zs": {"turn_id": turn_id}}]},
                     headers={**admin_headers, "Idempotency-Key": str(uuid.uuid4())},
                 )
                 # 取消请求与自然终态可以竞争；最终必须回读到该 Turn 的终态。

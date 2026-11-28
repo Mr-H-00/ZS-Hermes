@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/api/routers/public_v1/agents/threads.py
+Owner：backend/zs/api/routers/public_v1/agents/threads.py
 
 ## 问题
 
@@ -16,9 +16,9 @@ Owner：backend/yuxi/api/routers/public_v1/agents/threads.py
 
 ### 实现方案
 
-[Public Session 适配层](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/public_v1/agents/threads.py)拥有请求、响应、HTTP 状态码和 OpenAPI。创建返回 201，事件持久接收返回 202；会话核心字段与 `yuxi` 业务快照分开装配。Web、CLI 与 Demo 在各自 HTTP 边界读取新契约，内部 Thread、Turn 和 Run 名称继续表达业务归属。现有 CLI 决定的公开入口由本记录部分取代，见[CLI 决定](2026-10-01-npm-cli-public-v1.md)。
+[Public Session 适配层](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/public_v1/agents/threads.py)拥有请求、响应、HTTP 状态码和 OpenAPI。创建返回 201，事件持久接收返回 202；会话核心字段与 `yuxi` 业务快照分开装配。Web、CLI 与 Demo 在各自 HTTP 边界读取新契约，内部 Thread、Turn 和 Run 名称继续表达业务归属。现有 CLI 决定的公开入口由本记录部分取代，见[CLI 决定](2026-10-01-npm-cli-public-v1.md)。
 
-[公开 Items 投影](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/public_items.py)复用实时事件与历史查询的同一登记结果；repository 使用用户、APP 与 Session 作用域查询。Session Items 的 `after` 只定位该授权会话的公开 item。请求边界校验输入长度与图片，响应内容块允许多块文本合并后的持久正文及执行中的空工具结果。
+[公开 Items 投影](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/public_items.py)复用实时事件与历史查询的同一登记结果；repository 使用用户、APP 与 Session 作用域查询。Session Items 的 `after` 只定位该授权会话的公开 item。请求边界校验输入长度与图片，响应内容块允许多块文本合并后的持久正文及执行中的空工具结果。
 
 agents services/repositories 继续拥有权限、持久输入、回执、FIFO、执行状态和结果归属。适配层不改变事务提交与 worker 投递顺序，也不根据模型文本结束或相邻 Run 推断结果。SSE 是长期订阅；客户端以目标 Turn 的整轮终态回读明确结果并主动关闭连接。创建流先发送 `agent.session.created`。无旧路径 alias、数据库迁移或新增依赖。
 
@@ -52,7 +52,7 @@ agents services/repositories 继续拥有权限、持久输入、回执、FIFO�
 | 真实前端浏览器与 HTTP / PostgreSQL 回读 | Session 创建、详情适配、真实聊天路由 DOM 与归档通过；仅清理该测试 Session |
 | CLI `npm run typecheck`、`npm test`、`npm run pack:check` | Passed；10 tests passed；pack 为 dry run |
 | Demo `npm test`、`npm run lint`、`npm run build`、`npm run test:browser` | Passed；13 unit 与 15 browser passed（浏览器测试使用 mock HTTP） |
-| `uvx ruff check backend/yuxi` 与修改的公开适配层格式检查 | Passed |
+| `uvx ruff check backend/zs` 与修改的公开适配层格式检查 | Passed |
 | Swagger 实际页面 | 创建 201、JSON/SSE 类型、响应模型、幂等字段和长期连接说明可见 |
 | 文档相对链接、`cd docs && pnpm run build`、`git diff --check` | Passed |
 

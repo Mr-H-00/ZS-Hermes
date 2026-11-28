@@ -30,19 +30,19 @@ export function mergeSnapshot(state, items) {
       current?.status === "in_progress" &&
       incoming.status === "in_progress"
     ) {
-      for (const index of incoming.yuxi?.completed_content_indices || []) {
+      for (const index of incoming.zs?.completed_content_indices || []) {
         current.content[index] = structuredClone(incoming.content[index]);
       }
-      for (const index of incoming.yuxi?.completed_reasoning_indices || []) {
-        current.yuxi.reasoning ||= {};
-        current.yuxi.reasoning[index] = incoming.yuxi.reasoning[index];
+      for (const index of incoming.zs?.completed_reasoning_indices || []) {
+        current.zs.reasoning ||= {};
+        current.zs.reasoning[index] = incoming.zs.reasoning[index];
       }
     } else {
       state.items[incoming.id] = structuredClone(incoming);
     }
-    for (const index of incoming.yuxi?.completed_content_indices || [])
+    for (const index of incoming.zs?.completed_content_indices || [])
       state.closed.add(`${incoming.id}:${index}`);
-    for (const index of incoming.yuxi?.completed_reasoning_indices || [])
+    for (const index of incoming.zs?.completed_reasoning_indices || [])
       state.closed.add(`reasoning:${incoming.id}:${index}`);
   }
 }
@@ -79,14 +79,14 @@ export function applyEvent(state, event) {
     state.closed.add(key);
   } else if (event.type === "agent.session.turn.content_part.added") {
     item.content[index] ||= structuredClone(event.part);
-  } else if (event.type === "yuxi.session.turn.reasoning.delta") {
+  } else if (event.type === "zs.session.turn.reasoning.delta") {
     if (state.closed.has(`reasoning:${key}`)) return;
-    item.yuxi.reasoning ||= {};
-    item.yuxi.reasoning[index] =
-      (item.yuxi.reasoning[index] || "") + event.delta;
-  } else if (event.type === "yuxi.session.turn.reasoning.done") {
-    item.yuxi.reasoning ||= {};
-    item.yuxi.reasoning[index] = event.text;
+    item.zs.reasoning ||= {};
+    item.zs.reasoning[index] =
+      (item.zs.reasoning[index] || "") + event.delta;
+  } else if (event.type === "zs.session.turn.reasoning.done") {
+    item.zs.reasoning ||= {};
+    item.zs.reasoning[index] = event.text;
     state.closed.add(`reasoning:${key}`);
   }
 }
@@ -95,8 +95,8 @@ export function applyEvent(state, event) {
 export function orderedItems(state) {
   return Object.values(state.items).sort(
     (a, b) =>
-      (a.yuxi?.message_id || 0) - (b.yuxi?.message_id || 0) ||
-      (a.yuxi?.output_index || 0) - (b.yuxi?.output_index || 0),
+      (a.zs?.message_id || 0) - (b.zs?.message_id || 0) ||
+      (a.zs?.output_index || 0) - (b.zs?.output_index || 0),
   );
 }
 

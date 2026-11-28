@@ -19,7 +19,6 @@ const app = createApp({ render: () => h(ConfigProvider, { theme: theme.currentTh
 app.use(createPinia()).use(Antd)
 const user = useUserStore()
 Object.assign(user, { token: 'url-settings-browser-fixture', uid: 'fixture-admin', userRole: 'superadmin' })
-localStorage.setItem('yuxi-settings-star-card-dismissed', 'true')
 theme = useThemeStore()
 theme.setTheme('light')
 window.urlImportSettingsFixture = { theme, user }

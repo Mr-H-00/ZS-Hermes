@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.receipts import control_intent_hash, input_intent_hash, require_idempotency_key, require_receipt_replay
-from yuxi.shared.errors import InvalidInputError, StateConflictError
-from yuxi.shared.hashing import json_intent_hash
+from zs.modules.agents.receipts import control_intent_hash, input_intent_hash, require_idempotency_key, require_receipt_replay
+from zs.shared.errors import InvalidInputError, StateConflictError
+from zs.shared.hashing import json_intent_hash
 
 
 def test_existing_receipt_hashes_keep_canonical_bytes_and_order():

@@ -23,17 +23,17 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.extensions.mcp import mcp
-from yuxi.modules.extensions.mcp.models import MCPConnection, MCPOAuthAttempt, MCPServer
-from yuxi.modules.extensions.mcp.oauth_config import decrypt, encrypt
-from yuxi.modules.extensions.mcp.oauth_service import MCPOAuthService
-from yuxi.modules.extensions.mcp.service import get_enabled_mcp_tools
-from yuxi.modules.identity.models import Department, RevokedAccessToken, User
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import DomainError, StateConflictError
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.extensions.mcp import mcp
+from zs.modules.extensions.mcp.models import MCPConnection, MCPOAuthAttempt, MCPServer
+from zs.modules.extensions.mcp.oauth_config import decrypt, encrypt
+from zs.modules.extensions.mcp.oauth_service import MCPOAuthService
+from zs.modules.extensions.mcp.service import get_enabled_mcp_tools
+from zs.modules.identity.models import Department, RevokedAccessToken, User
+from zs.modules.identity.security import AuthUtils
+from zs.shared.datetime import utc_now
+from zs.shared.errors import DomainError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -49,9 +49,9 @@ async def scenario(monkeypatch):
     sock.bind(("127.0.0.1", 0))
     root = f"http://127.0.0.1:{sock.getsockname()[1]}"
     issuer, resource = root + "/issuer", root + "/mcp"
-    monkeypatch.setenv("YUXI_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("ZS_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("MCP_OAUTH_LAB_HTTP_ORIGINS", root)
-    monkeypatch.setenv("YUXI_PUBLIC_URL", root)
+    monkeypatch.setenv("ZS_PUBLIC_URL", root)
     app = FastAPI()
     app.add_exception_handler(DomainError, domain_error_handler)
     app.include_router(mcp, prefix="/api")
@@ -245,7 +245,7 @@ async def scenario(monkeypatch):
                 user.uid: {"Authorization": "Bearer " + AuthUtils.create_access_token({"sub": str(user.id), "auth_method": "password"})}
                 for user in users
             }
-        from yuxi.infrastructure.postgres.manager import pg_manager
+        from zs.infrastructure.postgres.manager import pg_manager
 
         @asynccontextmanager
         async def runtime_session():
@@ -307,8 +307,8 @@ async def finish(scenario, params, user="alice"):
 
 async def test_personal_tools_use_own_identity_and_old_tool_stops_after_disconnect(scenario):
     """两个真实 token 返回不同员工，缓存不能串用且旧工具不能绕过断开。"""
-    from yuxi.modules.agents.runtime.context import BaseContext
-    from yuxi.modules.extensions.mcp.service import resolve_runtime_mcp_tools
+    from zs.modules.agents.runtime.context import BaseContext
+    from zs.modules.extensions.mcp.service import resolve_runtime_mcp_tools
 
     alice_context, bob_context = BaseContext(uid="alice"), BaseContext(uid="bob")
     assert alice_context.mcp_tools is not bob_context.mcp_tools
@@ -333,11 +333,11 @@ async def test_personal_tools_use_own_identity_and_old_tool_stops_after_disconne
 async def test_callback_replay_wrong_browser_and_cross_account_confirmation(scenario):
     """错误浏览器不消费 state，切换账号不能发布别人的授权。"""
     params = await begin(scenario)
-    cookie = scenario["http"].cookies.get("yuxi_mcp_browser")
+    cookie = scenario["http"].cookies.get("zs_mcp_browser")
     scenario["http"].cookies.clear()
     failed = await finish(scenario, params)
     assert "mcp_oauth_error" in failed
-    scenario["http"].cookies.set("yuxi_mcp_browser", cookie)
+    scenario["http"].cookies.set("zs_mcp_browser", cookie)
     callback = await scenario["http"].get("/api/system/mcp-servers/oauth/callback", params=params)
     result = parse_qs(urlsplit(callback.headers["location"]).query)["mcp_oauth_result"][0]
     assert "mcp_oauth_error" in await finish(scenario, params)
@@ -508,8 +508,8 @@ async def test_discovery_rejects_untrusted_issuer_and_missing_pkce(scenario, fie
 async def test_waiting_worker_rechecks_tool_revocation_after_refresh_lock(scenario):
     """等待刷新锁期间撤销工具，等待者不能使用锁前的旧策略。"""
     assert (await finish(scenario, await begin(scenario))).status_code == 200
-    from yuxi.modules.extensions.mcp.oauth_config import config_revision
-    from yuxi.modules.extensions.mcp.oauth_runtime import PersonalMCPAuth
+    from zs.modules.extensions.mcp.oauth_config import config_revision
+    from zs.modules.extensions.mcp.oauth_runtime import PersonalMCPAuth
 
     async with scenario["db"]() as db:
         revision = config_revision(await db.scalar(select(MCPServer)))
@@ -623,8 +623,8 @@ async def test_expired_attempt_cleanup_skips_a_result_locked_by_completion(scena
 
 async def test_worker_cleans_expired_oauth_attempts_without_new_authorization(scenario):
     """正式 cron 在启动及后续周期清理两阶段过期载荷，跳过锁定行并保留长期连接。"""
-    from yuxi.infrastructure.redis import create_arq_redis_pool
-    from yuxi.workers.settings import WorkerSettings
+    from zs.infrastructure.redis import create_arq_redis_pool
+    from zs.workers.settings import WorkerSettings
 
     jobs = [job for job in WorkerSettings.cron_jobs if job.coroutine.__name__ == "cleanup_expired_mcp_oauth_attempts"]
     assert len(jobs) == 1, "正式 worker 必须注册 OAuth 临时记录清理"
@@ -680,7 +680,7 @@ async def test_worker_cleans_expired_oauth_attempts_without_new_authorization(sc
                 sys.executable,
                 "-c",
                 _OAUTH_CLEANUP_WORKER_SCRIPT,
-                env={**os.environ, "YUXI_TEST_SCHEMA": scenario["schema"], "YUXI_TEST_QUEUE": queue},
+                env={**os.environ, "ZS_TEST_SCHEMA": scenario["schema"], "ZS_TEST_QUEUE": queue},
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
@@ -721,7 +721,7 @@ async def test_worker_cleans_expired_oauth_attempts_without_new_authorization(sc
 
 async def test_runtime_availability_is_personal_and_disconnected_does_not_load_tools(scenario):
     """他人的授权不使本人可用；断开不再阻止普通工具装配。"""
-    from yuxi.modules.extensions.mcp.service import resolve_runtime_mcp_tools
+    from zs.modules.extensions.mcp.service import resolve_runtime_mcp_tools
 
     loaded = await resolve_runtime_mcp_tools(["fixture", "fixture"], uid="bob")
     assert loaded == {}
@@ -738,7 +738,7 @@ async def test_runtime_availability_is_personal_and_disconnected_does_not_load_t
 
 async def test_runtime_omits_missing_and_disabled_services(scenario):
     """已连接也不能绕过服务停用，不存在的服务同样不进入运行工具。"""
-    from yuxi.modules.extensions.mcp.service import resolve_runtime_mcp_tools
+    from zs.modules.extensions.mcp.service import resolve_runtime_mcp_tools
 
     assert (await finish(scenario, await begin(scenario))).status_code == 200
     async with scenario["db"]() as db:
@@ -752,7 +752,7 @@ async def test_runtime_omits_missing_and_disabled_services(scenario):
 @pytest.mark.parametrize("grouped", [False, True])
 async def test_runtime_reports_unknown_loading_failure_without_exposing_tools(scenario, monkeypatch, grouped):
     """发现故障不暴露工具，临时故障可重试，明确失效的凭据保留安全提示。"""
-    from yuxi.modules.extensions.mcp import service
+    from zs.modules.extensions.mcp import service
 
     assert (await finish(scenario, await begin(scenario))).status_code == 200
     failure = RuntimeError("PRIVATE_PROTOCOL_FAILURE")
@@ -782,7 +782,7 @@ async def test_runtime_reports_unknown_loading_failure_without_exposing_tools(sc
 
 async def test_runtime_invalid_refresh_excludes_service_and_preserves_reconnect_state(scenario):
     """装配中远端拒绝刷新时保留重连状态，不把异常组变成普通聊天失败。"""
-    from yuxi.modules.extensions.mcp.service import resolve_runtime_mcp_tools
+    from zs.modules.extensions.mcp.service import resolve_runtime_mcp_tools
 
     assert (await finish(scenario, await begin(scenario))).status_code == 200
     async with scenario["db"]() as db:
@@ -864,8 +864,8 @@ async def test_authorization_endpoint_preserves_existing_query(scenario):
 async def test_disconnect_blocks_skill_local_side_effect_at_execution_boundary(scenario, monkeypatch, tmp_path):
     """模型已选中本地工具后撤销 MCP，真正执行处仍不允许产生文件副作用。"""
     from types import SimpleNamespace
-    from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+    from zs.modules.agents.runtime.middlewares import authorization
 
     state = await begin(scenario, "alice")
     assert (await finish(scenario, state, "alice")).status_code == 200
@@ -983,7 +983,7 @@ async def test_management_reads_current_tools_without_refresh(scenario, auth_mod
         server = await db.scalar(select(MCPServer).where(MCPServer.slug == "fixture"))
         assert server.disabled_tools == ["removed_tool"]
 
-    from yuxi.modules.extensions.mcp.service import resolve_runtime_mcp_tools
+    from zs.modules.extensions.mcp.service import resolve_runtime_mcp_tools
 
     scenario["current"]["tool_names"] = ["old_attendance"]
     loaded = await resolve_runtime_mcp_tools(["fixture"], uid="admin")
@@ -999,7 +999,7 @@ async def test_management_reads_current_tools_without_refresh(scenario, auth_mod
 @pytest.mark.parametrize("change", ["disabled", "disconnected", "tool_disabled"])
 async def test_availability_rereads_current_policy_when_session_already_loaded_rows(scenario, change):
     """复用查询 session 时不能把 ORM 已加载对象当作最新授权事实。"""
-    from yuxi.modules.extensions.mcp.service import available_mcp_servers
+    from zs.modules.extensions.mcp.service import available_mcp_servers
 
     assert (await finish(scenario, await begin(scenario))).status_code == 200
     async with scenario["db"]() as reading:
@@ -1029,7 +1029,7 @@ async def test_availability_rereads_current_policy_when_session_already_loaded_r
 async def test_personal_discovery_reads_server_configuration_once(scenario, all_tools):
     """单服务入口把服务配置直接交给个人适配器，实际出站仍独立查授权。"""
     from sqlalchemy import event
-    from yuxi.modules.extensions.mcp.service import get_all_mcp_tools, get_enabled_mcp_tools
+    from zs.modules.extensions.mcp.service import get_all_mcp_tools, get_enabled_mcp_tools
 
     assert (await finish(scenario, await begin(scenario))).status_code == 200
     async with scenario["db"]() as db:
@@ -1061,10 +1061,10 @@ async def test_each_run_discovers_once_across_model_rounds(scenario, monkeypatch
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from langchain_core.outputs import ChatGeneration, ChatResult
     from pydantic import Field
-    from yuxi.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
-    from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-    from yuxi.modules.agents.runtime.middlewares import authorization
-    from yuxi.modules.extensions.tools.runtime import resolve_configured_runtime_tools
+    from zs.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
+    from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+    from zs.modules.agents.runtime.middlewares import authorization
+    from zs.modules.extensions.tools.runtime import resolve_configured_runtime_tools
 
     assert (await finish(scenario, await begin(scenario))).status_code == 200
     if auth_mode == "headers":
@@ -1148,7 +1148,7 @@ async def test_each_run_discovers_once_across_model_rounds(scenario, monkeypatch
 
 async def test_run_directory_reuses_empty_results_and_rechecks_current_tool_policy(scenario):
     """空目录仅发现一次，新运行重新发现；工具开关变化只过滤目录，不重做发现。"""
-    from yuxi.modules.extensions.mcp.service import resolve_runtime_mcp_tools
+    from zs.modules.extensions.mcp.service import resolve_runtime_mcp_tools
 
     assert (await finish(scenario, await begin(scenario))).status_code == 200
     scenario["current"]["tool_names"] = []
@@ -1185,15 +1185,15 @@ import asyncio
 import os
 from dataclasses import replace
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.workers.arq import YuxiWorker
-from yuxi.workers.settings import WorkerSettings
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.workers.arq import ZSWorker
+from zs.workers.settings import WorkerSettings
 
 async def startup(ctx):
     "仅将真实数据库连接限定到测试 Schema。"
     pg_manager.async_engine = create_async_engine(
         os.environ["POSTGRES_URL"],
-        connect_args={"server_settings": {"search_path": os.environ["YUXI_TEST_SCHEMA"]}},
+        connect_args={"server_settings": {"search_path": os.environ["ZS_TEST_SCHEMA"]}},
     )
     pg_manager.AsyncSession = async_sessionmaker(pg_manager.async_engine, expire_on_commit=False)
     pg_manager._initialized = True
@@ -1204,9 +1204,9 @@ async def shutdown(ctx):
 
 async def main():
     "复用正式 cron 和调度周期，只隔离 Redis 名称与启动依赖。"
-    queue = os.environ["YUXI_TEST_QUEUE"]
+    queue = os.environ["ZS_TEST_QUEUE"]
     job = next(job for job in WorkerSettings.cron_jobs if job.coroutine.__name__ == "cleanup_expired_mcp_oauth_attempts")
-    worker = YuxiWorker(
+    worker = ZSWorker(
         functions=[],
         cron_jobs=[replace(job, name=queue + ":cleanup", next_run=None)],
         redis_settings=WorkerSettings.redis_settings,
@@ -1366,7 +1366,7 @@ async def test_static_credential_input_and_stale_revision_cannot_publish_secrets
 
 async def test_static_401_revokes_only_current_connection_and_other_origins_are_rejected(scenario):
     """远端 401 形成重连状态，跨来源请求在发送凭证前拒绝。"""
-    from yuxi.modules.extensions.mcp.oauth_runtime import PersonalMCPAuth
+    from zs.modules.extensions.mcp.oauth_runtime import PersonalMCPAuth
 
     http, headers = scenario["http"], scenario["headers"]
     base = "/api/system/mcp-servers/fixture"

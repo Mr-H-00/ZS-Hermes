@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：docs/.vitepress/theme/components/YuxiHome.vue
+Owner：docs/.vitepress/theme/components/ZSHome.vue
 
 ## 问题
 
@@ -14,7 +14,7 @@ Owner：docs/.vitepress/theme/components/YuxiHome.vue
 
 ### 实现方案
 
-`YuxiHome.vue` 拥有该段落的交互与样式，`productScenes` 仍是唯一数据源。模板为每个场景渲染一个步骤按钮（`#yx-step-<key>`）和一个面板 `figure`（`#yx-panel-<key>`，`:data-scene-index` 提供序号），面板标题由 `figcaption` 呈现。
+`ZSHome.vue` 拥有该段落的交互与样式，`productScenes` 仍是唯一数据源。模板为每个场景渲染一个步骤按钮（`#yx-step-<key>`）和一个面板 `figure`（`#yx-panel-<key>`，`:data-scene-index` 提供序号），面板标题由 `figcaption` 呈现。
 
 - 状态：`activeScene` 是唯一的当前步骤索引，默认 0；`scenePanels` 保存函数 ref 收集到的面板元素，`sceneVisible` 记录当前落在判定带内的面板索引，`sceneObserver` 持有观察器。
 - 滚动：`observeScenePanels()` 在 `onMounted` 建立 `IntersectionObserver`，`rootMargin: -42% 0px -42% 0px` 把视口收成中部 42%–58% 的判定带。面板进入判定带时接管 `activeScene`；当前步骤离开判定带后由带内索引最小者接管，否则两块面板同时在带内（725px 高视口下约 53px，随视口高度增大）时，高亮会滞留在已经离开判定带的那一块。`onBeforeUnmount` 断开观察器。`activeScene` 只由观察器写入。

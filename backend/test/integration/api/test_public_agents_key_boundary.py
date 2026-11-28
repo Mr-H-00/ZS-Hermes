@@ -9,8 +9,8 @@ from contextlib import suppress
 import asyncpg
 import pytest
 from test.integration.api.helpers import delete_created_threads
-from yuxi.modules.workspace.filesystem import Workspace
-from yuxi.modules.workspace.runtime_paths import runtime_workspace_path
+from zs.modules.workspace.filesystem import Workspace
+from zs.modules.workspace.runtime_paths import runtime_workspace_path
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -319,7 +319,7 @@ async def test_key_without_end_user_id_cannot_reach_product_project_files(test_c
 )
 async def test_public_message_preflight_allows_idempotency_key(test_client, path):
     """明确允许跨源浏览器提交 Public API 必需的幂等请求头。"""
-    origin = (os.getenv("YUXI_CORS_ORIGINS") or "http://localhost:5173").split(",")[0].strip()
+    origin = (os.getenv("ZS_CORS_ORIGINS") or "http://localhost:5173").split(",")[0].strip()
     response = await test_client.options(
         path,
         headers={
@@ -337,7 +337,7 @@ async def test_public_message_preflight_allows_idempotency_key(test_client, path
 async def test_personal_agents_key_rejects_cross_user_management_and_audits(test_client, admin_headers, api_key_factory, postgres_sessions):
     """即使 Key 属于超管，也不能管理产品、读取审计或访问其他用户的会话。"""
     from sqlalchemy import select
-    from yuxi.modules.identity.models import APIKey
+    from zs.modules.identity.models import APIKey
 
     owner = await test_client.get("/api/auth/me", headers=admin_headers)
     assert owner.status_code == 200 and owner.json()["role"] == "superadmin"
@@ -369,7 +369,7 @@ async def test_personal_agents_key_rejects_cross_user_management_and_audits(test
             foreign = await test_client.get(f"/api/v1/agents/sessions/{thread_id}{suffix}", headers=other_key.headers)
             assert foreign.status_code == 404, foreign.text
         denied_write = await test_client.post(
-            f"/api/v1/agents/sessions/{thread_id}", json={"yuxi": {"title": "Forged title"}}, headers=other_key.headers
+            f"/api/v1/agents/sessions/{thread_id}", json={"zs": {"title": "Forged title"}}, headers=other_key.headers
         )
         assert denied_write.status_code == 404, denied_write.text
         for path in ("/api/agent", "/api/user/apikey/", "/api/system/config", "/api/system/logs"):
@@ -393,7 +393,7 @@ async def test_personal_agents_key_rejects_cross_user_management_and_audits(test
             assert key.name == "Restricted admin" and key.access_level == "agents"
             assert await db.scalar(select(APIKey.id).where(APIKey.name == "Forbidden creation")) is None
         unchanged = await test_client.get(f"/api/v1/agents/sessions/{thread_id}", headers=admin_headers)
-        assert unchanged.status_code == 200 and unchanged.json()["yuxi"]["title"] != "Forged title"
+        assert unchanged.status_code == 200 and unchanged.json()["zs"]["title"] != "Forged title"
     finally:
         await delete_created_threads(thread_id)
         await test_client.delete(f"/api/auth/users/{other_user.json()['id']}", headers=admin_headers)

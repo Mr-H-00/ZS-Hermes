@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/runtime/checkpoint_cleanup.py
+Owner：backend/zs/modules/agents/runtime/checkpoint_cleanup.py
 
 ## 问题
 

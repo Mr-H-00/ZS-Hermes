@@ -7,17 +7,17 @@ from typing import Any
 
 import pytest
 
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.models.chat import select_model
-from yuxi.modules.models.embed import OtherEmbedding
-from yuxi.modules.models.providers.cache import ModelInfo
-from yuxi.modules.models.providers.service import (
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.models.chat import select_model
+from zs.modules.models.embed import OtherEmbedding
+from zs.modules.models.providers.cache import ModelInfo
+from zs.modules.models.providers.service import (
     ensure_builtin_model_providers_in_db,
     get_model_provider_by_id,
     resolve_api_key,
 )
-from yuxi.modules.models.rerank import DashscopeReranker, OpenAIReranker
-from yuxi.modules.models.tables import ModelProvider
+from zs.modules.models.rerank import DashscopeReranker, OpenAIReranker
+from zs.modules.models.tables import ModelProvider
 
 pytestmark = [
     pytest.mark.asyncio(loop_scope="session"),
@@ -102,7 +102,7 @@ async def test_provider_db_chat_model_connectivity(monkeypatch: pytest.MonkeyPat
     def get_model_info(current: str):
         return info if current == model_spec else None
 
-    monkeypatch.setattr("yuxi.modules.models.chat.model_cache.get_model_info", get_model_info)
+    monkeypatch.setattr("zs.modules.models.chat.model_cache.get_model_info", get_model_info)
 
     model = select_model(model_spec, model_params=spec["parameters"])
     response = await model.call([{"role": "user", "content": "Say 1"}], stream=False)

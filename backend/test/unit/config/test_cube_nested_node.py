@@ -23,4 +23,4 @@ def test_nested_node_has_explicit_shared_queue_configuration() -> None:
 def test_queue_guard_rejects_default_or_small_queue(queue: str) -> None:
     """恢复缺失或默认队列时，配置约束必须失败。"""
     with pytest.raises(AssertionError, match="未使用上游示例配置"):
-        _assert_shared_queue_configuration(f"-device vhost-user-fs-pci,{queue}chardev=fs,tag=yuxi_shared")
+        _assert_shared_queue_configuration(f"-device vhost-user-fs-pci,{queue}chardev=fs,tag=zs_shared")

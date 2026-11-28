@@ -179,6 +179,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   allowAuto: { type: Boolean, default: true },
   eagerLoad: { type: Boolean, default: false },
+  emptyLabel: { type: String, default: '选择项目' },
   ariaLabel: { type: String, default: '新对话项目' }
 })
 const emit = defineEmits(['update:modelValue'])
@@ -212,7 +213,7 @@ const currentProject = computed(() =>
   projects.value.find((project) => project.id === props.modelValue)
 )
 const currentProjectLabel = computed(() =>
-  isAutoOrEmpty.value ? '选择项目' : currentProject.value?.name || '未命名项目'
+  isAutoOrEmpty.value ? props.emptyLabel : currentProject.value?.name || '未命名项目'
 )
 const currentProjectHint = computed(() => {
   if (isAutoOrEmpty.value) {

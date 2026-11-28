@@ -23,7 +23,7 @@ async page => {
   if (await page.locator('.app-layout.sidebar-collapsed').count()) {
     await page.getByRole('button', { name: '展开侧边栏', exact: true }).click()
   }
-  await page.getByRole('button', { name: session.yuxi.title, exact: true }).click()
+  await page.getByRole('button', { name: session.zs.title, exact: true }).click()
   await page.waitForURL(origin + '/agent/' + target.session_id)
 
   // 保存响应迟到时，记录可以恢复，离页前的弹窗意图不能恢复。

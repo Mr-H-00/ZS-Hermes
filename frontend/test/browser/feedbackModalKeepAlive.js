@@ -22,7 +22,7 @@ async page => {
   await modal.waitFor()
   check(await modal.count() === 1, '缓存的新对话页不能同时打开第二个反馈弹窗')
   await modal.getByRole('textbox').fill(reason)
-  await page.locator('.ant-modal-content').screenshot({ animations: 'disabled', path: '/tmp/yuxi-feedback-live-with-reason.png' })
+  await page.locator('.ant-modal-content').screenshot({ animations: 'disabled', path: '/tmp/zs-feedback-live-with-reason.png' })
   await modal.getByRole('button', { name: '提交反馈', exact: true }).click()
   await modal.waitFor({ state: 'hidden' })
 
@@ -46,7 +46,7 @@ async page => {
   const stored = await page.evaluate(async ({ sessionId, reason }) => {
     const headers = { Authorization: 'Bearer ' + localStorage.getItem('user_token'), 'Content-Type': 'application/json' }
     const renamed = await fetch('/api/v1/agents/sessions/' + sessionId, { method: 'POST', headers,
-      body: JSON.stringify({ yuxi: { title: '反馈体验 2 · 点踩并填写说明' } }) })
+      body: JSON.stringify({ zs: { title: '反馈体验 2 · 点踩并填写说明' } }) })
     if (!renamed.ok) throw new Error('会话命名失败')
     const response = await fetch('/api/agent/threads/' + sessionId + '/feedback?source=user', { headers })
     if (!response.ok) throw new Error('反馈回读失败')
@@ -57,6 +57,6 @@ async page => {
   await page.reload()
   await page.waitForFunction(() => document.querySelector('button.feedback-vote[aria-label="点踩"]')?.getAttribute('aria-pressed') === 'true')
   check(await page.getByRole('button', { name: /^(编辑说明|补充说明)$/ }).count() === 0, '刷新后也不提供补充入口')
-  await page.locator('.chat-container').screenshot({ animations: 'disabled', path: '/tmp/yuxi-feedback-live-chat-second.png' })
+  await page.locator('.chat-container').screenshot({ animations: 'disabled', path: '/tmp/zs-feedback-live-chat-second.png' })
   return { case: 2, session_id: sessionId, ...stored, one_modal: true, deactivated_modal_closed: true,  reload_restored: true }
 }

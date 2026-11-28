@@ -17,7 +17,7 @@ async function verifyEnterpriseLoginAndWorkspace(page) {
       return respond({
         success: true,
         data: {
-          branding: { name: 'Yuxi', logo: '/favicon.svg' },
+          branding: { name: 'ZS', logo: '/favicon.svg' },
           footer: {
             user_agreement_url: 'https://example.com/agreement',
             privacy_policy_url: 'https://example.com/privacy'
@@ -40,7 +40,7 @@ async function verifyEnterpriseLoginAndWorkspace(page) {
   await page.goto(origin + '/login')
   await page.getByRole('button', { name: '企业统一登录', exact: true }).waitFor()
   await page.locator('input[type="password"]').waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-enterprise-login.png', fullPage: true })
+  await page.screenshot({ path: '/tmp/zs-enterprise-login.png', fullPage: true })
   oidcEnabled = false
   await page.reload()
   await page.locator('input[type="password"]').waitFor()
@@ -83,7 +83,7 @@ async function verifyEnterpriseLoginAndWorkspace(page) {
       throw new Error(`登录卡片尺寸不是 900×560：${layout.width}×${layout.height}`)
     if (layout.clipped) throw new Error('登录表单被固定尺寸的登录卡片裁切')
     await page.screenshot({
-      path: initializing ? '/tmp/yuxi-initialize-validation.png' : '/tmp/yuxi-login-error.png',
+      path: initializing ? '/tmp/zs-initialize-validation.png' : '/tmp/zs-login-error.png',
       fullPage: true
     })
   }

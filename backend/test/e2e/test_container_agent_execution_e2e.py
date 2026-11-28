@@ -218,13 +218,13 @@ async def test_agent_execute_runs_in_ephemeral_container(replay_server, handoff)
                     "agent_id": slug,
                     "tool_approval_mode": "always_trust",
                     "input": f"Use the terminal to run exactly this command: `{COMMAND}`. Then reply {DONE}.",
-                    "title": "YUXI_TEST_SESSION_CONTAINER_E2E",
+                    "title": "ZS_TEST_SESSION_CONTAINER_E2E",
                 },
             )
             assert created.status_code == 201, created.text
             session = created.json()
             thread_id = session["id"]
-            consumed = await wait_input(client, headers, session["yuxi"]["receipt"])
+            consumed = await wait_input(client, headers, session["zs"]["receipt"])
             if handoff:
                 assert await asyncio.to_thread(replay.started.wait, 60), "旧 Run 未执行命令并到达模型安全点"
                 response = await client.post(
@@ -235,7 +235,7 @@ async def test_agent_execute_runs_in_ephemeral_container(replay_server, handoff)
                             {
                                 "type": "agent.session.input.message",
                                 "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": MARKER}]}],
-                                "yuxi": {"mode": "steer"},
+                                "zs": {"mode": "steer"},
                             }
                         ]
                     },
@@ -244,7 +244,7 @@ async def test_agent_execute_runs_in_ephemeral_container(replay_server, handoff)
                 replay.release.set()
             turn = await wait_terminal(client, headers, thread_id, consumed["turn_id"])
             assert turn["status"] == "completed", turn
-            output = turn["yuxi"]["output"]
+            output = turn["zs"]["output"]
             assert any(part.get("text") == DONE for item in output for part in item.get("content", []) if item.get("type") == "message"), (
                 output
             )
@@ -271,7 +271,7 @@ async def test_agent_execute_runs_in_ephemeral_container(replay_server, handoff)
                 )
                 assert [row["status"] for row in runs] == (["yielded", "completed"] if handoff else ["completed"])
                 assert all(not row["runtime_cleanup_pending"] for row in runs)
-                assert turn["yuxi"]["result_run_id"] == runs[-1]["id"]
+                assert turn["zs"]["result_run_id"] == runs[-1]["id"]
                 if handoff:
                     assert runs[1]["resume_from_run_id"] == runs[0]["id"]
             finally:

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/bootstrap/api.py
+Owner：backend/zs/bootstrap/api.py
 
 ## 问题
 
@@ -36,7 +36,7 @@ Bootstrap、Infrastructure 和 Workers 中的主生命周期、资源管理与�
 
 ## 验证
 
-- `python3 -m compileall -q backend/yuxi/bootstrap backend/yuxi/infrastructure/redis backend/yuxi/shared`：Passed。
+- `python3 -m compileall -q backend/zs/bootstrap backend/zs/infrastructure/redis backend/zs/shared`：Passed。
 - `docker compose exec -T api uv run ruff check yuxi/bootstrap/api.py yuxi/bootstrap/worker.py yuxi/bootstrap/task_handlers.py yuxi/infrastructure/observability/logging.py yuxi/infrastructure/postgres/manager.py yuxi/infrastructure/redis/manager.py yuxi/shared/hashing.py yuxi/shared/singleton.py yuxi/workers/settings.py`：Passed。
 - `docker compose exec -T api uv run ruff format --check yuxi/bootstrap/api.py yuxi/bootstrap/worker.py yuxi/bootstrap/task_handlers.py yuxi/infrastructure/observability/logging.py yuxi/infrastructure/postgres/manager.py yuxi/infrastructure/redis/manager.py yuxi/shared/hashing.py yuxi/shared/singleton.py yuxi/workers/settings.py`：Passed。
 - `docker compose exec -T api uv run --group test pytest test/unit/utils/test_lifespan.py test/unit/services/test_run_worker.py test/unit/storage/test_redis_manager.py -q`：75 passed。

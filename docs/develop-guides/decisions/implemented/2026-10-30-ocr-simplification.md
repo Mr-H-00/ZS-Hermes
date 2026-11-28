@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/documents/service.py
+Owner：backend/zs/modules/documents/service.py
 
 ## 问题
 

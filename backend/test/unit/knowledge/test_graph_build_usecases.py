@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.knowledge.services import graph_build
-from yuxi.shared.errors import InvalidOperationError, ResourceNotFoundError, StateConflictError
+from zs.modules.knowledge.services import graph_build
+from zs.shared.errors import InvalidOperationError, ResourceNotFoundError, StateConflictError
 
 pytestmark = pytest.mark.asyncio
 
@@ -147,7 +147,7 @@ async def test_clear_rejects_pending_build_and_registration_race(graph_boundary,
 )
 async def test_clear_worker_rejects_malformed_scope(monkeypatch, scope):
     """不可信的持久任务范围不得进入清理执行器。"""
-    from yuxi.modules.knowledge.services import background_jobs
+    from zs.modules.knowledge.services import background_jobs
 
     executor = SimpleNamespace(clear_file_graph=AsyncMock())
     monkeypatch.setattr(background_jobs, "KnowledgeGraphService", lambda: executor)

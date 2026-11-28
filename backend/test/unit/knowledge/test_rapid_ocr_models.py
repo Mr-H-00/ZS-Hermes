@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from rapidocr import ModelType, OCRVersion
 
-from yuxi.infrastructure.document_parsing.engines.rapid_ocr import RapidOCRParser
+from zs.infrastructure.document_parsing.engines.rapid_ocr import RapidOCRParser
 
 
 def test_concurrent_first_use_shares_one_model(monkeypatch):
@@ -37,7 +37,7 @@ def test_concurrent_first_use_shares_one_model(monkeypatch):
         parser._load_model()
         return parser.ocr
 
-    monkeypatch.setattr("yuxi.infrastructure.document_parsing.engines.rapid_ocr.RapidOCR", construct)
+    monkeypatch.setattr("zs.infrastructure.document_parsing.engines.rapid_ocr.RapidOCR", construct)
     monkeypatch.setattr(parser, "_get_model_params", lambda: {})
     with ThreadPoolExecutor(2) as pool:
         futures = [pool.submit(load) for _ in range(2)]

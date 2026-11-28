@@ -17,7 +17,7 @@ Yuxi 此前锁定 `deepagents==0.6.7` 与旧版 LangChain 底座（langchain 1.3
 
 1. **依赖升级**：
    - backend：`deepagents>=0.7.7,<0.8`、`langchain>=1.3.15`、`langchain-core>=1.6.0`、`langchain-anthropic>=1.6.0`，并执行 `uv lock --upgrade` 升级 26+ 直接依赖。
-   - packages/yuxi-cli：升级 lock 至最新。
+   - packages/zs-cli：升级 lock 至最新。
    - web：升级 pinia (4.0.3)、js-yaml (5.3.0, 适配命名导入)、markdown-it (15.0.0)、katex (0.18.4)、@opencode-ai/models (0.0.51) 等。
 2. **Backend 实例装配**：
    - 在每次 `get_graph()` 时基于已准备好的 `context` 调用 `create_agent_composite_backend()` 构造本 Run 独享的 `CompositeBackend` 实例（`artifacts_root` 设为 `{workdir}/outputs`）。

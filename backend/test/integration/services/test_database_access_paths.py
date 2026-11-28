@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from test.integration.support.postgres_schema import create_isolated_manager as _create_isolated_manager
 from test.integration.support.postgres_schema import drop_isolated_schema as _drop_isolated_schema
-from yuxi.migrations.schema import create_business_tables, create_knowledge_tables, ensure_business_schema
+from zs.migrations.schema import create_business_tables, create_knowledge_tables, ensure_business_schema
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

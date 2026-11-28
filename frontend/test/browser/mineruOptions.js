@@ -45,7 +45,7 @@ async page => {
       check(await card.getByRole('combobox').count() === 1, '解析选项没有渲染为下拉框')
       check((await card.innerText()).includes('服务必须开放所选档位'), '缺少档位适用范围说明')
       check(await card.evaluate(el => el.scrollWidth <= el.clientWidth), '设置卡片横向溢出')
-      const path = `/tmp/yuxi-mineru-options-${theme}-${width}.png`
+      const path = `/tmp/zs-mineru-options-${theme}-${width}.png`
       await card.screenshot({ path })
       screenshots.push(path)
       await card.getByRole('button', { name: /^取\s*消$/ }).click()

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/agents/repositories/input.py
+Owner：backend/zs/modules/agents/repositories/input.py
 
 ## 问题
 

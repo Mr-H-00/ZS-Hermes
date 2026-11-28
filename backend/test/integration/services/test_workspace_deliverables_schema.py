@@ -4,10 +4,10 @@ import pytest
 from sqlalchemy import text
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.schema import get_schema_versions
-from yuxi.migrations.schema import create_schema_version_table, record_schema_version
-from yuxi.migrations.workspace_deliverables import upgrade_workspace_deliverables_schema
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.schema import get_schema_versions
+from zs.migrations.schema import create_schema_version_table, record_schema_version
+from zs.migrations.workspace_deliverables import upgrade_workspace_deliverables_schema
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.read_models import KnowledgeBaseConfig
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -21,7 +21,7 @@ async def test_executor_construction_is_offloaded_from_event_loop(tmp_path, monk
         construction_threads.append(threading.get_ident())
         return executor
 
-    monkeypatch.setattr("yuxi.modules.knowledge.manager.KnowledgeBaseFactory.create", create_executor)
+    monkeypatch.setattr("zs.modules.knowledge.manager.KnowledgeBaseFactory.create", create_executor)
 
     assert await manager._get_or_create_kb_instance("fake") is executor
     assert construction_threads and construction_threads[0] != event_loop_thread
@@ -37,7 +37,7 @@ async def test_concurrent_executor_construction_is_deduplicated(tmp_path, monkey
         construction_count += 1
         return executor
 
-    monkeypatch.setattr("yuxi.modules.knowledge.manager.KnowledgeBaseFactory.create", create_executor)
+    monkeypatch.setattr("zs.modules.knowledge.manager.KnowledgeBaseFactory.create", create_executor)
 
     results = await asyncio.gather(
         manager._get_or_create_kb_instance("fake"),
@@ -53,7 +53,7 @@ async def test_delete_knowledge_base_commits_tombstone_before_any_external_clean
     manager = KnowledgeBaseManager(str(tmp_path))
     repository = SimpleNamespace(mark_deleted=AsyncMock(return_value=["knowledge_base:kb_1:deleted"]))
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
         lambda: repository,
     )
     executor = AsyncMock(side_effect=RuntimeError("Milvus offline"))
@@ -107,15 +107,15 @@ async def test_update_query_params_delegates_persistence_to_manager(tmp_path, mo
             return object()
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
         FakeRepository,
     )
 
-    from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
+    from zs.modules.knowledge.read_models import KnowledgeBaseConfig
 
     monkeypatch.setattr(manager, "get_kb_config", AsyncMock(return_value=KnowledgeBaseConfig(kb_id="kb_1", kb_type="milvus")))
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class",
         lambda _kind: type("Executor", (), {"apply_chunk_defaults": False}),
     )
 
@@ -140,15 +140,15 @@ async def test_initialize_creates_executors_for_types_in_use(monkeypatch, tmp_pa
         return fake_instance
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository.get_all",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository.get_all",
         fake_get_all,
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         classmethod(lambda cls, _kb_type: True),
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.create",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.create",
         staticmethod(fake_create),
     )
 
@@ -168,15 +168,15 @@ async def test_initialize_propagates_failure_from_backend_already_in_use(monkeyp
         raise ConnectionError("milvus unavailable")
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository.get_all",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository.get_all",
         fake_get_all,
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         classmethod(lambda cls, _kb_type: True),
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.create",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.create",
         staticmethod(fail_create),
     )
 
@@ -192,7 +192,7 @@ async def test_initialize_rejects_persisted_unsupported_backend(monkeypatch, tmp
         return [SimpleNamespace(kb_id="kb_legacy", kb_type="removed-backend")]
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository.get_all",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository.get_all",
         fake_get_all,
     )
 

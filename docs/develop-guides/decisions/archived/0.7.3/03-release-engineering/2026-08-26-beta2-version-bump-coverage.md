@@ -32,7 +32,7 @@ Tag、远端推送和 CI 属于提交后的外部状态；tag 只能在本地门
 - `make lint`：通过。
 - `make test`：1590 passed。
 - `cd frontend && pnpm run test:unit && pnpm run build`：136 passed，build 通过。
-- `cd packages/yuxi-cli && uv run --python 3.13 --group test pytest`：90 passed。
+- `cd packages/zs-cli && uv run --python 3.13 --group test pytest`：90 passed。
 - `cd docs && pnpm run build`：通过；保留既有 VitePress/Rolldown 警告。
 - `make verify-trust`、`scripts.test_dependency_update_policy`：通过；版本脚本 3 个隔离案例全部通过。
 - `make audit-dependencies`：backend、CLI、Web、docs 生产依赖无已知漏洞，Python/Node 漏洞负控按预期命中。

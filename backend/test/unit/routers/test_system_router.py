@@ -6,15 +6,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import yuxi.api.routers.system as system_router
-from yuxi.api.dependencies.auth import get_db, get_superadmin_user
-from yuxi.api.routers.system import system
+import zs.api.routers.system as system_router
+from zs.api.dependencies.auth import get_db, get_superadmin_user
+from zs.api.routers.system import system
 
 pytestmark = pytest.mark.unit
 
 
 def test_discovery_endpoint_is_public(monkeypatch):
-    monkeypatch.setattr("yuxi.api.routers.system.get_version", lambda: "0.7.1.dev0")
+    monkeypatch.setattr("zs.api.routers.system.get_version", lambda: "0.7.1.dev0")
 
     app = FastAPI()
     app.include_router(system, prefix="/api")
@@ -22,7 +22,7 @@ def test_discovery_endpoint_is_public(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["name"] == "Yuxi"
+    assert payload["name"] == "ZS"
     assert payload["version"] == "0.7.1.dev0"
     assert payload["api_prefix"] == "/api"
     assert payload["capabilities"]["features"]["knowledge"] is True
@@ -70,7 +70,7 @@ def test_serialize_system_config_includes_field_metadata():
 @pytest.mark.asyncio
 async def test_brand_info_uses_packaged_template_outside_project_directory(monkeypatch, tmp_path):
     """品牌模板从包内读取，不依赖 API 进程的工作目录。"""
-    monkeypatch.delenv("YUXI_BRAND_FILE_PATH", raising=False)
+    monkeypatch.delenv("ZS_BRAND_FILE_PATH", raising=False)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(system_router, "get_version", lambda: "0.7.3")
 
@@ -78,7 +78,7 @@ async def test_brand_info_uses_packaged_template_outside_project_directory(monke
 
     assert set(config) == {"branding", "footer"}
     assert config["branding"] == {
-        "name": "智枢",
+        "name": "企业智能体",
         "logo": "/favicon.svg",
         "title": "对话、知识与工具，让 AI 助你完成工作",
         "login_bg": "/login-bg.jpg",
@@ -89,7 +89,7 @@ async def test_brand_info_uses_packaged_template_outside_project_directory(monke
 @pytest.mark.asyncio
 async def test_web_provider_guard_normalizes_before_lookup(monkeypatch):
     """带空白的默认供应商不能绕过凭据检查。"""
-    from yuxi.modules.extensions.options import WEB_PROVIDER_OPTIONS
+    from zs.modules.extensions.options import WEB_PROVIDER_OPTIONS
 
     class FakeOption:
         def __init__(self, key: str):

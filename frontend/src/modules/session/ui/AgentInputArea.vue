@@ -1,9 +1,5 @@
 <template>
-  <div class="agent-composer" :class="{ 'has-extra': showExtra && $slots.extra }">
-    <div v-if="showExtra && $slots.extra" class="composer-extra-region" aria-label="对话上下文">
-      <slot name="extra"></slot>
-    </div>
-
+  <div class="agent-composer">
     <input ref="imagePickerRef" type="file" accept="image/*" multiple hidden @change="handleImagePickerChange" />
 
     <MessageInputComponent
@@ -115,7 +111,6 @@ const props = defineProps({
   sendButtonDisabled: { type: Boolean, default: false },
   mention: { type: Object, default: () => null },
   threadId: { type: String, default: '' },
-  showExtra: { type: Boolean, default: false },
   attachments: {
     type: Array,
     default: () => []
@@ -274,24 +269,8 @@ defineExpose({
 </script>
 
 <style lang="less" scoped>
-@import '@/modules/session/ui/composerStyles.less';
-
 .agent-composer {
   width: 100%;
-}
-
-.composer-extra-region {
-  .composer-top-attachment();
-  display: flex;
-  min-height: 36px;
-  align-items: flex-start;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 4px 14px 2px;
-}
-
-.agent-composer.has-extra :deep(.input-box) {
-  z-index: 1;
 }
 
 .input-actions-left {
@@ -394,10 +373,6 @@ defineExpose({
   box-shadow: none;
 }
 
-
-:global(:root.dark .composer-extra-region) {
-  background: var(--gray-10);
-}
 
 .attachment-file-body {
   min-width: 0;

@@ -5,8 +5,8 @@ import io
 
 from PIL import ExifTags, Image
 
-import yuxi.infrastructure.images as image_module
-from yuxi.infrastructure.images import process_uploaded_image
+import zs.infrastructure.images as image_module
+from zs.infrastructure.images import process_uploaded_image
 
 
 def test_process_uploaded_image_composites_transparent_png_pixels_on_white():

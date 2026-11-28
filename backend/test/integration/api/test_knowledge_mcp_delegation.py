@@ -10,15 +10,15 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
 
-from yuxi.infrastructure.minio import get_minio_client
-from yuxi.infrastructure.minio.client import MinIOClient
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.identity.models import User
-from yuxi.modules.identity.repositories.users import UserRepository
-from yuxi.modules.knowledge.mcp.auth import create_knowledge_token
-from yuxi.modules.knowledge.mcp.client import call_knowledge_mcp
-from yuxi.modules.knowledge.models import KnowledgeFile
-from yuxi.shared.datetime import utc_now
+from zs.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio.client import MinIOClient
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.identity.models import User
+from zs.modules.identity.repositories.users import UserRepository
+from zs.modules.knowledge.mcp.auth import create_knowledge_token
+from zs.modules.knowledge.mcp.client import call_knowledge_mcp
+from zs.modules.knowledge.models import KnowledgeFile
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 DOCUMENT_BYTES = b"First line\nDelegated MCP needle\nLast line\n"
@@ -140,7 +140,7 @@ async def test_delegation_rejects_invalid_credentials_over_http(test_client, sta
         payload["iat"] -= 600
         payload["exp"] -= 600
     elif mutation == "audience":
-        payload["aud"] = "yuxi-know-api"
+        payload["aud"] = "zs-know-api"
     elif mutation == "purpose":
         payload["purpose"] = "user-login"
     elif mutation == "issuer":

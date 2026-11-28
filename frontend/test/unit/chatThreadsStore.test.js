@@ -42,12 +42,12 @@ test('Project 删除后 Store 只移除对应 Session 并清空当前选择', as
     )
     const store = useChatThreadsStore()
     store.threads = [
-      { id: 'a', yuxi: { project_id: 'project-a' } },
-      { id: 'b', yuxi: { project_id: 'project-b' } }
+      { id: 'a', zs: { project_id: 'project-a' } },
+      { id: 'b', zs: { project_id: 'project-b' } }
     ]
     store.setCurrentThreadId('a')
     assert.deepEqual(store.removeThreadsByProject('project-a'), ['a'])
-    assert.deepEqual(store.threads, [{ id: 'b', yuxi: { project_id: 'project-b' } }])
+    assert.deepEqual(store.threads, [{ id: 'b', zs: { project_id: 'project-b' } }])
     assert.equal(store.currentThreadId, null)
   } finally {
     await server.close()
@@ -71,17 +71,17 @@ for (const mutation of ['pin', 'archive', 'create', 'detail']) {
           ? {
               object: 'list',
               data: [
-                { id: 'first', yuxi: { is_pinned: true } },
-                { id: 'boundary', yuxi: {} }
+                { id: 'first', zs: { is_pinned: true } },
+                { id: 'boundary', zs: {} }
               ],
               last_id: 'boundary',
               has_more: true
             }
-          : { object: 'list', data: [{ id: 'next', yuxi: {} }], last_id: 'next', has_more: false }
+          : { object: 'list', data: [{ id: 'next', zs: {} }], last_id: 'next', has_more: false }
       }
-      threadApi.updateThread = async () => ({ id: 'boundary', yuxi: { is_pinned: true } })
-      threadApi.archiveThread = async () => ({ id: 'boundary', yuxi: { archived: true } })
-      threadApi.createThread = async () => ({ id: 'created', yuxi: {} })
+      threadApi.updateThread = async () => ({ id: 'boundary', zs: { is_pinned: true } })
+      threadApi.archiveThread = async () => ({ id: 'boundary', zs: { archived: true } })
+      threadApi.createThread = async () => ({ id: 'created', zs: {} })
       const { useChatThreadsStore } = await server.ssrLoadModule(
         '/src/modules/session/model/chatThreads.js'
       )
@@ -91,7 +91,7 @@ for (const mutation of ['pin', 'archive', 'create', 'detail']) {
       if (mutation === 'archive') await store.archiveThread('boundary')
       if (mutation === 'create') await store.createThread('agent')
       if (mutation === 'detail')
-        store.upsertThread({ id: 'child', yuxi: { parent_session_id: 'first' } })
+        store.upsertThread({ id: 'child', zs: { parent_session_id: 'first' } })
       await store.loadMoreThreads()
       assert.deepEqual(calls, [
         { limit: 100, after: undefined },
@@ -121,7 +121,7 @@ test('下一页与归档串行执行，归档结果不会重新出现在列表',
     threadApi.getThreads = async (_agentId, _limit, after, { isPinned } = {}) => {
       if (isPinned) return { data: [], last_id: null, has_more: false }
       if (!after)
-        return { data: [{ id: 'boundary', yuxi: {} }], last_id: 'boundary', has_more: true }
+        return { data: [{ id: 'boundary', zs: {} }], last_id: 'boundary', has_more: true }
       operations.push('page')
       return new Promise((resolve) => {
         resolvePage = resolve
@@ -139,7 +139,7 @@ test('下一页与归档串行执行，归档结果不会重新出现在列表',
     await new Promise(setImmediate)
     const archiving = store.archiveThread('boundary')
     assert.deepEqual(operations, ['page'])
-    resolvePage({ data: [{ id: 'next', yuxi: {} }], last_id: 'next', has_more: false })
+    resolvePage({ data: [{ id: 'next', zs: {} }], last_id: 'next', has_more: false })
     await Promise.all([loading, archiving])
     assert.deepEqual(operations, ['page', 'archive'])
     assert.deepEqual(
@@ -164,14 +164,14 @@ test('较老的置顶 Session 始终展示，刷新状态不改变普通列表�
     threadApi.getThreads = async (_agentId, _limit, after, { isPinned } = {}) => {
       if (isPinned)
         return {
-          data: [{ id: 'old-pin', status: pinnedStatus, yuxi: { is_pinned: true } }],
+          data: [{ id: 'old-pin', status: pinnedStatus, zs: { is_pinned: true } }],
           last_id: 'old-pin',
           has_more: false
         }
       if (after) nextCursors.push(after)
       return after
-        ? { data: [{ id: 'next', yuxi: {} }], last_id: 'next', has_more: false }
-        : { data: [{ id: 'newest', yuxi: {} }], last_id: 'newest', has_more: true }
+        ? { data: [{ id: 'next', zs: {} }], last_id: 'next', has_more: false }
+        : { data: [{ id: 'newest', zs: {} }], last_id: 'newest', has_more: true }
     }
     const { useChatThreadsStore } = await server.ssrLoadModule(
       '/src/modules/session/model/chatThreads.js'
@@ -214,24 +214,24 @@ test('后台状态读取与改名串行，迟到资源不会覆盖已保存的�
     }
     threadApi.updateThread = async () => {
       writes.push('rename')
-      return { id: 'session', yuxi: { title: '已保存的新标题' } }
+      return { id: 'session', zs: { title: '已保存的新标题' } }
     }
     const { useChatThreadsStore } = await server.ssrLoadModule(
       '/src/modules/session/model/chatThreads.js'
     )
     const store = useChatThreadsStore()
-    store.upsertThread({ id: 'session', yuxi: { title: '旧标题' } })
+    store.upsertThread({ id: 'session', zs: { title: '旧标题' } })
     const syncing = store.syncThreadStatuses()
     await new Promise(setImmediate)
     const renamed = store.updateThread('session', '已保存的新标题')
     assert.deepEqual(writes, [])
     resolvePage({
-      data: [{ id: 'session', status: 'idle', yuxi: { title: '旧标题' } }],
+      data: [{ id: 'session', status: 'idle', zs: { title: '旧标题' } }],
       has_more: false
     })
     await Promise.all([syncing, renamed])
     assert.deepEqual(writes, ['rename'])
-    assert.equal(store.threads[0].yuxi.title, '已保存的新标题')
+    assert.equal(store.threads[0].zs.title, '已保存的新标题')
   } finally {
     await server.close()
   }

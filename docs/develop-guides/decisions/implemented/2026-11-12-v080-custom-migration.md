@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/knowledge/manager.py
+Owner：backend/zs/modules/knowledge/manager.py
 
 ## 问题
 
@@ -12,7 +12,7 @@ v0.8 使用统一后端包、领域模块、Input/Turn/Run、代次化知识索�
 
 ### 实现方案
 
-后端沿用 `backend/yuxi` 的领域服务与 repository，前端沿用 `frontend` 的模块入口和会话导航。知识库定制由 knowledge 与 models 拥有，复用新文件代次、投影锁和后台作业；重切片复用索引执行器，并保留同意图去重、文件重叠拒绝和提交后派发。WPS 的配置、用户连接与凭据由 identity 拥有，HTTP 路由注册在 API，隧道仅由 API 进程按需管理。
+后端沿用 `backend/zs` 的领域服务与 repository，前端沿用 `frontend` 的模块入口和会话导航。知识库定制由 knowledge 与 models 拥有，复用新文件代次、投影锁和后台作业；重切片复用索引执行器，并保留同意图去重、文件重叠拒绝和提交后派发。WPS 的配置、用户连接与凭据由 identity 拥有，HTTP 路由注册在 API，隧道仅由 API 进程按需管理。
 
 Compose 保留新架构的初始化与 runner 拓扑，同时恢复本地模型只读挂载和 API 专用隧道配置。既有数据库、对象与宿主模型文件不由合并过程修改；旧 Schema 与新运行时之间的兼容性必须单独验证，版本号不通过改写数据库标记伪装兼容。合并现场和本地提交均保留可恢复备份，合并结果停留在未提交状态。
 

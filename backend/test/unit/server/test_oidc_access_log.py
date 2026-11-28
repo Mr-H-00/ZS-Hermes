@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from yuxi.api.middleware.access_log import AccessLogMiddleware
+from zs.api.middleware.access_log import AccessLogMiddleware
 
 
 @pytest.mark.parametrize(

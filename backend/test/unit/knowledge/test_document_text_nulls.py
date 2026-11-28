@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.infrastructure.document_parsing import ParseOptions
-from yuxi.infrastructure.document_parsing import parser
+from zs.infrastructure.document_parsing import ParseOptions
+from zs.infrastructure.document_parsing import parser
 
 
 @pytest.mark.asyncio

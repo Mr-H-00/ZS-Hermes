@@ -8,15 +8,15 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.modules.agents.repositories.public_items import PublicItemRepository
-from yuxi.modules.agents.services.public_items import serialize_public_items
-from yuxi.modules.agents.input_messages import build_chat_input_message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.workspace.models import Project
+from zs.modules.agents.repositories.public_items import PublicItemRepository
+from zs.modules.agents.services.public_items import serialize_public_items
+from zs.modules.agents.input_messages import build_chat_input_message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.messages import Message
+from zs.modules.workspace.models import Project
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -133,7 +133,7 @@ async def test_纯文本历史行不产生图片(session):
     user_message = (await _history(session))[0]
 
     assert user_message["content"] == [{"type": "input_text", "text": "只有文字"}]
-    assert user_message["yuxi"]["message_type"] == "text"
+    assert user_message["zs"]["message_type"] == "text"
 
 
 async def test_投影不外泄_raw_message_的原始形状(session):
@@ -157,7 +157,7 @@ async def test_投影不外泄_raw_message_的原始形状(session):
     await session.commit()
 
     item = (await _history(session))[0]
-    assert "raw_message" not in item["yuxi"]
+    assert "raw_message" not in item["zs"]
     contents = [part["image_url"] for part in item["content"] if part["type"] == "input_image"]
 
     assert contents == ["data:image/jpeg;base64,A", "data:image/jpeg;base64,B"]

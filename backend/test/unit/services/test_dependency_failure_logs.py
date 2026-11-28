@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.infrastructure.observability import logging as logging_module
-from yuxi.modules.extensions.mcp import runtime as mcp_runtime
-from yuxi.modules.extensions.web import services as web_services
-from yuxi.modules.models.providers import cache as cache_module
+from zs.infrastructure.observability import logging as logging_module
+from zs.modules.extensions.mcp import runtime as mcp_runtime
+from zs.modules.extensions.web import services as web_services
+from zs.modules.models.providers import cache as cache_module
 
 pytestmark = pytest.mark.unit
 

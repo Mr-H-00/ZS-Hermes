@@ -14,13 +14,13 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.identity.models import APIKey, OIDCIdentity, User
-from yuxi.modules.identity.repositories.oidc import OIDCRepository
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import PermissionDeniedError
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.sessions import Session
+from zs.modules.identity.models import APIKey, OIDCIdentity, User
+from zs.modules.identity.repositories.oidc import OIDCRepository
+from zs.modules.workspace.models import Project
+from zs.shared.datetime import utc_now
+from zs.shared.errors import PermissionDeniedError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

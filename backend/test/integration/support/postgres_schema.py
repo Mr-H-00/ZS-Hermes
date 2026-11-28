@@ -8,7 +8,7 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from yuxi.infrastructure.postgres.manager import PostgresManager
+from zs.infrastructure.postgres.manager import PostgresManager
 
 
 def scoped_manager(engine) -> PostgresManager:

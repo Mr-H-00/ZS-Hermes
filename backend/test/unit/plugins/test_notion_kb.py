@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from yuxi.modules.knowledge.implementations.notion import NOTION_DEFAULT_VERSION, NotionAPIError, NotionKB
-from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
+from zs.modules.knowledge.implementations.notion import NOTION_DEFAULT_VERSION, NotionAPIError, NotionKB
+from zs.modules.knowledge.read_models import KnowledgeBaseConfig
 
 
 PAGE_ID = "page-1"
@@ -136,7 +136,7 @@ def test_notion_validation_rejects_missing_params(monkeypatch):
 @pytest.mark.asyncio
 async def test_notion_kb_aquery_maps_pages(monkeypatch, notion_kb):
     kb, config = notion_kb
-    monkeypatch.setattr("yuxi.modules.knowledge.implementations.notion._NotionClient", _FakeNotionClient)
+    monkeypatch.setattr("zs.modules.knowledge.implementations.notion._NotionClient", _FakeNotionClient)
 
     result = await kb.aquery(
         "reasoning",
@@ -156,7 +156,7 @@ async def test_notion_kb_aquery_maps_pages(monkeypatch, notion_kb):
 @pytest.mark.asyncio
 async def test_notion_kb_aquery_error_is_explicit(monkeypatch, notion_kb):
     kb, config = notion_kb
-    monkeypatch.setattr("yuxi.modules.knowledge.implementations.notion._NotionClient", _FailingNotionClient)
+    monkeypatch.setattr("zs.modules.knowledge.implementations.notion._NotionClient", _FailingNotionClient)
 
     with pytest.raises(RuntimeError, match="Notion query failed"):
         await kb.aquery(

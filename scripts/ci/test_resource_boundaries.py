@@ -113,7 +113,7 @@ class ServiceIntegrationTests(unittest.TestCase):
                 ["bash", str(script)],
                 env={
                     "PATH": f"{base}:{os.environ['PATH']}", "POSTGRES_URL": "fixture",
-                    "REDIS_URL": "fixture", "YUXI_SKILL_DATA_DIR": root, "ENV_LOG": str(log),
+                    "REDIS_URL": "fixture", "ZS_SKILL_DATA_DIR": root, "ENV_LOG": str(log),
                     "SANDBOX_BACKEND": "cube", "SANDBOX_RUNNER_URL": "http://existing-runner:8090",
                 },
                 capture_output=True, text=True, timeout=5, check=True,
@@ -133,7 +133,7 @@ class ServiceIntegrationTests(unittest.TestCase):
             uv = Path(root) / "uv"
             uv.write_text(f"#!/bin/sh\nprintf '%s\\n' called >> '{calls}'\nexit 99\n")
             uv.chmod(0o755)
-            resources = {"POSTGRES_URL": "fixture", "REDIS_URL": "fixture", "YUXI_SKILL_DATA_DIR": root}
+            resources = {"POSTGRES_URL": "fixture", "REDIS_URL": "fixture", "ZS_SKILL_DATA_DIR": root}
             for missing in resources:
                 with self.subTest(missing=missing):
                     result = subprocess.run(
@@ -162,7 +162,7 @@ class ServiceIntegrationTests(unittest.TestCase):
                 ["bash", str(script)],
                 env={
                     "PATH": f"{root}:{os.environ['PATH']}", "POSTGRES_URL": "fixture",
-                    "REDIS_URL": "fixture", "YUXI_SKILL_DATA_DIR": root,
+                    "REDIS_URL": "fixture", "ZS_SKILL_DATA_DIR": root,
                 },
                 capture_output=True, text=True, timeout=5,
             )
@@ -404,7 +404,7 @@ class RuntimeTopologyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             base = Path(root)
             (base / ".env.template").write_text((ROOT / ".env.template").read_text())
-            env = {k: v for k, v in os.environ.items() if not k.startswith(("CUBE_", "YUXI_", "SANDBOX_", "COMPOSE_"))}
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("CUBE_", "ZS_", "SANDBOX_", "COMPOSE_"))}
             env.pop("SILICONFLOW_API_KEY", None)
             env.update(GITHUB_ACTIONS="true", RUNNER_ENVIRONMENT="github-hosted", RUNNER_TEMP=root)
             env.update(
@@ -416,21 +416,21 @@ class RuntimeTopologyTests(unittest.TestCase):
             config = json.loads(subprocess.check_output(
                 ["docker", "compose", "--env-file", str(base / ".env"), "-f", str(ROOT / "docker-compose.yml"),
                  "config", "--format", "json"],
-                env={**env, "YUXI_ENV_FILE": str(base / ".env")}, text=True,
+                env={**env, "ZS_ENV_FILE": str(base / ".env")}, text=True,
             ))
             for name in ("api", "worker"):
                 for key in ("SILICONFLOW_API_KEY", "WEB_SEARCH_PROVIDER", "DOUBAO_SEARCH_API_KEY", "TAVILY_API_KEY", "DEEPSEEK_API_KEY"):
                     self.assertEqual(config["services"][name]["environment"][key], "", f"{name}.{key} 必须保留模板空值")
-            api_key = config["services"]["api"]["environment"]["YUXI_ENCRYPTION_KEY"]
+            api_key = config["services"]["api"]["environment"]["ZS_ENCRYPTION_KEY"]
             self.assertEqual(len(base64.urlsafe_b64decode(api_key)), 32)
-            self.assertEqual(api_key, config["services"]["worker"]["environment"]["YUXI_ENCRYPTION_KEY"])
+            self.assertEqual(api_key, config["services"]["worker"]["environment"]["ZS_ENCRYPTION_KEY"])
             self.assert_container_state(config)
             probe_env = {**env, "SILICONFLOW_API_KEY": "fixture-provider-key"}
             subprocess.run(["bash", str(ROOT / "scripts/ci/prepare_system_tests_env.sh")], cwd=base, env=probe_env, check=True)
             probe_config = json.loads(subprocess.check_output(
                 ["docker", "compose", "--env-file", str(base / ".env"), "-f", str(ROOT / "docker-compose.yml"),
                  "config", "--format", "json"],
-                env={**probe_env, "YUXI_ENV_FILE": str(base / ".env")}, text=True,
+                env={**probe_env, "ZS_ENV_FILE": str(base / ".env")}, text=True,
             ))
             for name in ("api", "worker"):
                 self.assertEqual(probe_config["services"][name]["environment"]["SILICONFLOW_API_KEY"], "fixture-provider-key")

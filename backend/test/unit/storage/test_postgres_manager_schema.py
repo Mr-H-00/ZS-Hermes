@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.base import BusinessBase, KnowledgeBase
-from yuxi.infrastructure.postgres import schema as schema_versions
-from yuxi.modules.agents.models.runs import AgentRun
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.base import BusinessBase, KnowledgeBase
+from zs.infrastructure.postgres import schema as schema_versions
+from zs.modules.agents.models.runs import AgentRun
 
 
 def test_business_and_knowledge_metadata_are_disjoint():

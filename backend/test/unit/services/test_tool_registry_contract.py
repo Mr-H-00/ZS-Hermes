@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from yuxi.modules.extensions.tools import registry
-from yuxi.modules.extensions.tools.catalog import get_tool_metadata
+from zs.modules.extensions.tools import registry
+from zs.modules.extensions.tools.catalog import get_tool_metadata
 
 
 def test_registry_and_catalog_reads_do_not_expose_mutable_global_containers(monkeypatch):

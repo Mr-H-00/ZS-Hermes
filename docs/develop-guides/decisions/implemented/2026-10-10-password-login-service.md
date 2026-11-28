@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/identity/services/password_login.py
+Owner：backend/zs/modules/identity/services/password_login.py
 
 ## 问题
 

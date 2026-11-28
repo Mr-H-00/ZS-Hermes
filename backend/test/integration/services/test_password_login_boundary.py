@@ -15,13 +15,13 @@ from fastapi import FastAPI
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from yuxi.api.routers.identity import auth as router
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.base import BusinessBase
-from yuxi.modules.identity.models import Department, User
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.identity.services import password_login
-from yuxi.shared.datetime import utc_now
+from zs.api.routers.identity import auth as router
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.base import BusinessBase
+from zs.modules.identity.models import Department, User
+from zs.modules.identity.security import AuthUtils
+from zs.modules.identity.services import password_login
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

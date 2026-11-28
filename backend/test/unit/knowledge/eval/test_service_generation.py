@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.knowledge.evaluation import service as eval_service_module
-from yuxi.modules.knowledge.evaluation.service import EvaluationService, build_evaluation_run_name
+from zs.modules.knowledge.evaluation import service as eval_service_module
+from zs.modules.knowledge.evaluation.service import EvaluationService, build_evaluation_run_name
 
 
 class FakeEvaluationRepository:

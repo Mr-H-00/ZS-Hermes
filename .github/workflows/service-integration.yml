@@ -30,11 +30,11 @@ jobs:
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
-          POSTGRES_DB: yuxi_ci
+          POSTGRES_DB: zs_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ci -d yuxi_ci"
+          --health-cmd "pg_isready -U ci -d zs_ci"
           --health-interval 5s --health-timeout 5s --health-retries 12
       redis:
         image: redis:7.4.10-alpine
@@ -44,7 +44,7 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 12
     env:
-      POSTGRES_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/yuxi_ci
+      POSTGRES_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/zs_ci
       REDIS_URL: redis://127.0.0.1:6379/0
       JWT_SECRET_KEY: ci-jwt-secret-at-least-thirty-two-characters
       API_KEY_DERIVATION_SECRET: ci-api-key-derivation-secret-at-least-32-chars
@@ -63,7 +63,7 @@ jobs:
       - name: Run independent service integration inventory
         env:
           CI_TEST_REPORT_DIR: test/ci-reports
-          YUXI_SKILL_DATA_DIR: ${{ runner.temp }}/service-integration-skills
+          ZS_SKILL_DATA_DIR: ${{ runner.temp }}/service-integration-skills
         run: bash scripts/ci/run_service_integration.sh
 
       - uses: actions/upload-artifact@v4

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/agents/runtime/middlewares/tool_error_guard.py
+Owner：backend/zs/modules/agents/runtime/middlewares/tool_error_guard.py
 
 ## 问题
 
@@ -50,9 +50,9 @@ docker compose exec -T frontend pnpm run build
 playwright-cli -s=p2-regressions --raw run-code --filename=frontend/test/browser/attachmentDraftOwnership.js
 python3 scripts/verify_engineering_contracts.py
 python3 -m unittest scripts.test_verify_engineering_contracts
-backend/.venv/bin/ruff check backend/yuxi
-backend/.venv/bin/ruff format backend/yuxi --check
-backend/.venv/bin/ruff check --select I backend/yuxi
+backend/.venv/bin/ruff check backend/zs
+backend/.venv/bin/ruff format backend/zs --check
+backend/.venv/bin/ruff check --select I backend/zs
 pnpm --dir docs run build
 git diff --check
 ```

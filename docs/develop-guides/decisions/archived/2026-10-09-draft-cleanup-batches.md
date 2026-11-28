@@ -4,7 +4,7 @@
 
 状态：archived
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/attachments.py
+Owner：backend/zs/modules/agents/services/attachments.py
 
 ## 问题
 

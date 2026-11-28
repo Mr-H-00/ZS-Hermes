@@ -38,7 +38,7 @@ async page => {
       for (const width of [1440, 1024, 768]) {
         await page.setViewportSize({ width, height: 1000 })
         await checkHeader()
-        await page.locator('.page-header').screenshot({ path: `/tmp/yuxi-page-header-${mode}-${width}.png` })
+        await page.locator('.page-header').screenshot({ path: `/tmp/zs-page-header-${mode}-${width}.png` })
         coverage.push({ mode, width })
       }
     }

@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from docx import Document
 
-from yuxi.infrastructure.file_preview import (
+from zs.infrastructure.file_preview import (
     MAX_TEXT_PREVIEW_CHARS,
     detect_preview_type,
     prepare_file_preview,

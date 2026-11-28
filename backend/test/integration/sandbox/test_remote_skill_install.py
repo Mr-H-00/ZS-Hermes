@@ -2,10 +2,10 @@
 
 import pytest
 
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.redis import close_async_redis_client
-from yuxi.modules.extensions.skills.personal import list_personal_skills, read_personal_skill_file
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.redis import close_async_redis_client
+from zs.modules.extensions.skills.personal import list_personal_skills, read_personal_skill_file
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.integration, pytest.mark.e2e, pytest.mark.slow, pytest.mark.self_managed_resources]
 

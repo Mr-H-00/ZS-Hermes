@@ -66,27 +66,27 @@ COPY --chown=0:0 --chmod=0644 backend/uv.lock /app/uv.lock
 # 安装唯一的后端 Python 项目。
 COPY --chown=0:0 --chmod=0644 backend/README.md /app/README.md
 COPY --chown=0:0 --chmod=0644 backend/MANIFEST.in /app/MANIFEST.in
-COPY --chown=0:0 backend/yuxi /app/yuxi
+COPY --chown=0:0 backend/zs /app/zs
 # 构建输入可来自 600/700 checkout，镜像内源码只读权限不依赖宿主模式。
-RUN find /app/yuxi -type d -exec chmod 0755 {} + \
-    && find /app/yuxi -type f -exec chmod 0644 {} +
+RUN find /app/zs -type d -exec chmod 0755 {} + \
+    && find /app/zs -type f -exec chmod 0644 {} +
 
 # 依赖版本与发行文件下载地址由锁文件固定。
 RUN uv sync --no-cache --group test --no-dev --frozen
 
-COPY --chown=0:0 --chmod=0755 docker/api-entrypoint.sh /usr/local/bin/yuxi-entrypoint
+COPY --chown=0:0 --chmod=0755 docker/api-entrypoint.sh /usr/local/bin/zs-entrypoint
 
 # RapidOCR 使用 rapidocr wheel 自带的 PP-OCRv6 模型；不预置时首次解析会联网到
 # modelscope.cn 下载且离线部署不可行，因此构建期预置到 RAPIDOCR_MODEL_DIR 指向目录。
-RUN groupadd --gid 1000 yuxi \
-    && useradd --uid 1000 --gid 1000 --create-home yuxi \
-    && mkdir -p /app/runtime /home/yuxi/.cache/rapidocr/models \
-    && cp "$(python -c 'import os, sysconfig; print(os.path.join(sysconfig.get_paths()["purelib"], "rapidocr", "models"))')"/*.onnx /home/yuxi/.cache/rapidocr/models/ \
-    && chown -R 1000:1000 /app/runtime /home/yuxi
+RUN groupadd --gid 1000 zs \
+    && useradd --uid 1000 --gid 1000 --create-home zs \
+    && mkdir -p /app/runtime /home/zs/.cache/rapidocr/models \
+    && cp "$(python -c 'import os, sysconfig; print(os.path.join(sysconfig.get_paths()["purelib"], "rapidocr", "models"))')"/*.onnx /home/zs/.cache/rapidocr/models/ \
+    && chown -R 1000:1000 /app/runtime /home/zs
 
-ENV HOME=/home/yuxi \
-    RAPIDOCR_MODEL_DIR=/home/yuxi/.cache/rapidocr/models
+ENV HOME=/home/zs \
+    RAPIDOCR_MODEL_DIR=/home/zs/.cache/rapidocr/models
 
 USER 1000:1000
 
-ENTRYPOINT ["/usr/local/bin/yuxi-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/zs-entrypoint"]

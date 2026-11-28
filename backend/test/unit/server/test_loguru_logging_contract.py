@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-LOGURU_LOGGER_MODULES = frozenset({"yuxi.infrastructure.observability.logging", "loguru"})
+LOGURU_LOGGER_MODULES = frozenset({"zs.infrastructure.observability.logging", "loguru"})
 LOG_LEVELS = frozenset({"debug", "info", "warning", "error", "exception", "critical"})
 PERCENT_PLACEHOLDER = re.compile(r"%[sdifr]")
-YUXI_ROOT = Path(__file__).resolve().parents[3] / "yuxi"
+ZS_ROOT = Path(__file__).resolve().parents[3] / "zs"
 
 
 def _imports_loguru_logger(tree: ast.Module) -> bool:
@@ -63,10 +63,10 @@ def find_loguru_violations(source: str) -> list[tuple[int, str]]:
 def test_backend_loguru_calls_follow_loguru_formatting() -> None:
     """生产代码中的 loguru 调用必须使用 {} 占位符和 opt(exception=True)。"""
     violations = []
-    for path in sorted(YUXI_ROOT.rglob("*.py")):
+    for path in sorted(ZS_ROOT.rglob("*.py")):
         source = path.read_text(encoding="utf-8")
         for line, reason in find_loguru_violations(source):
-            violations.append(f"{path.relative_to(YUXI_ROOT)}:{line}: {reason}")
+            violations.append(f"{path.relative_to(ZS_ROOT)}:{line}: {reason}")
 
     assert not violations, "\n".join(violations)
 
@@ -76,7 +76,7 @@ def test_backend_loguru_calls_follow_loguru_formatting() -> None:
     [
         ('from loguru import logger\nlogger.warning("run=%s", 1)\n', 1),
         ('from loguru import logger\nlogger.error("failed", exc_info=True)\n', 1),
-        ('from yuxi.infrastructure.observability.logging import logger\nlogger.opt(exception=True).error("run={}", 1)\n', 0),
+        ('from zs.infrastructure.observability.logging import logger\nlogger.opt(exception=True).error("run={}", 1)\n', 0),
         ('import logging\nlogger = logging.getLogger(__name__)\nlogger.warning("run=%s", 1)\n', 0),
     ],
 )

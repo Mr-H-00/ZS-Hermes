@@ -164,7 +164,7 @@ async (page) => {
     (await page.locator('.chunk-preview-body').count()) === 0,
     'unmatched search must not retain unrelated preview'
   )
-  await page.screenshot({ path: '/tmp/yuxi-chunk-search-empty.png' })
+  await page.screenshot({ path: '/tmp/zs-chunk-search-empty.png' })
   await search.fill('')
   for (const [theme, width] of [
     ['light', 1440],
@@ -225,7 +225,7 @@ async (page) => {
       return editMatches && selectedMatches
     }, appearance)
     check(colorsMatch, 'selection and edit link must use gray tokens')
-    await page.screenshot({ path: `/tmp/yuxi-chunks-${theme}-${width}.png` })
+    await page.screenshot({ path: `/tmp/zs-chunks-${theme}-${width}.png` })
     await trigger().click()
     await menu().getByRole('menuitem', { name: '编辑文件', exact: true }).waitFor()
     check(
@@ -239,7 +239,7 @@ async (page) => {
     await menu().evaluate(async (el) => {
       await Promise.allSettled(el.getAnimations().map((animation) => animation.finished))
     })
-    await page.screenshot({ path: `/tmp/yuxi-chunk-menu-${theme}-${width}.png` })
+    await page.screenshot({ path: `/tmp/zs-chunk-menu-${theme}-${width}.png` })
     await trigger().click()
     await page.locator('.knowledge-file-actions:visible').waitFor({ state: 'hidden' })
   }
@@ -258,7 +258,7 @@ async (page) => {
     `chunk edit must locate line 90: ${JSON.stringify(position)}`
   )
   check((await textarea.inputValue()) === content, 'editor must read full authoritative file')
-  await page.screenshot({ path: '/tmp/yuxi-chunk-edit-line.png' })
+  await page.screenshot({ path: '/tmp/zs-chunk-edit-line.png' })
   await page.getByRole('button', { name: '取消编辑' }).click()
   await page.locator('.chunk-browser').waitFor()
   await search.fill('chunk-beta')
@@ -333,19 +333,19 @@ async (page) => {
   await reopen()
   await selectView('Chunks')
   await page.getByRole('alert').filter({ hasText: '服务器内部错误，请稍后重试' }).waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-chunks-error.png' })
+  await page.screenshot({ path: '/tmp/zs-chunks-error.png' })
   contentFailure = false
   empty = true
   await reopen()
   await selectView('Chunks')
   await page.getByText('暂无分块信息，请先完成文件入库。', { exact: true }).waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-chunks-empty.png' })
+  await page.screenshot({ path: '/tmp/zs-chunks-empty.png' })
   empty = false
   holdContent = true
   await reopen()
   await selectView('Chunks')
   await page.getByText('正在加载分块内容...', { exact: true }).waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-chunks-loading.png' })
+  await page.screenshot({ path: '/tmp/zs-chunks-loading.png' })
   holdContent = false
   releaseContent()
   await page.locator('.chunk-browser').waitFor()
@@ -355,6 +355,6 @@ async (page) => {
     chunks: chunks.length,
     locatedLine: 90,
     writes,
-    screenshots: '/tmp/yuxi-chunks-*.png'
+    screenshots: '/tmp/zs-chunks-*.png'
   }
 }

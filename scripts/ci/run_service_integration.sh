@@ -3,7 +3,7 @@
 set -euo pipefail
 : "${POSTGRES_URL:?需要隔离测试数据库}"
 : "${REDIS_URL:?需要隔离测试 Redis}"
-: "${YUXI_SKILL_DATA_DIR:?需要临时 Skill 目录}"
+: "${ZS_SKILL_DATA_DIR:?需要临时 Skill 目录}"
 cd "$(dirname "$0")/../../backend"
 # app-init 会用本地 .env 覆盖进程环境，禁止借用已有部署配置。
 if [[ -e .env ]]; then
@@ -22,9 +22,9 @@ export TEST_USERNAME= TEST_PASSWORD=
 uv run --locked --group test python - <<'PY'
 import asyncio
 
-from yuxi.bootstrap.app import main
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.identity.services.administration import initialize_system_admin
+from zs.bootstrap.app import main
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.identity.services.administration import initialize_system_admin
 
 
 async def prepare():

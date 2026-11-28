@@ -6,10 +6,10 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from yuxi.api.routers.public_v1.agents.schemas import InputMessage, SessionEventCreate, input_messages_to_domain
-from yuxi.api.routers.public_v1.agents.auth import require_public_context
-from yuxi.modules.agents.services.inputs import _accepted, thread_id_for_creation
-from yuxi.modules.agents.scope import ActorScope
+from zs.api.routers.public_v1.agents.schemas import InputMessage, SessionEventCreate, input_messages_to_domain
+from zs.api.routers.public_v1.agents.auth import require_public_context
+from zs.modules.agents.services.inputs import _accepted, thread_id_for_creation
+from zs.modules.agents.scope import ActorScope
 
 
 def test_creation_key_is_stable_and_isolated_by_app():
@@ -64,11 +64,11 @@ def test_message_priority_has_no_target_turn(mode):
     event = {
         "type": "agent.session.input.message",
         "input": [{"role": "user", "content": [{"type": "input_text", "text": "message"}]}],
-        "yuxi": {"mode": mode},
+        "zs": {"mode": mode},
     }
     accepted = SessionEventCreate.model_validate({"events": [event]})
-    assert accepted.events[0].yuxi.mode == mode
-    event["yuxi"]["turn_id"] = "ended-turn"
+    assert accepted.events[0].zs.mode == mode
+    event["zs"]["turn_id"] = "ended-turn"
     with pytest.raises(ValidationError, match="turn_id"):
         SessionEventCreate.model_validate({"events": [event]})
 
@@ -96,7 +96,7 @@ def test_wire_rejects_unknown_fields_and_remote_images():
                         "type": "agent.session.input.message",
                         "input": [],
                         "request_id": "old",
-                        "yuxi": {"mode": "follow_up"},
+                        "zs": {"mode": "follow_up"},
                     }
                 ]
             }

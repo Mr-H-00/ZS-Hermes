@@ -3,8 +3,8 @@
 import pytest
 from openpyxl import Workbook
 
-from yuxi.infrastructure.document_parsing.parser import parse
-from yuxi.modules.knowledge.chunking.dispatcher import chunk_markdown
+from zs.infrastructure.document_parsing.parser import parse
+from zs.modules.knowledge.chunking.dispatcher import chunk_markdown
 
 
 @pytest.mark.parametrize("rows", [[("Q1?", "A1")], [("Q1?", "A1"), ("Q2?", "A2")]])

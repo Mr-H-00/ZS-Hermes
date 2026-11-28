@@ -9,14 +9,14 @@ import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.models.runs import AgentRun, AgentRunAttempt
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.messages import Message
-from yuxi.shared.datetime import utc_now
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.models.runs import AgentRun, AgentRunAttempt
+from zs.modules.agents.models.turns import AgentTurn
+from zs.infrastructure.postgres.base import Base
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.messages import Message
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -26,7 +26,7 @@ async def session(monkeypatch):
     from unittest.mock import AsyncMock
 
     monkeypatch.setattr(
-        "yuxi.modules.agents.repositories.cooperation.CooperationRepository.claim_execution_slot",
+        "zs.modules.agents.repositories.cooperation.CooperationRepository.claim_execution_slot",
         AsyncMock(return_value=True),
     )
     load_models()

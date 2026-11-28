@@ -7,7 +7,7 @@ async (page) => {
   let phase = 'old', failNextTurn = false, releaseFailure, onRequestHeld
   const turn = () => ({
     id: 'approval-turn', status: phase === 'running' ? 'in_progress' : 'requires_action',
-    yuxi: {
+    zs: {
       current_run_id: phase === 'old' ? 'run-A' : 'run-B', output: [], runs: [],
       waitpoint: phase === 'running' ? null : {
         id: phase === 'old' ? 'wait-A' : 'wait-B',
@@ -17,7 +17,7 @@ async (page) => {
     }
   })
   const session = () => ({ id: 'approval-thread', agent: { id: agent.agent_id }, status: turn().status,
-    yuxi: { title: '审批失败竞态验证', current_turn: turn() } })
+    zs: { title: '审批失败竞态验证', current_turn: turn() } })
   await page.route('**/api/**', async route => {
     const request = route.request(), path = request.url().split('?')[0].replace(/^https?:\/\/[^/]+/, '')
     const reply = body => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
@@ -31,7 +31,7 @@ async (page) => {
         return reply(turn())
       }
       if (path.endsWith('/events')) return route.fulfill({ contentType: 'text/event-stream', body: '' })
-      if (path.endsWith('/items')) return reply({ data: [], has_more: false, last_id: null, yuxi: { runs: [] } })
+      if (path.endsWith('/items')) return reply({ data: [], has_more: false, last_id: null, zs: { runs: [] } })
       if (path.endsWith('/state')) return reply({ agent_state: {} })
       if (path.endsWith('/queue')) return reply({ inputs: [], status: 'idle' })
       if (path.endsWith('/attachments')) return reply({ attachments: [] })
@@ -90,7 +90,7 @@ async (page) => {
         await dialog.getByText(next === 'old' ? '问答题：是否继续旧任务？' : '问答题：请确认新的任务？', { exact: true }).waitFor()
         check(await dialog.getByRole('button', { name: '提交', exact: true }).isEnabled(), '失败后无法重试当前审批')
       }
-      await page.screenshot({ path: `/tmp/yuxi-approval-failure-${next}.png`, fullPage: true, animations: 'disabled' })
+      await page.screenshot({ path: `/tmp/zs-approval-failure-${next}.png`, fullPage: true, animations: 'disabled' })
       results.push({ scenario: next, ...actual })
     }
     check(!pageErrors.length, `页面异常：${pageErrors.join('; ')}`)

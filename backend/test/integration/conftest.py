@@ -50,7 +50,7 @@ def _has_shared_integration_tests(request: pytest.FixtureRequest) -> bool:
 @pytest.fixture(scope="session", autouse=True)
 def load_orm_models():
     """独立测试进程显式装配全部 ORM，避免依赖其他测试的导入顺序。"""
-    from yuxi.infrastructure.postgres.models import load_models
+    from zs.infrastructure.postgres.models import load_models
 
     load_models()
 
@@ -61,8 +61,8 @@ def ensure_live_api_schema(request: pytest.FixtureRequest):
         return
 
     async def verify_schema_version() -> None:
-        from yuxi.infrastructure.postgres.manager import pg_manager
-        from yuxi.infrastructure.postgres.schema import require_current_schema
+        from zs.infrastructure.postgres.manager import pg_manager
+        from zs.infrastructure.postgres.schema import require_current_schema
 
         pg_manager.initialize()
         try:

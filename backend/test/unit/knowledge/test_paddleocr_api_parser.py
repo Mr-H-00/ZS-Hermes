@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-import yuxi.infrastructure.document_parsing.engines.paddleocr_api as paddleocr_api
-from yuxi.infrastructure.document_parsing import DocumentParserException
-from yuxi.infrastructure.document_parsing.artifacts import local_image_links
-from yuxi.infrastructure.document_parsing.engines.paddleocr_api import (
+import zs.infrastructure.document_parsing.engines.paddleocr_api as paddleocr_api
+from zs.infrastructure.document_parsing import DocumentParserException
+from zs.infrastructure.document_parsing.artifacts import local_image_links
+from zs.infrastructure.document_parsing.engines.paddleocr_api import (
     PaddleOCRPPOCRv6Parser,
     PaddleOCRPPStructureV3Parser,
     PaddleOCRVLParser,
@@ -263,7 +263,7 @@ def test_paddleocr_vl_saves_markdown_images_locally(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(paddleocr_api.requests, "get", fake_get)
     parser = PaddleOCRVLParser(api_token="token")
     result = parser.process_file(str(file_path), tmp_path)
-    from yuxi.infrastructure.document_parsing.artifacts import local_image_links
+    from zs.infrastructure.document_parsing.artifacts import local_image_links
 
     [relative] = local_image_links(result)
     assert (tmp_path / relative).read_bytes() == b"image-bytes"

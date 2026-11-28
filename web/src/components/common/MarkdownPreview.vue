@@ -41,7 +41,7 @@ const htmlPreviewFrames = new Map()
 const kbImageBlobUrls = new Set()
 let pendingMarkdownHtml = null
 
-const HTML_PREVIEW_HEIGHT_MESSAGE = 'yuxi-html-preview-height'
+const HTML_PREVIEW_HEIGHT_MESSAGE = 'zs-html-preview-height'
 
 const KB_IMAGE_PROXY_PATH_RE = /\/api\/knowledge\/databases\/[^/]+\/images\//
 
@@ -54,7 +54,7 @@ const getHtmlPreviewCssNumber = (slot, property, fallback) => {
 
 const createMeasuredSrcdoc = (html, previewId) => {
   const scriptEndTag = '<' + '/script>'
-  const baseStyle = `<style data-yuxi-html-preview-base>
+  const baseStyle = `<style data-zs-html-preview-base>
 html,
 body {
   margin: 0;

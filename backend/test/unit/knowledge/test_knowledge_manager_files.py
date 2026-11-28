@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.identity.permissions import ResourcePermission
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.identity.permissions import ResourcePermission
+from zs.modules.knowledge.manager import KnowledgeBaseManager
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -139,29 +139,29 @@ def patch_repositories(monkeypatch):
     FakeKnowledgeFileRepository.exists_calls = []
     FakeKnowledgeFileRepository.action_id_calls = []
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
         FakeKnowledgeBaseRepository,
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository",
+        "zs.modules.knowledge.repositories.files.KnowledgeFileRepository",
         FakeKnowledgeFileRepository,
     )
     monkeypatch.setattr(
-        "yuxi.modules.identity.repositories.users.UserRepository",
+        "zs.modules.identity.repositories.users.UserRepository",
         FakeUserRepository,
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.is_type_supported",
         staticmethod(lambda _kb_type: True),
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class",
         staticmethod(lambda _kb_type: FakeKnowledgeBaseClass),
     )
 
 
 async def test_get_knowledge_base_info_omits_files_by_default():
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+    manager = KnowledgeBaseManager("/tmp/zs-test")
 
     result = await manager.get_knowledge_base_info("kb_1")
 
@@ -172,7 +172,7 @@ async def test_get_knowledge_base_info_omits_files_by_default():
 
 
 async def test_get_knowledge_bases_does_not_initialize_knowledge_backend(monkeypatch):
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+    manager = KnowledgeBaseManager("/tmp/zs-test")
 
     def fail_if_initialized(_kb_type):
         pytest.fail("知识库列表不应初始化 Milvus 等后端实例")
@@ -229,15 +229,15 @@ async def test_get_knowledge_bases_skips_rows_with_invalid_metadata(monkeypatch)
             ]
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class",
+        "zs.modules.knowledge.manager.KnowledgeBaseFactory.get_kb_class",
         staticmethod(lambda kb_type: BrokenKnowledgeBaseClass if kb_type == "notion" else FakeKnowledgeBaseClass),
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
         MultiKnowledgeBaseRepository,
     )
 
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+    manager = KnowledgeBaseManager("/tmp/zs-test")
     result = await manager.get_knowledge_bases()
 
     assert [db.kb_id for db in result] == ["kb_good"]
@@ -253,10 +253,10 @@ async def test_get_knowledge_bases_by_user_sets_permission_and_redacts_readonly_
             return [record]
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
+        "zs.modules.knowledge.repositories.bases.KnowledgeBaseRepository",
         SecretKnowledgeBaseRepository,
     )
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+    manager = KnowledgeBaseManager("/tmp/zs-test")
 
     readonly = await manager.get_knowledge_bases_by_user({"uid": "user_2", "role": "admin", "department_id": None})
     owner = await manager.get_knowledge_bases_by_user({"uid": "user_1", "role": "admin", "department_id": None})
@@ -335,7 +335,7 @@ async def test_get_knowledge_bases_by_user_sets_permission_and_redacts_readonly_
     ],
 )
 async def test_list_document_files_passes_expected_parameters(scenario, kwargs, expected_call):
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+    manager = KnowledgeBaseManager("/tmp/zs-test")
 
     result = await manager.list_document_files("kb_1", **kwargs)
 
@@ -365,7 +365,7 @@ async def test_list_document_files_passes_expected_parameters(scenario, kwargs, 
 
 
 async def test_document_file_exists_delegates_exact_filename_to_repository():
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+    manager = KnowledgeBaseManager("/tmp/zs-test")
 
     assert await manager.document_file_exists("kb_1", " docs/Guide.md ") is True
     assert await manager.document_file_exists("kb_1", "docs/guide.md") is False
@@ -376,7 +376,7 @@ async def test_document_file_exists_delegates_exact_filename_to_repository():
 
 
 async def test_list_document_file_ids_by_statuses_delegates_to_repository():
-    manager = KnowledgeBaseManager("/tmp/yuxi-test")
+    manager = KnowledgeBaseManager("/tmp/zs-test")
 
     result = await manager.list_document_file_ids_by_statuses(
         "kb_1",

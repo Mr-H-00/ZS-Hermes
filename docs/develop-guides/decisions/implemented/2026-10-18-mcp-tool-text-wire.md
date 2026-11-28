@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/models/chat.py
+Owner：backend/zs/modules/models/chat.py
 
 ## 问题
 

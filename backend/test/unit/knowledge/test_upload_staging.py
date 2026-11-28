@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.infrastructure.minio.client import StorageError, UploadResult
-from yuxi.modules.knowledge.services import uploads
-from yuxi.shared.errors import InvalidInputError
+from zs.infrastructure.minio.client import StorageError, UploadResult
+from zs.modules.knowledge.services import uploads
+from zs.shared.errors import InvalidInputError
 
 pytestmark = pytest.mark.asyncio
 

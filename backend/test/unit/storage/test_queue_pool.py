@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-from yuxi.infrastructure.redis import queue
+from zs.infrastructure.redis import queue
 
 
 @pytest.mark.asyncio

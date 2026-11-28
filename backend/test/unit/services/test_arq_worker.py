@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from arq.worker import Worker
-from yuxi.workers.arq import YuxiWorker
+from zs.workers.arq import ZSWorker
 
 
 @pytest.mark.asyncio
@@ -15,7 +15,7 @@ async def test_only_live_local_tasks_are_filtered(monkeypatch):
     live, done, cancelled = [loop.create_future() for _ in range(3)]
     done.set_result(None)
     cancelled.cancel()
-    worker = object.__new__(YuxiWorker)
+    worker = object.__new__(ZSWorker)
     worker.tasks = {"live": live, "done": done, "cancelled": cancelled}
     parent = AsyncMock()
     monkeypatch.setattr(Worker, "start_jobs", parent)

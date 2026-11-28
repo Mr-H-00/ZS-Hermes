@@ -33,7 +33,7 @@ pnpm 11 frozen install 在本地、CI 和 Web Docker build 中读取同一 works
 - Web `pnpm install --frozen-lockfile`、`pnpm run lint:check`、`pnpm run test:unit`、`pnpm run build`：通过，136 tests passed。
 - `cd docs && pnpm install --frozen-lockfile && pnpm run build`：通过；保留既有 VitePress/Rolldown 兼容警告。
 - `uv run --project backend --python 3.13 --group test pytest backend/test/unit -m 'not slow' -q`：1590 passed。
-- `cd packages/yuxi-cli && uv run --python 3.13 --group test pytest`：90 passed。
+- `cd packages/zs-cli && uv run --python 3.13 --group test pytest`：90 passed。
 - `docker build -f docker/frontend.Dockerfile --target build-stage -t yuxi-frontend:pnpm11-test .` 与 `docker build -f docker/api.Dockerfile -t yuxi-api:uv012-test .`：通过。
 - `make audit-dependencies`：四个生产依赖集合无已知漏洞，Python/Node 漏洞 fixture 负控均按预期失败并命中目标 advisory。
 - `make audit-licenses`：backend 与 CLI 许可证清单成功生成。

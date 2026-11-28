@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from yuxi.modules.workspace.paths import user_workdir_host_dir
+from zs.modules.workspace.paths import user_workdir_host_dir
 
 from test.integration.api.helpers import create_default_agent_thread, get_thread_workdir_path
 
@@ -166,7 +166,7 @@ async def test_viewer_upload_blocks_project_symlink_escape(test_client, standard
     workdir_path = await get_thread_workdir_path(thread_id)
 
     project_root = f"/home/user/workspace/{workdir_path}"
-    outside_dir = tmp_path / f"yuxi-viewer-{uuid.uuid4().hex}"
+    outside_dir = tmp_path / f"zs-viewer-{uuid.uuid4().hex}"
     outside_dir.mkdir()
     parent_path = f"{project_root}/escape-dir"
     (user_workdir_host_dir(uid, workdir_path) / "escape-dir").symlink_to(outside_dir)
@@ -207,7 +207,7 @@ async def test_viewer_upload_does_not_replace_hidden_target_symlink(test_client,
     thread_id = await create_default_agent_thread(test_client, headers, title_prefix="viewer-filesystem-security")
     workdir_path = await get_thread_workdir_path(thread_id)
 
-    outside = tmp_path / f"yuxi-viewer-target-{uuid.uuid4().hex}.txt"
+    outside = tmp_path / f"zs-viewer-target-{uuid.uuid4().hex}.txt"
     outside.write_text("outside", encoding="utf-8")
     target = user_workdir_host_dir(uid, workdir_path) / "hidden.txt"
     target.symlink_to(outside)

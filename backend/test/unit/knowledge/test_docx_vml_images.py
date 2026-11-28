@@ -8,7 +8,7 @@ from docx import Document
 from lxml import etree
 from PIL import Image
 
-from yuxi.infrastructure.document_parsing.parser import parse
+from zs.infrastructure.document_parsing.parser import parse
 
 VML = "urn:schemas-microsoft-com:vml"
 WORD = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

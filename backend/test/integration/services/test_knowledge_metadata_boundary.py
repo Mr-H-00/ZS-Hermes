@@ -11,17 +11,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
 
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.knowledge import management
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.migrations.schema import create_knowledge_tables
-from yuxi.modules.knowledge import runtime
-from yuxi.modules.knowledge.chunking.presets import ChunkConfigError
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeFile
-from yuxi.modules.knowledge.services import documents
-from yuxi.shared.errors import DomainError
+from zs.api.errors import domain_error_handler
+from zs.api.routers.knowledge import management
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.migrations.schema import create_knowledge_tables
+from zs.modules.knowledge import runtime
+from zs.modules.knowledge.chunking.presets import ChunkConfigError
+from zs.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeFile
+from zs.modules.knowledge.services import documents
+from zs.shared.errors import DomainError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 BASE = "/api/knowledge/knowledge-bases/kb-local"

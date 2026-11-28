@@ -1,6 +1,6 @@
 """异常堆栈保留定位信息，但不展开 OAuth 等局部凭据。"""
 
-from yuxi.infrastructure.observability import logging as logs
+from zs.infrastructure.observability import logging as logs
 
 
 def fail_with_private_payload(payload):

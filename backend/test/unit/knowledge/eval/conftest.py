@@ -24,7 +24,7 @@ def fake_chunk_repository(monkeypatch):
             return [chunk for chunk in self.chunks if chunk.kb_id == kb_id]
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.chunks.KnowledgeChunkRepository",
+        "zs.modules.knowledge.repositories.chunks.KnowledgeChunkRepository",
         FakeChunkRepository,
     )
     return FakeChunkRepository

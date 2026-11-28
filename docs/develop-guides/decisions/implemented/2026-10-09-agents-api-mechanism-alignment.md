@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/api/routers/public_v1/agents/threads.py
+Owner：backend/zs/api/routers/public_v1/agents/threads.py
 
 ## 问题
 
@@ -50,7 +50,7 @@ Items 分页在完整用户、APP、Session 作用域内执行。游标以稳定
 
 本节面向附件 API、输入接收用例和三端维护者，目标是让“准备文件”和“正式交给 Agent”具有明确边界。范围包含 draft 上传、消息附件提交、Workdir 文件及私有预处理；通用文件管理平台、完整 Environment API 和自动知识库索引不在范围内。
 
-当前事实由 [附件服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/attachments.py)、[输入接收服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/inputs.py)和[执行服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/execution.py)拥有：上传返回隔离 draft 的 file 资源，产品私有预解析管理派生目录；添加不创建 Session 或 Workdir，发送时持久化 Input 来源，再准备授权 Workdir 文件。模型上下文只列本次和此前已消费的来源。[附件弹窗](https://github.com/xerrors/Yuxi/blob/main/frontend/src/modules/session/ui/AttachmentTmpUploadModal.vue)直接保留上传资源，不调用独立 confirm。接口限制由[公开 API](../../../advanced/agents-public-api.md#图片与文件附件)维护，实现与证据见[附件提交决定](2026-10-09-agents-draft-attachments.md)。
+当前事实由 [附件服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/attachments.py)、[输入接收服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/inputs.py)和[执行服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/execution.py)拥有：上传返回隔离 draft 的 file 资源，产品私有预解析管理派生目录；添加不创建 Session 或 Workdir，发送时持久化 Input 来源，再准备授权 Workdir 文件。模型上下文只列本次和此前已消费的来源。[附件弹窗](https://github.com/xerrors/Yuxi/blob/main/frontend/src/modules/session/ui/AttachmentTmpUploadModal.vue)直接保留上传资源，不调用独立 confirm。接口限制由[公开 API](../../../advanced/agents-public-api.md#图片与文件附件)维护，实现与证据见[附件提交决定](2026-10-09-agents-draft-attachments.md)。
 
 [OpenAI Agents 文件机制](https://developers.openai.com/api/docs/guides/agents-api/environments/files)区分 Files API 文件与运行环境内的文件：创建 Session 时通过 environment.files 提供 file_id 或内联内容及目标 path；环境连接后通过 Environment Files API 添加文件；自托管环境使用自身文件接口或挂载文件系统。借鉴文件引用与运行目录分离的设计，Yuxi 保留真实 Workdir。发送前保持 draft 是本决定的产品选择，官方机制不要求文件必须随消息提交；不为路径兼容新增没有独立职责的 Environment 包装。
 
@@ -67,7 +67,7 @@ Items 分页在完整用户、APP、Session 作用域内执行。游标以稳定
 
 发送后落盘遵循共享 Workdir 语义：正在使用相同 Workdir 的 Agent 可以通过文件工具发现新文件；Input 关联用于提交归属，不构成文件隔离。模型附件上下文明确区分本次消费输入的附件与此前已消费的历史附件，不把后续排队输入的附件提前描述成本轮提交。延迟到 Input 消费时才落盘能缩小提前可见窗口，但会增加发送完成与文件可用之间的状态，本决定选择发送时落盘并公开共享语义。
 
-Public 保留 draft 上传与随消息提交文件的能力；独立 OCR 预解析从 Public 路由及契约移出，产品内手动解析由私有 API 承担。私有化遵循产品内部认证边界和文件归属校验，不能只隐藏 OpenAPI。Public 上传和消息参数不再要求调用者选择解析引擎或传递 parsed_object_name；内部预解析产物由服务端随 draft 引用管理。[ocr_parse_file 工具](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/tools/builtin/ocr_parse_file.py)继续调用公共解析服务，按运行时授权读取文件，将结果写入 Workdir 的 outputs/ocr，并返回路径和短预览。移除直接 Public OCR API 不影响配置了该工具的 Agent 执行解析任务。
+Public 保留 draft 上传与随消息提交文件的能力；独立 OCR 预解析从 Public 路由及契约移出，产品内手动解析由私有 API 承担。私有化遵循产品内部认证边界和文件归属校验，不能只隐藏 OpenAPI。Public 上传和消息参数不再要求调用者选择解析引擎或传递 parsed_object_name；内部预解析产物由服务端随 draft 引用管理。[ocr_parse_file 工具](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/tools/builtin/ocr_parse_file.py)继续调用公共解析服务，按运行时授权读取文件，将结果写入 Workdir 的 outputs/ocr，并返回路径和短预览。移除直接 Public OCR API 不影响配置了该工具的 Agent 执行解析任务。
 
 图片按用途表达：直接视觉输入使用 input_image 内容块，文件操作使用 draft 附件进入 Workdir；内联图片不隐式获得 Workdir 路径。图片压缩、纠正方向和缩略图等 /images 辅助处理移到产品私有 API，Public 图片输入不依赖此调用。客户端保留完整 MIME 信息并直接构建 API 内容块，不固定重包装为 JPEG，不添加兼容旧 base64 返回结构的包装层。图片文件按需 read_file 或 OCR，不强制对所有图片预解析；只有内联图片且模型不支持视觉时，不能假定 OCR 工具有可读取的文件路径。图片 URL 的支持范围以实际校验和能力为准，不因使用标准内容块就宣称支持尚未实现的远程 URL。
 
@@ -95,7 +95,7 @@ Public 保留 draft 上传与随消息提交文件的能力；独立 OCR 预解�
 | 等待取消保留已完成工具结果和业务增量，提交后失联仍能恢复 | 丢失 sibling pending writes、历史重复 call ID 误判，或提前伪报终态 | services/turns 与原图 checkpoint reducer | 配置及取消决定的真实 StateGraph 崩溃测试、并行问答/协作等待取消 worker E2E；回读前后 checkpoint | 恢复先写取消消息、历史全局 call ID 判定或 END 后不补结果时失败 | Passed |
 | 幂等回执始终定位同一次提交，排队时不虚构 Turn | 使用最近 Turn 或重试重复建 Input | services/inputs 与 Input/Receipt repositories | 生命周期与 Key scope E2E；断开接收响应后复用同一幂等键并回读数据库 | 并发新输入后错绑旧回执，或控制事件伪造 input_id 时失败 | Passed |
 | Session、Turn 和 Items 游标分页有界且保持作用域 | 只检查返回数量，实际全量读取或跨 APP 定位游标 | agents repositories 与 services/public_items | `docker compose exec -T api uv run --group test pytest test/integration/api/test_public_session_items.py test/integration/api/test_public_agents_key_boundary.py -q`；真实 PostgreSQL 查询范围、稳定排序、多 item 同源及并发追加断言 | 恢复全量读取、漏掉同 Message 的后续 item 或使用跨会话游标时失败 | Passed |
-| 三端直接消费新资源，不复原旧协议 | HTTP 边界解包 yuxi，测试仍靠旧 fixture 通过 | frontend/src/apis 与 session 模块；packages/yuxi-cli、agent-demo | Web lint/unit/build 与真实浏览器；CLI typecheck/test；Demo unit/browser 和真实 HTTP 冒烟；补旧解析路径搜索与完整消费者 diff Review | 使用只含新契约的真实响应，旧 thread_id/status 读取或双形状 fallback 不能通过验收 | Passed |
+| 三端直接消费新资源，不复原旧协议 | HTTP 边界解包 yuxi，测试仍靠旧 fixture 通过 | frontend/src/apis 与 session 模块；packages/zs-cli、agent-demo | Web lint/unit/build 与真实浏览器；CLI typecheck/test；Demo unit/browser 和真实 HTTP 冒烟；补旧解析路径搜索与完整消费者 diff Review | 使用只含新契约的真实响应，旧 thread_id/status 读取或双形状 fallback 不能通过验收 | Passed |
 | 长期 SSE 以目标 Turn 持久终态和结果判定成功 | 断流或其他 Turn 完成被当作成功 | services/events、turns 与三端观察 | worker/SSE E2E；三端故障注入与结果回读，见查询恢复决定 | 无增量结果、Redis 过期、相邻 Turn 与协作等待 | Passed |
 | 指定版本官方 SDK 的完整调用 | SDK 自动收尾或收集结果与实际订阅不符 | 官方 SDK 与外部消费方 | P1 独立执行带超时的冒烟 | SDK 返回不能替代持久业务结果 | Not run |
 | draft 在发送前不进入 Workdir、Session 历史和模型上下文，首条输入无需提前 confirm | 界面显示草稿但文件已对 Agent 可见，或上传强制创建空 Session | services/attachments、inputs、execution；前端附件弹窗与发送流程 | 扩展真实 HTTP 附件测试与浏览器验证；在上传、可选私有解析、移除、发送各阶段回读存储、Session/Input 与实际模型请求；验证过期清理 | 恢复 confirm 提前落盘、跨用户或 APP 引用、过期引用、将未发送或后续排队附件注入当前输入时失败 | Passed |

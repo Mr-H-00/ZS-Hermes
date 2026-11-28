@@ -32,7 +32,7 @@ class ContainerPermissionTests(unittest.TestCase):
         source = (ROOT / "docker/api.Dockerfile").read_text(encoding="utf-8")
         recipe = source[source.index("# 复制项目配置文件") : source.index("RUN uv sync")]
         entrypoint = next(line for line in source.splitlines() if line.startswith("COPY ") and "docker/api-entrypoint.sh" in line)
-        with tempfile.TemporaryDirectory(prefix="yuxi-image-permissions-") as directory:
+        with tempfile.TemporaryDirectory(prefix="zs-image-permissions-") as directory:
             context = Path(directory)
             for name in (
                 "pyproject.toml",
@@ -40,7 +40,7 @@ class ContainerPermissionTests(unittest.TestCase):
                 "uv.lock",
                 "README.md",
                 "MANIFEST.in",
-                "yuxi/sub/module.py",
+                "zs/sub/module.py",
             ):
                 path = context / "backend" / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,7 +55,7 @@ class ContainerPermissionTests(unittest.TestCase):
             script.chmod(0o600)
             for broken in (False, True):
                 with self.subTest(broken=broken):
-                    image = "yuxi-permissions-test:" + uuid.uuid4().hex
+                    image = "zs-permissions-test:" + uuid.uuid4().hex
                     fragment = re.sub(r"--chmod=0?644", "--chmod=0600", recipe) if broken else recipe
                     dockerfile = f"FROM alpine:3.20\nWORKDIR /app\n{fragment}\n{entrypoint}\nUSER 1000:1000\n"
                     try:
@@ -72,9 +72,9 @@ class ContainerPermissionTests(unittest.TestCase):
                         self.assertEqual(result.returncode, 0, result.stderr)
                         result = container_shell(
                             image,
-                            "cat /app/pyproject.toml /app/yuxi/sub/module.py; test ! -w /app/pyproject.toml; "
-                            "test -x /usr/local/bin/yuxi-entrypoint; "
-                            'stat -c "%u:%g %a" /app/pyproject.toml /app/yuxi/sub /app/yuxi/sub/module.py',
+                            "cat /app/pyproject.toml /app/zs/sub/module.py; test ! -w /app/pyproject.toml; "
+                            "test -x /usr/local/bin/zs-entrypoint; "
+                            'stat -c "%u:%g %a" /app/pyproject.toml /app/zs/sub /app/zs/sub/module.py',
                             user="1000:1000",
                         )
                         if broken:
@@ -102,18 +102,18 @@ class ContainerPermissionTests(unittest.TestCase):
         self,
     ):
         """真实 Compose 准备根目录，保留历史文件，写入受阻时失败。"""
-        with tempfile.TemporaryDirectory(prefix="yuxi-storage-permissions-") as directory:
+        with tempfile.TemporaryDirectory(prefix="zs-storage-permissions-") as directory:
             state = Path(directory) / "state"
             state.mkdir()
-            project = "yuxi-permissions-" + uuid.uuid4().hex[:10]
+            project = "zs-permissions-" + uuid.uuid4().hex[:10]
             env = Path(directory) / "fixture.env"
             values = {
                 "COMPOSE_PROJECT_NAME": project,
-                "YUXI_STATE_DIR": str(state),
-                "YUXI_ENV_FILE": str(env),
+                "ZS_STATE_DIR": str(state),
+                "ZS_ENV_FILE": str(env),
                 "JWT_SECRET_KEY": "j" * 64,
                 "API_KEY_DERIVATION_SECRET": "a" * 64,
-                "YUXI_INSTANCE_ID": project,
+                "ZS_INSTANCE_ID": project,
                 "POSTGRES_PASSWORD": "test-postgres",
                 "NEO4J_PASSWORD": "test-neo4j",
                 "MINIO_ACCESS_KEY": "test-access",
@@ -136,8 +136,8 @@ class ContainerPermissionTests(unittest.TestCase):
                 os.environ,
                 {
                     "COMPOSE_PROJECT_NAME": project + "-wrong",
-                    "YUXI_STATE_DIR": str(Path(directory) / "unrelated-state"),
-                    "YUXI_ENV_FILE": str(env),
+                    "ZS_STATE_DIR": str(Path(directory) / "unrelated-state"),
+                    "ZS_ENV_FILE": str(env),
                 },
             )
             conflict.start()
@@ -156,13 +156,13 @@ class ContainerPermissionTests(unittest.TestCase):
                 self.assertEqual(built.returncode, 0, built.stderr)
                 seed = container_shell(
                     image,
-                    "mkdir -p /state/yuxi/threads/legacy /state/milvus/milvus/data/cache/87/growing_mmap; "
-                    "printf sentinel > /state/yuxi/threads/legacy/file; "
+                    "mkdir -p /state/zs/threads/legacy /state/milvus/milvus/data/cache/87/growing_mmap; "
+                    "printf sentinel > /state/zs/threads/legacy/file; "
                     "printf milvus-sentinel > /state/milvus/milvus/data/cache/87/growing_mmap/file; "
-                    "chown 1234:1235 /state/yuxi/threads/legacy /state/yuxi/threads/legacy/file "
+                    "chown 1234:1235 /state/zs/threads/legacy /state/zs/threads/legacy/file "
                     "/state/milvus/milvus/data/cache/87/growing_mmap /state/milvus/milvus/data/cache/87/growing_mmap/file; "
-                    "chmod 0711 /state/yuxi/threads/legacy /state/milvus/milvus/data/cache/87/growing_mmap; "
-                    "chmod 0600 /state/yuxi/threads/legacy/file /state/milvus/milvus/data/cache/87/growing_mmap/file",
+                    "chmod 0711 /state/zs/threads/legacy /state/milvus/milvus/data/cache/87/growing_mmap; "
+                    "chmod 0600 /state/zs/threads/legacy/file /state/milvus/milvus/data/cache/87/growing_mmap/file",
                     state=state,
                 )
                 self.assertEqual(seed.returncode, 0, seed.stderr)
@@ -188,10 +188,10 @@ class ContainerPermissionTests(unittest.TestCase):
                 self.assertEqual(writable.stdout, "milvus-sentinel")
                 inspected = container_shell(
                     image,
-                    'stat -c "%u:%g %a" /state/yuxi/threads /state/yuxi/skill-sources /state/yuxi/skill-projections '
-                    "/state/milvus/milvus /state/milvus/logs /state/yuxi/threads/legacy /state/yuxi/threads/legacy/file "
+                    'stat -c "%u:%g %a" /state/zs/threads /state/zs/skill-sources /state/zs/skill-projections '
+                    "/state/milvus/milvus /state/milvus/logs /state/zs/threads/legacy /state/zs/threads/legacy/file "
                     "/state/milvus/milvus/data/cache/87/growing_mmap /state/milvus/milvus/data/cache/87/growing_mmap/file; "
-                    "cat /state/yuxi/threads/legacy/file /state/milvus/milvus/data/cache/87/growing_mmap/file",
+                    "cat /state/zs/threads/legacy/file /state/milvus/milvus/data/cache/87/growing_mmap/file",
                     state=state,
                 )
                 self.assertEqual(inspected.returncode, 0, inspected.stderr)
@@ -210,7 +210,7 @@ class ContainerPermissionTests(unittest.TestCase):
                                     "volumes": [
                                         {
                                             "type": "bind",
-                                            "source": str(state / "yuxi/threads"),
+                                            "source": str(state / "zs/threads"),
                                             "target": "/app/user-data",
                                             "read_only": True,
                                         }

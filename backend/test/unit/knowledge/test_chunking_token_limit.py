@@ -2,8 +2,8 @@
 
 import pytest
 
-from yuxi.modules.knowledge.chunking.ragflow_like import nlp
-from yuxi.modules.knowledge.chunking.ragflow_like.parsers import general
+from zs.modules.knowledge.chunking.ragflow_like import nlp
+from zs.modules.knowledge.chunking.ragflow_like.parsers import general
 
 # ── nlp.hard_split_by_token_limit ──────────────────────────────────
 

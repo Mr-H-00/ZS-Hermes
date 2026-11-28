@@ -28,7 +28,7 @@ async def test_session_items_pagination_uses_only_authorized_public_content(test
             payload = response.json()
             assert payload["object"] == "agent.session"
             assert isinstance(payload["created_at"], int)
-            assert payload["status"] == "idle" and payload["yuxi"]["receipt"]["input_id"] is None
+            assert payload["status"] == "idle" and payload["zs"]["receipt"]["input_id"] is None
             session_ids.append(payload["id"])
         record_id = await conn.fetchval("SELECT id FROM sessions WHERE thread_id=$1", session_ids[0])
         expected = []
@@ -64,7 +64,7 @@ async def test_session_items_pagination_uses_only_authorized_public_content(test
             "first_id": None,
             "last_id": None,
             "has_more": False,
-            "yuxi": {"runs": []},
+            "zs": {"runs": []},
         }
         invalid = await test_client.get(
             f"/api/v1/agents/sessions/{session_ids[1]}/items", headers=admin_headers, params={"after": expected[0]}
@@ -80,7 +80,7 @@ async def test_session_items_pagination_uses_only_authorized_public_content(test
             "status": "in_progress",
             "output": None,
             "error": None,
-            "yuxi": {"output_index": 0},
+            "zs": {"output_index": 0},
         }
         await conn.execute(
             "INSERT INTO messages "
@@ -101,7 +101,7 @@ async def test_items_page_bounds_database_rows_and_splits_one_message(test_clien
     """隐藏审计不计入页，同一消息的公开调用按索引跨页且数据库只返回有限行。"""
     from sqlalchemy import event
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-    from yuxi.modules.agents.repositories.public_items import PublicItemRepository
+    from zs.modules.agents.repositories.public_items import PublicItemRepository
 
     created = await test_client.post(
         "/api/v1/agents/sessions",
@@ -128,7 +128,7 @@ async def test_items_page_bounds_database_rows_and_splits_one_message(test_clien
                 "name": "search",
                 "arguments": {"q": str(index)},
                 "status": "completed",
-                "yuxi": {"output_index": index},
+                "zs": {"output_index": index},
             }
             for index in [2, 0, 1]
         }
@@ -212,7 +212,7 @@ async def test_receipt_recovery_is_scoped_and_preserves_queued_input(test_client
                 {
                     "type": "agent.session.input.message",
                     "input": [{"role": "user", "content": [{"type": "input_text", "text": "queued original"}]}],
-                    "yuxi": {"mode": "follow_up"},
+                    "zs": {"mode": "follow_up"},
                 }
             ]
         }
@@ -254,7 +254,7 @@ async def test_receipt_recovery_is_scoped_and_preserves_queued_input(test_client
             json.dumps({"system_prompt": "PRIVATE_INPUT_SYSTEM", "summary_prompt": "PRIVATE_INPUT_SUMMARY"}),
         )
         original = await conn.fetchrow("SELECT messages, received_seq, created_at FROM agent_inputs WHERE id=$1", input_id)
-        promote = {"events": [{"type": "yuxi.session.input.promote", "input_id": input_id}]}
+        promote = {"events": [{"type": "zs.session.input.promote", "input_id": input_id}]}
         promote_headers = {**headers[0], "Idempotency-Key": f"promote-{original_key}"}
         denied = await test_client.post(f"{url}/events", headers={**headers[1], "Idempotency-Key": str(uuid.uuid4())}, json=promote)
         assert denied.status_code == 404
@@ -277,7 +277,7 @@ async def test_receipt_recovery_is_scoped_and_preserves_queued_input(test_client
         cancelled = await test_client.post(
             f"{url}/events",
             headers={**headers[0], "Idempotency-Key": str(uuid.uuid4())},
-            json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": input_id}]},
+            json={"events": [{"type": "zs.session.input.cancel_input", "input_id": input_id}]},
         )
         assert cancelled.status_code == 202, cancelled.text
         conflict = await test_client.post(f"{url}/events", headers={**headers[0], "Idempotency-Key": str(uuid.uuid4())}, json=promote)

@@ -8,8 +8,8 @@ import pytest_asyncio
 from arq import create_pool
 from arq.constants import in_progress_key_prefix
 from arq.worker import Retry, Worker
-from yuxi.workers.arq import YuxiWorker
-from yuxi.infrastructure.redis import get_arq_redis_settings
+from zs.workers.arq import ZSWorker
+from zs.infrastructure.redis import get_arq_redis_settings
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -56,7 +56,7 @@ async def isolated_queue():
         await redis.aclose()
 
 
-def make_worker(state, worker_class=YuxiWorker, *, cancel_first=False):
+def make_worker(state, worker_class=ZSWorker, *, cancel_first=False):
     """使用真实 ARQ 执行器，运行时控制与键空间局限于本测试。"""
     redis, namespace, queue_name, workers = state
     worker = worker_class(
@@ -78,7 +78,7 @@ def make_worker(state, worker_class=YuxiWorker, *, cancel_first=False):
     return worker
 
 
-@pytest.mark.parametrize("worker_class", [Worker, YuxiWorker])
+@pytest.mark.parametrize("worker_class", [Worker, ZSWorker])
 async def test_refill_avoids_redis_for_local_running_job(isolated_queue, monkeypatch, worker_class):
     """原实现触发精确旧任务 guard；优化实现可在旧任务未完成时完成新任务。"""
     redis, namespace, queue_name, _ = isolated_queue

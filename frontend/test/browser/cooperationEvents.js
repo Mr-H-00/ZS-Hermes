@@ -16,9 +16,9 @@ async (page) => {
   const parent = id => id === root || id === other ? null : id === grandchild ? child : root
   const treeRoot = id => id === other ? other : root
   const identity = id => ({ session_id: id, tree_root_session_id: treeRoot(id), parent_session_id: parent(id), name: names[id], title: names[id], path: parent(id) ? `/root/${names[id]}` : '/root' })
-  const turn = id => ({ id: `turn-${id}`, status: 'completed', yuxi: { current_run_id: `run-${id}`, result_run_id: `run-${id}`, runs: [], output: [], waitpoint: null } })
+  const turn = id => ({ id: `turn-${id}`, status: 'completed', zs: { current_run_id: `run-${id}`, result_run_id: `run-${id}`, runs: [], output: [], waitpoint: null } })
   const session = id => ({ id, agent: { id: agent.agent_id, model: 'test:mock' }, status: 'completed', created_at: 1793260800,
-    yuxi: { title: names[id], project_id: 'event-project', current_turn: turn(id), parent_session_id: parent(id), tool_approval_mode: 'always_trust' } })
+    zs: { title: names[id], project_id: 'event-project', current_turn: turn(id), parent_session_id: parent(id), tool_approval_mode: 'always_trust' } })
   const summary = id => ({ tree_root_session_id: treeRoot(id), sessions: ids.filter(member => treeRoot(member) === treeRoot(id)).map(member => ({
     ...identity(member), turn_id: `turn-${member}`, current_run_id: `run-${member}`, result_run_id: `run-${member}`, turn_status: 'completed', run_status: 'completed'
   })) })
@@ -26,21 +26,21 @@ async (page) => {
   const items = id => {
     let outputIndex = 0
     const meta = messageId => ({ run_id: `run-${id}`, message_id: messageId, output_index: outputIndex++, created_at: '2026-10-29T04:00:00Z' })
-    const message = (key, messageId, text, phase = 'commentary') => ({ id: key, type: 'message', role: 'assistant', status: 'completed', turn_id: `turn-${id}`, phase, content: [{ type: 'output_text', text }], yuxi: meta(messageId) })
-    const user = { id: `input-${id}`, type: 'message', role: 'user', status: 'completed', turn_id: `turn-${id}`, content: [{ type: 'input_text', text: id === root ? '请并行完成排序分析、汇率研究和收益核验。' : `请完成 ${names[id]} 的核验任务。` }], yuxi: { ...meta(1), input_id: `input-${id}` } }
+    const message = (key, messageId, text, phase = 'commentary') => ({ id: key, type: 'message', role: 'assistant', status: 'completed', turn_id: `turn-${id}`, phase, content: [{ type: 'output_text', text }], zs: meta(messageId) })
+    const user = { id: `input-${id}`, type: 'message', role: 'user', status: 'completed', turn_id: `turn-${id}`, content: [{ type: 'input_text', text: id === root ? '请并行完成排序分析、汇率研究和收益核验。' : `请完成 ${names[id]} 的核验任务。` }], zs: { ...meta(1), input_id: `input-${id}` } }
     if (id !== root) return [user, message(`final-${id}`, 2, '核验已完成，结果和相关资料已经整理。', 'final_answer')]
     const result = [user, message('intro', 2, '三路任务相互独立，我将分别派发工作。')]
     if (edgeCase) {
-      result.push({ id: 'call-shell', type: 'function_call', call_id: 'shell', name: 'bash', arguments: JSON.stringify({ command: 'cat report.json' }), status: 'completed', turn_id: `turn-${id}`, yuxi: meta(2) })
-      result.push({ id: 'output-shell', type: 'function_call_output', call_id: 'shell', output: JSON.stringify({ sessions: [{ ...identity(child), title: '普通文件中的同名字段' }] }), status: 'completed', turn_id: `turn-${id}`, yuxi: { ...meta(2), call_item_id: 'call-shell' } })
+      result.push({ id: 'call-shell', type: 'function_call', call_id: 'shell', name: 'bash', arguments: JSON.stringify({ command: 'cat report.json' }), status: 'completed', turn_id: `turn-${id}`, zs: meta(2) })
+      result.push({ id: 'output-shell', type: 'function_call_output', call_id: 'shell', output: JSON.stringify({ sessions: [{ ...identity(child), title: '普通文件中的同名字段' }] }), status: 'completed', turn_id: `turn-${id}`, zs: { ...meta(2), call_item_id: 'call-shell' } })
     }
     const calls = (name, messageId, targets) => {
       for (const [index, target] of targets.entries()) {
         const key = `${name}-${index}`
         const args = name === 'create_session' ? { name: names[target] } : name === 'wait_inputs' ? { input_ids: [`task-${target}`] } : name === 'get_result' ? { input_id: `task-${target}` } : {}
         const payload = name === 'list_sessions' ? { scope: 'project', sessions: ids.map(identity) } : { ...identity(target), input_id: `task-${target}`, results: [{ session_id: target, input_id: `task-${target}`, terminal: true }] }
-        result.push({ id: `call-${key}`, type: 'function_call', call_id: key, name, arguments: JSON.stringify(args), status: 'completed', turn_id: `turn-${id}`, yuxi: meta(messageId) })
-        result.push({ id: `output-${key}`, type: 'function_call_output', call_id: key, output: JSON.stringify(payload), status: 'completed', turn_id: `turn-${id}`, yuxi: { ...meta(messageId + 1), call_item_id: `call-${key}` } })
+        result.push({ id: `call-${key}`, type: 'function_call', call_id: key, name, arguments: JSON.stringify(args), status: 'completed', turn_id: `turn-${id}`, zs: meta(messageId) })
+        result.push({ id: `output-${key}`, type: 'function_call_output', call_id: key, output: JSON.stringify(payload), status: 'completed', turn_id: `turn-${id}`, zs: { ...meta(messageId + 1), call_item_id: `call-${key}` } })
       }
     }
     calls('create_session', 3, [child, 'event-fx', 'event-return'])
@@ -49,8 +49,8 @@ async (page) => {
     calls('list_sessions', 8, [root])
     calls('get_result', 8, [grandchild, other])
     if (edgeCase) {
-      result.push({ id: 'call-error', type: 'function_call', call_id: 'error', name: 'send_message', arguments: JSON.stringify({ target: child }), status: 'failed', turn_id: `turn-${id}`, yuxi: meta(9) })
-      result.push({ id: 'output-error', type: 'function_call_output', call_id: 'error', output: '会话已归档，请选择其他目标。', error: '协作消息未投递', status: 'failed', turn_id: `turn-${id}`, yuxi: { ...meta(9), call_item_id: 'call-error' } })
+      result.push({ id: 'call-error', type: 'function_call', call_id: 'error', name: 'send_message', arguments: JSON.stringify({ target: child }), status: 'failed', turn_id: `turn-${id}`, zs: meta(9) })
+      result.push({ id: 'output-error', type: 'function_call_output', call_id: 'error', output: '会话已归档，请选择其他目标。', error: '协作消息未投递', status: 'failed', turn_id: `turn-${id}`, zs: { ...meta(9), call_item_id: 'call-error' } })
     }
     result.push(message('final', 10, '三个任务均已完成。排序分析、汇率资料和收益核验可以分别打开查看。', 'final_answer'))
     return result
@@ -72,7 +72,7 @@ async (page) => {
     if (match) {
       const id = match[1]
       if (path.endsWith('/cooperation')) return reply(summary(id))
-      if (path.endsWith('/items')) return reply({ data: items(id), has_more: false, yuxi: { runs: [{ id: `run-${id}`, turn_id: `turn-${id}`, status: 'completed', execution_seq: 1, started_at: '2026-10-29T04:00:00Z', finished_at: '2026-10-29T04:00:03Z' }] } })
+      if (path.endsWith('/items')) return reply({ data: items(id), has_more: false, zs: { runs: [{ id: `run-${id}`, turn_id: `turn-${id}`, status: 'completed', execution_seq: 1, started_at: '2026-10-29T04:00:00Z', finished_at: '2026-10-29T04:00:03Z' }] } })
       if (path.includes('/turns/')) return reply(turn(id))
       if (path.endsWith('/state')) return reply({ agent_state: {} })
       if (path.endsWith('/queue')) return reply({ inputs: [], status: 'ready' })
@@ -143,14 +143,14 @@ async (page) => {
   await page.waitForURL(`**/agent/${root}`)
   await expand()
   await page.evaluate(async () => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme(false) })
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-events-light.png', animations: 'disabled' })
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-events-light.png', animations: 'disabled' })
   await page.evaluate(async () => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme(true) })
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-events-dark.png', animations: 'disabled' })
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-events-dark.png', animations: 'disabled' })
   for (const width of [1024, 768]) {
     await page.setViewportSize({ width, height: 1000 })
     check(await page.locator('.cooperation-event-row:visible').evaluateAll(rows => rows.every(row => row.getBoundingClientRect().right <= innerWidth + 1)), `事件行在 ${width}px 溢出`)
   }
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-events-768.png', animations: 'disabled' })
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-events-768.png', animations: 'disabled' })
   edgeCase = true
   names['event-fx'] = '汇率研究与多市场风险核验的长标题会话名称用于检查省略和换行'
   await page.reload()
@@ -161,7 +161,7 @@ async (page) => {
   await page.locator('.event-error').getByText('操作失败', { exact: true }).waitFor()
   check(!await page.getByText('会话已归档，请选择其他目标。', { exact: true }).count(), '失败摘要泄露了原始错误正文')
   check(await page.locator('.cooperation-event-row:visible').evaluateAll(rows => rows.every(row => row.getBoundingClientRect().right <= innerWidth + 1)), '长标题或错误详情使事件行溢出')
-  await page.locator('.agent-view').screenshot({ path: '/tmp/yuxi-cooperation-events-error.png', animations: 'disabled' })
+  await page.locator('.agent-view').screenshot({ path: '/tmp/zs-cooperation-events-error.png', animations: 'disabled' })
   page.off('pageerror', onError)
   check(!errors.length, `页面异常：${errors.join('; ')}`)
   return { groupedCreate: 3, groupedWait: 3, individualTargets: true, maximizedMemberSource: true, browserHistory: true, errorSummary: true, summaryOnlySessions: true, longName: true, thirdLevelSource: true, rootSource: true, crossRoot: true, widths: [1440, 1024, 768], themes: ['light', 'dark'], evidence: 'real DOM with deterministic HTTP fixture' }

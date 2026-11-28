@@ -7,9 +7,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from yuxi.api.dependencies.auth import get_db, get_required_user
-from yuxi.api.routers.agents import mentions
-from yuxi.modules.agents.services.mentions import InvalidMentionThreadError, MentionThreadNotFoundError
+from zs.api.dependencies.auth import get_db, get_required_user
+from zs.api.routers.agents import mentions
+from zs.modules.agents.services.mentions import InvalidMentionThreadError, MentionThreadNotFoundError
 
 
 @pytest.mark.parametrize(

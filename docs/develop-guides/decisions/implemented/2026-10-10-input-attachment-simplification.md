@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/inputs.py
+Owner：backend/zs/modules/agents/services/inputs.py
 
 ## 问题
 

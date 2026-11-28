@@ -60,7 +60,7 @@ async page => {
     await reader.getByRole('button', { name: '下一页', exact: true }).click()
     await page.waitForFunction(() => document.querySelector('#feishu-reading-check pre')?.textContent.includes('第二页正文'))
     check(await reader.getByRole('button', { name: '下一页', exact: true }).isDisabled(), '末页可以继续翻页')
-    await reader.screenshot({ path: '/tmp/yuxi-feishu-pagination.png' })
+    await reader.screenshot({ path: '/tmp/zs-feishu-pagination.png' })
     await reader.getByRole('button', { name: '关闭文档', exact: true }).click()
     singlePage = true
     await host.locator('.result-open').click()
@@ -74,7 +74,7 @@ async page => {
         await page.setViewportSize({ width, height: 1000 })
         check(await reader.isVisible(), '阅读面板不可见')
         check(await reader.evaluate(el => el.scrollWidth <= el.clientWidth + 1), '阅读面板横向溢出')
-        await page.screenshot({ path: `/tmp/yuxi-feishu-reader-${mode}-${width}.png` })
+        await page.screenshot({ path: `/tmp/zs-feishu-reader-${mode}-${width}.png` })
       }
     }
     await reader.getByRole('button', { name: '关闭文档', exact: true }).click()

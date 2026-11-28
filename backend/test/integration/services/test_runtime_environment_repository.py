@@ -8,10 +8,10 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 
 from test.integration.support.module_audit import isolated_audit_store
-from yuxi.modules.agents.models.definitions import AgentEnv
-from yuxi.modules.agents.repositories.environment import AgentEnvRepository
-from yuxi.modules.identity.models import User
-from yuxi.shared.datetime import utc_now
+from zs.modules.agents.models.definitions import AgentEnv
+from zs.modules.agents.repositories.environment import AgentEnvRepository
+from zs.modules.identity.models import User
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

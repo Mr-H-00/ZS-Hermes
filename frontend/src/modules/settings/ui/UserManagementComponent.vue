@@ -13,10 +13,10 @@
           @click="handleRefresh"
           :loading="userManagement.refreshing"
           title="刷新"
-          class="yuxi-refresh-button lucide-icon-btn"
+          class="zs-refresh-button lucide-icon-btn"
         >
           <template #icon>
-            <RefreshCw :size="16" :class="{ 'yuxi-rotate': userManagement.refreshing }" />
+            <RefreshCw :size="16" :class="{ 'zs-rotate': userManagement.refreshing }" />
           </template>
         </a-button>
         <a-button type="primary" @click="showAddUserModal" class="lucide-icon-btn">
@@ -68,7 +68,7 @@
                     <span>角色</span>
                     <a-dropdown :trigger="['click']" placement="bottomRight" :open="filterOpen.role" @open-change="(open) => setFilterOpen('role', open)">
                       <template #overlay>
-                        <div class="yuxi-header-filter-panel" @click.stop>
+                        <div class="zs-header-filter-panel" @click.stop>
                           <a-checkbox-group
                             v-model:value="filterDraft.role"
                             class="header-filter-options"
@@ -103,12 +103,12 @@
                       @open-change="(open) => setFilterOpen('department', open)"
                     >
                       <template #overlay>
-                        <div class="yuxi-header-filter-panel department-filter-panel" @click.stop>
+                        <div class="zs-header-filter-panel department-filter-panel" @click.stop>
                           <template v-if="departmentFilterOptions.length">
                             <a-input
                               v-if="departmentFilterOptions.length > 8"
                               v-model:value="departmentFilterKeyword"
-                              class="yuxi-header-filter-search"
+                              class="zs-header-filter-search"
                               size="small"
                               placeholder="搜索部门"
                               allow-clear
@@ -208,7 +208,7 @@
                       <a-button
                         type="text"
                         size="small"
-                        class="yuxi-table-action lucide-icon-btn"
+                        class="zs-table-action lucide-icon-btn"
                         :disabled="isUserEditDisabled(record)"
                         @click="showEditUserModal(record)"
                       >
@@ -225,7 +225,7 @@
                         size="small"
                         danger
                         :disabled="isUserDeleteDisabled(record)"
-                        class="yuxi-table-action lucide-icon-btn"
+                        class="zs-table-action lucide-icon-btn"
                         @click="confirmDeleteUser(record)"
                       >
                         <Trash2 :size="14" />
@@ -279,12 +279,12 @@
             @blur="validateAndGenerateUid"
             :maxlength="20"
           />
-          <div id="username-error" v-if="userManagement.form.usernameError" class="yuxi-form-error" role="alert">
+          <div id="username-error" v-if="userManagement.form.usernameError" class="zs-form-error" role="alert">
             {{ userManagement.form.usernameError }}
           </div>
           <div
             id="username-help"
-            class="yuxi-form-help"
+            class="zs-form-help"
           >
             <template v-if="userManagement.editMode">ID: {{ userManagement.form.generatedUid }}，修改用户名不会改变 ID。</template>
             <template v-else-if="userManagement.form.generatedUid">ID: {{ userManagement.form.generatedUid }}，将用于登录。</template>
@@ -299,7 +299,7 @@
             placeholder="请输入手机号（可选，可用于登录）"
             :maxlength="11"
           />
-          <div v-if="userManagement.form.phoneError" class="yuxi-form-error">
+          <div v-if="userManagement.form.phoneError" class="zs-form-error">
             {{ userManagement.form.phoneError }}
           </div>
         </a-form-item>
@@ -1085,7 +1085,7 @@ onUnmounted(() => {
 
 <style lang="less">
 // 表头筛选菜单挂载到 body，脱离组件 scoped 祖先链，样式需要全局提供。
-.yuxi-header-filter-panel {
+.zs-header-filter-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1133,7 +1133,7 @@ onUnmounted(() => {
     }
   }
 
-  .yuxi-header-filter-search {
+  .zs-header-filter-search {
     flex-shrink: 0;
   }
 

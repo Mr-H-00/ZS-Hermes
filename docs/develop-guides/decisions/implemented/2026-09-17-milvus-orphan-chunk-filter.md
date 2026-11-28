@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/knowledge/implementations/milvus.py
+Owner：backend/zs/modules/knowledge/implementations/milvus.py
 
 ## 问题
 

@@ -743,7 +743,7 @@ test/
 
 ### 11.3 快照漂移说明
 
-审计期间工作树在并行演进：staged 新增 `backend/test/{e2e/integration/api/integration/services}` 下 3 个 `test_agent_feedback*.py` 与 `backend/yuxi/.../feedback.py` 路由，另有 `test_schema_migration_version.py`、`run_tests.sh`、`system-tests.yml`、`support/openai_replay_server.py` 的未提交修改，且主干落入两个 fix 提交。主审快照约 336 个测试文件，复核时点实测 339（含 staged）。所有行号以复核时点磁盘状态为准；执行清理前应重新校对涉及文件的行号。另有两类已知漂移：staged 未提交修改（如 `support/openai_replay_server.py` 299→351 行）与 ±1 行级漂移（若干文件在审计日凌晨提交，10.x 表中个别行数为快照值）；测试函数计数按 `def` 统计，与 `pytest --collect-only` 收集数可有 ±1 出入。
+审计期间工作树在并行演进：staged 新增 `backend/test/{e2e/integration/api/integration/services}` 下 3 个 `test_agent_feedback*.py` 与 `backend/zs/.../feedback.py` 路由，另有 `test_schema_migration_version.py`、`run_tests.sh`、`system-tests.yml`、`support/openai_replay_server.py` 的未提交修改，且主干落入两个 fix 提交。主审快照约 336 个测试文件，复核时点实测 339（含 staged）。所有行号以复核时点磁盘状态为准；执行清理前应重新校对涉及文件的行号。另有两类已知漂移：staged 未提交修改（如 `support/openai_replay_server.py` 299→351 行）与 ±1 行级漂移（若干文件在审计日凌晨提交，10.x 表中个别行数为快照值）；测试函数计数按 `def` 统计，与 `pytest --collect-only` 收集数可有 ±1 出入。
 
 ## 十二、复核轮新发现
 
@@ -831,7 +831,7 @@ test/
 
 ## 附：方法与证据说明
 
-- 主审：13 个独立批次逐文件精读，要求测试函数名/断言/import 级证据，过期引用在 `backend/yuxi/` 下 grep 验证。
+- 主审：13 个独立批次逐文件精读，要求测试函数名/断言/import 级证据，过期引用在 `backend/zs/` 下 grep 验证。
 - 复核轮：5 个独立子智能体逐条复核 91 项主张（62 确认 / 29 细节修正 / 0 推翻，其中 1 项方向性改判），修正台账见 11.2。
 - 发现轮：结构面（重复 helper、import 期副作用、跨测试 import 网、中文测试名、文案复制族、硬编码、marker 一致性、弱断言、参数化遗漏）与语义面（路径字面量对路由表全量比对、monkeypatch 目标静态解析、门控清单与 CI 接线核查、长测试函数 AST 统计、命名映射抽查）两轮启发式，误报项（conftest 死 fixture、`assert True`、conftest print、日期硬编码）已核为误报并排除。
 - 补审：3 个子目录（integration/graphs/identity/sandbox）4 个漏审文件 + 审计期间 staged 的 4 个新文件，共 8 个文件补齐精读；终审校对另发现 4 个文件未入索引（`e2e/test_input_projection_recovery_e2e.py`、`unit/services/test_seed_initial_users.py` 为主审期间并行提交，`unit/routers/test_knowledge_workspace_import.py`、`unit/routers/test_mcp_router.py` 为主审已读但索引遗漏），前两者补读后连同后两者均已补入第十节。

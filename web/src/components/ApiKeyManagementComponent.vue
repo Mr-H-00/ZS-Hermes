@@ -163,7 +163,7 @@ const secretModalVisible = ref(false)
 const createLoading = ref(false)
 const createdSecret = ref('')
 const createRequestId = ref('')
-const CREATE_REQUEST_STORAGE_KEY = 'yuxi_pending_api_key_request_id'
+const CREATE_REQUEST_STORAGE_KEY = 'zs_pending_api_key_request_id'
 
 const columns = [
   { title: '名称', dataIndex: 'name', key: 'name', width: '22%' },

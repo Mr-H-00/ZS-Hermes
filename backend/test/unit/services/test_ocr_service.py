@@ -4,13 +4,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-import yuxi.modules.documents.service as ocr_service
+import zs.modules.documents.service as ocr_service
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.bootstrap.options import ensure_options_in_db
-from yuxi.infrastructure.document_parsing.engines import ENGINE_SPECS
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.models.tables import ModelProvider
-from yuxi.modules.system.services.options import update_option_value
+from zs.bootstrap.options import ensure_options_in_db
+from zs.infrastructure.document_parsing.engines import ENGINE_SPECS
+from zs.infrastructure.postgres.base import Base
+from zs.modules.models.tables import ModelProvider
+from zs.modules.system.services.options import update_option_value
 
 
 @pytest_asyncio.fixture
@@ -95,7 +95,7 @@ async def test_engine_consumes_resolved_configuration(db_session, monkeypatch, e
     monkeypatch.setenv(environment, "unexpected-later-value")
     assert getattr(engine_type(**resolved.processor_kwargs), field) == value
     if engine_id == "mineru_official":
-        from yuxi.infrastructure.document_parsing import DocumentParserException
+        from zs.infrastructure.document_parsing import DocumentParserException
 
         with pytest.raises(DocumentParserException, match="未配置"):
             engine_type()
@@ -179,8 +179,8 @@ async def test_resource_publication_reclaims_failed_or_cancelled_attempt(tmp_pat
     import asyncio
     import threading
 
-    from yuxi.infrastructure.document_parsing import ParseResult
-    from yuxi.modules.documents import assets
+    from zs.infrastructure.document_parsing import ParseResult
+    from zs.modules.documents import assets
 
     started, release = threading.Event(), threading.Event()
     objects = {"other-document/image.png": b"other"}

@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from yuxi.infrastructure.runtime_settings import get_runtime_dir
+from zs.infrastructure.runtime_settings import get_runtime_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

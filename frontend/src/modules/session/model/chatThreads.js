@@ -63,12 +63,12 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
   const upsertThread = (thread) => {
     if (!thread?.id) return
     const index = threads.value.findIndex((item) => item.id === thread.id)
-    const archived = thread.yuxi?.archived === true
+    const archived = thread.zs?.archived === true
     if (index >= 0) {
       threads.value[index] = {
         ...threads.value[index],
         ...thread,
-        yuxi: { ...threads.value[index].yuxi, ...thread.yuxi }
+        zs: { ...threads.value[index].zs, ...thread.zs }
       }
       return
     }
@@ -110,7 +110,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
           return {
             ...thread,
             status: latestStatus.status,
-            yuxi: { ...thread.yuxi, ...latestStatus.yuxi }
+            zs: { ...thread.zs, ...latestStatus.zs }
           }
         })
       } catch (error) {
@@ -137,7 +137,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
         const cachedDetails = threads.value.filter(
           (thread) =>
             !loaded.has(thread.id) &&
-            (thread.yuxi.parent_session_id || thread.id === currentThreadId.value)
+            (thread.zs.parent_session_id || thread.id === currentThreadId.value)
         )
         threads.value = [...loaded.values(), ...cachedDetails]
         after = fetchedThreads.last_id
@@ -238,7 +238,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     const removedIds = []
     const remainingThreads = []
     for (const thread of threads.value) {
-      if (thread.yuxi.project_id !== projectId) {
+      if (thread.zs.project_id !== projectId) {
         remainingThreads.push(thread)
         continue
       }

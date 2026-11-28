@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/knowledge/options.py
+Owner：backend/zs/modules/knowledge/options.py
 
 ## 问题
 

@@ -4,7 +4,7 @@
       <template #actions>
         <template v-if="!isBatchDeleteMode">
           <a-button
-            class="yuxi-refresh-button lucide-icon-btn"
+            class="zs-refresh-button lucide-icon-btn"
             aria-label="刷新 Skills"
             :disabled="loading"
             @click="fetchSkills"
@@ -1142,7 +1142,7 @@ const rememberRemoteSource = (source) => {
     history = history.slice(0, 10)
   }
   repoHistory.value = history
-  localStorage.setItem('yuxi_remote_repo_history', JSON.stringify(history))
+  localStorage.setItem('zs_remote_repo_history', JSON.stringify(history))
 }
 
 const handleListRemoteSkills = async () => {
@@ -1177,7 +1177,7 @@ const handleListRemoteSkills = async () => {
 
 const loadHistory = () => {
   try {
-    const raw = localStorage.getItem('yuxi_remote_repo_history')
+    const raw = localStorage.getItem('zs_remote_repo_history')
     if (raw) {
       repoHistory.value = JSON.parse(raw)
     }
@@ -1188,12 +1188,12 @@ const loadHistory = () => {
 
 const deleteHistoryItem = (item) => {
   repoHistory.value = repoHistory.value.filter((h) => h !== item)
-  localStorage.setItem('yuxi_remote_repo_history', JSON.stringify(repoHistory.value))
+  localStorage.setItem('zs_remote_repo_history', JSON.stringify(repoHistory.value))
 }
 
 const clearAllHistory = () => {
   repoHistory.value = []
-  localStorage.removeItem('yuxi_remote_repo_history')
+  localStorage.removeItem('zs_remote_repo_history')
   message.success('历史记录已清空')
 }
 

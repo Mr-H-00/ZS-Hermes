@@ -14,8 +14,8 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from test.support.agent_stream_fixtures import FinalAnswerModel
-from yuxi.modules.agents.runtime.middlewares.steer import SteerMiddleware
-import yuxi.modules.agents.services.runs as runs
+from zs.modules.agents.runtime.middlewares.steer import SteerMiddleware
+import zs.modules.agents.services.runs as runs
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 

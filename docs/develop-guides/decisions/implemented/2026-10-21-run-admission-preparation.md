@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/runner.py
+Owner：backend/zs/modules/agents/services/runner.py
 
 ## 问题
 

@@ -12,22 +12,22 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import yuxi.modules.agents.services.run_lifecycle as lifecycle
-from yuxi.infrastructure.postgres.manager import PostgresManager
-from yuxi.migrations.schema import create_business_tables
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.repositories.definitions import DEFAULT_SHARE_CONFIG
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services import input_config, inputs, scheduler, threads, turns
-from yuxi.modules.system.models import ConfigOption
-from yuxi.modules.system.options import system_options
-from yuxi.modules.workspace.services.bindings import WorkdirBinding
+import zs.modules.agents.services.run_lifecycle as lifecycle
+from zs.infrastructure.postgres.manager import PostgresManager
+from zs.migrations.schema import create_business_tables
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.repositories.definitions import DEFAULT_SHARE_CONFIG
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services import input_config, inputs, scheduler, threads, turns
+from zs.modules.system.models import ConfigOption
+from zs.modules.system.options import system_options
+from zs.modules.workspace.services.bindings import WorkdirBinding
 
 SCOPE = ActorScope(uid="input-user", app_id=None)
 

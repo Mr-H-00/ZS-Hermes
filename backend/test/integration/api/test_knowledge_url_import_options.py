@@ -10,13 +10,13 @@ from fastapi import Header
 from sqlalchemy import select
 
 from test.integration.support.module_audit import isolated_audit_store, serve_http
-from yuxi.api.dependencies.auth import get_current_user
-from yuxi.api.main import app
-from yuxi.bootstrap.options import ensure_options_in_db
-from yuxi.modules.knowledge.options import knowledge_url_import_policy
-from yuxi.modules.knowledge.utils import url_fetcher
-from yuxi.modules.system.models import ConfigOption
-from yuxi.modules.system.services import options
+from zs.api.dependencies.auth import get_current_user
+from zs.api.main import app
+from zs.bootstrap.options import ensure_options_in_db
+from zs.modules.knowledge.options import knowledge_url_import_policy
+from zs.modules.knowledge.utils import url_fetcher
+from zs.modules.system.models import ConfigOption
+from zs.modules.system.services import options
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.self_managed_resources]
 OPTION_PATH = f"/api/system/config/options/{knowledge_url_import_policy.key}"
@@ -30,7 +30,7 @@ async def policy_http(monkeypatch):
     prefix = f"pytest:url_import:{uuid.uuid4().hex}:"
     monkeypatch.setattr(options, "OPTION_CACHE_PREFIX", prefix + "value:")
     monkeypatch.setattr(options, "OPTION_CACHE_VERSION_PREFIX", prefix + "version:")
-    monkeypatch.setenv("YUXI_URL_WHITELIST", "legacy.example")
+    monkeypatch.setenv("ZS_URL_WHITELIST", "legacy.example")
 
     async def actor(x_test_role: str | None = Header(None)):
         """提供固定测试身份，授权仍由生产依赖执行。"""

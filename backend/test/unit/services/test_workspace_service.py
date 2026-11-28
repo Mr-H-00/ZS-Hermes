@@ -10,14 +10,14 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.workspace.preview as file_preview
-import yuxi.modules.workspace.services.files as svc
-from yuxi.modules.workspace import filesystem
-from yuxi.modules.workspace import paths as workspace_paths
-from yuxi.modules.workspace.filesystem import Workspace
-from yuxi.modules.workspace.services.files import _write_workspace_upload
-from yuxi.shared.errors import DomainError, InvalidInputError, InvalidOperationError, PermissionDeniedError, ResourceNotFoundError
-from yuxi.shared.files import FileInput
+import zs.modules.workspace.preview as file_preview
+import zs.modules.workspace.services.files as svc
+from zs.modules.workspace import filesystem
+from zs.modules.workspace import paths as workspace_paths
+from zs.modules.workspace.filesystem import Workspace
+from zs.modules.workspace.services.files import _write_workspace_upload
+from zs.shared.errors import DomainError, InvalidInputError, InvalidOperationError, PermissionDeniedError, ResourceNotFoundError
+from zs.shared.files import FileInput
 
 
 def _user() -> SimpleNamespace:
@@ -30,7 +30,7 @@ def _workspace_root(user: SimpleNamespace) -> Path:
 
 
 def test_workspace_root_creates_default_agent_context_files(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
 
     previous_umask = os.umask(0o077)
     try:
@@ -49,7 +49,7 @@ def test_workspace_root_creates_default_agent_context_files(tmp_path: Path, monk
 
 
 def test_external_uid_uses_stable_path_safe_workspace_directory(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     uid = "oidc:898f3d04-140e-433b-a06e-1e50a2bd01b6"
 
     workspace_paths.ensure_user_workspace(uid)
@@ -62,7 +62,7 @@ def test_external_uid_uses_stable_path_safe_workspace_directory(tmp_path: Path, 
 
 @pytest.mark.parametrize("uid", ["../outside", r"C:\\outside", "oidc:tenant/user"])
 def test_external_uid_cannot_escape_threads_root(tmp_path: Path, monkeypatch, uid: str) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "saves" / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "saves" / "threads"))
 
     workspace = workspace_paths.user_workspace_dir(uid)
 
@@ -71,7 +71,7 @@ def test_external_uid_cannot_escape_threads_root(tmp_path: Path, monkeypatch, ui
 
 
 def test_workspace_root_keeps_existing_agents_prompt_file(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     agents_dir = tmp_path / "threads" / "shared" / "user-1" / "workspace" / "agents"
     agents_dir.mkdir(parents=True)
     agents_file = agents_dir / "AGENTS.md"
@@ -84,7 +84,7 @@ def test_workspace_root_keeps_existing_agents_prompt_file(tmp_path: Path, monkey
 
 
 def test_workspace_root_rejects_symlink_root(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user_root = tmp_path / "threads" / "shared" / "user-1"
     outside_root = tmp_path / "outside"
     user_root.mkdir(parents=True)
@@ -111,7 +111,7 @@ async def test_read_workspace_file_content_returns_unsupported_for_unreadable_fi
     filename: str,
     content: bytes,
 ) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     target = root / filename
@@ -129,7 +129,7 @@ async def test_read_workspace_file_content_returns_pdf_preview_for_office_file(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     target = root / "demo.docx"
@@ -140,7 +140,7 @@ async def test_read_workspace_file_content_returns_pdf_preview_for_office_file(
         assert content == b"office"
         return b"%PDF-1.4\npreview"
 
-    monkeypatch.setenv("YUXI_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("ZS_RUNTIME_DIR", str(tmp_path / "runtime"))
     monkeypatch.setattr(file_preview, "convert_office_to_pdf", fake_convert)
 
     result = await svc.read_workspace_file_content(path="/demo.docx", current_user=user)
@@ -155,7 +155,7 @@ async def test_read_workspace_file_content_rejects_xlsx_preview(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     target = root / "sheet.xlsx"
@@ -184,8 +184,8 @@ async def test_preview_workspace_file_caches_office_pdf_conversion(
 ) -> None:
     save_dir = tmp_path / "saves"
     runtime_dir = tmp_path / "runtime"
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(save_dir / "threads"))
-    monkeypatch.setenv("YUXI_RUNTIME_DIR", str(runtime_dir))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(save_dir / "threads"))
+    monkeypatch.setenv("ZS_RUNTIME_DIR", str(runtime_dir))
     user = _user()
     root = _workspace_root(user)
     target = root / filename
@@ -221,7 +221,7 @@ async def test_preview_workspace_file_caches_office_pdf_conversion(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("filename", ["large.txt", "large.docx"])
 async def test_workspace_preview_rejects_large_source_before_content_preparation(tmp_path, monkeypatch, filename):
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     target = _workspace_root(user) / filename
     target.write_bytes(b"123456789")
@@ -243,7 +243,7 @@ async def test_download_workspace_file_keeps_office_original_file(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     target = root / "slides.pptx"
@@ -272,7 +272,7 @@ async def test_write_workspace_file_content_updates_file(
     original: str,
     content: str,
 ) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     target = root / f"note.{extension}"
@@ -288,7 +288,7 @@ async def test_write_workspace_file_content_updates_file(
 
 @pytest.mark.asyncio
 async def test_write_workspace_file_content_rejects_unsupported_suffix(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     target = root / "script.py"
@@ -303,7 +303,7 @@ async def test_write_workspace_file_content_rejects_unsupported_suffix(tmp_path:
 
 @pytest.mark.asyncio
 async def test_write_workspace_file_content_rejects_directory_and_missing_file(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     workspace_paths.ensure_user_workspace("user-1")
 
@@ -318,7 +318,7 @@ async def test_write_workspace_file_content_rejects_directory_and_missing_file(t
 
 @pytest.mark.asyncio
 async def test_write_workspace_file_content_blocks_path_traversal(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
 
     with pytest.raises(DomainError) as exc_info:
         await svc.write_workspace_file_content(
@@ -332,7 +332,7 @@ async def test_write_workspace_file_content_blocks_path_traversal(tmp_path: Path
 
 @pytest.mark.asyncio
 async def test_upload_workspace_files_writes_files(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     uploads = [
@@ -357,7 +357,7 @@ async def test_upload_workspace_files_writes_files(tmp_path: Path, monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_create_workspace_directory_uses_owner_only_mode(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
 
     previous_umask = os.umask(0o077)
     try:
@@ -379,7 +379,7 @@ async def test_upload_workspace_files_rejects_oversized_file_and_cleans_partial_
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     monkeypatch.setattr(svc, "MAX_WORKSPACE_UPLOAD_SIZE_BYTES", 5)
     user = _user()
     root = _workspace_root(user)
@@ -399,7 +399,7 @@ async def test_upload_workspace_files_rejects_oversized_file_and_cleans_partial_
 
 @pytest.mark.asyncio
 async def test_upload_workspace_files_rejects_more_than_limit(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     uploads = [FileInput(filename=f"demo-{index}.txt", source=BytesIO(b"hello")) for index in range(svc.MAX_WORKSPACE_UPLOAD_FILES + 1)]
 
@@ -413,7 +413,7 @@ async def test_upload_workspace_files_rejects_more_than_limit(tmp_path: Path, mo
 @pytest.mark.asyncio
 async def test_upload_workspace_files_preserves_relative_paths(tmp_path: Path, monkeypatch) -> None:
     """文件夹上传按相对路径创建目录并保留文件内容。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     uploads = [
@@ -438,7 +438,7 @@ async def test_upload_workspace_files_preserves_relative_paths(tmp_path: Path, m
 @pytest.mark.asyncio
 async def test_folder_upload_preserves_leading_space_in_root_name(tmp_path: Path, monkeypatch) -> None:
     """目录名前导空白属于名称，不能静默上传到另一个目录。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
 
@@ -458,7 +458,7 @@ async def test_folder_upload_preserves_leading_space_in_root_name(tmp_path: Path
 @pytest.mark.parametrize("relative_path", ["root/a.txt ", "root /a.txt", "root/sub\t/a.txt"])
 async def test_folder_upload_rejects_trailing_whitespace_before_writing(tmp_path: Path, monkeypatch, relative_path: str) -> None:
     """通用 scope 不能可靠寻址尾随空白名称，上传应显式拒绝而非改名。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
 
@@ -492,7 +492,7 @@ async def test_folder_upload_rejects_trailing_whitespace_before_writing(tmp_path
 )
 async def test_upload_workspace_files_rejects_invalid_relative_paths(tmp_path: Path, monkeypatch, relative_path: str) -> None:
     """越界、绝对路径和非法路径组件在写入前被拒绝。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
 
@@ -520,7 +520,7 @@ async def test_upload_workspace_files_rejects_invalid_relative_paths(tmp_path: P
 )
 async def test_upload_workspace_files_rejects_overlong_or_too_deep_paths(tmp_path: Path, monkeypatch, relative_path: str) -> None:
     """深度和路径长度在写入前受限，避免创建无法回收的目录树。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
 
@@ -539,7 +539,7 @@ async def test_upload_workspace_files_rejects_overlong_or_too_deep_paths(tmp_pat
 @pytest.mark.asyncio
 async def test_upload_workspace_files_enforces_full_path_depth_boundary(tmp_path: Path, monkeypatch) -> None:
     """parent_path 的累积深度也计入上限，边界内可写且可删除。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     parent = "/".join(["p"] * 63)
@@ -583,7 +583,7 @@ async def test_upload_workspace_files_enforces_full_path_depth_boundary(tmp_path
 @pytest.mark.asyncio
 async def test_upload_workspace_files_accepts_component_and_path_boundaries(tmp_path: Path, monkeypatch) -> None:
     """255 字节组件和多 KB 路径仍可写入，避免上限意外收紧。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     long_name = "a" * svc.MAX_WORKSPACE_UPLOAD_NAME_BYTES
@@ -629,7 +629,7 @@ def test_normalize_upload_relative_path_locks_exact_byte_limit() -> None:
 @pytest.mark.asyncio
 async def test_upload_workspace_files_rejects_overlong_flat_filename(tmp_path: Path, monkeypatch) -> None:
     """普通上传的超长文件名在预检阶段映射为业务错误而不是 500。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
 
@@ -647,7 +647,7 @@ async def test_upload_workspace_files_rejects_overlong_flat_filename(tmp_path: P
 @pytest.mark.asyncio
 async def test_upload_workspace_files_rejects_duplicate_targets(tmp_path: Path, monkeypatch) -> None:
     """不同上传文件不能落到同一个目标路径。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
 
@@ -669,7 +669,7 @@ async def test_upload_workspace_files_rejects_duplicate_targets(tmp_path: Path, 
 @pytest.mark.asyncio
 async def test_upload_workspace_files_rejects_relative_path_count_mismatch(tmp_path: Path, monkeypatch) -> None:
     """相对路径必须与文件列表逐项对应。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
 
     with pytest.raises(InvalidInputError) as exc_info:
         await svc.upload_workspace_files(
@@ -685,7 +685,7 @@ async def test_upload_workspace_files_rejects_relative_path_count_mismatch(tmp_p
 @pytest.mark.asyncio
 async def test_upload_workspace_files_merges_existing_directory_and_rejects_existing_file(tmp_path: Path, monkeypatch) -> None:
     """已有目录可复用，但任一目标已存在时写入前整批拒绝。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     (root / "root/sub").mkdir(parents=True)
@@ -719,7 +719,7 @@ async def test_upload_workspace_files_merges_existing_directory_and_rejects_exis
 @pytest.mark.asyncio
 async def test_upload_workspace_files_rejects_file_directory_conflict(tmp_path: Path, monkeypatch) -> None:
     """需要目录的位置已有普通文件时返回业务错误而不是 500。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
     (root / "root").mkdir()
@@ -742,7 +742,7 @@ async def test_upload_workspace_files_rejects_file_directory_conflict(tmp_path: 
 @pytest.mark.parametrize("paths", [["root/node", "root/node/child.txt"], ["root/node/child.txt", "root/node"]])
 async def test_folder_upload_rejects_ancestor_targets_before_writing(tmp_path: Path, monkeypatch, paths) -> None:
     """同批文件不能同时成为另一个文件的父目录，顺序不影响拒绝结果。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     user = _user()
     root = _workspace_root(user)
 
@@ -759,7 +759,7 @@ async def test_folder_upload_rejects_ancestor_targets_before_writing(tmp_path: P
 
 @pytest.mark.asyncio
 async def test_search_workspace_files_matches_filenames(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     root = _workspace_root(_user())
     (root / "notes").mkdir(parents=True, exist_ok=True)
     (root / "notes" / "meeting-record.md").write_text("记录", encoding="utf-8")
@@ -816,7 +816,7 @@ async def test_cancelled_upload_waits_for_borrowed_stream_before_returning(tmp_p
             await task
         source.close()
         assert (tmp_path / "file.txt").read_bytes() == b"content"
-        assert not list(tmp_path.glob(".yuxi-write-*"))
+        assert not list(tmp_path.glob(".zs-write-*"))
     finally:
         release.set()
         if not task.done():

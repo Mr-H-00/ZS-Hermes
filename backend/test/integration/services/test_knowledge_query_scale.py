@@ -8,14 +8,14 @@ from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
 
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.migrations.schema import create_knowledge_tables
-from yuxi.modules.knowledge.cache import delete_cached_kb_config
-from yuxi.infrastructure.redis import close_async_redis_client
-from yuxi.modules.knowledge.evaluation.service import EvaluationService
-from yuxi.modules.knowledge.models import EvaluationRun, EvaluationRunItem, KnowledgeBase, KnowledgeFile, KnowledgeProjectionOutbox
-from yuxi.modules.knowledge.repositories.bases import KnowledgeBaseRepository
-from yuxi.modules.knowledge.repositories.evaluation import EvaluationRepository
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.migrations.schema import create_knowledge_tables
+from zs.modules.knowledge.cache import delete_cached_kb_config
+from zs.infrastructure.redis import close_async_redis_client
+from zs.modules.knowledge.evaluation.service import EvaluationService
+from zs.modules.knowledge.models import EvaluationRun, EvaluationRunItem, KnowledgeBase, KnowledgeFile, KnowledgeProjectionOutbox
+from zs.modules.knowledge.repositories.bases import KnowledgeBaseRepository
+from zs.modules.knowledge.repositories.evaluation import EvaluationRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

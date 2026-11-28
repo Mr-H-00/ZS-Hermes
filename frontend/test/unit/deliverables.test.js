@@ -167,7 +167,7 @@ test('成果列表预览媒体与下载统一经过认证 API，不将凭据放�
   await deliverablesApi.preview('saved/id')
   await deliverablesApi.content('saved/id')
   await deliverablesApi.download('saved/id')
-  const search = new URL(requests[0].url, 'http://yuxi.local').searchParams
+  const search = new URL(requests[0].url, 'http://zs.local').searchParams
   assert.equal(search.get('query'), '报告')
   assert.equal(search.get('file_type'), 'document')
   assert.equal(search.get('page'), '2')

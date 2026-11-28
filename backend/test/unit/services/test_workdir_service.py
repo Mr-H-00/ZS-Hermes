@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.workspace.services.bindings as svc
-from yuxi.modules.workspace.workdir import Workdir
-from yuxi.shared.errors import DomainError, ResourceNotFoundError
+import zs.modules.workspace.services.bindings as svc
+from zs.modules.workspace.workdir import Workdir
+from zs.shared.errors import DomainError, ResourceNotFoundError
 
 
 def test_workdir_access_resolves_only_scope_relative_paths():

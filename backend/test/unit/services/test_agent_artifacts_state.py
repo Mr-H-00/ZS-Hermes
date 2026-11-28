@@ -2,15 +2,15 @@ from contextlib import asynccontextmanager
 from importlib import import_module
 
 import pytest
-from yuxi.modules.agents.runtime.sandbox import backend as sandbox_backend
-from yuxi.modules.agents.runtime.state import merge_artifacts
-from yuxi.modules.extensions.tools.builtin.present_artifacts import (
+from zs.modules.agents.runtime.sandbox import backend as sandbox_backend
+from zs.modules.agents.runtime.state import merge_artifacts
+from zs.modules.extensions.tools.builtin.present_artifacts import (
     PresentArtifactsInput,
     _normalize_presented_artifact_path,
     present_artifacts,
 )
-from yuxi.modules.workspace.runtime_paths import CONVERSATION_HISTORY_DIR_NAME, LARGE_TOOL_RESULTS_DIR_NAME
-from yuxi.shared.errors import PermissionDeniedError
+from zs.modules.workspace.runtime_paths import CONVERSATION_HISTORY_DIR_NAME, LARGE_TOOL_RESULTS_DIR_NAME
+from zs.shared.errors import PermissionDeniedError
 
 
 def _runtime_with_thread(thread_id: str, uid: str = "user-1"):
@@ -40,7 +40,7 @@ def _stub_output_exists(monkeypatch: pytest.MonkeyPatch, exists: bool = True) ->
             return exists
 
     monkeypatch.setattr(sandbox_backend, "UserSandboxBackend", FakeBackend)
-    tool_module = import_module("yuxi.modules.extensions.tools.builtin.present_artifacts")
+    tool_module = import_module("zs.modules.extensions.tools.builtin.present_artifacts")
 
     @asynccontextmanager
     async def database_session():
@@ -111,7 +111,7 @@ async def test_present_artifacts_does_not_claim_success_when_save_is_denied(monk
         """模拟来源执行或共享 Skill 授权被撤销。"""
         raise PermissionDeniedError("成果保存无权限")
 
-    tool_module = import_module("yuxi.modules.extensions.tools.builtin.present_artifacts")
+    tool_module = import_module("zs.modules.extensions.tools.builtin.present_artifacts")
     monkeypatch.setattr(tool_module, "save_run_deliverables", denied)
     result = await present_artifacts.coroutine(
         filepaths=["/home/user/workspace/outputs/report.md"],
@@ -132,7 +132,7 @@ async def test_present_artifacts_empty_publication_needs_no_database(monkeypatch
         """空列表触发保存即表示产生了无必要的副作用。"""
         pytest.fail("空交付不应调用保存用例")
 
-    tool_module = import_module("yuxi.modules.extensions.tools.builtin.present_artifacts")
+    tool_module = import_module("zs.modules.extensions.tools.builtin.present_artifacts")
     monkeypatch.setattr(tool_module, "save_run_deliverables", unexpected_save)
     result = await present_artifacts.coroutine(filepaths=[], runtime=_runtime_with_thread("thread-1"), tool_call_id="call-1")
     assert result.update["artifacts"] == []

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/extensions/mcp/oauth_service.py
+Owner：backend/zs/modules/extensions/mcp/oauth_service.py
 
 ## 问题
 

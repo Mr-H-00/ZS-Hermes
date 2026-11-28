@@ -4,6 +4,8 @@
 类型：feature
 Owner：frontend/src/pages/HomeView.vue
 
+QMS 的当前背景、排版和按钮信息见[QMS 首页与新对话采用工作台布局](2026-11-23-qms-entry-workspace-design.md)。
+
 ## 问题
 
 应用首页承担进入工作区的入口职责。用户明确要求只保留一个首屏，通过排版和轻量背景改善质感；产品能力、截图与场景介绍由开源文档首页承担。

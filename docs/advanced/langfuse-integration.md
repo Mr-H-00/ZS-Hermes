@@ -64,6 +64,6 @@ Yuxi 在 PostgreSQL 保存本地 Model/Tool 审计事实，调试面板按 Turn 
 
 ## 代码和测试入口
 
-- [Langfuse 服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/tracing.py)
-- [反馈服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/feedback.py)
+- [Langfuse 服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/tracing.py)
+- [反馈服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/feedback.py)
 - [Langfuse 单元测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/unit/services/test_langfuse_service.py)

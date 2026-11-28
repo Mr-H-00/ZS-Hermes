@@ -26,7 +26,7 @@ async page => {
     if (path.endsWith('/auth/me')) json = { id: 1, uid: 'feedback-fixture', username: '布局测试', role: 'superadmin' }
     if (path.endsWith('/api/projects')) json = []
     if (path.endsWith('/api/v1/agents/sessions')) json = { data: [], has_more: false }
-    if (path.endsWith('/system/info')) json = { success: true, data: { branding: { name: 'Yuxi', logo: '/favicon.svg' } } }
+    if (path.endsWith('/system/info')) json = { success: true, data: { branding: { name: 'ZS', logo: '/favicon.svg' } } }
     if (path.endsWith('/check-first-run')) json = { first_run: false }
     if (path.endsWith('/api/agent')) json = { agents: [{ agent_id: 'assistant', name: '智能助手' }, { agent_id: 'research', name: '研究助手' }] }
     if (path.endsWith('/system/agent-feedback')) {
@@ -91,7 +91,7 @@ async page => {
         if (width >= 1440) {
           check(layout.tableTop < 150 && layout.toolbarHeight <= 65, '工具栏仍占用过多首屏空间')
           check(layout.visibleRows >= 10, '首屏展示记录过少')
-          await page.locator('.feedback-list').screenshot({ path: `/tmp/yuxi-feedback-source-${theme}-${width}.png` })
+          await page.locator('.feedback-list').screenshot({ path: `/tmp/zs-feedback-source-${theme}-${width}.png` })
         }
         layouts.push({ theme, width, visibleRows: layout.visibleRows, horizontalScroll: layout.horizontalScroll })
       }

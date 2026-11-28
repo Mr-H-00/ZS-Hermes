@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.agents.services.references import collect_reference_sources, reference_answer_lines, validate_reference_matches
-from yuxi.shared.errors import OperationTimeoutError
+from zs.modules.agents.services.references import collect_reference_sources, reference_answer_lines, validate_reference_matches
+from zs.shared.errors import OperationTimeoutError
 
 
 def tool(name, payload, *, kb_id="kb-a", message_id=1):
@@ -116,7 +116,7 @@ def test_revoked_knowledge_and_non_retrieval_tools_provide_no_sources():
 @pytest.mark.asyncio
 async def test_reference_loading_reads_knowledge_permissions_only_for_knowledge_tools(monkeypatch):
     """网页或空检索不发起知识库 MCP 会话，知识工具结果仍解析实时权限。"""
-    from yuxi.modules.agents.services import references
+    from zs.modules.agents.services import references
 
     listed = AsyncMock(
         return_value=[{"kb_id": "kb-a", "name": "A", "description": "", "supports_documents": True, "supports_document_read": True}]
@@ -139,7 +139,7 @@ async def test_reference_loading_reads_knowledge_permissions_only_for_knowledge_
     monkeypatch.setattr(references, "require_thread", AsyncMock())
     monkeypatch.setattr(references, "AgentTurnRepository", lambda _db: SimpleNamespace(get_for_scope=get_turn))
     monkeypatch.setattr(references, "TurnReferenceRepository", lambda _db: repo)
-    from yuxi.modules.knowledge.mcp import references as knowledge_references
+    from zs.modules.knowledge.mcp import references as knowledge_references
 
     monkeypatch.setattr(knowledge_references, "list_knowledge_bases", listed)
     scope = SimpleNamespace(uid="user-a", app_id=None)
@@ -284,7 +284,7 @@ def test_excluded_answer_types_cannot_be_cited_or_included_in_cross_block_ranges
 
 async def test_annotation_timeout_explains_model_configuration_and_keeps_answer_unmodified(monkeypatch):
     """超时保留失败语义与原回答，并给出管理员调整模型的方向。"""
-    from yuxi.modules.agents.services import references
+    from zs.modules.agents.services import references
 
     message = SimpleNamespace(content="正文", extra_metadata={"keep": "original"})
     repository = SimpleNamespace(try_lock=AsyncMock(return_value=True))
@@ -320,7 +320,7 @@ async def test_mcp_adapter_recorded_output_preserves_reference_identity_and_span
     from langchain_mcp_adapters.tools import convert_mcp_tool_to_langchain_tool
     from mcp import types
 
-    from yuxi.modules.agents.services.message_recorder import tool_event_output
+    from zs.modules.agents.services.message_recorder import tool_event_output
 
     payload = {
         "kb_id": "kb-a",
@@ -347,7 +347,7 @@ async def test_mcp_adapter_recorded_output_preserves_reference_identity_and_span
 
 def test_saved_source_identity_is_preserved_while_current_capabilities_are_refreshed():
     """旧引用保持原 ID，仅当前同消息同内容的来源可以重新投影。"""
-    from yuxi.modules.agents.services.references import _answer_hash, _visible_references
+    from zs.modules.agents.services.references import _answer_hash, _visible_references
 
     saved = {
         "answer_hash": _answer_hash("答案"),
@@ -374,7 +374,7 @@ def test_saved_source_identity_is_preserved_while_current_capabilities_are_refre
 )
 def test_saved_sources_with_identical_text_keep_distinct_file_and_window(other_metadata):
     """同工具同正文的不同文件、窗口与分块不得互换引用身份。"""
-    from yuxi.modules.agents.services.references import _answer_hash, _visible_references
+    from zs.modules.agents.services.references import _answer_hash, _visible_references
 
     message = tool(
         "query_kb",

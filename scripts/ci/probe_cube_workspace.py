@@ -9,12 +9,12 @@ def main() -> None:
     """只创建本探针的 VM 和临时目录，结束时回收 VM。"""
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
         raise SystemExit("探针仅允许在 GitHub 临时托管执行器运行")
-    from yuxi.modules.agents.runtime.sandbox.cube import CubeAdapter
+    from zs.modules.agents.runtime.sandbox.cube import CubeAdapter
 
     adapter = CubeAdapter()
     adapter.health()
     created = []
-    with tempfile.TemporaryDirectory(dir="/data/shared/yuxi-hosted-probe") as root:
+    with tempfile.TemporaryDirectory(dir="/data/shared/zs-hosted-probe") as root:
         workspace = Path(root)
         # shipping 模板的 user 固定为 UID 1000；托管 runner 的 UID 不固定。
         os.chmod(workspace, 0o777)

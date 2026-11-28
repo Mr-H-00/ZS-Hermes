@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI
 
-from yuxi.bootstrap import api, worker
-from yuxi.modules.identity.security import AuthUtils
+from zs.bootstrap import api, worker
+from zs.modules.identity.security import AuthUtils
 
 pytestmark = pytest.mark.asyncio
 
@@ -19,16 +19,16 @@ class ReachedSchema(RuntimeError):
 @pytest.fixture(autouse=True)
 def shared_config(monkeypatch):
     """提供显式部署配置，单个案例只移除目标前提。"""
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "true")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "true")
     monkeypatch.setenv("JWT_SECRET_KEY", "startup-knowledge-jwt-" + "x" * 32)
     monkeypatch.setenv("API_KEY_DERIVATION_SECRET", "startup-api-key-" + "k" * 32)
-    monkeypatch.setenv("YUXI_INSTANCE_ID", "startup-knowledge-test")
+    monkeypatch.setenv("ZS_INSTANCE_ID", "startup-knowledge-test")
     monkeypatch.setattr(api, "get_oidc_config", lambda: None)
-    monkeypatch.setattr("yuxi.modules.agents.runtime.sandbox.check_sandbox_provider", AsyncMock())
+    monkeypatch.setattr("zs.modules.agents.runtime.sandbox.check_sandbox_provider", AsyncMock())
 
 
 @pytest.mark.parametrize("process", ["api", "worker"])
-@pytest.mark.parametrize("missing", ["JWT_SECRET_KEY", "YUXI_INSTANCE_ID"])
+@pytest.mark.parametrize("missing", ["JWT_SECRET_KEY", "ZS_INSTANCE_ID"])
 async def test_enabled_process_rejects_missing_shared_config_before_random_secrets_or_database(monkeypatch, process, missing):
     """缺少共享配置不能被开发环境自动生成掩盖。"""
     monkeypatch.delenv(missing)
@@ -60,9 +60,9 @@ async def test_enabled_process_rejects_missing_shared_config_before_random_secre
 @pytest.mark.parametrize("enabled", [True, False])
 async def test_valid_enabled_config_and_disabled_without_instance_reach_schema(monkeypatch, process, enabled):
     """启用使用共享配置，关闭不新增实例标识要求。"""
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", str(enabled).lower())
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", str(enabled).lower())
     if not enabled:
-        monkeypatch.delenv("YUXI_INSTANCE_ID")
+        monkeypatch.delenv("ZS_INSTANCE_ID")
     entry = api if process == "api" else worker
     initialized = []
     monkeypatch.setattr(entry.pg_manager, "initialize", lambda: initialized.append("database"))
@@ -89,7 +89,7 @@ async def test_worker_backend_unready_cannot_publish_or_claim_pending_jobs(monke
     """恢复关闭部署时，任何知识后端未就绪都不能先消费持久任务。"""
     monkeypatch.setattr(worker.pg_manager, "initialize", lambda: None)
     monkeypatch.setattr(worker, "require_current_schema", AsyncMock())
-    monkeypatch.setattr("yuxi.modules.system.services.options.invalidate_option_cache", AsyncMock())
+    monkeypatch.setattr("zs.modules.system.services.options.invalidate_option_cache", AsyncMock())
     calls = []
 
     async def initialize():
@@ -103,8 +103,8 @@ async def test_worker_backend_unready_cannot_publish_or_claim_pending_jobs(monke
         calls.append("neo4j")
         raise ConnectionError("neo4j not ready")
 
-    monkeypatch.setattr("yuxi.modules.knowledge.runtime.knowledge_base.initialize", initialize)
-    monkeypatch.setattr("yuxi.infrastructure.neo4j.get_shared_neo4j_connection", connect_graph)
+    monkeypatch.setattr("zs.modules.knowledge.runtime.knowledge_base.initialize", initialize)
+    monkeypatch.setattr("zs.infrastructure.neo4j.get_shared_neo4j_connection", connect_graph)
     recover = AsyncMock()
     publish = AsyncMock()
     monkeypatch.setattr(worker, "_reconcile_agent_runs_once", recover)
@@ -130,10 +130,10 @@ async def test_worker_publishes_only_after_enabled_backends_are_ready(monkeypatc
     """默认启动先连接知识后端；关闭时完全跳过连接并保持普通派发。"""
     import asyncio
 
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", str(enabled).lower())
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", str(enabled).lower())
     monkeypatch.setattr(worker.pg_manager, "initialize", lambda: None)
     monkeypatch.setattr(worker, "require_current_schema", AsyncMock())
-    monkeypatch.setattr("yuxi.modules.system.services.options.invalidate_option_cache", AsyncMock())
+    monkeypatch.setattr("zs.modules.system.services.options.invalidate_option_cache", AsyncMock())
     calls = []
 
     async def initialize():
@@ -149,8 +149,8 @@ async def test_worker_publishes_only_after_enabled_backends_are_ready(monkeypatc
         calls.append("publish")
         return []
 
-    monkeypatch.setattr("yuxi.modules.knowledge.runtime.knowledge_base.initialize", initialize)
-    monkeypatch.setattr("yuxi.infrastructure.neo4j.get_shared_neo4j_connection", connect_graph)
+    monkeypatch.setattr("zs.modules.knowledge.runtime.knowledge_base.initialize", initialize)
+    monkeypatch.setattr("zs.infrastructure.neo4j.get_shared_neo4j_connection", connect_graph)
     monkeypatch.setattr(worker, "reconcile_and_publish_jobs", publish)
     for name in (
         "_reconcile_agent_runs_once",

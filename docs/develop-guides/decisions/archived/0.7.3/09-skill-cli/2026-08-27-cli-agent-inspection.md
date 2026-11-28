@@ -2,7 +2,7 @@
 
 状态：archived
 类型：feature
-Owner：packages/yuxi-cli/src/yuxi_cli/agent.py
+Owner：packages/zs-cli/src/yuxi_cli/agent.py
 
 ## 问题
 
@@ -28,7 +28,7 @@ Agent 可见性、详情过滤和不存在或无权访问时的 404 继续由现
 
 ## 验证
 
-- `cd packages/yuxi-cli && UV_PYTHON=3.13 uv run --group test pytest -q`：111 passed。
+- `cd packages/zs-cli && UV_PYTHON=3.13 uv run --group test pytest -q`：111 passed。
 - `uvx ruff format/check`（Agent 新实现与测试）：通过。
 - `cd backend && UV_PYTHON=3.13 uv run --group test pytest test/unit -m "not slow"`：1590 passed。
 - API 容器 unit fallback `uv run --no-sync --group test pytest test/unit -m "not slow" -q`：1569 passed，40 skipped；常规同步命令因容器内 editable 文件权限失败。

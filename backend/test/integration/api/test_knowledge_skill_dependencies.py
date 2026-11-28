@@ -11,9 +11,9 @@ import pytest
 import yaml
 from sqlalchemy import select
 
-from yuxi.infrastructure.runtime_settings import get_skill_data_dir
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.extensions.skills.models import Skill
+from zs.infrastructure.runtime_settings import get_skill_data_dir
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.extensions.skills.models import Skill
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

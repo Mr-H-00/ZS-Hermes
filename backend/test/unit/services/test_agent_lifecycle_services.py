@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.services.subscriptions import _Cursor, _parse_cursor
-from yuxi.modules.agents.services.scheduler import Dispatch, deliver
-from yuxi.modules.agents.services.turns import _summarize_turn_usage, _validate_resume_response
-from yuxi.shared.errors import DomainError, InvalidInputError
+from zs.modules.agents.services.subscriptions import _Cursor, _parse_cursor
+from zs.modules.agents.services.scheduler import Dispatch, deliver
+from zs.modules.agents.services.turns import _summarize_turn_usage, _validate_resume_response
+from zs.shared.errors import DomainError, InvalidInputError
 
 
 def test_thread_cursor_round_trip_across_receipt_run_and_redis_positions():
@@ -85,14 +85,14 @@ async def test_dispatch_materializes_bound_workdir_before_publishing(monkeypatch
     """Run 已由事务创建后，目录物化先于同一个 Run 的队列投递。"""
     calls = []
     monkeypatch.setattr(
-        "yuxi.modules.agents.services.scheduler.ensure_bound_user_workdir",
+        "zs.modules.agents.services.scheduler.ensure_bound_user_workdir",
         lambda uid, path: calls.append(("workdir", uid, path)),
     )
 
     async def enqueue(run_id):
         calls.append(("publish", run_id))
 
-    monkeypatch.setattr("yuxi.modules.agents.services.transport.enqueue_agent_run", enqueue)
+    monkeypatch.setattr("zs.modules.agents.services.transport.enqueue_agent_run", enqueue)
     binding = SimpleNamespace(materialize_managed=True, uid="user-1", workdir_path="projects/p-1")
     await deliver(Dispatch(run_id="run-1", binding=binding))
     assert calls == [("workdir", "user-1", "projects/p-1"), ("publish", "run-1")]
@@ -105,8 +105,8 @@ async def test_waitpoint_cleanup_preserves_run_approval_mode(monkeypatch, approv
     from contextlib import asynccontextmanager
     from unittest.mock import AsyncMock
 
-    from yuxi.modules.agents.runtime.context import BaseContext
-    from yuxi.modules.agents.services import run_lifecycle
+    from zs.modules.agents.runtime.context import BaseContext
+    from zs.modules.agents.services import run_lifecycle
 
     @asynccontextmanager
     async def session_context():
@@ -130,19 +130,19 @@ async def test_waitpoint_cleanup_preserves_run_approval_mode(monkeypatch, approv
 
     monkeypatch.setattr(run_lifecycle, "pg_manager", SimpleNamespace(get_async_session_context=session_context))
     monkeypatch.setattr(
-        "yuxi.modules.agents.repositories.definitions.AgentRepository",
+        "zs.modules.agents.repositories.definitions.AgentRepository",
         lambda db: SimpleNamespace(get_by_slug=AsyncMock(return_value=SimpleNamespace(backend_id="ChatbotAgent"))),
     )
     monkeypatch.setattr(
-        "yuxi.modules.agents.runtime.agent_backends.get_agent_backend",
+        "zs.modules.agents.runtime.agent_backends.get_agent_backend",
         lambda backend_id: SimpleNamespace(context_schema=BaseContext, get_graph=get_graph),
     )
     monkeypatch.setattr(run_lifecycle, "require_thread", AsyncMock(return_value=object()))
     monkeypatch.setattr(
-        "yuxi.modules.workspace.services.bindings.resolve_session_workdir_binding",
+        "zs.modules.workspace.services.bindings.resolve_session_workdir_binding",
         AsyncMock(return_value=SimpleNamespace(workdir_path="projects/p-1")),
     )
-    monkeypatch.setattr("yuxi.modules.agents.runtime.checkpoint_cleanup.cancel_waitpoint_checkpoint", cancel_checkpoint)
+    monkeypatch.setattr("zs.modules.agents.runtime.checkpoint_cleanup.cancel_waitpoint_checkpoint", cancel_checkpoint)
     run = SimpleNamespace(
         id="run-1",
         uid="user-1",

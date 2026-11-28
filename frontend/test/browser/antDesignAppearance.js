@@ -76,7 +76,7 @@ async (page) => {
       const { ConfigProvider, Alert, Button, Input, Select, Table, Spin, Switch, Modal, message, notification } = await import(antUrl)
       const root = document.querySelector('#app').__vue_app__
       const AntEmpty = root.component('a-empty')
-      if (!AntEmpty || AntEmpty.name !== 'YuxiEmpty') throw Error('应用未注册共享 a-empty')
+      if (!AntEmpty || AntEmpty.name !== 'ZSEmpty') throw Error('应用未注册共享 a-empty')
       const { useThemeStore } = await import('/src/shared/model/theme.js')
       const { renderEmpty } = await import('/src/shared/ui/AntEmpty.js')
       const theme = useThemeStore(root.config.globalProperties.$pinia)
@@ -137,7 +137,7 @@ async (page) => {
               section('三档加载动画', [
                 h('div', { style: 'display:flex;justify-content:space-around;align-items:center;min-height:56px' },
                   sizes.map((size, index) => h(Spin, { size, id: `probe-spin-${index}` }))),
-                h('span', { id: 'probe-refresh-icon', class: 'yuxi-rotate', style: 'display:inline-block' }, '↻'),
+                h('span', { id: 'probe-refresh-icon', class: 'zs-rotate', style: 'display:inline-block' }, '↻'),
                 h('div', { class: 'page-shoulder' }, [h('span', { id: 'probe-shoulder-refresh', class: 'page-shoulder-refresh-icon is-spinning', style: 'display:inline-block' }, '↻')])
               ]),
               section('弹窗入口', [h(Button, { id: 'probe-modal-open', onClick: () => state.modalOpen = true }, () => '打开示例弹窗')])
@@ -186,7 +186,7 @@ async (page) => {
 
     await page.locator('#probe-empty .lucide-inbox').waitFor()
     check(await page.locator('#probe-empty svg').getAttribute('aria-hidden') === 'true', '默认空图像未标记为装饰')
-    check(await page.locator('#probe-table .yuxi-empty--default .lucide-inbox').count() === 1, 'Table 未使用共享默认空状态')
+    check(await page.locator('#probe-table .zs-empty--default .lucide-inbox').count() === 1, 'Table 未使用共享默认空状态')
     check(await page.locator('#probe-slot-empty #probe-custom-image').count() === 1, '业务 image slot 被覆盖')
     check(await page.locator('#probe-slot-empty strong').textContent() === '请调整示例筛选', 'description slot 被覆盖')
     check(await page.locator('#probe-slot-empty .lucide-inbox').count() === 0, '自定义图像被默认图像覆盖')
@@ -202,7 +202,7 @@ async (page) => {
         const height = await page.locator(selector).evaluate(el => el.getBoundingClientRect().height)
         check(Math.abs(height - expected) < 1, `${selector} 尺寸未遵循 ${expected}px`)
       }
-      check(await page.locator(`#probe-spin-${index} .yuxi-loading > div`).count() === 5, 'Spin 默认五线动画缺失')
+      check(await page.locator(`#probe-spin-${index} .zs-loading > div`).count() === 5, 'Spin 默认五线动画缺失')
     }
     check(await page.locator('#probe-button-disabled').isDisabled(), '按钮禁用行为丢失')
     check(await page.locator('#probe-button-1').evaluate(el => getComputedStyle(el).fontWeight) === '500', '按钮字重被晚注入样式覆盖')
@@ -214,7 +214,7 @@ async (page) => {
     check(await page.evaluate(() => getComputedStyle(document.querySelector('#probe-input-error')).borderColor === window.antAppearanceProbe.color('--color-error-500')), '错误输入边框未使用错误语义色')
 
     await page.locator('.appearance-select-control-1 .ant-select-selector').click()
-    await page.locator('.appearance-select-1 .yuxi-empty--compact').waitFor()
+    await page.locator('.appearance-select-1 .zs-empty--compact').waitFor()
     check(await page.locator('.appearance-select-1 .lucide-inbox').count() === 1, 'Select 默认空菜单未复用共享图像')
     await page.keyboard.press('Escape')
     await page.locator('#probe-modal-open').click()
@@ -313,7 +313,7 @@ async (page) => {
       check(await page.locator('#probe-alert-no-icon .ant-alert-icon').count() === 0, 'Alert showIcon:false 被重新开启')
       check(await page.locator('#probe-alert-custom-message').textContent() === '业务消息内容', 'Alert message slot 被覆盖')
       check(await page.locator('#probe-alert-slots .ant-alert-description').textContent() === '业务补充说明', 'Alert description slot 被覆盖')
-      await page.locator('#probe-alerts').screenshot({ path: dark ? '/tmp/yuxi-alerts-dark.png' : '/tmp/yuxi-alerts-light.png' })
+      await page.locator('#probe-alerts').screenshot({ path: dark ? '/tmp/zs-alerts-dark.png' : '/tmp/zs-alerts-light.png' })
     }
     await page.locator('#probe-alert-action').click()
     check(await page.evaluate(() => window.antAppearanceProbe.state.alertActions) === 1, 'Alert action slot 丢失点击行为')
@@ -392,15 +392,15 @@ async (page) => {
       return styles
     }
     results.light = await themeResult(false)
-    await page.screenshot({ path: '/tmp/yuxi-ui-light.png' })
+    await page.screenshot({ path: '/tmp/zs-ui-light.png' })
     results.dark = await themeResult(true)
     check(results.light.elevated !== results.dark.elevated, '浅深主题表面颜色没有变化')
-    await page.screenshot({ path: '/tmp/yuxi-ui-dark.png' })
+    await page.screenshot({ path: '/tmp/zs-ui-dark.png' })
     const lightAgain = await themeResult(false)
     check(lightAgain.elevated === results.light.elevated && lightAgain.input === results.light.input, '深色切回浅色未还原')
 
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    check(await page.locator('#probe-spin-1 .yuxi-loading > div').first().evaluate(el => getComputedStyle(el).animationName) === 'none', '减少动态效果未关闭加载动画')
+    check(await page.locator('#probe-spin-1 .zs-loading > div').first().evaluate(el => getComputedStyle(el).animationName) === 'none', '减少动态效果未关闭加载动画')
     for (const selector of ['#probe-refresh-icon', '#probe-shoulder-refresh']) {
       check(await page.locator(selector).evaluate(el => getComputedStyle(el).animationName) === 'none', '减少动态效果未关闭刷新旋转')
     }
@@ -409,7 +409,7 @@ async (page) => {
     await page.setViewportSize({ width: 375, height: 900 })
     check(await page.locator('#appearance-probe').evaluate(el => el.scrollWidth <= el.clientWidth), '窄屏共享组件产生横向溢出')
     await page.locator('#appearance-probe').evaluate(el => el.scrollTop = 0)
-    await page.screenshot({ path: '/tmp/yuxi-ui-mobile.png' })
+    await page.screenshot({ path: '/tmp/zs-ui-mobile.png' })
     results.emptyInterfaces = true
     results.controlHeights = [24, 32, 40]
     results.disabledErrorFocus = true

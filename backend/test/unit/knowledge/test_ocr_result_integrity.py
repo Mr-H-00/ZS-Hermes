@@ -4,14 +4,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.infrastructure.document_parsing import DocumentParserException, ParseOptions
-from yuxi.infrastructure.document_parsing.engines.deepseek_ocr import DeepSeekOCRParser
-from yuxi.infrastructure.document_parsing.engines.paddleocr_api import (
+from zs.infrastructure.document_parsing import DocumentParserException, ParseOptions
+from zs.infrastructure.document_parsing.engines.deepseek_ocr import DeepSeekOCRParser
+from zs.infrastructure.document_parsing.engines.paddleocr_api import (
     PaddleOCRPPOCRv6Parser,
     PaddleOCRPPStructureV3Parser,
     PaddleOCRVLParser,
 )
-from yuxi.infrastructure.document_parsing.parser import parse
+from zs.infrastructure.document_parsing.parser import parse
 
 
 def test_deepseek_requires_resolved_credentials(monkeypatch):

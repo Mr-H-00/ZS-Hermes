@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/extensions/tools/builtin/ask_user_question.py
+Owner：backend/zs/modules/extensions/tools/builtin/ask_user_question.py
 
 ## 问题
 
@@ -39,7 +39,7 @@ Owner：backend/yuxi/modules/extensions/tools/builtin/ask_user_question.py
 - `docker compose exec -T api uv run --no-sync --group test pytest -p no:cacheprovider test/unit/agents/toolkits/buildin/test_ask_user_question.py -q`：28 passed。覆盖模型 schema、入口标准结构、非法参数整体拒绝、重复 ID、注册唯一性及真实 LangGraph 旧工具 checkpoint → 新工具重放；标准调用恢复原答案，非标准调用明确产生工具错误，证明部署排空前置条件的原因。
 - 模块拆分但行为不变时的工具、OCR、交付物与中断最小集合：47 passed；收窄契约后的相关集合：55 passed；`test/unit/middlewares/test_model_input_middleware.py`：9 passed。
 - `docker compose exec -T api uv run --no-sync --group test pytest -p no:cacheprovider test/e2e/test_agent_lifecycle_e2e.py -k 'invalid_question_parameters or waiting_turn_requires_complete_answers or cancel_waiting_turn' -q`：提问恢复和非法参数两项通过，额外取消等待回归失败于“模型未进入阻塞位置”；独占 replay 和唯一 provider 的隔离运行仍有相同失败，不能写作取消链路通过。失败测试资源通过公开取消接口清理，并回读数据库为 cancelled；取消失败的归因未闭合。
-- `docker compose exec -T api uv run --group test pytest test/unit -m 'not slow'`：依赖同步因镜像 /app/yuxi.egg-info 目录权限失败；使用现有依赖的 `--no-sync` 完整 unit 最终回归：2411 passed、55 skipped、7 subtests passed，包含 checkpoint 重放案例。
+- `docker compose exec -T api uv run --group test pytest test/unit -m 'not slow'`：依赖同步因镜像 /app/zs.egg-info 目录权限失败；使用现有依赖的 `--no-sync` 完整 unit 最终回归：2411 passed、55 skipped、7 subtests passed，包含 checkpoint 重放案例。
 - `docker compose exec -T frontend pnpm run lint:check`、`pnpm run test:unit`、`pnpm run build`：通过，unit 385 passed，build 保留 chunk size 提示。相关问题/弹窗 unit：5 passed，验证等待点与 SSE 原问题结构进入组件，回答 ID 不变。
 - Playwright 使用真实 Vue 组件及标准等待点，在 1440×900 浅色和 375×812 暗色检查文本、选择和工具结果优先展示；读取 DOM 中的提交结果为原 question_id 对应的答案。截图保存在本地临时路径，不提交运行产物。
 - `python3 scripts/verify_engineering_contracts.py`、`python3 -m unittest scripts.test_verify_engineering_contracts`、`cd docs && pnpm run build` 和 `git diff --check`：通过，verifier unit 64 passed。前端最终 lint 和相关 unit 再次通过。真实 provider 与生产升级排空没有执行，不将确定性测试视为此类验证。

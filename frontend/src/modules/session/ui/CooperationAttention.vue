@@ -195,8 +195,8 @@ function closeList() {
   }
 }
 .attention-list-collapse {
-  &.yuxi-collapse-enter-active,
-  &.yuxi-collapse-leave-active {
+  &.zs-collapse-enter-active,
+  &.zs-collapse-leave-active {
     transition-duration: 0.2s;
   }
 }
@@ -263,8 +263,8 @@ function closeList() {
 @media (prefers-reduced-motion: reduce) {
   .attention-card,
   .attention-chevron,
-  .attention-list-collapse.yuxi-collapse-enter-active,
-  .attention-list-collapse.yuxi-collapse-leave-active {
+  .attention-list-collapse.zs-collapse-enter-active,
+  .attention-list-collapse.zs-collapse-leave-active {
     transition: none;
   }
 }

@@ -2,7 +2,7 @@
 
 状态：proposed
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/execution.py
+Owner：backend/zs/modules/agents/services/execution.py
 
 本文面向维护 Agent API、worker、前端和持久化的开发者。[已实施的生命周期决策](../implemented/2026-09-29-agent-lifecycle-framework.md)拥有当前 Thread → Turn → Run 模型及 Public 协议事实。本文对照原提案，记录执行链收敛的完成情况与待验收边界；下文的“已完成”表示代码已具备该能力，具体证据和未执行范围另行标明。
 

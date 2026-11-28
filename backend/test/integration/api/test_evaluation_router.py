@@ -13,11 +13,11 @@ import asyncio
 import pytest_asyncio
 from sqlalchemy import delete
 
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.evaluation.service import EvaluationService
-from yuxi.modules.knowledge.models import EvaluationRun, KnowledgeBase
-from yuxi.modules.knowledge.repositories.evaluation import EvaluationRepository
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.evaluation.service import EvaluationService
+from zs.modules.knowledge.models import EvaluationRun, KnowledgeBase
+from zs.modules.knowledge.repositories.evaluation import EvaluationRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -166,7 +166,7 @@ async def test_resume_dataset_generation_enqueues_job(test_client, admin_headers
         assert payload.get("data", {}).get("job_id")
         assert payload.get("data", {}).get("message") == "评估数据集生成任务已恢复"
     finally:
-        from yuxi.modules.background_jobs.service import job_tracker
+        from zs.modules.background_jobs.service import job_tracker
 
         # Best-effort cleanup of any job enqueued during the test
         jobs = (await job_tracker.list_jobs()).get("jobs", [])
@@ -194,7 +194,7 @@ async def test_resume_dataset_generation_concurrent_calls_share_job(knowledge_ba
         job_ids = {result["job_id"] for result in results}
         assert len(job_ids) == 1
     finally:
-        from yuxi.modules.background_jobs.service import job_tracker
+        from zs.modules.background_jobs.service import job_tracker
 
         jobs = (await job_tracker.list_jobs()).get("jobs", [])
         for job in jobs:

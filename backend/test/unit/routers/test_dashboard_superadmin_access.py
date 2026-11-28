@@ -8,20 +8,20 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.support.sqlite import create_utc_sqlite_engine
 
-from yuxi.api.routers.dashboard import (
+from zs.api.routers.dashboard import (
     dashboard,
     get_all_sessions,
     get_session_detail,
     get_tool_call_stats,
     get_user_activity_stats,
 )
-from yuxi.api.dependencies.auth import get_superadmin_user
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.identity.models import Department, User
-from yuxi.modules.agents.models.messages import Message
-from yuxi.shared.datetime import utc_now
+from zs.api.dependencies.auth import get_superadmin_user
+from zs.modules.agents.models.definitions import Agent
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.models.sessions import Session
+from zs.modules.identity.models import Department, User
+from zs.modules.agents.models.messages import Message
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

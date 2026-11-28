@@ -5,7 +5,7 @@ import { Inbox } from '@lucide/vue'
 /** 渲染不承载额外语义的默认空状态图标。 */
 function renderDefaultImage() {
   return h(Inbox, {
-    class: 'yuxi-empty__icon',
+    class: 'zs-empty__icon',
     size: 32,
     strokeWidth: 1.5,
     'aria-hidden': 'true'
@@ -13,7 +13,7 @@ function renderDefaultImage() {
 }
 
 const AntEmpty = defineComponent({
-  name: 'YuxiEmpty',
+  name: 'ZSEmpty',
   inheritAttrs: false,
   props: Empty.props,
   /** 只替换缺省图像，保留原 Empty 的内容与定制接口。 */
@@ -26,10 +26,10 @@ const AntEmpty = defineComponent({
           ...props,
           ...attrs,
           class: [
-            'yuxi-empty',
+            'zs-empty',
             {
-              'yuxi-empty--default': defaultImage,
-              'yuxi-empty--no-image': props.image === false
+              'zs-empty--default': defaultImage,
+              'zs-empty--no-image': props.image === false
             },
             attrs.class
           ]
@@ -45,7 +45,7 @@ export function renderEmpty(componentName) {
   const compact = ['Select', 'TreeSelect', 'Cascader', 'Transfer', 'Mentions'].includes(
     componentName
   )
-  return h(AntEmpty, { class: { 'yuxi-empty--compact': compact } })
+  return h(AntEmpty, { class: { 'zs-empty--compact': compact } })
 }
 
 export default AntEmpty

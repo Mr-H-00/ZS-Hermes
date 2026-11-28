@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # =============================================================================
-# Yuxi 版本号升级脚本
+# ZS 版本号升级脚本
 # =============================================================================
 # 用法: ./scripts/bump-version.sh [--dev] <新版本号>
 # 示例: ./scripts/bump-version.sh 0.6.2
@@ -31,7 +31,7 @@ set -euo pipefail
 # 3. 脚本运行后必须检查:
 #    - git diff，确认只有预期版本文件变化。
 #    - backend/pyproject.toml、frontend/package.json、
-#      docker-compose*.yml、backend/uv.lock 中的 Yuxi 版本一致。
+#      docker-compose*.yml、backend/uv.lock 中的 ZS 版本一致。
 #    - dev 模式下 README.md、README.en.md、docs/intro/quick-start.md 和文档首页
 #      不应被更新。
 #
@@ -110,7 +110,7 @@ if [ "$DEV_MODE" = false ]; then
     echo "  - docs/intro/quick-start.md"
     echo "  - docs/advanced/deployment.md"
     echo "  - docs/advanced/container-sandbox.md"
-    echo "  - docs/.vitepress/theme/components/YuxiHome.vue"
+    echo "  - docs/.vitepress/theme/components/ZSHome.vue"
     echo "  - 当前候选更新说明与 changelog 候选入口"
 fi
 echo ""
@@ -139,20 +139,20 @@ perl -pi -e "s/\"version\": \"[^\"]+\"/\"version\": \"${NEW_VERSION}\"/" \
 # 4. 更新 Docker Compose 镜像标签默认值
 # -----------------------------------------------------------------------------
 echo "→ 更新 docker-compose.yml"
-perl -pi -e "s/\\\$\\{YUXI_VERSION:-[^}]+\\}/\\\${YUXI_VERSION:-${NEW_VERSION}}/g" \
+perl -pi -e "s/\\\$\\{ZS_VERSION:-[^}]+\\}/\\\${ZS_VERSION:-${NEW_VERSION}}/g" \
     "${PROJECT_ROOT}/docker-compose.yml"
 
 echo "→ 更新 docker-compose.prod.yml"
-perl -pi -e "s/\\\$\\{YUXI_VERSION:-[^}]+\\}/\\\${YUXI_VERSION:-${NEW_VERSION}}/g" \
+perl -pi -e "s/\\\$\\{ZS_VERSION:-[^}]+\\}/\\\${ZS_VERSION:-${NEW_VERSION}}/g" \
     "${PROJECT_ROOT}/docker-compose.prod.yml"
 
 echo "→ 更新网络工具 E2E 镜像版本"
-perl -pi -e "s/\\\$\\{YUXI_VERSION:-[^}]+\\}/\\\${YUXI_VERSION:-${NEW_VERSION}}/g" \
+perl -pi -e "s/\\\$\\{ZS_VERSION:-[^}]+\\}/\\\${ZS_VERSION:-${NEW_VERSION}}/g" \
     "${PROJECT_ROOT}/backend/test/e2e/web-tools.compose.yml"
 
 echo "→ 更新 sandbox runner 与集成测试的默认镜像"
-for sandbox_source in .env.template backend/yuxi/sandbox_runner/settings.py backend/test/integration/sandbox/test_container_sandbox.py; do
-    perl -pi -e "s/(yuxi-sandbox:)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
+for sandbox_source in .env.template backend/zs/sandbox_runner/settings.py backend/test/integration/sandbox/test_container_sandbox.py; do
+    perl -pi -e "s/(zs-sandbox:)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
         "${PROJECT_ROOT}/${sandbox_source}"
 done
 
@@ -160,9 +160,9 @@ done
 # 5. 更新 uv.lock 中的项目版本号
 # -----------------------------------------------------------------------------
 echo "→ 更新 backend/uv.lock"
-# yuxi 包版本
+# zs 包版本
 LOCK_VERSION=$(printf '%s' "$NEW_VERSION" | sed -E 's/\.alpha([0-9]+)$/a\1/; s/\.beta([0-9]+)$/b\1/; s/\.rc([0-9]+)$/rc\1/')
-perl -0pi -e "s/(^name = \"yuxi\"\nversion = \")[^\"]+/\${1}${LOCK_VERSION}/m" \
+perl -0pi -e "s/(^name = \"zs\"\nversion = \")[^\"]+/\${1}${LOCK_VERSION}/m" \
     "${PROJECT_ROOT}/backend/uv.lock"
 
 # -----------------------------------------------------------------------------
@@ -188,16 +188,16 @@ if [ "$DEV_MODE" = false ]; then
         "${PROJECT_ROOT}/docs/advanced/deployment.md"
 
     echo "→ 更新 docs/advanced/container-sandbox.md"
-    perl -pi -e "s/(yuxi-sandbox:)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
+    perl -pi -e "s/(zs-sandbox:)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
         "${PROJECT_ROOT}/docs/advanced/container-sandbox.md"
 
-    echo "→ 更新 docs/.vitepress/theme/components/YuxiHome.vue"
+    echo "→ 更新 docs/.vitepress/theme/components/ZSHome.vue"
     perl -pi -e "s/(git clone --branch v)[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-zA-Z0-9]+)?/\${1}${NEW_VERSION}/g" \
-        "${PROJECT_ROOT}/docs/.vitepress/theme/components/YuxiHome.vue"
+        "${PROJECT_ROOT}/docs/.vitepress/theme/components/ZSHome.vue"
 
     # 当前候选说明包含正文版本号；历史验收记录不参与替换。
     for current_doc in README.md README.en.md docs/intro/quick-start.md docs/advanced/deployment.md \
-        docs/.vitepress/theme/components/YuxiHome.vue; do
+        docs/.vitepress/theme/components/ZSHome.vue; do
         perl -pi -e "s/\\Q${CURRENT_VERSION}\\E/${NEW_VERSION}/g" "${PROJECT_ROOT}/${current_doc}"
     done
     release_notes="${PROJECT_ROOT}/docs/develop-guides/releases/$(printf '%s' "$NEW_VERSION" | cut -d. -f1-3).md"
@@ -224,10 +224,10 @@ echo "  frontend/package.json:"
 grep -E '"version"' "${PROJECT_ROOT}/frontend/package.json" | head -1 | sed 's/^/    /'
 
 echo "  docker-compose.yml (api):"
-grep -E "image: .*api:.*YUXI_VERSION" "${PROJECT_ROOT}/docker-compose.yml" | head -1 | sed 's/^/    /'
+grep -E "image: .*api:.*ZS_VERSION" "${PROJECT_ROOT}/docker-compose.yml" | head -1 | sed 's/^/    /'
 
 echo "  docker-compose.prod.yml (frontend):"
-grep -E "image: .*frontend:.*YUXI_VERSION" "${PROJECT_ROOT}/docker-compose.prod.yml" | head -1 | sed 's/^/    /'
+grep -E "image: .*frontend:.*ZS_VERSION" "${PROJECT_ROOT}/docker-compose.prod.yml" | head -1 | sed 's/^/    /'
 
 echo ""
 echo "后续步骤:"

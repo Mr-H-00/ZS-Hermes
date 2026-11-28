@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from yuxi.modules.models.embed import OtherEmbedding
+from zs.modules.models.embed import OtherEmbedding
 
 
 @pytest.fixture
@@ -20,8 +20,8 @@ def response_data(monkeypatch):
     data = []
     response = httpx.Response(200, request=httpx.Request("POST", "http://test.local/embeddings"))
     monkeypatch.setattr(response, "json", lambda: {"data": data})
-    monkeypatch.setattr("yuxi.modules.models.embed.requests.post", lambda *args, **kwargs: response)
-    monkeypatch.setattr("yuxi.modules.models.embed.httpx.AsyncClient.post", AsyncMock(return_value=response))
+    monkeypatch.setattr("zs.modules.models.embed.requests.post", lambda *args, **kwargs: response)
+    monkeypatch.setattr("zs.modules.models.embed.httpx.AsyncClient.post", AsyncMock(return_value=response))
     return data
 
 

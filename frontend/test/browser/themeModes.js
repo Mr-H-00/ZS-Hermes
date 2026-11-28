@@ -20,7 +20,7 @@ async page => {
     const box = await menu.boundingBox()
     const docs = await menu.getByRole('menuitem', { name: '文档中心' }).boundingBox()
     // 截取操作区，排除真实账户姓名与 ID。
-    await page.screenshot({ path: `/tmp/yuxi-theme-${mode}.png`, animations: 'disabled',
+    await page.screenshot({ path: `/tmp/zs-theme-${mode}.png`, animations: 'disabled',
       clip: { x: box.x, y: docs.y, width: box.width, height: box.y + box.height - docs.y } })
   }
   try {

@@ -26,7 +26,7 @@ Skill 是一个可复用的能力包，通常包含一个 `SKILL.md`、提示词
 
 ## 对话组件 Skill
 
-内置 `chat-widgets` 用于图片、图文卡片、柱状图、折线图和简短表单。内置“智能助手”预设预加载 `chat-widgets` 和 `knowledge-base`，从首轮获得完整说明；用户无需指定 Skill 或编写 JSON。其他未配置预加载的 Chatbot 通过 Skill 描述发现用途并按需读取正文。组件 Skill 遵循已选且可访问的资源范围。Skill 的组件字段和完整 JSON 示例由 [SKILL.md](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/skills/builtin/chat-widgets/SKILL.md) 维护。
+内置 `chat-widgets` 用于图片、图文卡片、柱状图、折线图和简短表单。内置“智能助手”预设预加载 `chat-widgets` 和 `knowledge-base`，从首轮获得完整说明；用户无需指定 Skill 或编写 JSON。其他未配置预加载的 Chatbot 通过 Skill 描述发现用途并按需读取正文。组件 Skill 遵循已选且可访问的资源范围。Skill 的组件字段和完整 JSON 示例由 [SKILL.md](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/skills/builtin/chat-widgets/SKILL.md) 维护。
 
 普通会话可以直接说“帮我直观比较这几类阅读时间”“展示这几张图片”“把这张图与说明并排展示”或“让我填写出行日期和偏好，提交后再安排行程”。纯图片展示优先使用单图或横向图片组；需要配合说明、参数或比较时，图片可以与 Card、Row、Col 组合。图文卡片使用已提供或已查询的真实图片地址，尚未读取画面时沿用用户描述。
 
@@ -137,7 +137,7 @@ GitHub 的 `owner/repo` 简写会被转换为 HTTPS 地址。远程下载复用�
 
 ### 新增内置 Skill
 
-在 `backend/yuxi/modules/extensions/skills/builtin/<slug>/` 新增目录，至少包含 `SKILL.md`。启动同步按目录名排序发现直接子目录，忽略下划线或点开头的目录；无需修改 Python 注册清单。
+在 `backend/zs/modules/extensions/skills/builtin/<slug>/` 新增目录，至少包含 `SKILL.md`。启动同步按目录名排序发现直接子目录，忽略下划线或点开头的目录；无需修改 Python 注册清单。
 
 `SKILL.md` frontmatter 唯一拥有名称、描述、版本和依赖。`slug` 必须与目录名一致，省略时使用 `name`；`version` 省略时为 `1.0.0`，建议使用引号包裹版本字符串。工具、MCP、Skill 依赖使用本页定义的字段。缺少根文件或元数据不合法时，启动同步明确失败。
 
@@ -206,6 +206,6 @@ Skill 的选择影响 Prompt 和工具激活；共享投影按用户授权集合
 
 ## 源码定位与验证
 
-[Skill 访问契约](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/skills/access.py)拥有权限、依赖与带锁读取，[内容编辑](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/skills/edit.py)拥有修订校验与不可变包发布，[安装草稿](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/skills/install_draft.py)拥有安装确认前的暂存。[内置同步](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/skills/builtin/sync.py)由 `app-init` 调用；[运行时解析](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/skills/runtime.py)和[Skills middleware](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/middlewares/skills.py)分别拥有资源快照与模型可见性。
+[Skill 访问契约](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/skills/access.py)拥有权限、依赖与带锁读取，[内容编辑](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/skills/edit.py)拥有修订校验与不可变包发布，[安装草稿](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/skills/install_draft.py)拥有安装确认前的暂存。[内置同步](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/skills/builtin/sync.py)由 `app-init` 调用；[运行时解析](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/skills/runtime.py)和[Skills middleware](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/middlewares/skills.py)分别拥有资源快照与模型可见性。
 
 [编辑 HTTP 测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_shared_skill_edit_router.py)覆盖修订冲突和保存结果，[投影集成测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/services/test_user_skill_projection.py)核对授权后的实际文件，[远程安装测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/sandbox/test_remote_skill_install.py)检查 CLI 全局安装后的个人文件和运行时发现。源码和固定测试不能证明第三方 Skill 的当前内容安全，安装前仍需审查目标包。

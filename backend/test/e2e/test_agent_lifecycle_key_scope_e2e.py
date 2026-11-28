@@ -23,7 +23,7 @@ from test.e2e.e2e_helpers import (
     register_replay_provider as _provider,
     wait_for_terminal_turn as _turn,
 )
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.timeout(240)]
 
@@ -110,7 +110,7 @@ async def test_private_agent_key_run_uses_end_user_workspace_and_app_scope(e2e_c
         accepted = await e2e_client.post("/api/v1/agents/sessions", headers=public_headers, json=body)
         assert accepted.status_code == 201, accepted.text
         assert accepted.headers["X-App-Id"] == app_id
-        receipt = await wait_for_consumed_input(e2e_client, public_headers, accepted.json()["yuxi"]["receipt"])
+        receipt = await wait_for_consumed_input(e2e_client, public_headers, accepted.json()["zs"]["receipt"])
         thread_id = receipt["session_id"]
         replay = await e2e_client.post("/api/v1/agents/sessions", headers=public_headers, json=body)
         assert replay.status_code == 201, replay.text
@@ -127,8 +127,8 @@ async def test_private_agent_key_run_uses_end_user_workspace_and_app_scope(e2e_c
 
         completed = await _turn(e2e_client, public_headers, thread_id, receipt["turn_id"])
         assert completed["status"] == "completed", completed
-        assert completed["yuxi"]["result_run_id"] == receipt["run_id"]
-        assert OUTPUT in output_text(completed["yuxi"]["output"])
+        assert completed["zs"]["result_run_id"] == receipt["run_id"]
+        assert OUTPUT in output_text(completed["zs"]["output"])
         conn = await asyncpg.connect(postgres_dsn())
         try:
             persisted = await conn.fetchrow(

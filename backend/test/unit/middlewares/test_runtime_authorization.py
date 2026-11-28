@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.runtime.context import BaseContext
-from yuxi.modules.agents.runtime.middlewares.authorization import tool_allowed
+from zs.modules.agents.runtime.context import BaseContext
+from zs.modules.agents.runtime.middlewares.authorization import tool_allowed
 
 
 @pytest.fixture
@@ -72,8 +72,8 @@ async def test_network_retry_rechecks_before_each_model_request(monkeypatch, con
     from langchain_core.language_models import BaseChatModel
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.outputs import ChatGeneration, ChatResult
-    from yuxi.modules.agents.runtime.middlewares import authorization
-    from yuxi.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware
+    from zs.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware
 
     requests = []
     revoked = False
@@ -129,7 +129,7 @@ async def test_context_overflow_does_not_send_summary_after_revocation(monkeypat
     from langchain_core.language_models import BaseChatModel
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.outputs import ChatGeneration, ChatResult
-    from yuxi.modules.agents.runtime.middlewares import authorization, summary as summary_module
+    from zs.modules.agents.runtime.middlewares import authorization, summary as summary_module
 
     requests, summaries = [], []
     revoked = False
@@ -193,7 +193,7 @@ async def test_context_overflow_does_not_send_summary_after_revocation(monkeypat
 
     monkeypatch.setattr(authorization, "refresh_execution_authorization", check)
     monkeypatch.setattr(authorization, "_refresh_execution_resources", check)
-    summary = summary_module.YuxiSummarizationMiddleware(
+    summary = summary_module.ZSSummarizationMiddleware(
         model=SummaryModel(),
         backend=CompositeBackend(default=MemoryBackend(), routes={}, artifacts_root="/outputs"),
         trigger=("tokens", 100_000),
@@ -215,8 +215,8 @@ async def test_context_overflow_does_not_send_summary_after_revocation(monkeypat
 async def test_mcp_failure_becomes_safe_tool_result_and_disables_service(monkeypatch, context):
     """工具边界保留安全原因并关闭本轮失败 MCP。"""
     from unittest.mock import AsyncMock
-    from yuxi.modules.agents.runtime.middlewares import authorization
-    from yuxi.shared.errors import StateConflictError
+    from zs.modules.agents.runtime.middlewares import authorization
+    from zs.shared.errors import StateConflictError
 
     context.mcps, context.mcp_unavailable, context.run_id = ["remote"], {}, "run"
     monkeypatch.setattr(authorization, "_refresh_execution_resources", AsyncMock(return_value={"remote": set()}))
@@ -247,7 +247,7 @@ async def test_failed_mcp_filters_skill_dependencies_and_updates_warning_state(m
     from unittest.mock import AsyncMock
     from langchain.agents.middleware import ModelRequest
     from langchain_core.messages import SystemMessage
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares import authorization
 
     context.mcps, context.mcp_unavailable = ["remote"], {"remote": "授权凭据不可用，请重新连接"}
     context._capability_limited = False
@@ -308,7 +308,7 @@ async def test_mcp_tool_preserves_execution_control_exceptions(monkeypatch, cont
     import asyncio
     from unittest.mock import AsyncMock
     from langgraph.errors import GraphInterrupt
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares import authorization
 
     failure = {
         "revoked": authorization.AgentExecutionRevoked("执行权限撤销"),
@@ -332,7 +332,7 @@ async def test_warning_checkpoint_is_replaced_after_capability_recovers(monkeypa
     from langchain_core.language_models.fake_chat_models import FakeListChatModel
     from langchain_core.messages import HumanMessage
     from langgraph.checkpoint.memory import InMemorySaver
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares import authorization
 
     @asynccontextmanager
     async def session():
@@ -364,8 +364,8 @@ async def test_failed_session_cleanup_does_not_publish_skill_snapshot(monkeypatc
     """事务退出失败时，临时解析结果不能污染下一次授权刷新。"""
     from unittest.mock import AsyncMock
 
-    from yuxi.modules.agents.runtime.context import BaseContext
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.context import BaseContext
+    from zs.modules.agents.runtime.middlewares import authorization
 
     context = BaseContext()
     original = {"skill_metadata": {"a": {"source_scope": "agent_bound"}}}
@@ -397,7 +397,7 @@ async def test_successful_resource_refresh_publishes_context_fields_after_transa
     """刷新使用浅拷贝，事务退出前不发布，成功后替换契约字段。"""
     from unittest.mock import AsyncMock
 
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares import authorization
 
     original = context.skill_runtime_snapshot
     updated = {"skill_metadata": {}}
@@ -441,7 +441,7 @@ async def test_successful_resource_refresh_publishes_context_fields_after_transa
 async def test_tool_boundary_refreshes_resources_without_syncing_projection(monkeypatch, context):
     """工具边界刷新授权资源与 MCP 策略，不重建文件投影。"""
     from unittest.mock import AsyncMock
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares import authorization
 
     class SessionContext:
         """为工具边界的身份复查提供异步 session 边界。"""
@@ -480,7 +480,7 @@ async def test_tool_boundary_refreshes_resources_without_syncing_projection(monk
 async def test_transient_mcp_failure_does_not_disable_later_call(monkeypatch, context):
     from unittest.mock import AsyncMock
     from langchain_core.messages import ToolMessage
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares import authorization
 
     context.mcps, context.mcp_unavailable, context.run_id = ["remote"], {}, "run"
     monkeypatch.setattr(authorization, "_refresh_execution_resources", AsyncMock(return_value={"remote": set()}))
@@ -499,9 +499,9 @@ async def test_skill_request_identity_survives_authorization_retry(monkeypatch, 
     """已注入身份固定，撤权或换来源拒绝，未注入的临时授权不触发误判。"""
     from langchain.agents.middleware.types import ModelRequest, ModelResponse
     from langchain_core.messages import AIMessage
-    from yuxi.modules.agents.runtime.middlewares import authorization
-    from yuxi.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware
-    from yuxi.modules.agents.runtime.middlewares.skills import SkillsMiddleware
+    from zs.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware
+    from zs.modules.agents.runtime.middlewares.skills import SkillsMiddleware
 
     def snapshot(slugs, scope="shared"):
         return {
@@ -582,9 +582,9 @@ async def test_skill_request_identity_survives_authorization_retry(monkeypatch, 
 async def test_mcp_permission_error_is_not_converted_to_tool_failure(monkeypatch, context, error_kind):
     """真实外层 Guard 不得把 MCP 权限拒绝转为可继续运行的工具结果。"""
     from unittest.mock import AsyncMock
-    from yuxi.modules.agents.runtime.middlewares import authorization
-    from yuxi.modules.agents.runtime.middlewares.tool_error_guard import ToolErrorGuardMiddleware
-    from yuxi.shared.errors import PermissionDeniedError
+    from zs.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares.tool_error_guard import ToolErrorGuardMiddleware
+    from zs.shared.errors import PermissionDeniedError
 
     context.mcps, context.mcp_unavailable, context.run_id = ["remote"], {}, "run"
     monkeypatch.setattr(authorization, "_refresh_execution_resources", AsyncMock(return_value={"remote": set()}))

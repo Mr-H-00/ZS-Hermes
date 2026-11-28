@@ -66,7 +66,7 @@ WORKSPACE_HOST_PATH_EXPORTS = frozenset(
     }
 )
 PERSONAL_SKILL_WORKSPACE_OWNER = Path(
-    "backend/yuxi/modules/extensions/skills/personal.py"
+    "backend/zs/modules/extensions/skills/personal.py"
 )
 DIRECT_FRONTEND_API_LITERAL = re.compile(r"(?P<quote>['\"`])/api(?:[/ ?]|(?P=quote))")
 AGENTS_FILE_BUDGETS = {
@@ -881,7 +881,7 @@ def _validate_document_prose(root: Path, errors: list[str]) -> int:
 
 
 def _validate_router_boundaries(root: Path, errors: list[str]) -> int:
-    routers_root = root / "backend/yuxi/api/routers"
+    routers_root = root / "backend/zs/api/routers"
     checked = 0
     for path in sorted(routers_root.rglob("*.py")):
         checked += 1
@@ -948,9 +948,9 @@ def _validate_workspace_host_path_boundary(root: Path, errors: list[str]) -> int
 
     checked = 0
     for source_root in (
-        sorted((root / "backend/yuxi/modules").glob("*/services"))
-        + sorted((root / "backend/yuxi/modules").glob("*/repositories"))
-        + [root / "backend/yuxi/modules/extensions/skills"]
+        sorted((root / "backend/zs/modules").glob("*/services"))
+        + sorted((root / "backend/zs/modules").glob("*/repositories"))
+        + [root / "backend/zs/modules/extensions/skills"]
     ):
         for path in sorted(source_root.rglob("*.py")):
             checked += 1
@@ -964,7 +964,7 @@ def _validate_workspace_host_path_boundary(root: Path, errors: list[str]) -> int
                 forbidden: set[str] = set()
                 if (
                     isinstance(node, ast.ImportFrom)
-                    and node.module == "yuxi.modules.workspace.paths"
+                    and node.module == "zs.modules.workspace.paths"
                 ):
                     forbidden.update(
                         WORKSPACE_HOST_PATH_EXPORTS.intersection(
@@ -975,28 +975,28 @@ def _validate_workspace_host_path_boundary(root: Path, errors: list[str]) -> int
                         forbidden.discard("user_workspace_dir")
                 elif (
                     isinstance(node, ast.ImportFrom)
-                    and node.module == "yuxi.infrastructure.runtime_settings"
+                    and node.module == "zs.infrastructure.runtime_settings"
                 ):
                     if any(alias.name == "get_user_data_dir" for alias in node.names):
                         forbidden.add("get_user_data_dir")
                 elif (
                     isinstance(node, ast.ImportFrom)
-                    and node.module == "yuxi.modules.workspace"
+                    and node.module == "zs.modules.workspace"
                 ):
                     if any(alias.name == "paths" for alias in node.names):
                         forbidden.add("paths module")
                 elif isinstance(node, ast.Import):
                     imported = {alias.name for alias in node.names}
-                    if "yuxi.modules.workspace.paths" in imported:
+                    if "zs.modules.workspace.paths" in imported:
                         forbidden.add("paths module")
-                    if "yuxi.infrastructure.runtime_settings" in imported:
+                    if "zs.infrastructure.runtime_settings" in imported:
                         forbidden.add("runtime settings module")
                 if forbidden:
                     errors.append(
                         "普通 Service/Repository 不得取得 UserWorkspace 宿主 Path："
                         f"{relative}:{node.lineno} -> {', '.join(sorted(forbidden))}"
                     )
-            if "YUXI_USER_DATA_DIR" in source:
+            if "ZS_USER_DATA_DIR" in source:
                 errors.append(
                     "普通 Service/Repository 不得读取 UserWorkspace 宿主根环境变量："
                     f"{relative}"

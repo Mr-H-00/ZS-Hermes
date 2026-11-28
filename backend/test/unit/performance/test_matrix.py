@@ -187,8 +187,8 @@ class ContinuousChannelsTest(unittest.IsolatedAsyncioTestCase):
                 patch.dict(
                     "os.environ",
                     {
-                        "COMPOSE_PROJECT_NAME": "yuxi-alpha",
-                        "YUXI_STATE_DIR": "../.yuxi/slots/alpha",
+                        "COMPOSE_PROJECT_NAME": "zs-alpha",
+                        "ZS_STATE_DIR": "../.zs/slots/alpha",
                     },
                 ),
                 patch("test.performance.matrix.authenticate") as authenticate,
@@ -274,7 +274,7 @@ class ContinuousChannelsTest(unittest.IsolatedAsyncioTestCase):
                     "id": "turn",
                     "object": "agent.session.turn",
                     "status": "completed",
-                    "yuxi": {"result_run_id": "r"},
+                    "zs": {"result_run_id": "r"},
                 }
 
         client = Client()
@@ -318,7 +318,7 @@ class ContinuousChannelsTest(unittest.IsolatedAsyncioTestCase):
                     "id": "turn-1",
                     "object": "agent.session.turn",
                     "status": "completed",
-                    "yuxi": {"result_run_id": "r"},
+                    "zs": {"result_run_id": "r"},
                 }
             )
             async with asyncio.TaskGroup() as tasks:
@@ -435,7 +435,7 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
                         "id": turn_id,
                         "object": "agent.session.turn",
                         "status": "completed",
-                        "yuxi": {"result_run_id": "r1"},
+                        "zs": {"result_run_id": "r1"},
                     }
 
                 async def cancel(load, row):
@@ -452,7 +452,7 @@ class ObservationPersistenceTest(unittest.IsolatedAsyncioTestCase):
                     output_dir=Path(directory),
                 )
                 with (
-                    patch.dict("os.environ", {"COMPOSE_PROJECT_NAME": "yuxi-alpha", "YUXI_STATE_DIR": "../.yuxi/slots/alpha"}),
+                    patch.dict("os.environ", {"COMPOSE_PROJECT_NAME": "zs-alpha", "ZS_STATE_DIR": "../.zs/slots/alpha"}),
                     patch("test.performance.matrix.httpx.AsyncClient", return_value=client),
                     patch("test.performance.matrix.authenticate", new=AsyncMock(return_value={})),
                     patch("test.performance.matrix.resolve_agent_slug", new=AsyncMock(return_value="a")),

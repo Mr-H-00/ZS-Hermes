@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/infrastructure/redis/queue.py
+Owner：backend/zs/infrastructure/redis/queue.py
 
 ## 问题
 

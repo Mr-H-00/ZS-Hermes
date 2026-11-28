@@ -8,12 +8,12 @@ from unittest.mock import AsyncMock
 import pytest
 from arq.worker import RetryJob
 
-import yuxi.modules.agents.services.run_lifecycle as lifecycle
-import yuxi.bootstrap.worker as worker_bootstrap
-import yuxi.modules.agents.services.event_writer as event_writer
-import yuxi.modules.agents.services.leases as leases
-import yuxi.modules.agents.services.runner as runner
-from yuxi.modules.agents.services.execution import RunExecutionResult
+import zs.modules.agents.services.run_lifecycle as lifecycle
+import zs.bootstrap.worker as worker_bootstrap
+import zs.modules.agents.services.event_writer as event_writer
+import zs.modules.agents.services.leases as leases
+import zs.modules.agents.services.runner as runner
+from zs.modules.agents.services.execution import RunExecutionResult
 
 
 @pytest.fixture(autouse=True)
@@ -419,7 +419,7 @@ async def test_process_agent_run_rejects_corrupted_runtime_scope_before_executio
 @pytest.mark.parametrize("fails", [False, True])
 async def test_run_environment_snapshot_survives_updates_and_is_released(monkeypatch, fails):
     """线程与异步子任务复用启动快照，成功或失败退出均释放密钥。"""
-    from yuxi.modules.agents.runtime.sandbox import sandbox_run_env
+    from zs.modules.agents.runtime.sandbox import sandbox_run_env
 
     run = _build_run()
     _patch_common(monkeypatch, run)
@@ -1346,7 +1346,7 @@ async def test_execution_releases_own_runtime_before_settlement(monkeypatch, sta
     assert order == (["commit"] if status == "failed" else []) + ["release", "published"]
 
 
-@pytest.mark.parametrize("container", ["metadata", "payload", "yuxi"])
+@pytest.mark.parametrize("container", ["metadata", "payload", "zs"])
 async def test_worker_rejects_unrouted_public_output(monkeypatch, container):
     """嵌套业务 payload 不能代替明确的执行归属。"""
     run = _build_run()
@@ -1369,11 +1369,11 @@ async def test_worker_only_publishes_valid_events_and_never_settles_usage_from_t
     run = _build_run()
     _patch_common(monkeypatch, run)
     public = {
-        "type": "yuxi.session.turn.state",
+        "type": "zs.session.turn.state",
         "event_id": "e",
         "session_id": run.thread_id,
         "turn_id": run.turn_id,
-        "yuxi": {"run_id": run.id},
+        "zs": {"run_id": run.id},
         "agent_state": {"token_usage": {"current_run_id": "other", "run": {"total": 505}}},
     }
 

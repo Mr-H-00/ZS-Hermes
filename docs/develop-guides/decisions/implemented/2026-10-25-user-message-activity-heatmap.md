@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/repositories/messages.py
+Owner：backend/zs/modules/agents/repositories/messages.py
 
 展示口径的次要 Owner 是 frontend/src/modules/dashboard/ui/DashboardActivityHeatmap.vue 与账户设置挂载点。
 

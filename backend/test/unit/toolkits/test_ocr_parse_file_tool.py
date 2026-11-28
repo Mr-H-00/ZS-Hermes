@@ -5,10 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yuxi.modules.documents.service as ocr_service
-from yuxi.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
+import zs.modules.documents.service as ocr_service
+from zs.modules.extensions.tools.builtin.ocr_parse_file import ocr_parse_file
 
-builtin_tools = importlib.import_module("yuxi.modules.extensions.tools.builtin.ocr_parse_file")
+builtin_tools = importlib.import_module("zs.modules.extensions.tools.builtin.ocr_parse_file")
 
 pytestmark = pytest.mark.unit
 
@@ -18,7 +18,7 @@ def workspace_root(tmp_path, monkeypatch):
     """工具输出使用真实且隔离的 UserWorkspace 文件边界。"""
     root = tmp_path / "workspace"
     root.mkdir()
-    monkeypatch.setattr("yuxi.modules.workspace.filesystem.user_workspace_dir", lambda _uid: root)
+    monkeypatch.setattr("zs.modules.workspace.filesystem.user_workspace_dir", lambda _uid: root)
     return root
 
 
@@ -124,7 +124,7 @@ async def test_ocr_parse_file_downloads_and_parses_real_docx(workspace_root, mon
 
     _mock_system_options(monkeypatch)
     # 该用例只触达 Workspace 挂载，执行后端不应被唤醒或要求其部署配置。
-    import yuxi.modules.agents.runtime.sandbox.backend as backend_module
+    import zs.modules.agents.runtime.sandbox.backend as backend_module
 
     class NoProvider:
         def __getattr__(self, key):
@@ -150,7 +150,7 @@ async def test_ocr_parse_file_downloads_and_parses_real_docx(workspace_root, mon
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_writes_markdown_to_outputs(tmp_path, workspace_root, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
 
     def resolve_engine(engine_id, default_engine):
@@ -168,7 +168,7 @@ async def test_ocr_parse_file_writes_markdown_to_outputs(tmp_path, workspace_roo
         del db
         captured["source"] = source
         captured["params"] = params
-        from yuxi.infrastructure.document_parsing import ParseResult
+        from zs.infrastructure.document_parsing import ParseResult
 
         result = _write_parse_result(output_dir, "![图](images/chart.png)\n识别结果\n" + ("长文本" * 500))
         (output_dir / "images").mkdir()
@@ -206,7 +206,7 @@ async def test_ocr_parse_file_writes_markdown_to_outputs(tmp_path, workspace_roo
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_uses_default_engine(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
 
     def resolve_engine(engine_id, default_engine):
@@ -239,7 +239,7 @@ async def test_ocr_parse_file_uses_default_engine(tmp_path, monkeypatch: pytest.
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_accepts_disable_for_pdf(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
     thread_id = "thread-1"
     uid = "user-1"
@@ -273,7 +273,7 @@ async def test_ocr_parse_file_accepts_disable_for_pdf(tmp_path, monkeypatch: pyt
     ],
 )
 async def test_ocr_parse_file_rejects_path_outside_user_data(tmp_path, monkeypatch: pytest.MonkeyPatch, file_path: str) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
 
     with pytest.raises(ValueError, match="只允许解析"):
@@ -282,7 +282,7 @@ async def test_ocr_parse_file_rejects_path_outside_user_data(tmp_path, monkeypat
 
 @pytest.mark.asyncio
 async def test_ocr_parse_file_rejects_directory(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "threads"))
     _mock_system_options(monkeypatch)
     thread_id = "thread-1"
     uid = "user-1"
@@ -294,8 +294,8 @@ async def test_ocr_parse_file_rejects_directory(tmp_path, monkeypatch: pytest.Mo
 
 
 def _mock_system_options(monkeypatch: pytest.MonkeyPatch) -> None:
-    from yuxi.modules.system.options import system_options
-    from yuxi.modules.system.services.options import Option
+    from zs.modules.system.options import system_options
+    from zs.modules.system.services.options import Option
 
     async def get_options(option, _db=None):
         assert option is system_options
@@ -306,7 +306,7 @@ def _mock_system_options(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _write_parse_result(output_dir, markdown):
     """构造解析产物，让工具断言真实文件写入。"""
-    from yuxi.infrastructure.document_parsing import ParseResult
+    from zs.infrastructure.document_parsing import ParseResult
 
     output_dir.mkdir()
     path = output_dir / "document.md"
@@ -333,7 +333,7 @@ async def test_ocr_directory_copy_failure_leaves_no_partial_output(workspace_roo
         return _write_parse_result(output_dir, "text")
 
     monkeypatch.setattr(ocr_service, "parse", parse)
-    monkeypatch.setattr("yuxi.modules.workspace.filesystem.copy_directory_fd", copy)
+    monkeypatch.setattr("zs.modules.workspace.filesystem.copy_directory_fd", copy)
     with pytest.raises(OSError, match="copy rejected"):
         await ocr_parse_file.coroutine(file_path=source, runtime=_runtime())
     assert list(workspace_root.rglob("document.md")) == []

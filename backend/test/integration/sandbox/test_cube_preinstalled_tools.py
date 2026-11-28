@@ -6,7 +6,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.integration, pytest.mark.e2e, pytest.mark.slow, pytest.mark.self_managed_resources]
 
@@ -25,12 +25,12 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
-marker = 'YUXI_TOOLKIT_CHECK'
+marker = 'ZS_TOOLKIT_CHECK'
 html = (
-    '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Yuxi tools</title>'
+    '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>ZS tools</title>'
     '<style>body{font-family:"Noto Sans CJK SC",sans-serif;padding:40px;background:#f4f7f5}'
     'h1{color:#176b47}</style><h1>中文字体与网页工具验收</h1>'
-    '<p>YUXI_TOOLKIT_CHECK</p><a id="download" href="/download">下载文件</a></html>'
+    '<p>ZS_TOOLKIT_CHECK</p><a id="download" href="/download">下载文件</a></html>'
 ).encode()
 
 class Handler(BaseHTTPRequestHandler):
@@ -72,7 +72,7 @@ try:
         browser = p.chromium.launch(headless=True, chromium_sandbox=True)
         page = browser.new_page(viewport={'width': 900, 'height': 600})
         page.goto(url)
-        assert page.title() == 'Yuxi tools'
+        assert page.title() == 'ZS tools'
         assert page.locator('h1').inner_text() == heading
         page.evaluate('document.fonts.ready')
         page.screenshot(path='browser.png')
@@ -112,15 +112,15 @@ PY''',
     assert observed["heading"] == "中文字体与网页工具验收"
     assert observed["jq"] == "42"
     assert observed["pdf_mime"] == "application/pdf"
-    assert observed["unzipped"] == "YUXI_TOOLKIT_CHECK"
+    assert observed["unzipped"] == "ZS_TOOLKIT_CHECK"
     assert observed["mysql_escaped"] == "\\'"
-    assert (root / "download.txt").read_bytes() == b"YUXI_TOOLKIT_CHECK"
+    assert (root / "download.txt").read_bytes() == b"ZS_TOOLKIT_CHECK"
     pdf_text = (root / "browser.txt").read_text()
-    assert "YUXI_TOOLKIT_CHECK" in pdf_text
+    assert "ZS_TOOLKIT_CHECK" in pdf_text
     assert "中文字体与网页工具验收" in pdf_text
     with ZipFile(root / "report.xlsx") as workbook:
         sheet = workbook.read("xl/worksheets/sheet1.xml")
-        assert b"YUXI_TOOLKIT_CHECK" in sheet
+        assert b"ZS_TOOLKIT_CHECK" in sheet
         assert b"<v>42</v>" in sheet
     for name in ("browser.png", "pdf-page.png", "python-image.png"):
         content = (root / name).read_bytes()

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.integration, pytest.mark.self_managed_resources, pytest.mark.timeout(300)]
 

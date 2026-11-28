@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.infrastructure.observability.logging import logger
-from yuxi.modules.knowledge.services import background_jobs as jobs
+from zs.infrastructure.observability.logging import logger
+from zs.modules.knowledge.services import background_jobs as jobs
 
 
 class JobContext:
@@ -324,17 +324,17 @@ def test_shipping_projection_cron_uses_only_the_owned_cleanup_module(enabled):
     """冷启动注册正确执行入口，禁用知识能力时不注册清理任务。"""
     script = """
 import os
-from yuxi.workers.settings import WorkerSettings
-from yuxi.modules.knowledge.services import background_jobs
+from zs.workers.settings import WorkerSettings
+from zs.modules.knowledge.services import background_jobs
 jobs = [job for job in WorkerSettings.cron_jobs if job.coroutine.__name__ == 'process_knowledge_projections']
-assert len(jobs) == int(os.environ['YUXI_KNOWLEDGE_ENABLED'] == 'true')
+assert len(jobs) == int(os.environ['ZS_KNOWLEDGE_ENABLED'] == 'true')
 assert not hasattr(background_jobs, 'process_knowledge_projections')
 if jobs:
-    assert jobs[0].coroutine.__module__ == 'yuxi.modules.knowledge.services.projection_cleanup'
+    assert jobs[0].coroutine.__module__ == 'zs.modules.knowledge.services.projection_cleanup'
     assert jobs[0].second == {15, 45}
     assert jobs[0].run_at_startup is True
 """
-    env = {**os.environ, "YUXI_KNOWLEDGE_ENABLED": str(enabled).lower()}
+    env = {**os.environ, "ZS_KNOWLEDGE_ENABLED": str(enabled).lower()}
     completed = subprocess.run(
         [sys.executable, "-c", script],
         cwd=Path(__file__).resolve().parents[3],

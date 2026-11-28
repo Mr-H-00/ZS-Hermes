@@ -26,7 +26,7 @@ docker compose up -d --force-recreate api worker
 
 ## 内置供应商
 
-`app-init` 同步代码拥有的供应商模板，提供供应商 ID、API 地址、凭证变量名和模型发现地址。管理员在页面查看当前实例的配置；完整模板由 [`builtin.py`](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/models/providers/builtin.py) 维护，更新流程见[共享内容更新](../advanced/deployment.md#共享内容更新与失败重试)。
+`app-init` 同步代码拥有的供应商模板，提供供应商 ID、API 地址、凭证变量名和模型发现地址。管理员在页面查看当前实例的配置；完整模板由 [`builtin.py`](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/models/providers/builtin.py) 维护，更新流程见[共享内容更新](../advanced/deployment.md#共享内容更新与失败重试)。
 
 接入时先按用途选择供应商能力：
 

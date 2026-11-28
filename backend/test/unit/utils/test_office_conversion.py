@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.infrastructure import office_conversion as conversion
+from zs.infrastructure import office_conversion as conversion
 
 
 @pytest.mark.parametrize(

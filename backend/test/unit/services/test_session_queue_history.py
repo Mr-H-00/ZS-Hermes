@@ -9,21 +9,21 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.public_items import PublicItemRepository
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.modules.agents.services.public_items import serialize_public_items
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services.threads import get_queue_snapshot
-from yuxi.modules.agents.services.thread_access import require_thread
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.errors import DomainError, ResourceNotFoundError
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.public_items import PublicItemRepository
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.agents.services.public_items import serialize_public_items
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services.threads import get_queue_snapshot
+from zs.modules.agents.services.thread_access import require_thread
+from zs.modules.workspace.models import Project
+from zs.shared.errors import DomainError, ResourceNotFoundError
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 SCOPE = ActorScope(uid="user-1", app_id=None)
@@ -161,7 +161,7 @@ async def test_history_only_shows_consumed_input_and_its_own_reply(session):
 
     completed = await _read_items(session)
     assert [item["content"][0]["text"] for item in completed] == ["A", "A reply", "B", "B reply"]
-    assert [(item["turn_id"], item["yuxi"]["run_id"]) for item in completed] == [
+    assert [(item["turn_id"], item["zs"]["run_id"]) for item in completed] == [
         ("turn-a", "run-a"),
         ("turn-a", "run-a"),
         ("turn-b", "run-b"),
@@ -203,7 +203,7 @@ async def test_history_exposes_tool_result_without_internal_model_metadata(sessi
             content="",
             execution_status="completed",
             started_at=answer.created_at,
-            extra_metadata={"output": "safe result", "source_model_message_id": answer.id, "tool_name": "search", "input": {"q": "Yuxi"}},
+            extra_metadata={"output": "safe result", "source_model_message_id": answer.id, "tool_name": "search", "input": {"q": "ZS"}},
         )
     )
     await _register_visible(session)
@@ -241,7 +241,7 @@ async def _register_visible(db):
                 "content": [{"type": "output_text", "text": message.content}],
                 "status": "completed",
                 "phase": "commentary",
-                "yuxi": {"run_id": message.run_id, "output_index": 0},
+                "zs": {"run_id": message.run_id, "output_index": 0},
             }
         }
         if message.operation_id:
@@ -251,9 +251,9 @@ async def _register_visible(db):
                 "turn_id": message.turn_id,
                 "call_id": "call-a",
                 "name": "search",
-                "arguments": {"q": "Yuxi"},
+                "arguments": {"q": "ZS"},
                 "status": "completed",
-                "yuxi": {"run_id": message.run_id, "output_index": 1},
+                "zs": {"run_id": message.run_id, "output_index": 1},
             }
             public["result"] = {
                 "id": "result-item",
@@ -263,7 +263,7 @@ async def _register_visible(db):
                 "output": "safe result",
                 "error": None,
                 "status": "completed",
-                "yuxi": {"run_id": message.run_id, "output_index": 2},
+                "zs": {"run_id": message.run_id, "output_index": 2},
             }
         message.extra_metadata = {**(message.extra_metadata or {}), "public_items": public}
 

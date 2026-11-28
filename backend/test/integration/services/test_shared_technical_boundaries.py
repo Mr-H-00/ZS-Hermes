@@ -15,16 +15,16 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy import select, text
 from test.integration.support.module_audit import isolated_audit_store, serve_http
-from yuxi.api.dependencies.auth import get_db, get_required_user, get_superadmin_user
-from yuxi.api.routers.system import system
-from yuxi.bootstrap.options import ensure_options_in_db
-from yuxi.modules.documents.options import mineru_official_api_opts
-from yuxi.modules.models.chat import LangChainChatAdapter
-from yuxi.modules.models.embed import OtherEmbedding
-from yuxi.modules.system.models import ConfigOption
-from yuxi.modules.system.options import system_options
-from yuxi.modules.system.repositories.options import OPTION_SYNC_LOCK_KEY
-from yuxi.modules.system.services import options
+from zs.api.dependencies.auth import get_db, get_required_user, get_superadmin_user
+from zs.api.routers.system import system
+from zs.bootstrap.options import ensure_options_in_db
+from zs.modules.documents.options import mineru_official_api_opts
+from zs.modules.models.chat import LangChainChatAdapter
+from zs.modules.models.embed import OtherEmbedding
+from zs.modules.system.models import ConfigOption
+from zs.modules.system.options import system_options
+from zs.modules.system.repositories.options import OPTION_SYNC_LOCK_KEY
+from zs.modules.system.services import options
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -162,11 +162,11 @@ async def test_configuration_commit_failure_rolls_back(monkeypatch):
 
 async def test_dashboard_http_reads_current_agent_and_session_facts(monkeypatch):
     """报表直接读取当前 Agent 与 Session，统计与明细共享真实 PG 事实。"""
-    from yuxi.api.routers.dashboard import dashboard
-    from yuxi.modules.agents.models.definitions import Agent
-    from yuxi.modules.agents.models.sessions import Session
-    from yuxi.modules.identity.models import User
-    from yuxi.modules.workspace.models import Project
+    from zs.api.routers.dashboard import dashboard
+    from zs.modules.agents.models.definitions import Agent
+    from zs.modules.agents.models.sessions import Session
+    from zs.modules.identity.models import User
+    from zs.modules.workspace.models import Project
 
     async with isolated_audit_store(monkeypatch) as (_, sessions):
         async with sessions.begin() as db:

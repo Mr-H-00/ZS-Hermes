@@ -43,9 +43,6 @@ const router = createRouter({
       meta: { requiresAuth: false }
     },
     {
-      path: '/auth/wps/callback', name: 'WPSCallback', component: () => import('@/pages/WPSCallbackView.vue'), meta: { requiresAuth: true }
-    },
-    {
       path: '/auth/cli/authorize',
       name: 'CLIAuthAuthorize',
       component: () => import('@/pages/CLIAuthAuthorizeView.vue'),
@@ -180,7 +177,7 @@ router.beforeEach(async (to) => {
   }
 
   if ((requiresAdmin && !isAdmin) || (requiresSuperAdmin && !isSuperAdmin)) {
-    message.warning(to.path === '/dashboard' ? '无权访问数据总览' : '无权访问此页面')
+    message.warning(to.path === '/dashboard' ? '无权访问驾驶舱' : '无权访问此页面')
     return '/agent'
   }
 

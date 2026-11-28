@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/system/static/info.template.yaml
+Owner：backend/zs/modules/system/static/info.template.yaml
 
 ## 问题
 

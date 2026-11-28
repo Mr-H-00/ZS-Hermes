@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.knowledge.implementations.dify import DifyKB
-from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
+from zs.modules.knowledge.implementations.dify import DifyKB
+from zs.modules.knowledge.read_models import KnowledgeBaseConfig
 
 
 class _FakeResponse:
@@ -48,7 +48,7 @@ class _FakeAsyncClient:
 async def test_dify_rejects_folder_rename(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
-    from yuxi.modules.knowledge.manager import KnowledgeBaseManager
+    from zs.modules.knowledge.manager import KnowledgeBaseManager
 
     manager = KnowledgeBaseManager(str(tmp_path))
     monkeypatch.setattr(
@@ -130,7 +130,7 @@ async def test_dify_kb_aquery_maps_records(monkeypatch, tmp_path):
     }
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.implementations.dify.httpx.AsyncClient",
+        "zs.modules.knowledge.implementations.dify.httpx.AsyncClient",
         lambda **kwargs: _FakeAsyncClient(response_payload=payload, **kwargs),
     )
 
@@ -213,7 +213,7 @@ async def test_dify_kb_aquery_error_is_explicit(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.implementations.dify.httpx.AsyncClient",
+        "zs.modules.knowledge.implementations.dify.httpx.AsyncClient",
         lambda **kwargs: _FakeAsyncClient(raises=RuntimeError("boom"), **kwargs),
     )
 

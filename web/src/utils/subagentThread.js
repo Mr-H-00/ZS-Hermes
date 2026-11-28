@@ -1,4 +1,4 @@
-// 复刻后端 yuxi/utils/hash_utils.py 的 hash_id("subagent_", "{parent}:{slug}:{tool_call_id}", length=64)：
+// 复刻后端 zs/utils/hash_utils.py 的 hash_id("subagent_", "{parent}:{slug}:{tool_call_id}", length=64)：
 // child_thread_id = "subagent_" + sha256("{parent}:{slug}:{tool_call_id}")[:55]
 // 子智能体由 graph.ainvoke 独立调用，流式事件不带 tool_call_id，前端据此自行推算 child_thread_id。
 const PREFIX = 'subagent_'

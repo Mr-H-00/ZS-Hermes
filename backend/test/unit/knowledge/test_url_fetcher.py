@@ -9,15 +9,15 @@ import httpcore
 import httpx
 import pytest
 
-from yuxi.modules.knowledge.utils import url_fetcher
-from yuxi.modules.knowledge.utils.url_fetcher import (
+from zs.modules.knowledge.utils import url_fetcher
+from zs.modules.knowledge.utils.url_fetcher import (
     SSRFGuardBackend,
     assert_no_blocked_address,
     is_blocked_address,
     resolve_hostname_addresses,
 )
-from yuxi.modules.knowledge.utils.url_validator import validate_url
-from yuxi.shared.errors import InvalidOperationError
+from zs.modules.knowledge.utils.url_validator import validate_url
+from zs.shared.errors import InvalidOperationError
 
 
 class RecordingBackend(httpcore.AsyncNetworkBackend):

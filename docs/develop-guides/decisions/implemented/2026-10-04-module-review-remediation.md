@@ -2,11 +2,11 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/knowledge/base.py
+Owner：backend/zs/modules/knowledge/base.py
 
 ## 问题
 
-对 `backend/yuxi/modules` 的审查报告混合了真实功能缺陷、已经由当前入口拦截的陈旧判断和结构性债务。复核确认：知识库导出基类会落入空实现；Dify/Notion 外部检索在远端失败时返回空结果；Milvus/Dify 的检索数量上限只停留在 UI 配置；损坏的共享权限配置会让 Agent/Skill 权限遍历抛异常，错误类型的空值还会被当作 global 授予读取或管理权限；MCP 服务层缺少与 HTTP 层对称的内置保护；评估 prompt 使用了字面 `\\n`。这些行为分别会伪装失败、放大下游查询、扩大单条坏数据影响面或产生错误模型输入。
+对 `backend/zs/modules` 的审查报告混合了真实功能缺陷、已经由当前入口拦截的陈旧判断和结构性债务。复核确认：知识库导出基类会落入空实现；Dify/Notion 外部检索在远端失败时返回空结果；Milvus/Dify 的检索数量上限只停留在 UI 配置；损坏的共享权限配置会让 Agent/Skill 权限遍历抛异常，错误类型的空值还会被当作 global 授予读取或管理权限；MCP 服务层缺少与 HTTP 层对称的内置保护；评估 prompt 使用了字面 `\\n`。这些行为分别会伪装失败、放大下游查询、扩大单条坏数据影响面或产生错误模型输入。
 
 复核也确认：workspace 文件服务的列表过滤是“Project 选目录”的展示投影，读写边界是当前用户自己的 UserWorkspace；Notion 文件方法虽然与可选参数接口不一致，但当前 shipping 入口会先拒绝不支持文档操作的外部连接器；权限解析器拒绝 legacy 配置本身是 fail-closed 设计。因此本次不改变这些语义，也不进行 transport/sandbox 下沉、事务约定统一或死代码大清理。
 

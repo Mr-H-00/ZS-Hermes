@@ -53,7 +53,7 @@ const resolvePdfjsCmapFile = (requestUrl) => {
 // pdf.js 的 CMap 资源随应用本地发布，预览不依赖外部 CDN；
 // 开发态由中间件直读依赖目录，构建态复制进静态产物。
 const pdfjsCmapsPlugin = {
-  name: 'yuxi-pdfjs-cmaps',
+  name: 'zs-pdfjs-cmaps',
   configureServer(server) {
     server.middlewares.use(PDFJS_CMAPS_REQUEST_PATH, (req, res, next) => {
       const file = resolvePdfjsCmapFile(req.url)

@@ -1,7 +1,7 @@
 [project]
-name = "yuxi"
+name = "zs"
 version = "0.8.0"
-description = "Yuxi 智能知识库与知识图谱平台核心后端包"
+description = "ZS 智能知识库与知识图谱平台核心后端包"
 readme = "README.md"
 license = { text = "MIT" }
 classifiers = [
@@ -148,4 +148,4 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["yuxi*"]
+include = ["zs*"]

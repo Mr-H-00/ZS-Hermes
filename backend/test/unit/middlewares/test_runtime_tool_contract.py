@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.agents.runtime.context import BaseContext
-from yuxi.modules.agents.runtime.middlewares.authorization import tool_allowed
+from zs.modules.agents.runtime.context import BaseContext
+from zs.modules.agents.runtime.middlewares.authorization import tool_allowed
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ async def test_dynamic_mcp_loading_requires_prior_tool_source_assembly():
     """Skill 动态建连不能在缺失来源记录时开始。"""
     from unittest.mock import AsyncMock
     from langchain.agents.middleware.types import ModelRequest
-    from yuxi.modules.agents.runtime.middlewares.skills import SkillsMiddleware
+    from zs.modules.agents.runtime.middlewares.skills import SkillsMiddleware
 
     context = BaseContext()
     context.skill_runtime_snapshot = {

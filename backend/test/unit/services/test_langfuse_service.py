@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.agents.services.tracing as svc
-import yuxi.infrastructure.observability.langfuse as langfuse
+import zs.modules.agents.services.tracing as svc
+import zs.infrastructure.observability.langfuse as langfuse
 
 
 class _FakeLangfuseClient:
@@ -110,7 +110,7 @@ def test_build_run_context_includes_trace_metadata(monkeypatch):
     assert run_context.metadata["backend_id"] == "ChatbotAgent"
     assert run_context.metadata["department_id"] == "7"
     assert run_context.tags == [
-        "yuxi",
+        "zs",
         "chat",
         "agent_chat_stream",
         "agent:agent-a",
@@ -177,7 +177,7 @@ def test_build_run_context_merges_evaluation_metadata_and_tags(monkeypatch):
     assert run_context.metadata["feature"] == "agent_evaluation"
     assert run_context.metadata["evaluation"] == {"dataset_name": "agent-eval-smoke"}
     assert run_context.tags == [
-        "yuxi",
+        "zs",
         "chat",
         "agent_chat_stream",
         "agent:agent-a",

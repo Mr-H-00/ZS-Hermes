@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import yuxi.modules.workspace.services.projects as project_service
+import zs.modules.workspace.services.projects as project_service
 from test import live_api_cleanup as cleanup_module
 from test.live_api_cleanup import (
     delete_test_session_resources,
@@ -22,21 +22,21 @@ from test.live_api_cleanup import (
     validate_test_runs_terminal,
     validate_test_workdirs_exclusive,
 )
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun, AgentRunAttempt
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.turn import AgentTurnRepository
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.workspace.paths import ensure_bound_user_workdir, user_workdir_host_dir
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import ResourceNotFoundError
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun, AgentRunAttempt
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.turn import AgentTurnRepository
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
+from zs.modules.workspace.paths import ensure_bound_user_workdir, user_workdir_host_dir
+from zs.shared.datetime import utc_now
+from zs.shared.errors import ResourceNotFoundError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -50,7 +50,7 @@ async def _seed_thread(session_factory, *, thread_prefix: str) -> dict:
     receipt_id = f"cleanup-receipt-{uuid.uuid4()}"
     turn_id = f"cleanup-turn-{uuid.uuid4()}"
     run_id = str(uuid.uuid4())
-    workdir_path = f"projects/YUXI_TEST_cleanup-{uuid.uuid4()}"
+    workdir_path = f"projects/ZS_TEST_cleanup-{uuid.uuid4()}"
     async with session_factory() as db:
         db.add(User(username=uid, uid=uid, password_hash="test"))
         await db.flush()
@@ -81,7 +81,7 @@ async def _seed_thread(session_factory, *, thread_prefix: str) -> dict:
         )
         await receipt_repo.create(
             receipt_id=receipt_id,
-            idempotency_key=f"YUXI_TEST_cleanup-{uuid.uuid4()}",
+            idempotency_key=f"ZS_TEST_cleanup-{uuid.uuid4()}",
             uid=uid,
             app_id=None,
             thread_id=thread_id,
@@ -261,7 +261,7 @@ async def test_receipt_prefix_matching_treats_underscores_literally(postgres_ses
                 [
                     AgentInputReceipt(
                         id=receipt_ids[0],
-                        idempotency_key=f"YUXI_TEST_valid_{uuid.uuid4()}",
+                        idempotency_key=f"ZS_TEST_valid_{uuid.uuid4()}",
                         uid=uid,
                         app_id=None,
                         thread_id=valid_thread_id,
@@ -270,7 +270,7 @@ async def test_receipt_prefix_matching_treats_underscores_literally(postgres_ses
                     ),
                     AgentInputReceipt(
                         id=receipt_ids[1],
-                        idempotency_key=f"YUXI-TEST-ordinary-{uuid.uuid4()}",
+                        idempotency_key=f"ZS-TEST-ordinary-{uuid.uuid4()}",
                         uid=uid,
                         app_id=None,
                         thread_id=ordinary_thread_id,
@@ -584,7 +584,7 @@ async def test_resource_cleanup_reports_file_failure_after_database_commit(postg
 
     session_factory = postgres_sessions
     target = await _seed_thread(session_factory, thread_prefix="pytest-cleanup-file-failure")
-    workdir_path = f"projects/YUXI_TEST_failure-{uuid.uuid4()}"
+    workdir_path = f"projects/ZS_TEST_failure-{uuid.uuid4()}"
     async with session_factory() as db:
         agent_session = await db.get(Session, target["session_record_id"])
         project = await db.get(Project, target["project_id"])

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/api/routers/knowledge/management.py
+Owner：backend/zs/api/routers/knowledge/management.py
 
 ## 问题
 

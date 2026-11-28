@@ -60,6 +60,6 @@ Owner：frontend/src/modules/knowledge/model/knowledgeBase.js
 | 锁文件与 Python 格式 | `uv lock --project backend --offline --check`、Ruff 0.16.4 对改动 Python 文件的 `check` 和 `format --check`：Passed |
 | 工程与文档 | `python3 scripts/verify_engineering_contracts.py`、`python3 -m unittest scripts.test_verify_engineering_contracts`、`pnpm --dir docs run build`、`git diff --check`：Passed，verifier unit 66 passed |
 
-jscpd 5.4.1 精确扫描使用 `--min-tokens 80 --min-lines 8`，扫描 `backend/yuxi`、`frontend/src` 和 `packages/yuxi-cli/src`、`packages/agent-demo/src`，排除依赖、构建产物、测试及锁文件；同配置结果由 43 组、0.4% 变为 41 组、0.3%。独立 `--ignore-identifiers --min-tokens 120 --min-lines 10` 扫描得到 52 组候选，包含精确片段与重命名相似片段，不作为精确重复的前后指标。
+jscpd 5.4.1 精确扫描使用 `--min-tokens 80 --min-lines 8`，扫描 `backend/zs`、`frontend/src` 和 `packages/zs-cli/src`、`packages/agent-demo/src`，排除依赖、构建产物、测试及锁文件；同配置结果由 43 组、0.4% 变为 41 组、0.3%。独立 `--ignore-identifiers --min-tokens 120 --min-lines 10` 扫描得到 52 组候选，包含精确片段与重命名相似片段，不作为精确重复的前后指标。
 
 三名独立子智能体分别复核后端删除候选、前端消费者和累计完整 diff；保留项按实际消费者与风险裁定。真实 HTTP、PostgreSQL、worker、浏览器与外部供应商探针为 Not run；本轮证据证明内部等价清理及装配，不声称验证完整部署链路。

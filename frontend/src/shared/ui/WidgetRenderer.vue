@@ -1,5 +1,5 @@
 <template>
-  <div class="yuxi-widget">
+  <div class="zs-widget">
     <p v-if="!closed" class="widget-notice" role="status">组件生成中…</p>
     <div v-else-if="parsed.error" class="widget-error" role="alert">
       <p>无法展示组件：{{ parsed.error }}</p>
@@ -46,7 +46,7 @@
           </button>
         </div>
         <div class="widget-viewer-stage">
-          <div class="yuxi-widget widget-image-preview">
+          <div class="zs-widget widget-image-preview">
             <WidgetImage :key="preview.index" :node="previewNode" :previewable="false" />
           </div>
           <button
@@ -255,7 +255,7 @@ function confirmSent() {
   min-height: 0;
   padding: 0 84px;
 
-  .yuxi-widget.widget-image-preview {
+  .zs-widget.widget-image-preview {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -321,8 +321,8 @@ function confirmSent() {
   }
 }
 
-.yuxi-widget,
-.yk-markdown-preview .yuxi-widget {
+.zs-widget,
+.yk-markdown-preview .zs-widget {
   --widget-surface: var(--color-bg-container);
   --widget-field: var(--gray-25);
   --widget-hover: var(--gray-50);
@@ -736,7 +736,7 @@ function confirmSent() {
     }
   }
 }
-:root.dark .yuxi-widget {
+:root.dark .zs-widget {
   --widget-field: var(--gray-50);
   --widget-hover: var(--color-bg-elevated);
   --widget-border: var(--gray-150);

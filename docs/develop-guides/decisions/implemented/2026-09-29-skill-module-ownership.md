@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/extensions/skills/shared.py
+Owner：backend/zs/modules/extensions/skills/shared.py
 
 ## 问题
 

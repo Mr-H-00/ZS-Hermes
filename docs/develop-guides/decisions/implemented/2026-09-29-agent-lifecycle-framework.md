@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/agents/services/inputs.py
+Owner：backend/zs/modules/agents/services/inputs.py
 
 ## 问题
 
@@ -14,13 +14,13 @@ Owner：backend/yuxi/modules/agents/services/inputs.py
 
 Thread 是长期对话和调度隔离范围，Public Session 只在 HTTP 边界将名称映射到同一 Thread。每批消息规范化为有序的持久 Input；InputReceipt 保存接收序号、命令类型、意图摘要和作用域幂等键。排队 follow-up 尚无 Turn。调度器按 Thread 锁领取 FIFO 队头时，在同一事务创建 Turn、首段 pending Run，并固定 Input、Message 与 Run 归属。一个 Turn 可有多段 Run；工具循环不自行分段。
 
-[输入用例](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/inputs.py)负责校验、配置冻结、接收与回执；[调度器](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/scheduler.py)负责领取、steer 批次和提交后投递；[Turn 用例](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/turns.py)负责等待点、恢复、取消与最终结果；[Run 用例](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/runs.py)负责执行 owner、lease、终态和 checkpoint 收敛。PostgreSQL Schema 约束 Turn 的当前 Run、结果 Run 及 Input 的消费归属；查询从这些关系投影，不沿相邻 Run 猜测结果。顶层用例拥有提交；ARQ 投递、取消信号和目录物化只在 owning transaction 提交后发生，持久 pending Run（含子 Run）按原 Run ID 补投，子 Run 在自身 Turn 复核执行 ownership。
+[输入用例](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/inputs.py)负责校验、配置冻结、接收与回执；[调度器](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/scheduler.py)负责领取、steer 批次和提交后投递；[Turn 用例](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/turns.py)负责等待点、恢复、取消与最终结果；[Run 用例](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/runs.py)负责执行 owner、lease、终态和 checkpoint 收敛。PostgreSQL Schema 约束 Turn 的当前 Run、结果 Run 及 Input 的消费归属；查询从这些关系投影，不沿相邻 Run 猜测结果。顶层用例拥有提交；ARQ 投递、取消信号和目录物化只在 owning transaction 提交后发生，持久 pending Run（含子 Run）按原 Run ID 补投，子 Run 在自身 Turn 复核执行 ownership。
 
 输入优先级、Thread 级 steer 合批与暂停保留规则由[优先输入队列决策](2026-10-01-thread-priority-input-queue.md)接续。worker 在工具批次结果和 PostgreSQL checkpoint 已保存的安全边界将旧 Run 标记 yielded，再以同一 Turn 建立下一 Run；无 steer 的普通工具调用继续原 Run。等待点绑定 interrupted Run，普通消息在 waiting 期间被拒绝；结构化回答或审批一次性消费等待点并创建恢复 Run。取消暂停待消费队列；执行树与等待 checkpoint 清理完成前 Turn 保持 cancelling，checkpoint 清理中断后可沿已保存的取消标记重入。失败也暂停后续队列，用户显式继续才领取下一输入。
 
-[Public Thread 路由](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/public_v1/agents/threads.py)是 Agent 对话主协议，Web、CLI、定时任务和评估调用方使用它背后的同一领域用例。认证边界把 JWT 和未绑定 APP 的 full Key 映射到所属用户的产品作用域，绑定 APP 的 Key 则解析终端用户；repository 与产生文件副作用的边界再次核对作用域。Thread 只能归档，Project 删除先检查在途 Turn/Input，再归档其所有普通与子 Thread；删除 Agent 则拒绝仍有活跃 Turn、待处理 Input 或未清理 Run 的情况。Session 路由只调整路径、字段与事件名，不建立独立实体。
+[Public Thread 路由](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/public_v1/agents/threads.py)是 Agent 对话主协议，Web、CLI、定时任务和评估调用方使用它背后的同一领域用例。认证边界把 JWT 和未绑定 APP 的 full Key 映射到所属用户的产品作用域，绑定 APP 的 Key 则解析终端用户；repository 与产生文件副作用的边界再次核对作用域。Thread 只能归档，Project 删除先检查在途 Turn/Input，再归档其所有普通与子 Thread；删除 Agent 则拒绝仍有活跃 Turn、待处理 Input 或未清理 Run 的情况。Session 路由只调整路径、字段与事件名，不建立独立实体。
 
-[事件用例](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/subscriptions.py)以 Turn 为订阅范围，跨 Run 结合 Redis 短期事件和 PostgreSQL 快照恢复；最终状态、消息、输出和用量仍以持久事实为准。Langfuse 的根观察按 Turn 关联多段 Run，前端以 Turn 展示同一轮工作。独立的 Agent eval/Invocation 对话入口和 Request 业务状态机不再注册或存储；CLI 评估从 Dataset 读取样例后通过 Public Thread 执行。
+[事件用例](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/subscriptions.py)以 Turn 为订阅范围，跨 Run 结合 Redis 短期事件和 PostgreSQL 快照恢复；最终状态、消息、输出和用量仍以持久事实为准。Langfuse 的根观察按 Turn 关联多段 Run，前端以 Turn 展示同一轮工作。独立的 Agent eval/Invocation 对话入口和 Request 业务状态机不再注册或存储；CLI 评估从 Dataset 读取样例后通过 Public Thread 执行。
 
 ## 替代方案
 

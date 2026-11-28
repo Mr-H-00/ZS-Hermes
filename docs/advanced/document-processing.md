@@ -43,7 +43,7 @@ ZIP 优先选择名为 `full.md` 的文件，否则选择按路径排序的第�
 YUXI_URL_WHITELIST=github.com,docs.example.com,*.wikipedia.org
 ```
 
-配置的域名及其子域名可以通过校验，`*.example.com` 同样允许域本身和子域。抓取器逐跳验证重定向白名单，最多跟随 5 次重定向，只接受 HTML，响应体默认不超过 10 MiB。每次连接只解析一次 DNS，拒绝包含非公网地址或已知云元数据地址的解析结果，并连接同一组已校验 IP；DNS 失败或无可用地址时直接失败。生产部署仍需按业务配置网络出口限制，抓取边界由 [url_fetcher.py](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/utils/url_fetcher.py)拥有。
+配置的域名及其子域名可以通过校验，`*.example.com` 同样允许域本身和子域。抓取器逐跳验证重定向白名单，最多跟随 5 次重定向，只接受 HTML，响应体默认不超过 10 MiB。每次连接只解析一次 DNS，拒绝包含非公网地址或已知云元数据地址的解析结果，并连接同一组已校验 IP；DNS 失败或无可用地址时直接失败。生产部署仍需按业务配置网络出口限制，抓取边界由 [url_fetcher.py](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/utils/url_fetcher.py)拥有。
 
 导入弹窗逐条显示未启用、域名不允许、内容限制或抓取失败的中文原因。配置保存到现有 Options 存储，权限、优先级及缓存生效边界见[系统配置](./configuration.md#管理员系统配置)。进行中的抓取沿用开始时读取的列表；仅修改环境文件时仍需按[部署流程](./deployment.md)重建 API 容器。
 

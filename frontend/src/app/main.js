@@ -14,7 +14,7 @@ Spin.setDefaultIndicator({
   indicator: () =>
     h(
       'div',
-      { class: 'yuxi-loading', 'aria-hidden': 'true' },
+      { class: 'zs-loading', 'aria-hidden': 'true' },
       Array.from({ length: 5 }, () => h('div'))
     )
 })

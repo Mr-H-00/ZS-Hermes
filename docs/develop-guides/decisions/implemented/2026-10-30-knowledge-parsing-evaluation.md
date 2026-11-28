@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/knowledge/evaluation/service.py
+Owner：backend/zs/modules/knowledge/evaluation/service.py
 
 ## 问题
 

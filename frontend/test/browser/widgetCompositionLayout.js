@@ -63,7 +63,7 @@ async (page) => {
             const { nextTick } = await import(module.match(/from "([^"]*\/vue\.js[^"]*)"/)[1])
             await nextTick()
           }, key)
-          await page.waitForFunction(() => document.querySelector('#widget-composition-probe .yuxi-widget .widget-node'))
+          await page.waitForFunction(() => document.querySelector('#widget-composition-probe .zs-widget .widget-node'))
           const result = await page.evaluate(key => {
             const root = document.querySelector('#widget-composition-probe main')
             const check = (valid, message) => { if (!valid) errors.push(message) }
@@ -119,7 +119,7 @@ async (page) => {
           measurements.push({ theme, viewport, ...result })
           failures.push(...result.errors.map(error => `${theme}/${viewport}/${key}: ${error}`))
           if (viewport === 1024 && ['nested', 'columns', 'fixed', 'form', 'density'].includes(key)) {
-            await page.locator('#widget-composition-probe main').screenshot({ path: `/tmp/yuxi-widget-composition-${key}-${theme}.png` })
+            await page.locator('#widget-composition-probe main').screenshot({ path: `/tmp/zs-widget-composition-${key}-${theme}.png` })
           }
         }
       }

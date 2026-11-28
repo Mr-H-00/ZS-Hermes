@@ -26,8 +26,8 @@ from test.live_api_cleanup import (
     make_test_session_title,
 )
 from test.support.openai_replay_server import send_json_response, send_openai_sse_response, serve_replay_handler
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow]
 
@@ -221,7 +221,7 @@ async def test_main_agent_reads_personal_skill_from_web_or_standard_directory(
                                     "content": [{"type": "input_text", "text": "将个人 Skill 写入标准目录。"}],
                                 }
                             ],
-                            "yuxi": {"mode": "follow_up"},
+                            "zs": {"mode": "follow_up"},
                         }
                     ]
                 },
@@ -261,7 +261,7 @@ async def test_main_agent_reads_personal_skill_from_web_or_standard_directory(
                                 "content": [{"type": "input_text", "text": "请读取并返回 personal Skill marker。"}],
                             }
                         ],
-                        "yuxi": {"mode": "follow_up"},
+                        "zs": {"mode": "follow_up"},
                     }
                 ],
             },
@@ -274,7 +274,7 @@ async def test_main_agent_reads_personal_skill_from_web_or_standard_directory(
             """观察本 Run 的模型增量直到同一 Turn 终态。"""
             message_events = 0
             async for event in iter_public_thread_events(e2e_client, e2e_headers, thread_id):
-                if event.get("yuxi", {}).get("run_id") == run_id and event["type"] == "agent.session.turn.output_text.delta":
+                if event.get("zs", {}).get("run_id") == run_id and event["type"] == "agent.session.turn.output_text.delta":
                     message_events += 1
                 if event.get("turn_id") == turn_id and event["type"] in {
                     "agent.session.turn.completed",
@@ -292,9 +292,9 @@ async def test_main_agent_reads_personal_skill_from_web_or_standard_directory(
         if turn["status"] != "completed":
             skip_if_external_quota((turn.get("error") or {}).get("message"))
         assert turn["status"] == "completed", turn
-        assert turn["yuxi"]["result_run_id"] == run_id, turn
+        assert turn["zs"]["result_run_id"] == run_id, turn
 
-        assert marker in output_text(turn["yuxi"]["output"] or []), turn
+        assert marker in output_text(turn["zs"]["output"] or []), turn
 
         conn = await asyncpg.connect(postgres_dsn())
         try:

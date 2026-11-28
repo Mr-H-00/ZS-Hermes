@@ -53,8 +53,8 @@
 
 ## 源码和测试
 
-- [知识库路由](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/api/routers/knowledge/management.py)
-- [图谱服务](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/graphs/service.py)
-- [后台作业执行与故障收敛](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/workers/background_jobs.py)
+- [知识库路由](https://github.com/xerrors/Yuxi/blob/main/backend/zs/api/routers/knowledge/management.py)
+- [图谱服务](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/graphs/service.py)
+- [后台作业执行与故障收敛](https://github.com/xerrors/Yuxi/blob/main/backend/zs/workers/background_jobs.py)
 - [知识库 unit tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/knowledge)
 - [图谱和知识库 integration](https://github.com/xerrors/Yuxi/tree/main/backend/test/integration/api)

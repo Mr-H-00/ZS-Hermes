@@ -31,7 +31,7 @@ const settle = async () => {
 const item = (inputId, turnId, runId, role = 'user') => ({
   id: `item-${inputId}`, type: 'message', role, status: 'completed', turn_id: turnId,
   content: [{ type: role === 'user' ? 'input_text' : 'output_text', text: inputId }],
-  yuxi: { input_id: inputId, message_id: inputId, run_id: runId }
+  zs: { input_id: inputId, message_id: inputId, run_id: runId }
 })
 const consumed = (inputId, turnId, runId) => ({
   input_id: inputId, status: 'consumed', turn_id: turnId, run_id: runId,
@@ -48,13 +48,13 @@ function setup(t) {
   const subscriptions = []
   Object.assign(api, {
     getPublicThread: async () => ({
-      id: 'child', yuxi: { current_turn: { id: current.turnId, status: current.status } }
+      id: 'child', zs: { current_turn: { id: current.turnId, status: current.status } }
     }),
     getThreadTurn: async (_threadId, id) => ({
       id, status: current.status,
-      yuxi: { current_run_id: current.runId, runs: [], output: current.output }
+      zs: { current_run_id: current.runId, runs: [], output: current.output }
     }),
-    getSessionItems: async () => ({ data: current.output, has_more: false, yuxi: { runs: [] } }),
+    getSessionItems: async () => ({ data: current.output, has_more: false, zs: { runs: [] } }),
     getThreadQueue: async () => ({ inputs: [], status: 'ready', queue_paused: false }),
     getAgentState: async () => ({ agent_state: {}, interrupt: null }),
     streamThreadEvents: async (_thread, _cursor, { signal }) => {
@@ -114,7 +114,7 @@ test('旧 Input 的迟到消费事实不切回旧 Turn，也不终止新 SSE；�
   const output = item('live-result', 'new-turn', 'new-run', 'assistant')
   h.subscriptions[0].controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({
     type: 'agent.session.turn.item.done', event_id: 'current-output', session_id: 'child',
-    turn_id: 'new-turn', item: output, yuxi: { run_id: 'new-run' }
+    turn_id: 'new-turn', item: output, zs: { run_id: 'new-run' }
   })}\n\n`))
   await settle()
   assert.ok(h.runtime.threadMessages.child.some((message) => message.content === 'live-result'),
@@ -182,7 +182,7 @@ test('消费之后的恢复等较早在途详情结束，再读取当前持久 T
   api.getThreadInput = async () => consumed('latest-input', 'new-turn', 'new-run')
   h.runtime.startInputMonitor('child', 'latest-input')
   await settle()
-  old.resolve({ id: 'child', yuxi: { current_turn: null } })
+  old.resolve({ id: 'child', zs: { current_turn: null } })
   await restoring
   await settle()
   assert.equal(h.runtime.getThreadState('child').currentTurnId, 'new-turn')

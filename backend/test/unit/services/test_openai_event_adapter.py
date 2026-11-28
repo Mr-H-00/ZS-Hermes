@@ -12,9 +12,9 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from test.support.agent_stream_fixtures import native
-from yuxi.modules.agents.services.openai_events import OpenAIEventAdapter
-from yuxi.modules.agents.services.message_recorder import tool_event_output
-from yuxi.modules.agents.tool_results import normalize_tool_result
+from zs.modules.agents.services.openai_events import OpenAIEventAdapter
+from zs.modules.agents.services.message_recorder import tool_event_output
+from zs.modules.agents.tool_results import normalize_tool_result
 
 SCHEMA = json.loads((Path(__file__).parents[2] / "support/openai_agents_events.schema.json").read_text())
 
@@ -36,12 +36,12 @@ def adapter(monkeypatch):
 
     async def save(operation, role, key, item, content_index=None):
         identity = f"{operation}:{role}:{key}"
-        index = saved.get(identity, {}).get("yuxi", {}).get("output_index", len(saved))
+        index = saved.get(identity, {}).get("zs", {}).get("output_index", len(saved))
         result = {
             **deepcopy(item),
             "id": identity,
             "turn_id": "turn",
-            "yuxi": {**item.get("yuxi", {}), "output_index": index, "run_id": "run", "message_id": operation},
+            "zs": {**item.get("zs", {}), "output_index": index, "run_id": "run", "message_id": operation},
         }
         saved[identity] = result
         return deepcopy(result)
@@ -51,7 +51,7 @@ def adapter(monkeypatch):
 
 
 async def collect(adapter, events):
-    """独立 schema 严格验证每个标准事件，扩展明确使用 yuxi 名称。"""
+    """独立 schema 严格验证每个标准事件，扩展明确使用 zs 名称。"""
     output = []
     for event in events:
         if event["method"] == "tools" and event["params"]["data"].get("event") == "tool-finished":
@@ -69,7 +69,7 @@ async def collect(adapter, events):
             if value["type"].startswith("agent."):
                 jsonschema.validate(value, SCHEMA)
             else:
-                assert value["type"].startswith("yuxi.")
+                assert value["type"].startswith("zs.")
         output.extend(batch)
     return output
 
@@ -101,12 +101,12 @@ async def test_multiple_blocks_done_replaces_full_text_and_reasoning_is_extensio
     assert [(event["content_index"], event["text"]) for event in done] == [(0, "whole"), (1, "second")]
     assert done[0]["item_id"] == done[1]["item_id"]
     assert len({event["event_id"] for event in output}) == len(output)
-    assert any(event["type"] == "yuxi.session.turn.reasoning.done" and event["text"] == "raw full" for event in output)
+    assert any(event["type"] == "zs.session.turn.reasoning.done" and event["text"] == "raw full" for event in output)
     assert not any("summary" in event["type"] for event in output)
-    assert all("source" not in value["yuxi"] for value in output)
+    assert all("source" not in value["zs"] for value in output)
     item = next(iter(adapter.models.values()))["item"]
-    assert item["yuxi"]["completed_content_indices"] == [0, 1]
-    assert item["yuxi"]["completed_reasoning_indices"] == [0]
+    assert item["zs"]["completed_content_indices"] == [0, 1]
+    assert item["zs"]["completed_reasoning_indices"] == [0]
 
 
 @pytest.mark.asyncio
@@ -236,7 +236,7 @@ async def test_rejected_message_finish_keeps_displayed_text_available_for_cancel
 )
 def test_turn_lifecycle_events_keep_required_protocol_fields(name, status):
     """普通 Session 的标准 Turn 事件保留官方 nullable 字段。"""
-    from yuxi.modules.agents.services import subscriptions as events
+    from zs.modules.agents.services import subscriptions as events
 
     now = datetime(2026, 10, 7, tzinfo=UTC)
     run = SimpleNamespace(

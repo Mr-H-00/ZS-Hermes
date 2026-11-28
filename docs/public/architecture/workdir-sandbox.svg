@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="520" viewBox="0 0 1400 520" role="img" aria-labelledby="title desc">
-  <title id="title">Yuxi Workdir and sandbox boundary</title>
+  <title id="title">ZS Workdir and sandbox boundary</title>
   <desc id="desc">Project workdir data is owned by UserWorkspace while shared skills are a separate read-only projection into a dynamic sandbox runtime.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#52616b"/></marker>

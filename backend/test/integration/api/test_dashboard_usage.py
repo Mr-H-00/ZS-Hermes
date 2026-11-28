@@ -8,16 +8,16 @@ from fastapi import FastAPI
 from sqlalchemy import update
 
 from test.integration.support.module_audit import isolated_audit_store, serve_http
-from yuxi.api.routers.dashboard import dashboard
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.identity.models import Department, User
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.system.repositories import dashboard as dashboard_repository
-from yuxi.modules.workspace.models import Project
+from zs.api.routers.dashboard import dashboard
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.identity.models import Department, User
+from zs.modules.identity.security import AuthUtils
+from zs.modules.system.repositories import dashboard as dashboard_repository
+from zs.modules.workspace.models import Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

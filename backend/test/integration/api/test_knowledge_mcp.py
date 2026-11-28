@@ -6,10 +6,10 @@ import uuid
 import pytest
 import pytest_asyncio
 
-from yuxi.infrastructure.minio import get_minio_client
-from yuxi.infrastructure.minio.client import MinIOClient
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.knowledge.models import KnowledgeFile
+from zs.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio.client import MinIOClient
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.knowledge.models import KnowledgeFile
 
 # 所有资源由下方及公共 fixture 创建回收；MCP 不创建 Session，无需扫描共享工作目录。
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
@@ -136,7 +136,7 @@ async def test_mcp_real_auth_rejects_agents_invalid_and_revoked_keys(test_client
     key = await api_key_factory({"request_id": str(uuid.uuid4()), "name": "MCP revoke test", "access_level": "knowledge"})
     response = await test_client.post("/api/mcp", headers={**key.headers, **accept}, json=body)
     assert response.status_code == 200
-    assert response.json()["result"]["serverInfo"]["name"] == "Yuxi Knowledge"
+    assert response.json()["result"]["serverInfo"]["name"] == "ZS Knowledge"
     deleted = await test_client.delete(f"/api/user/apikey/{key.key_id}", headers=admin_headers)
     assert deleted.status_code == 200
     response = await test_client.post(

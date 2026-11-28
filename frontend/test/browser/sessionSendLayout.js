@@ -68,7 +68,7 @@ async function verifySessionSendLayout(page, {
     const status = await page.evaluate(async (path) => {
       const response = await fetch(path, { headers: { Authorization: `Bearer ${localStorage.getItem('user_token')}` } })
       const session = await response.json()
-      return session.yuxi?.current_turn?.status
+      return session.zs?.current_turn?.status
     }, sessionPath)
     if (['completed', 'failed', 'cancelled'].includes(status)) break
     await page.waitForTimeout(200)
@@ -80,10 +80,10 @@ async function verifySessionSendLayout(page, {
     cancelAnimationFrame(state.raf)
     const headers = { Authorization: `Bearer ${localStorage.getItem('user_token')}` }
     const session = await (await fetch(path, { headers })).json()
-    const turn = await (await fetch(`${path}/turns/${session.yuxi.current_turn.id}`, { headers })).json()
+    const turn = await (await fetch(`${path}/turns/${session.zs.current_turn.id}`, { headers })).json()
     const items = await (await fetch(`${path}/turns/${turn.id}/items`, { headers })).json()
-    const run = turn.yuxi.runs.find((run) => run.id === turn.yuxi.result_run_id)
-    const output = items.data.filter((item) => item.role === 'assistant' && item.yuxi?.run_id === run?.id)
+    const run = turn.zs.runs.find((run) => run.id === turn.zs.result_run_id)
+    const output = items.data.filter((item) => item.role === 'assistant' && item.zs?.run_id === run?.id)
     return {
       frames: state.frames, presentationFrames: state.presentationFrames,
       violations: state.violations, firstHuman: state.firstHuman,

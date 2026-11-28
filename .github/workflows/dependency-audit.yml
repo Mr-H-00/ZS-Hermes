@@ -10,8 +10,8 @@ on:
       - "Makefile"
       - "backend/pyproject.toml"
       - "backend/uv.lock"
-      - "packages/yuxi-cli/package.json"
-      - "packages/yuxi-cli/package-lock.json"
+      - "packages/zs-cli/package.json"
+      - "packages/zs-cli/package-lock.json"
       - "frontend/package.json"
       - "frontend/pnpm-lock.yaml"
       - "frontend/pnpm-workspace.yaml"
@@ -70,7 +70,7 @@ jobs:
             package-manager: pnpm
           - project: docs
             package-manager: pnpm
-          - project: packages/yuxi-cli
+          - project: packages/zs-cli
             package-manager: npm
     steps:
       - uses: actions/checkout@v7

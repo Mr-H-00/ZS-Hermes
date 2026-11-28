@@ -6,8 +6,8 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from yuxi.modules.knowledge.graphs.extractors import GraphExtractorFactory, LLMGraphExtractor
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.graphs.extractors import GraphExtractorFactory, LLMGraphExtractor
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
 
 pytestmark = pytest.mark.usefixtures("milvus_graph_projection_lock")
 
@@ -51,7 +51,7 @@ async def test_llm_graph_extractor_passes_resolved_timeout_to_model(
         captured.update(kwargs)
         return FakeModel()
 
-    monkeypatch.setattr("yuxi.modules.knowledge.graphs.extractors.llm.select_model", fake_select_model)
+    monkeypatch.setattr("zs.modules.knowledge.graphs.extractors.llm.select_model", fake_select_model)
     extractor = LLMGraphExtractor({"model_spec": "test/model", **timeout_options})
 
     await extractor.extract(text)
@@ -177,7 +177,7 @@ async def test_graph_extraction_retries_twice_before_third_attempt_succeeds(monk
     )
     service = KnowledgeGraphService(chunk_repo=chunk_repo)
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.graphs.service.GRAPH_EXTRACTION_RETRY_DELAYS_SECONDS",
+        "zs.modules.knowledge.graphs.service.GRAPH_EXTRACTION_RETRY_DELAYS_SECONDS",
         (0, 0),
     )
 

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.agents.services.message_audits as messages
-from yuxi.modules.agents.scope import ActorScope
+import zs.modules.agents.services.message_audits as messages
+from zs.modules.agents.scope import ActorScope
 
 
 @pytest.mark.asyncio
@@ -53,7 +53,7 @@ async def test_get_thread_message_audits_view_serializes_model_and_tool_facts(mo
             "namespace": [],
             "tool_call_id": "call-1",
             "tool_name": "search",
-            "input": {"q": "Yuxi"},
+            "input": {"q": "ZS"},
             "output": {"type": "tool", "content": "查询结果", "status": "success"},
             "error_message": None,
             "source_model_operation_id": "model-1",
@@ -173,7 +173,7 @@ async def test_get_thread_message_audits_view_serializes_model_and_tool_facts(mo
         "tool_call_id": "call-1",
         "source": None,
         "tool_name": "search",
-        "tool_input": {"q": "Yuxi"},
+        "tool_input": {"q": "ZS"},
         "tool_output": {"type": "tool", "content": "查询结果", "status": "success"},
         "error_message": None,
         "source_model_operation_id": "model-1",

@@ -14,7 +14,7 @@ Chart 的 xAxis 容易被理解为坐标轴类型，而实际协议要求它引�
 
 前端解析器保持现有接受范围，按 series 和 data 的实际失败位置报告条目、字段与原因。缺失横轴或系列字段优先于额外字段诊断；只有超过记录数上限才显示 60 条限制。
 
-内置 `backend/yuxi/modules/extensions/skills/builtin/chat-widgets/SKILL.md` 拥有模型可见说明：xAxis 与 series.dataKey 是数据列名引用；先确定数据列名，再填写引用，输出前逐条核对字段存在、类型和字段集合。现有分类模板使用 activity 数据列，消除 category 看起来像固定轴类型的歧义。采用通用字段契约，不追加领域示例或猜测映射。
+内置 `backend/zs/modules/extensions/skills/builtin/chat-widgets/SKILL.md` 拥有模型可见说明：xAxis 与 series.dataKey 是数据列名引用；先确定数据列名，再填写引用，输出前逐条核对字段存在、类型和字段集合。现有分类模板使用 activity 数据列，消除 category 看起来像固定轴类型的歧义。采用通用字段契约，不追加领域示例或猜测映射。
 
 ## 替代方案
 

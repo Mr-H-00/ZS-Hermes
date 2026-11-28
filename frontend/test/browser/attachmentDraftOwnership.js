@@ -19,7 +19,7 @@ async function attachmentDraftOwnership(page) {
     agent: { id: agentId },
     created_at: 1791580000,
     metadata: {},
-    yuxi: {
+    zs: {
       title: `附件会话 ${index + 1}`,
       current_turn: null,
       context: {},
@@ -66,7 +66,7 @@ async function attachmentDraftOwnership(page) {
       else if (path === `/api/agent/${agentId}`) json = agent
       else if (path === '/api/v1/agents/sessions')
         json = { data: raw.includes('is_pinned=true') ? [] : sessions, has_more: false }
-      else if (path.endsWith('/items')) json = { data: [], has_more: false, yuxi: { runs: [] } }
+      else if (path.endsWith('/items')) json = { data: [], has_more: false, zs: { runs: [] } }
       else if (path.endsWith('/state')) json = { agent_state: {}, interrupt: null }
       else if (path.endsWith('/queue')) json = { inputs: [], status: 'ready' }
       else if (path.endsWith('/cooperation')) json = { sessions: [], members: [], edges: [] }
@@ -134,12 +134,12 @@ async function attachmentDraftOwnership(page) {
       .getByText('附件会话 1', { exact: true })
       .waitFor()
     await probe.locator('.attachment-file-card').getByText('from-a.txt', { exact: true }).waitFor()
-    await probe.screenshot({ path: '/tmp/yuxi-attachment-draft-owner.png' })
+    await probe.screenshot({ path: '/tmp/zs-attachment-draft-owner.png' })
     await probe.getByRole('button', { name: '折叠侧边栏', exact: true }).click()
     await probe.evaluate(() => document.documentElement.classList.add('dark'))
     await probe.setViewportSize({ width: 390, height: 844 })
     await probe.waitForTimeout(350)
-    await probe.screenshot({ path: '/tmp/yuxi-attachment-draft-owner-dark.png' })
+    await probe.screenshot({ path: '/tmp/zs-attachment-draft-owner-dark.png' })
     return { originalDraftRetained: true, otherDraftUntouched: true, delayedUpload: true }
   } finally {
     releaseUpload()

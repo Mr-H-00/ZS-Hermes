@@ -1,6 +1,6 @@
 import pytest
 
-from yuxi.modules.knowledge.evaluation.metrics import EvaluationMetricsCalculator
+from zs.modules.knowledge.evaluation.metrics import EvaluationMetricsCalculator
 
 
 def test_retrieval_metrics_use_metadata_chunk_id():

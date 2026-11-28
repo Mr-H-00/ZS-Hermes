@@ -1,5 +1,5 @@
 export const TOOL_APPROVAL_MODES = ['default', 'always_trust']
-export const TOOL_APPROVAL_MODE_STORAGE_KEY = 'yuxi_tool_approval_mode'
+export const TOOL_APPROVAL_MODE_STORAGE_KEY = 'zs_tool_approval_mode'
 export const DEFAULT_TOOL_APPROVAL_MODE = 'always_trust'
 
 export const isToolApprovalMode = (value) => TOOL_APPROVAL_MODES.includes(value)

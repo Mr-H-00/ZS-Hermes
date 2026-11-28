@@ -7,7 +7,7 @@ import lorelei from '@dicebear/styles/lorelei.json' with { type: 'json' }
 import notionists from '@dicebear/styles/notionists.json' with { type: 'json' }
 import { presets, paletteOptions } from './presets.js'
 
-export const defaultStyles = { user: 'notionists', agent: 'lorelei', session: 'gaze' }
+export const defaultStyles = { user: 'lorelei', agent: 'shape-grid', session: 'gaze' }
 
 const definitions = new Map(
   Object.entries({ glyphs, clay, 'shape-grid': shapeGrid, gaze, lorelei, notionists }).map(

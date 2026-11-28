@@ -13,7 +13,7 @@ const stats = computed(() => agentPanelRef.value?.stats || {})
 
 <template>
   <div class="agent-manage-view">
-    <PageHeader title="智能体管理" :loading="loading" :show-border="true">
+    <PageHeader title="智能体" :loading="loading" :show-border="true">
       <template #info>
         <div class="summary-strip">
           <span>{{ stats.total || 0 }} 个智能体</span>

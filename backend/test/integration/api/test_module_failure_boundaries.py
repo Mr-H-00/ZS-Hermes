@@ -11,7 +11,7 @@ import asyncpg
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.extensions.mcp.service import delete_mcp_server
+from zs.modules.extensions.mcp.service import delete_mcp_server
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -288,8 +288,8 @@ async def test_null_knowledge_permission_does_not_become_global(test_client, adm
         assert kb_id not in {item["kb_id"] for item in response.json()["knowledge_bases"]}
         response = await test_client.get(f"/api/knowledge/knowledge-bases/{kb_id}", headers=standard_user["headers"])
         assert response.status_code == 403, response.text
-        from yuxi.infrastructure.postgres.manager import pg_manager
-        from yuxi.modules.knowledge.runtime import knowledge_base
+        from zs.infrastructure.postgres.manager import pg_manager
+        from zs.modules.knowledge.runtime import knowledge_base
 
         try:
             assert await knowledge_base.get_accessible_knowledge_base_info_by_uid(standard_user["user"]["uid"], kb_id) is None

@@ -11,11 +11,11 @@ import asyncpg
 import pytest
 from PIL import Image
 
-from yuxi.api.routers.public_v1.agents.schemas import InputMessage, input_messages_to_domain
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services.inputs import accept_message
+from zs.api.routers.public_v1.agents.schemas import InputMessage, input_messages_to_domain
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services.inputs import accept_message
 from test.e2e.e2e_helpers import archive_public_thread, delete_agent, postgres_dsn
 from test.e2e.e2e_helpers import (
     DETERMINISTIC_OUTPUT as OUTPUT,
@@ -32,11 +32,11 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mar
 
 def _consume_and_exit(thread_id, claim_lease):
     """在独立进程提交真实消费事务后退出，故意不投递或释放执行租约。"""
-    from yuxi.infrastructure.postgres.models import load_models
-    from yuxi.infrastructure.postgres.manager import pg_manager
-    from yuxi.modules.agents.repositories.runs import AgentRunRepository
-    from yuxi.modules.agents.repositories.sessions import SessionRepository
-    from yuxi.modules.agents.services.scheduler import claim_next_input
+    from zs.infrastructure.postgres.models import load_models
+    from zs.infrastructure.postgres.manager import pg_manager
+    from zs.modules.agents.repositories.runs import AgentRunRepository
+    from zs.modules.agents.repositories.sessions import SessionRepository
+    from zs.modules.agents.services.scheduler import claim_next_input
 
     async def consume():
         """使进程丢失发生在事务提交之后，而非模拟数据库回滚。"""
@@ -154,23 +154,23 @@ async def test_process_loss_preserves_consumed_projection(e2e_client, e2e_header
                     headers=e2e_headers,
                 )
                 items = snapshot.json()["items"]
-                assert not items[0]["yuxi"].get("attachments")
+                assert not items[0]["zs"].get("attachments")
                 assert items[0]["content"][1]["type"] == "input_image"
                 assert items[0]["content"][1]["image_url"].startswith("data:image/png;base64,")
-                assert [file["file_id"] for file in items[1]["yuxi"]["attachments"]] == [file_id]
+                assert [file["file_id"] for file in items[1]["zs"]["attachments"]] == [file_id]
 
         # 恢复本身按 30 秒周期触发，不能复用普通执行的 30 秒总等待。
         turn = await wait_for_terminal_turn(e2e_client, e2e_headers, thread_id, turn_id, timeout=90)
         if claim_lease:
             assert turn["status"] == "failed", turn
-            assert turn["yuxi"]["result_run_id"] is None
+            assert turn["zs"]["result_run_id"] is None
             assert await conn.fetchval("SELECT error_type FROM agent_runs WHERE id=$1", run_id) == "worker_lease_expired"
             assert await conn.fetchval("SELECT count(*) FROM agent_inputs WHERE thread_id=$1 AND status='pending'", thread_id) == 0
             assert not await conn.fetchval("SELECT queue_paused FROM sessions WHERE thread_id=$1", thread_id)
         else:
             assert turn["status"] == "completed", turn
-            assert turn["yuxi"]["result_run_id"] == run_id
-            assert output_text(turn["yuxi"]["output"]) == OUTPUT
+            assert turn["zs"]["result_run_id"] == run_id
+            assert output_text(turn["zs"]["output"]) == OUTPUT
         assert await conn.fetch("SELECT * FROM agent_inputs WHERE id=ANY($1::varchar[]) ORDER BY received_seq", input_ids) == consumed
         assert (
             await conn.fetch(

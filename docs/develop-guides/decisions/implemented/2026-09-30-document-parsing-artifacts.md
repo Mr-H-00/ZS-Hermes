@@ -2,9 +2,9 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/infrastructure/document_parsing/parser.py
+Owner：backend/zs/infrastructure/document_parsing/parser.py
 
-实现位置更新：跨域配置汇总现由 `backend/yuxi/bootstrap/options.py` 拥有，见 [2026-10-21 后端边界收敛](./2026-10-21-backend-boundary-and-provider-catalog.md)。本记录保留当次解析边界与证据。
+实现位置更新：跨域配置汇总现由 `backend/zs/bootstrap/options.py` 拥有，见 [2026-10-21 后端边界收敛](./2026-10-21-backend-boundary-and-provider-catalog.md)。本记录保留当次解析边界与证据。
 
 ## 问题
 

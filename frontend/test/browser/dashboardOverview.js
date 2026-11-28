@@ -212,8 +212,8 @@ async page => {
         if (width === 1440 || width === 768) {
           await page.locator('.stats-overview-container').scrollIntoViewIfNeeded()
           await page.waitForTimeout(1000)
-          await page.screenshot({ path: `/tmp/yuxi-agent-range-${theme}-${width}.png` })
-          await page.locator('.conversation-agents').screenshot({path:`/tmp/yuxi-agent-distribution-${theme}-${width}.png`})
+          await page.screenshot({ path: `/tmp/zs-agent-range-${theme}-${width}.png` })
+          await page.locator('.conversation-agents').screenshot({path:`/tmp/zs-agent-distribution-${theme}-${width}.png`})
         }
       }
     }

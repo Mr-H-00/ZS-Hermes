@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/migrations/main.py
+Owner：backend/zs/migrations/main.py
 
 ## 问题
 

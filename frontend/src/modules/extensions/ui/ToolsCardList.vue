@@ -17,7 +17,7 @@
       <template #actions>
         <a-tooltip title="刷新工具" placement="bottom">
           <a-button
-            class="yuxi-refresh-button lucide-icon-btn"
+            class="zs-refresh-button lucide-icon-btn"
             aria-label="刷新工具"
             :disabled="loading"
             @click="fetchTools"

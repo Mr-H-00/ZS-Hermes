@@ -88,7 +88,7 @@ test('普通会话在目录为空时采用已授权详情的名称、模型与�
     config_json: { context: { model: 'provider:detail', system_prompt: '详情配置' } },
     configurable_items: {}
   }
-  state.currentThread.value = { id: 'thread', agent: { id: 'agent' }, yuxi: {} }
+  state.currentThread.value = { id: 'thread', agent: { id: 'agent' }, zs: {} }
   assert.equal(state.currentAgentName.value, '已授权智能体')
   assert.equal(state.currentModelSpec.value, 'provider:detail')
   assert.equal(state.agentConfig.value.system_prompt, '详情配置')

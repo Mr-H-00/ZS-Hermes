@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/sandbox_runner/manager.py
+Owner：backend/zs/sandbox_runner/manager.py
 
 ## 问题
 

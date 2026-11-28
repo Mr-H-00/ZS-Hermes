@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/schedules/repository.py
+Owner：backend/zs/modules/schedules/repository.py
 
 ## 问题
 

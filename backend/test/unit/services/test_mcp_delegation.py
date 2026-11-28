@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 
-from yuxi.modules.knowledge.mcp import client
-from yuxi.modules.extensions.mcp import runtime
+from zs.modules.knowledge.mcp import client
+from zs.modules.extensions.mcp import runtime
 
 pytestmark = pytest.mark.asyncio
 

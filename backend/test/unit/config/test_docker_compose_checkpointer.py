@@ -13,7 +13,7 @@ def test_compose_does_not_expose_checkpoint_backend_or_local_storage(filename):
     """LangGraph checkpoint 固定使用 PostgreSQL，不保留本地后端配置面。"""
     compose = load_compose(filename)
     assert "LANGGRAPH_CHECKPOINTER_BACKEND" not in compose["x-api-worker-env"]
-    assert "YUXI_CHECKPOINT_DIR" not in compose["x-api-worker-env"]
+    assert "ZS_CHECKPOINT_DIR" not in compose["x-api-worker-env"]
 
 
 @pytest.mark.parametrize("filename", ["docker-compose.yml", "docker-compose.prod.yml"])
@@ -115,7 +115,7 @@ def test_worker_healthcheck_uses_arq_health_contract_in_development_and_producti
         "CMD",
         "python",
         "-m",
-        "yuxi.workers.health",
+        "zs.workers.health",
     ]
 
 
@@ -123,7 +123,7 @@ def test_worker_healthcheck_uses_arq_health_contract_in_development_and_producti
 def test_worker_starts_owned_entrypoint_in_development_and_production(filename):
     """正式部署必须进入拥有本地任务过滤的 Worker 入口。"""
     compose = load_compose(filename)
-    assert "python -m yuxi.workers.main" in compose["services"]["worker"]["command"]
+    assert "python -m zs.workers.main" in compose["services"]["worker"]["command"]
 
 
 def test_arq_dependency_changes_trigger_real_dispatch_regression():

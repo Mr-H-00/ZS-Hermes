@@ -10,15 +10,15 @@ from neo4j import GraphDatabase
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.api.dependencies.knowledge import require_knowledge_base_read
-from yuxi.api.routers.knowledge import evaluation as evaluation_router
-from yuxi.api.routers.knowledge import graphs as graph_router
-from yuxi.modules.background_jobs import repository as job_repository
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.modules.knowledge.models import EvaluationDataset, EvaluationDatasetItem, EvaluationRun, EvaluationRunItem, KnowledgeBase
-from yuxi.modules.knowledge.repositories import evaluation as evaluation_repository
-from yuxi.modules.knowledge.repositories.evaluation import EvaluationRepository, finish_dataset_generation_job
+from zs.api.dependencies.knowledge import require_knowledge_base_read
+from zs.api.routers.knowledge import evaluation as evaluation_router
+from zs.api.routers.knowledge import graphs as graph_router
+from zs.modules.background_jobs import repository as job_repository
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.models import EvaluationDataset, EvaluationDatasetItem, EvaluationRun, EvaluationRunItem, KnowledgeBase
+from zs.modules.knowledge.repositories import evaluation as evaluation_repository
+from zs.modules.knowledge.repositories.evaluation import EvaluationRepository, finish_dataset_generation_job
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

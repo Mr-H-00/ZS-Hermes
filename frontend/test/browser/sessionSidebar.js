@@ -9,14 +9,14 @@ async page => {
   const project = { id: 'sidebar-project', name: '知识探索与长期研究项目', status: 'active', selection_status: 'selectable' }
   const sessions = Array.from({ length: 32 }, (_, index) => ({
     id: `sidebar-session-${index}`, object: 'agent.session', agent: { id: agent.agent_id, model: 'test:chat' }, metadata: {}, status: 'completed', created_at: 1792700000 - index, last_active_at: 1792700000 - index,
-    yuxi: { title: index === 0 ? '调研浏览器智能体强化学习与长名称展示' : `研究对话 ${index + 1}`, project_id: index < 3 ? project.id : null, is_pinned: false, unread: false, context: {}, config: {}, current_turn: null }
+    zs: { title: index === 0 ? '调研浏览器智能体强化学习与长名称展示' : `研究对话 ${index + 1}`, project_id: index < 3 ? project.id : null, is_pinned: false, unread: false, context: {}, config: {}, current_turn: null }
   }))
   let userId = 1
   let unavailableStatus = null
   let cachedUnavailableStatus = null
   let sessionReads = 0
   let sessionCreates = 0
-  await page.route('https://api.github.com/repos/xerrors/Yuxi', route => route.fulfill({ json: { stargazers_count: 12345 } }))
+  await page.route('https://api.github.com/repos/Mr-H-00/ZS-Hermes', route => route.fulfill({ json: { stargazers_count: 12345 } }))
   await page.route('**/api/**', async route => {
     const url = route.request().url()
     const path = url.split('?')[0].replace(origin, '')
@@ -42,8 +42,8 @@ async page => {
       if (resource === '' || resource === 'viewed') json = session
       if (resource === 'items') json = {
         data: [{ id: `message-${session.id}`, object: 'agent.session.item', type: 'message', role: 'user', status: 'completed', turn_id: `turn-${session.id}`,
-          content: [{ type: 'input_text', text: `历史消息 ${session.id}` }], yuxi: { message_id: `message-${session.id}`, run_id: `run-${session.id}`, created_at: '2026-10-23T00:00:00Z' } }],
-        has_more: false, last_id: `message-${session.id}`, yuxi: { runs: [] }
+          content: [{ type: 'input_text', text: `历史消息 ${session.id}` }], zs: { message_id: `message-${session.id}`, run_id: `run-${session.id}`, created_at: '2026-10-23T00:00:00Z' } }],
+        has_more: false, last_id: `message-${session.id}`, zs: { runs: [] }
       }
       if (resource === 'state') json = { agent_state: {}, interrupt: null }
       if (resource === 'queue') json = { inputs: [], status: 'completed', queue_paused: false }
@@ -90,7 +90,7 @@ async page => {
   const main = page.locator('#app-router-view')
   await panel.getByText(project.name, { exact: true }).waitFor()
   await panel.locator('.project-toggle').click()
-  await panel.getByText(sessions[0].yuxi.title, { exact: true }).waitFor()
+  await panel.getByText(sessions[0].zs.title, { exact: true }).waitFor()
   await checkMaskSurface()
   await page.evaluate(() => { window.__sidebarOriginal = document.querySelector('.sidebar-sessions') })
   const brandStyle = await page.locator('.sidebar-brand .brand-name').evaluate(el => {
@@ -104,41 +104,20 @@ async page => {
   const headerSpacing = await page.locator('.sidebar-brand').evaluate(readHeaderSpacing)
   headerSpacing[1] = '10px'
   headerSpacing[2] = '10px'
-  check(await page.locator('.nav').getByRole('link', { name: '对话', exact: true }).getAttribute('href') === '/agent', '未选择线程时对话入口应进入空白编辑页')
-  const newChatIcon = page.locator('.primary-new-chat')
+  const conversationEntry = page.locator('.nav a[href="/agent"]')
+  const dashboardEntry = page.locator('.nav a[href="/dashboard"]')
+  check(await dashboardEntry.evaluate(el => el.nextElementSibling?.getAttribute('href') === '/agent'), '驾驶舱入口应位于会话入口上方')
+  await dashboardEntry.click()
+  await page.waitForURL(origin + '/dashboard')
+  await conversationEntry.click()
+  await page.waitForURL(origin + '/agent')
   check(await page.locator('.header .session-panel-new-chat').count() === 0, 'AppLayout不能重复展示整行新建对话')
-  check(await newChatIcon.innerText() === '', '对话右侧仅展示新建图标')
-  check(await newChatIcon.evaluate(el => el.parentElement === document.querySelector('.primary-nav-row') && !el.closest('.nav-item')), '新建图标与返回对话入口必须是独立链接')
-  await page.locator('.primary-nav-row > .nav-item').click()
-  await page.mouse.move(1200, 400)
-  check(await newChatIcon.evaluate(el => getComputedStyle(el).opacity === '0'), '鼠标点击后移出整行也应隐藏，不能因点击焦点残留而常驻')
-  for (const theme of ['light', 'dark']) {
-    await page.evaluate(async value => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme(value) }, theme)
-    await page.mouse.move(1200, 400)
-    await page.waitForTimeout(180)
-    check(await newChatIcon.evaluate(el => getComputedStyle(el).opacity === '0' && getComputedStyle(el).pointerEvents === 'none'), '鼠标移出对话行后新建图标默认隐藏且不拦截点击')
-    const initialStyle = await newChatIcon.evaluate(el => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }))
-    await page.locator('.primary-nav-row > .nav-item').hover()
-    check(await newChatIcon.evaluate(el => getComputedStyle(el).opacity === '1' && getComputedStyle(el).pointerEvents === 'auto'), '悬停对话行任意位置应显示新建图标')
-    await newChatIcon.hover()
-    await page.waitForTimeout(180)
-    const hoverStyle = await newChatIcon.evaluate(el => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }))
-    check(initialStyle.background === 'rgba(0, 0, 0, 0)' && hoverStyle.background === initialStyle.background, '新建图标默认和悬停均不得有背景')
-    check(initialStyle.color !== hoverStyle.color, '悬停新建图标应强化颜色')
-  }
-  await page.evaluate(async () => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme('light') })
-  await page.mouse.move(1200, 400)
-  await page.getByRole('button', { name: '折叠侧边栏', exact: true }).focus()
-  await page.keyboard.press('Tab')
-  check(await newChatIcon.evaluate(el => getComputedStyle(el).opacity === '1'), '键盘聚焦对话行时应显示新建入口')
-  await page.keyboard.press('Tab')
-  await page.keyboard.press('Tab')
-  check(await newChatIcon.evaluate(el => el === document.activeElement && getComputedStyle(el).opacity === '1'), 'Tab应能聚焦并显示新建入口')
+  await conversationEntry.hover()
+  check(await page.locator('.nav [aria-label="新建对话"]').count() === 0, '会话入口无需附带新建按钮')
   const before = await main.boundingBox()
   await page.getByRole('button', { name: '折叠侧边栏', exact: true }).click()
   await panel.waitFor({ state: 'hidden' })
   check(Math.abs((await page.locator('.foo').boundingBox()).y + (await page.locator('.foo').boundingBox()).height - 1000) < 2, '收起后用户菜单仍须位于底部')
-  check(await newChatIcon.count() === 0, '收起后的图标栏不额外挤入新建图标')
   check(await trigger.evaluate(el => el.tagName === 'DIV' && el.childElementCount === 0), '入口应是无可见按钮的触发区域')
   await trigger.waitFor()
   const triggerBox = await trigger.boundingBox()
@@ -230,7 +209,7 @@ async page => {
   await page.getByRole('dialog').waitFor({ state: 'hidden' })
   check(await panel.isVisible(), 'Escape 应先关闭弹窗并保留所属列表')
   await page.getByRole('button', { name: '展开侧边栏', exact: true }).click()
-  await panel.getByText(sessions[0].yuxi.title, { exact: true }).waitFor()
+  await panel.getByText(sessions[0].zs.title, { exact: true }).waitFor()
   check(await panel.locator('.project-toggle').getAttribute('aria-expanded') === 'true', '展开导航后必须保留项目展开状态')
   check(await page.evaluate(() => window.__sidebarOriginal === document.querySelector('.sidebar-sessions')), '普通导航列表应持续挂载，面板共享其展开状态')
   await page.getByRole('button', { name: '折叠侧边栏', exact: true }).click()
@@ -250,7 +229,7 @@ async page => {
       check(await panel.locator('.session-list').evaluate(el => el.scrollHeight > el.clientHeight), '长列表应支持独立滚动')
       await panel.click({ position: { x: 2, y: 24 } })
       if (width === 1440 || (width === 768 && theme === 'dark')) {
-        const path = `/tmp/yuxi-session-sidebar-floating-${theme}-${width}.png`
+        const path = `/tmp/zs-session-sidebar-floating-${theme}-${width}.png`
         await page.screenshot({ path })
         screenshots.push(path)
       }
@@ -261,7 +240,7 @@ async page => {
       check(Math.abs((await workspace.boundingBox()).x - 302) < 2, '不同宽度的固定布局错误')
       await checkMaskSurface()
       if (width === 1440 && theme === 'light') {
-        const path = '/tmp/yuxi-session-sidebar-pinned.png'
+        const path = '/tmp/zs-session-sidebar-pinned.png'
         await page.screenshot({ path })
         screenshots.push(path)
       }
@@ -295,7 +274,7 @@ async page => {
   })
   check(fixedDashboardFrames.length > 5, '必须逐帧读取真实Dashboard页面')
   check(fixedDashboardFrames.every(frame => frame.x === 52 && frame.mainX === 52 && frame.panelCount === 0), 'Dashboard首帧起必须无对话面板且横坐标稳定，不得继承对话占位动画')
-  await page.screenshot({ path: '/tmp/yuxi-sidebar-dashboard-transition-fixed.png' })
+  await page.screenshot({ path: '/tmp/zs-sidebar-dashboard-transition-fixed.png' })
   await navigate('/agent')
   await panel.waitFor()
   check(await page.getByRole('button', { name: '收起对话侧栏', exact: true }).isVisible(), '返回对话应恢复常驻展开')
@@ -313,7 +292,7 @@ async page => {
     await page.waitForTimeout(250)
     check(await panel.count() === 0, '非对话页移过原触发区不能重新打开面板')
     if (path === '/agent-manage') {
-      const imagePath = '/tmp/yuxi-session-sidebar-agent-manage-collapsed.png'
+      const imagePath = '/tmp/zs-session-sidebar-agent-manage-collapsed.png'
       await page.screenshot({ path: imagePath })
       screenshots.push(imagePath)
     }
@@ -325,7 +304,7 @@ async page => {
     check(await page.locator('.sidebar-brand').getByRole('button', { name: '搜索', exact: true }).count() === 1, '展开原导航仍应保留搜索')
     check(Math.abs((await page.locator('.foo').boundingBox()).y + (await page.locator('.foo').boundingBox()).height - 1000) < 2, '非对话页用户菜单应保持在底部')
     if (path === '/agent-manage') {
-      const imagePath = '/tmp/yuxi-session-sidebar-agent-manage-expanded.png'
+      const imagePath = '/tmp/zs-session-sidebar-agent-manage-expanded.png'
       await page.screenshot({ path: imagePath })
       screenshots.push(imagePath)
     }
@@ -341,12 +320,14 @@ async page => {
   await historyMessage.waitFor()
   const editor = page.locator('.agent-view [contenteditable="true"]').first()
   await editor.fill('返回线程时保留这段未发送草稿')
-  for (const destination of ['智能体', '个人空间']) {
-    await page.locator('.nav').getByRole('link', { name: destination, exact: true }).click()
-    await page.waitForURL(destination === '智能体' ? origin + '/agent-manage' : origin + '/workspace')
-    const conversationEntry = page.locator('.nav').getByRole('link', { name: '对话', exact: true })
-    check(await conversationEntry.getAttribute('href') === `/agent/${returnSession.id}`, '离开后对话入口应指向之前的线程')
+  for (const destination of ['/agent-manage', '/workspace']) {
+    await navigate(destination)
     await conversationEntry.click()
+    await page.waitForURL(origin + '/agent')
+    await historyMessage.waitFor({ state: 'hidden' })
+    check(await editor.innerText() === '', '从其他页面点击会话入口应进入独立的空白编辑页')
+    await showPanel()
+    await panel.getByText(returnSession.zs.title, { exact: true }).click()
     await page.waitForURL(origin + `/agent/${returnSession.id}`)
     await historyMessage.waitFor()
     check(await editor.innerText() === '返回线程时保留这段未发送草稿', '返回对话应保留原线程的未发送草稿')
@@ -362,61 +343,51 @@ async page => {
   await page.reload()
   await page.locator('.dashboard-container').waitFor()
   check(await page.locator('#sidebar-session-panel').count() === 0 && (await main.boundingBox()).x === 52, '刷新Dashboard不能挂载或为对话面板占位')
-  const rememberedEntry = page.locator('.nav').getByRole('link', { name: '对话', exact: true })
-  check(await rememberedEntry.getAttribute('href') === `/agent/${returnSession.id}`, '刷新其他页后仍须记住原线程')
-  await rememberedEntry.click()
-  await historyMessage.waitFor()
+  await conversationEntry.click()
+  await page.waitForURL(origin + '/agent')
   await panel.waitFor()
   check(await page.getByRole('button', { name: '收起对话侧栏', exact: true }).isVisible(), '刷新其他页再返回对话仍须常驻展开')
   await page.mouse.move(1200, 400)
   await page.waitForTimeout(250)
-  await page.screenshot({ path: '/tmp/yuxi-sidebar-refresh-restored.png' })
+  await page.screenshot({ path: '/tmp/zs-sidebar-refresh-restored.png' })
   await hidePanel()
   await page.reload()
-  await historyMessage.waitFor()
+  await trigger.waitFor()
   check(await panel.isHidden(), '显式收起偏好须跨刷新保持')
   userId = 2
   await navigate('/dashboard')
   await page.reload()
   await page.locator('.dashboard-container').waitFor()
-  check(await rememberedEntry.getAttribute('href') === '/agent', '另一账号不能继承原账号的线程目标')
-  await rememberedEntry.click()
+  await conversationEntry.click()
+  await page.waitForURL(origin + '/agent')
   await trigger.waitFor()
   check(await panel.isHidden(), '另一账号不能继承面板展开偏好')
   userId = 1
   await navigate('/dashboard')
   await page.reload()
   await page.locator('.dashboard-container').waitFor()
-  check(await rememberedEntry.getAttribute('href') === `/agent/${returnSession.id}`, '返回原账号仍保留其目标')
-  await rememberedEntry.click()
+  await navigate(`/agent/${returnSession.id}`)
   await historyMessage.waitFor()
-  const returnImage = '/tmp/yuxi-session-return-thread.png'
+  const returnImage = '/tmp/zs-session-return-thread.png'
   await page.screenshot({ path: returnImage })
   screenshots.push(returnImage)
-  await page.locator('.nav').getByRole('link', { name: '对话', exact: true }).click()
-  await page.waitForURL(origin + `/agent/${returnSession.id}`)
-  check(await historyMessage.isVisible(), '已在对话页时点击全局入口不能新建对话')
   await page.getByRole('button', { name: '展开侧边栏', exact: true }).click()
   await page.waitForFunction(() => Math.abs(document.querySelector('.header').getBoundingClientRect().width - 230) < 1)
-  await page.mouse.move(1200, 400)
-  await page.screenshot({ path: '/tmp/yuxi-sidebar-new-chat-icon-hidden.png' })
-  await page.locator('.primary-nav-row > .nav-item').hover()
-  await page.screenshot({ path: '/tmp/yuxi-sidebar-new-chat-icon.png' })
-  await newChatIcon.focus()
+  await conversationEntry.focus()
   await page.keyboard.press('Enter')
   await page.waitForURL(origin + '/agent')
   await historyMessage.waitFor({ state: 'hidden' })
   check(await editor.innerText() === '', '显式新建应进入独立的空白编辑页')
-  await page.locator('.nav').getByRole('link', { name: '智能体', exact: true }).click()
-  const draftEntry = page.locator('.nav').getByRole('link', { name: '对话', exact: true })
-  check(await draftEntry.getAttribute('href') === '/agent', '显式新建后全局入口不应回到旧线程')
-  await draftEntry.click()
-  await page.waitForURL(origin + '/agent')
   check(sessionCreates === 0, '切换入口和显式新建都不能自动提交会话')
   await page.getByRole('button', { name: '折叠侧边栏', exact: true }).click()
   await page.reload()
   await trigger.waitFor()
-  check(await draftEntry.getAttribute('href') === '/agent', '显式新建清理目标须跨刷新保持')
+  /** 读取当前账号持久化的最后会话，避免将新建入口当作状态探针。 */
+  const lastThreadId = () => page.evaluate(async () => {
+    const { useChatUIStore } = await import('/src/modules/session/model/chatUI.js')
+    return useChatUIStore().lastThreadId
+  })
+  check(await lastThreadId() === null, '显式新建清理目标须跨刷新保持')
   for (const status of [503, 404]) {
     unavailableStatus = status
     const unavailableResponse = page.waitForResponse(response => response.url().endsWith('/unavailable-thread') && response.status() === status)
@@ -427,13 +398,13 @@ async page => {
       await navigate('/dashboard')
       await page.reload()
       await page.locator('.dashboard-container').waitFor()
-      check(await draftEntry.getAttribute('href') === '/agent/unavailable-thread', '临时错误不能清掉持久导航目标')
+      check(await lastThreadId() === 'unavailable-thread', '临时错误不能清掉持久导航目标')
     } else {
       await page.waitForURL(origin + '/agent')
       await navigate('/dashboard')
       await page.reload()
       await page.locator('.dashboard-container').waitFor()
-      check(await draftEntry.getAttribute('href') === '/agent', '确定失效应清掉持久目标')
+      check(await lastThreadId() === null, '确定失效应清掉持久目标')
     }
   }
   for (const status of [503, 404]) {
@@ -447,7 +418,7 @@ async page => {
     await navigate('/dashboard')
     await page.reload()
     await page.locator('.dashboard-container').waitFor()
-    check(await draftEntry.getAttribute('href') === (status === 404 ? '/agent' : target), '缓存条目确定失效清目标、临时失败保留目标')
+    check(await lastThreadId() === (status === 404 ? null : sessions[4].id), '缓存条目确定失效清目标、临时失败保留目标')
   }
   cachedUnavailableStatus = null
   await navigate('/agent')

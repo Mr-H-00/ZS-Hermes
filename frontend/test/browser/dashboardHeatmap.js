@@ -63,7 +63,7 @@ async (page) => {
         check((await heatmap.locator('.heatmap-total').innerText()) === '240 次活跃记录', '活跃总数错误')
         results.push({ theme, width, cellWidth: bounds.cellWidth })
         if (width === 1280 || width === 1920) {
-          await page.locator('.user-stats').screenshot({ path: `/tmp/yuxi-heatmap-${theme}-${width}.png` })
+          await page.locator('.user-stats').screenshot({ path: `/tmp/zs-heatmap-${theme}-${width}.png` })
         }
       }
     }

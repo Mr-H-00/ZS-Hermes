@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.agents.services.scheduler as scheduler
+import zs.modules.agents.services.scheduler as scheduler
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_delivery_reports_queue_publication_failure_without_rejecting_comm
         """在实际发布边界注入队列不可达。"""
         raise cause
 
-    monkeypatch.setattr("yuxi.modules.agents.services.transport.enqueue_agent_run", enqueue)
+    monkeypatch.setattr("zs.modules.agents.services.transport.enqueue_agent_run", enqueue)
     dispatch = scheduler.Dispatch(run_id="pending-run", binding=SimpleNamespace(materialize_managed=False))
     assert await scheduler.deliver(dispatch) is False
 
@@ -148,7 +148,7 @@ async def test_delivery_reports_success_after_publication(monkeypatch):
         """记录实际发布目标。"""
         published.append(run_id)
 
-    monkeypatch.setattr("yuxi.modules.agents.services.transport.enqueue_agent_run", enqueue)
+    monkeypatch.setattr("zs.modules.agents.services.transport.enqueue_agent_run", enqueue)
     dispatch = scheduler.Dispatch(run_id="pending-run", binding=SimpleNamespace(materialize_managed=False))
     assert await scheduler.deliver(dispatch) is True
     assert published == ["pending-run"]

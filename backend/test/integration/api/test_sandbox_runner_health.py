@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from test.integration.support.module_audit import serve_http
-from yuxi.sandbox_runner import main as runner
+from zs.sandbox_runner import main as runner
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

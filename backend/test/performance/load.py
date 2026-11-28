@@ -1,4 +1,4 @@
-"""通过真实 Yuxi HTTP、SSE、worker 与模型链路执行轻量 Agent 压测。"""
+"""通过真实 ZS HTTP、SSE、worker 与模型链路执行轻量 Agent 压测。"""
 
 from __future__ import annotations
 
@@ -390,12 +390,12 @@ def evaluate_result(
         (payload.get("id") == run_id, "Run 结果与 SSE Run 不一致"),
         (payload.get("input_id") == input_id, "Run 未绑定提交的 Input"),
         (payload.get("turn_id") == turn_id, "Run 未绑定目标 Turn"),
-        (turn_payload["yuxi"]["result_run_id"] == run_id, "Turn 结果与 Run 不一致"),
+        (turn_payload["zs"]["result_run_id"] == run_id, "Turn 结果与 Run 不一致"),
         (turn_payload.get("status") == "completed", "Turn 尚未完成"),
         (
             isinstance(output, list)
             and bool(output)
-            and all(item["yuxi"]["run_id"] == run_id and item["turn_id"] == turn_id for item in output),
+            and all(item["zs"]["run_id"] == run_id and item["turn_id"] == turn_id for item in output),
             "输出消息没有绑定目标 Turn/Run",
         ),
         (status == "completed", f"Run 终态不是 completed：{status or 'missing'}"),
@@ -470,7 +470,7 @@ def record_run_timing(result: TaskResult, submit_started_at: datetime, payload: 
 
 
 class AgentLoadClient:
-    """封装压测所需的最小 Yuxi HTTP 与 SSE 协议。"""
+    """封装压测所需的最小 ZS HTTP 与 SSE 协议。"""
 
     def __init__(self, client: httpx.AsyncClient, headers: dict[str, str], timeout_seconds: float):
         self.client = client
@@ -511,7 +511,7 @@ class AgentLoadClient:
                     {
                         "type": "agent.session.input.message",
                         "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
-                        "yuxi": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
+                        "zs": {"mode": "follow_up", "tool_approval_mode": "always_trust"},
                     }
                 ],
             },
@@ -534,8 +534,8 @@ class AgentLoadClient:
                     raise LoadTestError("Thread SSE 串入其他 Thread")
                 if event.data.get("input_id") != input_id:
                     continue
-                if event.name == "yuxi.session.run.created":
-                    run_id = str(event.data.get("yuxi", {}).get("run_id") or "")
+                if event.name == "zs.session.run.created":
+                    run_id = str(event.data.get("zs", {}).get("run_id") or "")
                     turn_id = str(event.data.get("turn_id") or "")
                     if not run_id or not turn_id:
                         raise LoadTestError("Input 消费事件缺少 Turn/Run")
@@ -564,7 +564,7 @@ class AgentLoadClient:
             async for event in iter_sse(response.aiter_lines()):
                 if event.data.get("session_id") != thread_id:
                     raise LoadTestError("Thread SSE 串入其他 Thread")
-                if event.data.get("yuxi", {}).get("run_id") != run_id:
+                if event.data.get("zs", {}).get("run_id") != run_id:
                     continue
                 if first_event_ms is None:
                     first_event_ms = (time.perf_counter() - submit_started) * 1000
@@ -608,7 +608,7 @@ class AgentLoadClient:
         response = await self.client.post(
             f"/api/v1/agents/sessions/{thread_id}/events",
             headers={**self.headers, "Idempotency-Key": f"cancel:{event_key}"},
-            json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": input_id}]},
+            json={"events": [{"type": "zs.session.input.cancel_input", "input_id": input_id}]},
         )
         _raise_for_status(response, "取消 Input")
 
@@ -618,7 +618,7 @@ class AgentLoadClient:
         response = await self.client.post(
             f"/api/v1/agents/sessions/{thread_id}/events",
             headers={**self.headers, "Idempotency-Key": f"cancel:{event_key}"},
-            json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id, "expected_run_id": run_id}}]},
+            json={"events": [{"type": "agent.session.input.cancel", "zs": {"turn_id": turn_id, "expected_run_id": run_id}}]},
         )
         _raise_for_status(response, "取消 Turn")
 
@@ -917,14 +917,14 @@ def _safe_error(exc: BaseException) -> str:
 async def authenticate(client: httpx.AsyncClient) -> dict[str, str]:
     """从环境变量取得 API Key，或通过真实登录接口换取访问令牌。"""
 
-    api_key = os.getenv("YUXI_LOAD_API_KEY", "").strip()
+    api_key = os.getenv("ZS_LOAD_API_KEY", "").strip()
     if api_key:
         return {"Authorization": f"Bearer {api_key}", "Accept": "text/event-stream"}
 
-    username = (os.getenv("YUXI_LOAD_USERNAME") or os.getenv("TEST_USERNAME") or "").strip()
-    password = os.getenv("YUXI_LOAD_PASSWORD") or os.getenv("TEST_PASSWORD") or ""
+    username = (os.getenv("ZS_LOAD_USERNAME") or os.getenv("TEST_USERNAME") or "").strip()
+    password = os.getenv("ZS_LOAD_PASSWORD") or os.getenv("TEST_PASSWORD") or ""
     if not username or not password:
-        raise LoadTestError("请设置 YUXI_LOAD_API_KEY，或同时设置 YUXI_LOAD_USERNAME/YUXI_LOAD_PASSWORD")
+        raise LoadTestError("请设置 ZS_LOAD_API_KEY，或同时设置 ZS_LOAD_USERNAME/ZS_LOAD_PASSWORD")
     response = await client.post("/api/auth/token", data={"username": username, "password": password})
     _raise_for_status(response, "登录")
     token = str(response.json().get("access_token") or "")
@@ -1060,8 +1060,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     """注册容量压测参数。"""
     parser.add_argument(
         "--base-url",
-        default=os.getenv("YUXI_LOAD_BASE_URL", "http://localhost:5050"),
-        help="Yuxi API 根地址，默认 %(default)s",
+        default=os.getenv("ZS_LOAD_BASE_URL", "http://localhost:5050"),
+        help="ZS API 根地址，默认 %(default)s",
     )
     parser.add_argument("--agent-slug", help="测试 Agent slug；省略时使用默认 Agent")
     parser.add_argument("--scenario", choices=("chat", "sandbox"), default="sandbox")
@@ -1077,7 +1077,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--compose-project",
-        default=os.getenv("COMPOSE_PROJECT_NAME", "yuxi"),
+        default=os.getenv("COMPOSE_PROJECT_NAME", "zs"),
         help="资源采样使用的 Compose project，默认 %(default)s",
     )
     parser.add_argument("--resource-interval-seconds", type=float, default=2.0)

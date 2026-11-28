@@ -8,8 +8,8 @@ import httpx
 import pytest
 
 from test.integration.services.agent_input_fixtures import SCOPE
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.services import threads
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.services import threads
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]
@@ -21,7 +21,7 @@ pytest_plugins = ["test.integration.services.agent_input_fixtures"]
 )
 async def test_auto_title_persists_once_and_preserves_manual_rename(sessions, monkeypatch, outcome):
     """回读真实数据库验证生成、失败回退及手动改名优先。"""
-    from yuxi.modules.agents.services import titles
+    from zs.modules.agents.services import titles
 
     text = "请帮我分析 PostgreSQL 的慢查询并给出索引优化建议"
     fallback = text[:30]
@@ -91,7 +91,7 @@ async def test_auto_title_persists_once_and_preserves_manual_rename(sessions, mo
 )
 async def test_generated_titles_are_normalized_without_source_word_matching(sessions, monkeypatch, message, candidate, expected):
     """规范化标题持久化成功，不要求复用用户消息中的字词。"""
-    from yuxi.modules.agents.services import titles
+    from zs.modules.agents.services import titles
 
     async with sessions() as db:
         await SessionRepository(db).add_session(uid=SCOPE.uid, agent_id="main", project_id="input-project", thread_id="letter-title")
@@ -122,7 +122,7 @@ async def test_generated_titles_are_normalized_without_source_word_matching(sess
 @pytest.mark.parametrize("outcome", ["generated", "timeout", "protocol"])
 async def test_session_reference_titles_keep_readable_labels(sessions, monkeypatch, content, expected, outcome):
     """会话引用在命名输入与持久回退中均不泄露协议和线程标识。"""
-    from yuxi.modules.agents.services import titles
+    from zs.modules.agents.services import titles
 
     observed = {}
     generated_title = f"{expected}讨论"[:30]

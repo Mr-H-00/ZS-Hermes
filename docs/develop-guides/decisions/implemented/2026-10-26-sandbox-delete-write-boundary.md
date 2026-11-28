@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/agents/runtime/sandbox/backend.py
+Owner：backend/zs/modules/agents/runtime/sandbox/backend.py
 
 ## 问题
 

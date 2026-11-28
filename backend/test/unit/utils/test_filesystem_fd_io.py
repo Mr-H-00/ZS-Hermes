@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.infrastructure import filesystem
+from zs.infrastructure import filesystem
 
 
 def test_open_directory_fd_creates_nested_directories_without_taking_root_fd(tmp_path: Path) -> None:

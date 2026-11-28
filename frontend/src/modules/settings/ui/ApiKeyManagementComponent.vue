@@ -13,9 +13,9 @@
           @click="handleRefresh"
           :loading="refreshing"
           title="刷新"
-          class="yuxi-refresh-button lucide-icon-btn"
+          class="zs-refresh-button lucide-icon-btn"
         >
-          <template #icon><RefreshCw :size="16" :class="{ 'yuxi-rotate': refreshing }" /></template>
+          <template #icon><RefreshCw :size="16" :class="{ 'zs-rotate': refreshing }" /></template>
         </a-button>
         <a-button type="primary" @click="showCreateModal" class="lucide-icon-btn">
           <Plus :size="14" />
@@ -75,7 +75,7 @@
                 </template>
                 <template v-if="column.key === 'action'">
                   <a-tooltip title="调整权限和来源">
-                    <a-button type="text" size="small" class="yuxi-table-action lucide-icon-btn" @click="openEdit(record)">
+                    <a-button type="text" size="small" class="zs-table-action lucide-icon-btn" @click="openEdit(record)">
                       <Pencil :size="14" />
                     </a-button>
                   </a-tooltip>
@@ -86,7 +86,7 @@
                     cancel-text="取消"
                   >
                     <a-tooltip title="删除 API Key">
-                      <a-button type="text" size="small" danger class="yuxi-table-action lucide-icon-btn">
+                      <a-button type="text" size="small" danger class="zs-table-action lucide-icon-btn">
                         <Trash2 :size="14" />
                       </a-button>
                     </a-tooltip>
@@ -282,7 +282,7 @@ const editLoading = ref(false)
 const editingKey = ref(null)
 const createdSecret = ref('')
 const createRequestId = ref('')
-const CREATE_REQUEST_STORAGE_KEY = 'yuxi_pending_api_key_request_id'
+const CREATE_REQUEST_STORAGE_KEY = 'zs_pending_api_key_request_id'
 
 const columns = [
   { title: '名称', dataIndex: 'name', key: 'name', width: 180 },

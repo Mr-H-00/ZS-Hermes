@@ -48,7 +48,7 @@ async page => {
     await card.hover()
     await card.getByRole('button', { name: /^编\s*辑$/ }).click()
     check(await card.evaluate(el => el.scrollWidth <= el.clientWidth), 'Official 卡片横向溢出')
-    const path = `/tmp/yuxi-official-options-${theme}-${width}.png`
+    const path = `/tmp/zs-official-options-${theme}-${width}.png`
     await card.screenshot({ path })
     screenshots.push(path)
     await card.getByRole('button', { name: /^取\s*消$/ }).click()

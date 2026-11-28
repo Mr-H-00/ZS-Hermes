@@ -8,14 +8,14 @@ import pytest
 import re
 from pathlib import Path
 
-from yuxi.infrastructure.document_parsing import DocumentParserException
-from yuxi.infrastructure.document_parsing.engines.mineru_official import MinerUOfficialParser
-from yuxi.infrastructure.document_parsing.engines.rapid_ocr import RapidOCRParser
+from zs.infrastructure.document_parsing import DocumentParserException
+from zs.infrastructure.document_parsing.engines.mineru_official import MinerUOfficialParser
+from zs.infrastructure.document_parsing.engines.rapid_ocr import RapidOCRParser
 
 
 def test_mineru_official_health_check_does_not_create_task(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
-        "yuxi.infrastructure.document_parsing.engines.mineru_official.requests.post",
+        "zs.infrastructure.document_parsing.engines.mineru_official.requests.post",
         lambda *args, **kwargs: pytest.fail("健康检查不应创建解析任务"),
     )
 
@@ -44,9 +44,9 @@ def test_mineru_official_sends_model_default_and_task_override(tmp_path, monkeyp
             status_code=200, json=lambda: {"code": 0, "data": {"batch_id": "fixture-batch", "file_urls": ["https://example.test/upload"]}}
         )
 
-    monkeypatch.setattr("yuxi.infrastructure.document_parsing.engines.mineru_official.requests.post", post)
+    monkeypatch.setattr("zs.infrastructure.document_parsing.engines.mineru_official.requests.post", post)
     monkeypatch.setattr(
-        "yuxi.infrastructure.document_parsing.engines.mineru_official.requests.put", lambda *a, **kw: SimpleNamespace(status_code=200)
+        "zs.infrastructure.document_parsing.engines.mineru_official.requests.put", lambda *a, **kw: SimpleNamespace(status_code=200)
     )
     parser = MinerUOfficialParser(api_key="fixture-key", **defaults)
     monkeypatch.setattr(parser, "_poll_batch_result", lambda *a, **kw: {"state": "done", "full_zip_url": "https://example.test/result.zip"})
@@ -84,7 +84,7 @@ def test_mineru_official_parsing_uses_shared_zip_processor(
         return "parsed markdown"
 
     monkeypatch.setattr(
-        "yuxi.infrastructure.document_parsing.engines.mineru_official.extract_markdown_archive",
+        "zs.infrastructure.document_parsing.engines.mineru_official.extract_markdown_archive",
         _process_zip_file,
     )
 
@@ -116,7 +116,7 @@ def test_mineru_official_does_not_fallback_when_shared_zip_processing_fails(
         raise RuntimeError("malformed result archive")
 
     monkeypatch.setattr(
-        "yuxi.infrastructure.document_parsing.engines.mineru_official.extract_markdown_archive",
+        "zs.infrastructure.document_parsing.engines.mineru_official.extract_markdown_archive",
         _raise_zip_processing_error,
     )
 
@@ -128,7 +128,7 @@ def test_mineru_official_does_not_fallback_when_shared_zip_processing_fails(
 
 def test_rapid_ocr_health_check_does_not_load_model(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
-        "yuxi.infrastructure.document_parsing.engines.rapid_ocr.RapidOCR",
+        "zs.infrastructure.document_parsing.engines.rapid_ocr.RapidOCR",
         lambda *args, **kwargs: pytest.fail("健康检查不应加载 OCR 模型"),
     )
 

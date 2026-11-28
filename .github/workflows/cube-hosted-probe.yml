@@ -39,7 +39,7 @@ jobs:
           CUBE_API_URL: http://127.0.0.1:3000
           CUBE_PROXY_NODE_IP: 127.0.0.1
           CUBE_PROXY_PORT_HTTP: '80'
-          CUBE_TEMPLATE_ID: yuxi-user
+          CUBE_TEMPLATE_ID: zs-user
         run: uv run --project backend --locked --no-dev python scripts/ci/probe_cube_workspace.py
       - name: Inspect final resources
         if: always()
@@ -50,7 +50,7 @@ jobs:
       - name: Read template build diagnostics
         if: failure()
         run: |
-          for log in /opt/yuxi-cube/template-image.log /opt/yuxi-cube/template-push.log; do
+          for log in /opt/zs-cube/template-image.log /opt/zs-cube/template-push.log; do
             if sudo test -f "$log"; then
               sudo tail -100 "$log"
             fi

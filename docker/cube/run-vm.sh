@@ -29,7 +29,7 @@ qemu-system-x86_64 \
     -drive "if=virtio,format=qcow2,file=$cube_disk" \
     -nic 'user,model=virtio-net-pci,hostfwd=tcp:0.0.0.0:10022-:22,hostfwd=tcp:0.0.0.0:13000-:3000,hostfwd=tcp:0.0.0.0:18080-:80' \
     -chardev socket,id=fs,path=/cube/vm/workspace.sock \
-    -device vhost-user-fs-pci,queue-size=1024,chardev=fs,tag=yuxi_shared \
+    -device vhost-user-fs-pci,queue-size=1024,chardev=fs,tag=zs_shared \
     -display none -serial file:/cube/vm/serial.log &
 cube_qemu_pid=$!
 

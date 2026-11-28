@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/message_recorder.py
+Owner：backend/zs/modules/agents/services/message_recorder.py
 
 ## 问题
 

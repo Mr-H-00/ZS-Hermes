@@ -115,7 +115,7 @@ test('新建路由且没有线程才显示欢迎布局，加载和空消息不�
           runtime.threadRuns['created-thread'] = runs
           const html = await renderWorkspace(component, state)
           assert.equal(html.includes('start-screen'), isNewSession && !threadId)
-          assert.equal(html.includes(state.randomGreeting), isNewSession && !threadId)
+          assert.equal(/<h1\b[^>]*>今天想完成什么？<\/h1>/.test(html), isNewSession && !threadId)
           assert.equal(html.includes('正在加载消息'), false, '编辑器上方不再单独加载消息')
         }
       }

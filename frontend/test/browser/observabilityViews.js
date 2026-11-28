@@ -1,4 +1,4 @@
-// 专用浏览器会话：playwright-cli -s=yuxi-observability run-code --filename=frontend/test/browser/observabilityViews.js
+// 专用浏览器会话：playwright-cli -s=zs-observability run-code --filename=frontend/test/browser/observabilityViews.js
 // 固定 API fixture 验证真实页面与交互；数据库和权限由对应 HTTP integration 验证。
 // prettier-ignore
 async page => {
@@ -71,15 +71,15 @@ async page => {
       return getInstanceByDom(document.querySelector('.call-chart')).getOption().series.map(item => item.data)
     })
     check(series.every(values => values[2] === null), '图表把缺报转换成零')
-    await chart.screenshot({ path: '/tmp/yuxi-observability-validation/usage-partial-light.png' })
+    await chart.screenshot({ path: '/tmp/zs-observability-validation/usage-partial-light.png' })
     await page.evaluate(() => document.documentElement.classList.add('dark'))
-    await chart.screenshot({ path: '/tmp/yuxi-observability-validation/usage-partial-dark.png' })
+    await chart.screenshot({ path: '/tmp/zs-observability-validation/usage-partial-dark.png' })
     await page.evaluate(() => document.documentElement.classList.remove('dark'))
     usage = 'unknown'
     await chart.getByRole('button', { name: '刷新调用统计', exact: true }).click()
     await chart.getByText('用量未上报（5 次运行）', { exact: true }).waitFor()
     check((await chart.locator('.dashboard-metric-value').allTextContents()).join() === '未知,未知,未知', '全缺报显示为零')
-    await chart.screenshot({ path: '/tmp/yuxi-observability-validation/usage-unknown.png' })
+    await chart.screenshot({ path: '/tmp/zs-observability-validation/usage-unknown.png' })
     usage = 'zero'
     await chart.getByRole('button', { name: '刷新调用统计', exact: true }).click()
     await chart.getByText('上报完整', { exact: true }).waitFor()
@@ -93,13 +93,13 @@ async page => {
     await history.getByRole('button', { name: '下一页', exact: true }).click()
     await history.getByText('第 2 / 3 页', { exact: true }).waitFor()
     check(await history.getByText('历史失败原因 12', { exact: true }).isVisible(), '第二页缺少错误详情')
-    await history.screenshot({ path: '/tmp/yuxi-observability-validation/history-page2-light.png' })
+    await history.screenshot({ path: '/tmp/zs-observability-validation/history-page2-light.png' })
     await history.getByRole('button', { name: '下一页', exact: true }).click()
     await history.getByText('第 3 / 3 页', { exact: true }).waitFor()
     check(await history.locator('.run-row').count() === 5, '最后一页记录数错误')
     check(await history.getByRole('button', { name: '下一页', exact: true }).isDisabled(), '最后一页仍可下一页')
     await page.evaluate(() => document.documentElement.classList.add('dark'))
-    await history.screenshot({ path: '/tmp/yuxi-observability-validation/history-dark.png' })
+    await history.screenshot({ path: '/tmp/zs-observability-validation/history-dark.png' })
     await page.evaluate(() => document.documentElement.classList.remove('dark'))
     historyFailure = true
     await history.getByRole('button', { name: '刷新运行历史', exact: true }).click()
@@ -112,7 +112,7 @@ async page => {
       await page.setViewportSize({ width, height: 1000 })
       await history.scrollIntoViewIfNeeded()
       check(await history.evaluate(el => el.scrollWidth <= el.clientWidth), `历史在 ${width}px 溢出`)
-      await history.screenshot({ path: `/tmp/yuxi-observability-validation/history-${width}.png` })
+      await history.screenshot({ path: `/tmp/zs-observability-validation/history-${width}.png` })
     }
     emptyHistory = true
     await history.getByRole('button', { name: '刷新运行历史', exact: true }).click()

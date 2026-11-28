@@ -12,8 +12,8 @@ from deepagents.middleware.summarization import SummarizationMiddleware
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
 from langchain_core.exceptions import ContextOverflowError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, get_buffer_string
-from yuxi.modules.agents.runtime.middlewares.summary import YuxiSummarizationMiddleware, create_summary_middleware
-from yuxi.modules.workspace.runtime_paths import workdir_runtime_paths
+from zs.modules.agents.runtime.middlewares.summary import ZSSummarizationMiddleware, create_summary_middleware
+from zs.modules.workspace.runtime_paths import workdir_runtime_paths
 
 WORKDIR_PATH = "/home/user/workspace/projects/11111111-1111-4111-8111-111111111111"
 VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_CONVERSATION_HISTORY = workdir_runtime_paths(WORKDIR_PATH)
@@ -105,7 +105,7 @@ class _FailingHistoryWriteBackend(_MemoryBackend):
 
 
 def _scoped_backend(memory: _MemoryBackend | None = None) -> CompositeBackend:
-    """按 Yuxi 契约构造 outputs 根的 CompositeBackend，验证前缀自动派生。"""
+    """按 ZS 契约构造 outputs 根的 CompositeBackend，验证前缀自动派生。"""
     return CompositeBackend(
         default=memory if memory is not None else _MemoryBackend(),
         routes={},
@@ -119,7 +119,7 @@ def _expected_tool_result_path(content: str, tool_name: str = "query_kb") -> str
 
 
 async def _compact_messages(messages: list, backend, token_limit: int | None = 300) -> list:
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=_DummyModel(),
         backend=backend,
         trigger=("tokens", 100_000),
@@ -134,7 +134,7 @@ async def _compact_messages(messages: list, backend, token_limit: int | None = 3
 def test_summary_rejects_unsupported_trigger():
     """摘要只接受生产配置使用的 token 触发条件。"""
     with pytest.raises(ValueError, match="token"):
-        YuxiSummarizationMiddleware(model=_DummyModel(), backend=_MemoryBackend(), trigger=("messages", 3), keep=("messages", 1))
+        ZSSummarizationMiddleware(model=_DummyModel(), backend=_MemoryBackend(), trigger=("messages", 3), keep=("messages", 1))
 
 
 def _tool_messages() -> list:
@@ -192,17 +192,17 @@ def _content_char_counter(messages, **_kwargs) -> int:
 
 @pytest.fixture
 def compression_events(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
-    """捕获 YuxiSummarizationMiddleware 通过 stream writer 推送的压缩事件。"""
+    """捕获 ZSSummarizationMiddleware 通过 stream writer 推送的压缩事件。"""
     emitted: list[dict] = []
     monkeypatch.setattr(
-        "yuxi.modules.agents.runtime.middlewares.summary.get_stream_writer",
+        "zs.modules.agents.runtime.middlewares.summary.get_stream_writer",
         lambda: lambda payload: emitted.append(payload),
     )
     return emitted
 
 
 @pytest.mark.unit
-def test_create_summary_middleware_uses_deepagents_with_yuxi_outputs_root() -> None:
+def test_create_summary_middleware_uses_deepagents_with_zs_outputs_root() -> None:
     memory = _MemoryBackend()
     middleware = create_summary_middleware(
         model=_DummyModel(),
@@ -212,7 +212,7 @@ def test_create_summary_middleware_uses_deepagents_with_yuxi_outputs_root() -> N
     )
 
     assert isinstance(middleware, SummarizationMiddleware)
-    assert isinstance(middleware, YuxiSummarizationMiddleware)
+    assert isinstance(middleware, ZSSummarizationMiddleware)
     assert middleware._backend.default is memory
     assert middleware._history_path_prefix == VIRTUAL_PATH_CONVERSATION_HISTORY
     assert middleware._large_tool_results_prefix == VIRTUAL_PATH_LARGE_TOOL_RESULTS
@@ -371,7 +371,7 @@ async def test_compaction_does_not_replace_tool_result_when_recoverable_write_fa
     backend = _FailingWriteBackend()
     content = "important result" * 100
     messages = [ToolMessage(content=content, tool_call_id="call-1", name="query_kb")]
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=_DummyModel(),
         backend=backend,
         trigger=("tokens", 1),
@@ -423,7 +423,7 @@ async def test_force_summary_returns_checkpoint_update_without_adding_messages()
         AIMessage(content="第二答"),
         HumanMessage(content="继续"),
     ]
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model,
         backend=backend,
         trigger=("tokens", 100_000),
@@ -456,7 +456,7 @@ async def test_force_summary_reports_persisted_uncompacted_tail_tokens() -> None
         AIMessage(content="", tool_calls=[{"id": "call-1", "name": "query_kb", "args": {}}]),
         ToolMessage(content=large_result, tool_call_id="call-1", name="query_kb"),
     ]
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=_RecordingModel(),
         backend=backend,
         trigger=("tokens", 100_000),
@@ -541,7 +541,7 @@ async def test_wrap_model_call_offloads_large_tool_results(scenario: dict) -> No
     ]
     for index in range(scenario["extra_turns"]):
         messages.extend([AIMessage(content=f"可以继续{index}"), HumanMessage(content=f"新问题{index}")])
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model,
         backend=backend,
         trigger=("tokens", scenario["trigger_tokens"]),
@@ -631,7 +631,7 @@ async def test_compression_emits_started_and_completed(
             ToolMessage(content=large_result, tool_call_id="call-1", name="query_kb"),
             HumanMessage(content="继续"),
         ]
-        middleware = YuxiSummarizationMiddleware(
+        middleware = ZSSummarizationMiddleware(
             model=_RecordingModel(),
             backend=backend,
             trigger=("tokens", 500),
@@ -655,7 +655,7 @@ async def test_compression_emits_started_and_completed(
     assert [event["status"] for event in compression_events] == ["started", "completed"]
     if summary_triggered:
         assert isinstance(result, ExtendedModelResponse)
-        assert all(event["type"] == "yuxi.context_compression" for event in compression_events)
+        assert all(event["type"] == "zs.context_compression" for event in compression_events)
         completed = compression_events[-1]
         assert isinstance(completed.get("cutoff_index"), int)
         assert completed.get("file_path") is not None
@@ -698,7 +698,7 @@ async def test_wrap_model_call_truncates_large_write_file_args_only_in_compacted
         ToolMessage(content="ok", tool_call_id="call-1", name="write_file"),
         HumanMessage(content="继续"),
     ]
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=_RecordingModel(),
         backend=backend,
         trigger=("tokens", 500),
@@ -740,7 +740,7 @@ async def test_summary_event_reuses_original_preserved_window_on_later_calls() -
         AIMessage(content="资料已整理"),
         HumanMessage(content="继续"),
     ]
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=_RecordingModel(),
         backend=backend,
         trigger=("tokens", 1),
@@ -792,7 +792,7 @@ async def test_summary_event_reuses_original_preserved_window_on_later_calls() -
 async def test_create_summary_uses_sanitized_messages() -> None:
     backend = _MemoryBackend()
     model = _RecordingModel()
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model,
         backend=backend,
         trigger=("tokens", 1),
@@ -815,7 +815,7 @@ async def test_create_summary_uses_sanitized_messages() -> None:
 @pytest.mark.unit
 async def test_offload_history_uses_tool_messages_with_replaced_content() -> None:
     backend = _MemoryBackend()
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=_DummyModel(),
         backend=backend,
         trigger=("tokens", 1),
@@ -844,9 +844,9 @@ def _make_compressing_middleware(
     backend: _MemoryBackend,
     *,
     model: _DummyModel | None = None,
-) -> tuple[YuxiSummarizationMiddleware, str]:
+) -> tuple[ZSSummarizationMiddleware, str]:
     large_result = "BEGIN\n" + ("raw result payload\n" * 200)
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model or _RecordingModel(),
         backend=backend,
         trigger=("tokens", 100),
@@ -1039,7 +1039,7 @@ async def test_compaction_preserves_and_archives_multimodal_content(tmp_path) ->
     backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
     original = [{"type": "text", "text": "原文" * 200}, {"type": "image", "base64": "YWJj", "mime_type": "image/png"}]
     message = ToolMessage(content=original, tool_call_id="image-call", name="read_file", artifact={"source": "original"})
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=_DummyModel(), backend=backend, trigger=("tokens", 10), keep=("messages", 1), tool_result_offload_token_limit=1
     )
     middleware._large_tool_results_prefix = "/results"
@@ -1096,7 +1096,7 @@ async def test_cancelled_main_model_emits_failed_after_successful_summary(compre
 async def test_summary_budget_handles_short_human_and_huge_single_line():
     model = _RecordingModel()
     model.profile = {"max_input_tokens": 1024, "max_output_tokens": 256}
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1), summary_prompt="Summarize: {messages}"
     )
     messages = [HumanMessage(content="短"), AIMessage(content="a" * 40000), ToolMessage(content="z" * 40000, tool_call_id="call")]
@@ -1110,7 +1110,7 @@ async def test_summary_budget_handles_short_human_and_huge_single_line():
 async def test_summary_rejects_instruction_larger_than_budget_before_model_call():
     model = _RecordingModel()
     model.profile = {"max_input_tokens": 512, "max_output_tokens": 128}
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1), summary_prompt="x" * 4000 + "{messages}"
     )
     with pytest.raises(RuntimeError, match="摘要指令超过"):
@@ -1122,7 +1122,7 @@ async def test_summary_rejects_instruction_larger_than_budget_before_model_call(
 async def test_summary_chinese_budget_uses_independent_tokenizer():
     model = _RecordingModel()
     model.profile = {"max_input_tokens": 1024, "max_output_tokens": 256}
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1), summary_prompt="Summarize: {messages}"
     )
     await middleware._acreate_summary([HumanMessage(content="任务目标"), AIMessage(content="知识库内容" * 10000)])
@@ -1145,7 +1145,7 @@ def _byte_token_count(text: str) -> int:
 async def test_summary_sets_output_limit_when_profile_omits_it():
     model = _RecordingModel()
     model.profile = {"max_input_tokens": 8192}
-    middleware = YuxiSummarizationMiddleware(model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1))
+    middleware = ZSSummarizationMiddleware(model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1))
     assert await middleware._acreate_summary([HumanMessage(content="hello")]) == "summary"
     assert model.output_limit == 2048
 
@@ -1154,7 +1154,7 @@ async def test_summary_sets_output_limit_when_profile_omits_it():
 async def test_summary_unknown_window_uses_bounded_input_and_output():
     model = _RecordingModel()
     model.profile = None
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1), summary_prompt="Summarize: {messages}"
     )
     assert await middleware._acreate_summary([HumanMessage(content="目标"), AIMessage(content="中文" * 10000)]) == "summary"
@@ -1178,7 +1178,7 @@ async def test_summary_overflow_retries_with_smaller_history(overflow_count):
             return SimpleNamespace(text="summary")
 
     model = Model()
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1), summary_prompt="Summarize: {messages}"
     )
     history = [HumanMessage(content="START " + "history " * 10000 + " END")]
@@ -1208,7 +1208,7 @@ async def test_summary_shrink_retry_only_handles_context_overflow(failure):
             raise failure
 
     model = Model()
-    middleware = YuxiSummarizationMiddleware(model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1))
+    middleware = ZSSummarizationMiddleware(model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1))
     with pytest.raises(type(failure)):
         await middleware._acreate_summary([HumanMessage(content="history")])
     assert len(model.prompts) == 1
@@ -1226,7 +1226,7 @@ async def test_short_summary_history_preserves_original_overflow(monkeypatch):
         raise failure
 
     monkeypatch.setattr(model, "invoke", overflow)
-    middleware = YuxiSummarizationMiddleware(
+    middleware = ZSSummarizationMiddleware(
         model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1), summary_prompt="Summarize: {messages}"
     )
     with pytest.raises(ContextOverflowError) as rejected:
@@ -1255,7 +1255,7 @@ async def test_summary_retry_rechecks_authorization_before_sending(monkeypatch):
             raise PermissionError("revoked")
 
     monkeypatch.setattr(model, "invoke", overflow)
-    middleware = YuxiSummarizationMiddleware(model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1))
+    middleware = ZSSummarizationMiddleware(model=model, backend=_MemoryBackend(), trigger=("tokens", 100), keep=("messages", 1))
     monkeypatch.setattr(middleware, "_authorize_summary_request", authorize)
     with pytest.raises(PermissionError, match="revoked"):
         await middleware._acreate_summary([HumanMessage(content="history " * 10000)])

@@ -65,14 +65,14 @@ async def test_draft_initial_send_queue_cancel_and_model_attachment_isolation(e2
                 "agent_id": slug,
                 "title": make_test_session_title("draft-send"),
                 "input": [initial, _message(anchor_text)],
-                "yuxi": {"attachment_file_ids": [first["id"]]},
+                "zs": {"attachment_file_ids": [first["id"]]},
             }
             headers = {**e2e_headers, "Idempotency-Key": str(uuid.uuid4())}
             created = await e2e_client.post("/api/v1/agents/sessions", headers=headers, json=body)
             assert created.status_code == 201, created.text
             session = created.json()
             session_id = session["id"]
-            receipt = session["yuxi"]["receipt"]
+            receipt = session["zs"]["receipt"]
             consumed = await wait_for_consumed_input(e2e_client, e2e_headers, receipt)
             turn_id = consumed["turn_id"]
             original_messages = await conn.fetchval("SELECT messages FROM agent_inputs WHERE id=$1", receipt["input_id"])
@@ -82,11 +82,11 @@ async def test_draft_initial_send_queue_cancel_and_model_attachment_isolation(e2
             assert "<attachment_context>" not in original_messages
             repeated = await e2e_client.post("/api/v1/agents/sessions", headers=headers, json=body)
             assert repeated.status_code == 201, repeated.text
-            assert repeated.json()["yuxi"]["receipt"] == receipt
+            assert repeated.json()["zs"]["receipt"] == receipt
             changed = await e2e_client.post(
                 "/api/v1/agents/sessions",
                 headers=headers,
-                json={**body, "yuxi": {"attachment_file_ids": []}},
+                json={**body, "zs": {"attachment_file_ids": []}},
             )
             assert changed.status_code == 409, changed.text
             async with asyncio.timeout(30):
@@ -102,7 +102,7 @@ async def test_draft_initial_send_queue_cancel_and_model_attachment_isolation(e2
                         {
                             "type": "agent.session.input.message",
                             "input": [_message(OUTPUT)],
-                            "yuxi": {"mode": "follow_up", "attachment_file_ids": [future["id"]]},
+                            "zs": {"mode": "follow_up", "attachment_file_ids": [future["id"]]},
                         }
                     ]
                 },
@@ -123,7 +123,7 @@ async def test_draft_initial_send_queue_cancel_and_model_attachment_isolation(e2
                                     "DETERMINISTIC_ATTACHMENT_ABSENT:first.txt DETERMINISTIC_ATTACHMENT_ABSENT:future.txt"
                                 )
                             ],
-                            "yuxi": {"mode": "steer"},
+                            "zs": {"mode": "steer"},
                         }
                     ]
                 },
@@ -132,7 +132,7 @@ async def test_draft_initial_send_queue_cancel_and_model_attachment_isolation(e2
             cancelled = await e2e_client.post(
                 f"/api/v1/agents/sessions/{session_id}/events",
                 headers={**e2e_headers, "Idempotency-Key": str(uuid.uuid4())},
-                json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": queued_id}]},
+                json={"events": [{"type": "zs.session.input.cancel_input", "input_id": queued_id}]},
             )
             assert cancelled.status_code == 202, cancelled.text
             await replay.get("/release-blocking", params={"token": gate})
@@ -140,7 +140,7 @@ async def test_draft_initial_send_queue_cancel_and_model_attachment_isolation(e2
             assert steered["turn_id"] == turn_id
             result = await _turn(e2e_client, e2e_headers, session_id, turn_id)
             assert result["status"] == "completed", result
-            assert output_text(result["yuxi"]["output"]) == OUTPUT
+            assert output_text(result["zs"]["output"]) == OUTPUT
             refs_response = await e2e_client.get(f"/api/v1/agents/sessions/{session_id}/attachments", headers=e2e_headers)
             assert refs_response.status_code == 200, refs_response.text
             refs = {record["file_id"]: record for record in refs_response.json()["attachments"]}
@@ -199,7 +199,7 @@ async def test_draft_initial_send_queue_cancel_and_model_attachment_isolation(e2
                     await e2e_client.post(
                         f"/api/v1/agents/sessions/{session_id}/events",
                         headers={**e2e_headers, "Idempotency-Key": str(uuid.uuid4())},
-                        json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": queued_id}]},
+                        json={"events": [{"type": "zs.session.input.cancel_input", "input_id": queued_id}]},
                     )
                 await archive_public_thread(e2e_client, e2e_headers, session_id, turn_id=turn_id)
             if second_session:

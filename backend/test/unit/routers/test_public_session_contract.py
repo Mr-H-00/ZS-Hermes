@@ -4,11 +4,11 @@ import pytest
 from fastapi import FastAPI
 from pydantic import ValidationError
 
-from yuxi.api.routers.public_v1.agents import public_agents_router
-from yuxi.api.routers.public_v1.agents.events import public_stream_response
-from yuxi.api.routers.public_v1.agents.schemas import SessionCreate, SessionEventCreate, SessionUpdate, input_messages_to_domain
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.shared.errors import InvalidInputError
+from zs.api.routers.public_v1.agents import public_agents_router
+from zs.api.routers.public_v1.agents.events import public_stream_response
+from zs.api.routers.public_v1.agents.schemas import SessionCreate, SessionEventCreate, SessionUpdate, input_messages_to_domain
+from zs.modules.agents.scope import ActorScope
+from zs.shared.errors import InvalidInputError
 
 
 def test_initial_text_shorthand_has_same_domain_message_as_array():
@@ -24,19 +24,19 @@ def test_initial_text_shorthand_has_same_domain_message_as_array():
 @pytest.mark.parametrize("create", [False, True])
 def test_submission_attachments_reject_old_message_fields_and_enforce_total_limit(create):
     """两个提交入口共享附件上限，逐消息旧协议明确拒绝。"""
-    from yuxi.api.routers.public_v1.agents.schemas import MessageEvent
+    from zs.api.routers.public_v1.agents.schemas import MessageEvent
 
     model = SessionCreate if create else MessageEvent
     base = {"agent_id": "agent"} if create else {"type": "agent.session.input.message"}
     message = {"role": "user", "content": [{"type": "input_text", "text": "hello"}]}
     files = [f"{index:032x}" for index in range(20)]
-    parsed = model.model_validate({**base, "input": [message], "yuxi": {"attachment_file_ids": files}})
-    assert parsed.yuxi.attachment_file_ids == files
+    parsed = model.model_validate({**base, "input": [message], "zs": {"attachment_file_ids": files}})
+    assert parsed.zs.attachment_file_ids == files
     assert input_messages_to_domain(parsed.input)[0].extra_metadata == {}
     with pytest.raises(ValidationError):
-        model.model_validate({**base, "input": [{**message, "yuxi": {"attachment_file_ids": files}}]})
+        model.model_validate({**base, "input": [{**message, "zs": {"attachment_file_ids": files}}]})
     with pytest.raises(ValidationError):
-        model.model_validate({**base, "input": [message], "yuxi": {"attachment_file_ids": files + ["a" * 32]}})
+        model.model_validate({**base, "input": [message], "zs": {"attachment_file_ids": files + ["a" * 32]}})
 
 
 @pytest.mark.parametrize(
@@ -100,7 +100,7 @@ def test_session_receipt_does_not_override_state_or_expose_internal_snapshot():
     """失败、未读与接收事实相互独立，旧状态和私有配置不再公开。"""
     from datetime import UTC, datetime
     from types import SimpleNamespace
-    from yuxi.modules.agents.services.public_resources import session_resource
+    from zs.modules.agents.services.public_resources import session_resource
 
     timestamp = datetime(2026, 10, 9, tzinfo=UTC)
     session = SimpleNamespace(
@@ -127,10 +127,10 @@ def test_session_receipt_does_not_override_state_or_expose_internal_snapshot():
         receipt={"thread_id": "session", "event_id": "receipt", "status": "accepted"},
     )
     assert result["status"] == "failed"
-    assert result["yuxi"]["unread"] is True
-    assert result["yuxi"]["archived"] is False
-    assert result["yuxi"]["receipt"]["event_id"] == "receipt"
-    assert not {"thread_status", "activity_status", "metadata", "config_snapshot"} & result["yuxi"].keys()
+    assert result["zs"]["unread"] is True
+    assert result["zs"]["archived"] is False
+    assert result["zs"]["receipt"]["event_id"] == "receipt"
+    assert not {"thread_status", "activity_status", "metadata", "config_snapshot"} & result["zs"].keys()
     assert result["agent"] == {"id": "agent", "model": "model"}
 
 
@@ -138,7 +138,7 @@ def test_session_receipt_does_not_override_state_or_expose_internal_snapshot():
 def test_public_waiting_status_expresses_the_required_action(kind, expected):
     """普通调用方从核心状态决定等待，waitpoint 保留具体等待内容。"""
     from types import SimpleNamespace
-    from yuxi.modules.agents.services.public_resources import turn_status
+    from zs.modules.agents.services.public_resources import turn_status
 
     turn = SimpleNamespace(status="waiting", waitpoint={"kind": kind})
     assert turn_status(turn, None) == expected
@@ -160,7 +160,7 @@ def _resume_body(answer):
     return {
         "events": [
             {
-                "type": "yuxi.session.input.resume",
+                "type": "zs.session.input.resume",
                 "turn_id": "turn-1",
                 "waitpoint_id": "wait-1",
                 "response": {"type": "answer", "answers": [{"question_id": "q-1", "answer": answer}]},
@@ -202,8 +202,8 @@ def test_turn_http_core_matches_terminal_event_and_preserves_cancelling():
     """相同终态事实生成相同核心，取消清理不能提前投影终态。"""
     from datetime import UTC, datetime
     from types import SimpleNamespace
-    from yuxi.modules.agents.services.subscriptions import _turn_event
-    from yuxi.modules.agents.services.public_resources import turn_core
+    from zs.modules.agents.services.subscriptions import _turn_event
+    from zs.modules.agents.services.public_resources import turn_core
 
     timestamp = datetime(2026, 10, 9, tzinfo=UTC)
     turn = SimpleNamespace(

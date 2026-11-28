@@ -23,9 +23,9 @@ from test.e2e.e2e_helpers import (
 )
 from test.support.openai_replay_server import send_json_response, send_openai_sse_response, serve_replay_handler
 from test.support.public_api import delete_agent
-from yuxi.modules.extensions.mcp.oauth_config import config_revision, decrypt, encrypt
-from yuxi.shared.datetime import utc_now
-from yuxi.modules.workspace.runtime_paths import SHARED_SKILLS_PATH
+from zs.modules.extensions.mcp.oauth_config import config_revision, decrypt, encrypt
+from zs.shared.datetime import utc_now
+from zs.modules.workspace.runtime_paths import SHARED_SKILLS_PATH
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.slow, pytest.mark.self_managed_resources]
 
@@ -286,11 +286,11 @@ async def test_personal_mcp_availability_through_worker(mode, via_skill):
                         },
                     )
                     assert submitted.status_code == 201, submitted.text
-                    accepted = await wait_for_consumed_input(client, headers, submitted.json()["yuxi"]["receipt"])
+                    accepted = await wait_for_consumed_input(client, headers, submitted.json()["zs"]["receipt"])
                     thread, turn_id, run = accepted["session_id"], accepted["turn_id"], accepted["run_id"]
                     threads.append((thread, turn_id))
                     turn = await wait_for_terminal_turn(client, headers, thread, turn_id)
-                    assert turn["yuxi"]["result_run_id"] == run
+                    assert turn["zs"]["result_run_id"] == run
                     if mode.startswith("disconnect") and index == 0:
                         assert revoked
                         successful_calls = await db.fetchval(
@@ -299,11 +299,11 @@ async def test_personal_mcp_availability_through_worker(mode, via_skill):
                         )
                         assert successful_calls == 0
                         assert turn["status"] == "completed", turn
-                        denied = output_text(turn["yuxi"]["output"])
+                        denied = output_text(turn["zs"]["output"])
                         assert "能力受限" in denied or "连接" in denied
                         continue
                     assert turn["status"] == "completed", turn
-                    final = output_text(turn["yuxi"]["output"])
+                    final = output_text(turn["zs"]["output"])
                     if mode == "refresh":
                         assert "年假" in final and "tool-result" in observed
                         current = await db.fetchval(

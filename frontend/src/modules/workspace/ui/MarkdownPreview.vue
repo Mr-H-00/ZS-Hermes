@@ -411,7 +411,7 @@ const enhanceDocumentImages = () => {
 
   root.querySelectorAll('img').forEach((img) => {
     // Widget 图片自己拥有鉴权请求与 Blob，Markdown 只增强正文图片。
-    if (img.closest('.yuxi-widget')) return
+    if (img.closest('.zs-widget')) return
     const src = img.getAttribute('src')
     const imageUrl = resolveMarkdownImageUrl(src, props.resourceBaseUrl, window.location.origin)
     if (!imageUrl || img.dataset.documentImageLoaded || img.dataset.documentImageLoading) return

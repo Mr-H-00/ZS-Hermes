@@ -8,12 +8,12 @@ from zipfile import ZipFile
 import pytest
 from sqlalchemy import select
 
-from yuxi.infrastructure.runtime_settings import get_skill_data_dir
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.services.definitions import create_agent_definition
-from yuxi.modules.extensions.mcp.models import MCPServer
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.identity.models import User
+from zs.infrastructure.runtime_settings import get_skill_data_dir
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.services.definitions import create_agent_definition
+from zs.modules.extensions.mcp.models import MCPServer
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 

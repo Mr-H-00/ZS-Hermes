@@ -4,12 +4,12 @@ import pytest
 from sqlalchemy import select
 
 from test.integration.support.module_audit import isolated_audit_store
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.repositories.definitions import AgentRepository
-from yuxi.modules.agents.services.definitions import ensure_default_agent_definition, update_agent_definition
-from yuxi.modules.agents.services.environment import write_agent_env
-from yuxi.modules.agents.repositories.environment import AgentEnvRepository
-from yuxi.modules.identity.models import User
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.repositories.definitions import AgentRepository
+from zs.modules.agents.services.definitions import ensure_default_agent_definition, update_agent_definition
+from zs.modules.agents.services.environment import write_agent_env
+from zs.modules.agents.repositories.environment import AgentEnvRepository
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -55,7 +55,7 @@ async def test_update_failure_rolls_back_before_caller_can_commit_other_work(mon
                 """失败发生于实际定义补丁 flush 之后。"""
                 raise RuntimeError("binding rejected")
 
-            monkeypatch.setattr("yuxi.modules.agents.services.definitions.commit_agent_definition", fail_binding)
+            monkeypatch.setattr("zs.modules.agents.services.definitions.commit_agent_definition", fail_binding)
             with pytest.raises(RuntimeError, match="binding rejected"):
                 await update_agent_definition(db, agent, name="Must rollback", updater=owner)
             await db.commit()
@@ -91,10 +91,10 @@ async def test_deleted_human_cannot_read_agent_visibility_or_freeze_new_input(mo
     """失效超级管理员不能借宽角色可见性读取或冻结新 Input。"""
     from sqlalchemy import func
 
-    from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-    from yuxi.modules.agents.scope import ActorScope
-    from yuxi.modules.agents.services.inputs import create_thread
-    from yuxi.shared.errors import ResourceNotFoundError
+    from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+    from zs.modules.agents.scope import ActorScope
+    from zs.modules.agents.services.inputs import create_thread
+    from zs.shared.errors import ResourceNotFoundError
 
     async with isolated_audit_store(monkeypatch) as (_, sessions):
         async with sessions() as db:

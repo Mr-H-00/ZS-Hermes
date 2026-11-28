@@ -22,16 +22,16 @@ from sqlalchemy import update
 
 from test.live_api_cleanup import make_test_session_title
 from test.e2e.e2e_helpers import archive_public_thread, cleanup_uploaded_chat_attachment, wait_for_consumed_input
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.minio import get_minio_client
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.infrastructure.redis import close_async_redis_client
-from yuxi.modules.agents.models.attachments import AgentAttachment
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
-from yuxi.modules.system.models import ConfigOption
-from yuxi.modules.system.repositories.options import get_option
-from yuxi.modules.system.services.options import invalidate_option_cache
-from yuxi.modules.workspace.filesystem import Workspace
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.minio import get_minio_client
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.infrastructure.redis import close_async_redis_client
+from zs.modules.agents.models.attachments import AgentAttachment
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.modules.system.models import ConfigOption
+from zs.modules.system.repositories.options import get_option
+from zs.modules.system.services.options import invalidate_option_cache
+from zs.modules.workspace.filesystem import Workspace
 
 load_models()
 
@@ -216,7 +216,7 @@ async def test_ocr_options_reach_draft_parser_and_preserve_artifacts(
             markdown = workspace.read_authorized_file(f"/{draft.parsed_source}", 1024).decode()
             assert "Artifact replay" in markdown
             if engine_id != "paddleocr_pp_ocrv6":
-                from yuxi.infrastructure.document_parsing.artifacts import local_image_links
+                from zs.infrastructure.document_parsing.artifacts import local_image_links
 
                 [relative] = local_image_links(markdown)
                 image_path = PurePosixPath(draft.parsed_source).parent / relative
@@ -305,7 +305,7 @@ async def test_private_draft_parse_send_and_delete_preserve_complete_local_direc
                                 "content": [{"type": "input_text", "text": "保留完整文档资源"}],
                             }
                         ],
-                        "yuxi": {"mode": "follow_up", "attachment_file_ids": [uploaded["id"]]},
+                        "zs": {"mode": "follow_up", "attachment_file_ids": [uploaded["id"]]},
                     }
                 ]
             },
@@ -436,7 +436,7 @@ async def test_knowledge_worker_hosts_document_resources_and_file_delete_reclaim
         [task] = received.values()
         assert task["manifest"]["tier"] == "standard"
         assert task["uploaded"] == source.getvalue()
-        from yuxi.infrastructure.minio.object_urls import parse_minio_url
+        from zs.infrastructure.minio.object_urls import parse_minio_url
 
         bucket, markdown_name = parse_minio_url(record.markdown_file)
         assert markdown_name.startswith(f"{kb_id}/parsed/{file_id}/")
@@ -448,13 +448,13 @@ async def test_knowledge_worker_hosts_document_resources_and_file_delete_reclaim
         relative_image = image_name.split("/", 1)[1]
         assert f"/api/knowledge/knowledge-bases/{kb_id}/images/{quote(relative_image, safe='/')}" in markdown
         # 上传已完成但 owning PG 更新失去 owner 时，只回收本次 attempt。
-        from yuxi.modules.documents import service as document_service
-        from yuxi.modules.knowledge.implementations.milvus import MilvusKB
+        from zs.modules.documents import service as document_service
+        from zs.modules.knowledge.implementations.milvus import MilvusKB
 
         from datetime import timedelta
         from sqlalchemy import update
-        from yuxi.modules.background_jobs.models import BackgroundJobRecord
-        from yuxi.shared.datetime import utc_now
+        from zs.modules.background_jobs.models import BackgroundJobRecord
+        from zs.shared.datetime import utc_now
 
         async with pg_manager.get_async_session_context() as session:
             await session.execute(

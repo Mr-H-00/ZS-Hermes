@@ -140,7 +140,7 @@ async def wait_for_terminal_turn(client: httpx.AsyncClient, headers: dict, threa
                 assert response.status_code == 200, f"Turn 查询失败: thread={thread_id}, turn={turn_id}, HTTP={response.status_code}"
                 turn = response.json()
                 assert (turn["session_id"], turn["id"]) == (thread_id, turn_id), "Turn 查询返回了其他执行的归属"
-                last = {"status": turn["status"], "current_run_id": turn["yuxi"]["current_run_id"]}
+                last = {"status": turn["status"], "current_run_id": turn["zs"]["current_run_id"]}
                 if turn["status"] in {"completed", "failed", "cancelled"}:
                     return turn
                 await asyncio.sleep(0.2)
@@ -241,15 +241,15 @@ def skip_if_external_quota(payload: object) -> None:
 
 async def wait_model_provider_cache() -> None:
     """等待新测试供应商的跨进程缓存传播；不替代模型执行与持久结果验证。"""
-    from yuxi.modules.models.providers.cache import _CACHE_TTL_SECONDS
+    from zs.modules.models.providers.cache import _CACHE_TTL_SECONDS
 
     await asyncio.sleep(_CACHE_TTL_SECONDS + 0.1)
 
 
 async def cleanup_uploaded_chat_attachment(uid: str, file_id: str) -> None:
     """删除测试上传附件的临时对象与 workspace 副本。"""
-    from yuxi.infrastructure.minio import get_minio_client
-    from yuxi.modules.workspace.filesystem import Workspace
+    from zs.infrastructure.minio import get_minio_client
+    from zs.modules.workspace.filesystem import Workspace
 
     minio = get_minio_client()
     prefix = f"tmp/chat_attachments/{uid}/{file_id}"
@@ -311,7 +311,7 @@ async def archive_public_thread(
                     cancel = await client.post(
                         f"/api/v1/agents/sessions/{thread_id}/events",
                         headers={**headers, "Idempotency-Key": f"e2e-cleanup-{turn_id}"},
-                        json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id}}]},
+                        json={"events": [{"type": "agent.session.input.cancel", "zs": {"turn_id": turn_id}}]},
                     )
                     assert cancel.status_code in {202, 409}, cancel.text
                     while True:

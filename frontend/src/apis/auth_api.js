@@ -42,7 +42,7 @@ async function getUserAccessOptions() {
   return apiAdminGet('/api/auth/users/access-options')
 }
 
-/** 只撤销当前 Yuxi 凭据，保留认证中心的共享登录状态。 */
+/** 只撤销当前 ZS 凭据，保留认证中心的共享登录状态。 */
 async function logout() {
   return apiPost('/api/auth/oidc/logout', {})
 }

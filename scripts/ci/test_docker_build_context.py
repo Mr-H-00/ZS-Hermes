@@ -14,7 +14,7 @@ class DockerBuildContextTests(unittest.TestCase):
         ignore_rules = (
             Path(__file__).resolve().parents[2] / ".dockerignore"
         ).read_bytes()
-        with tempfile.TemporaryDirectory(prefix="yuxi-build-context-") as directory:
+        with tempfile.TemporaryDirectory(prefix="zs-build-context-") as directory:
             context = Path(directory)
             ignore_file = context / ".dockerignore"
             ignore_file.write_bytes(ignore_rules)
@@ -22,7 +22,7 @@ class DockerBuildContextTests(unittest.TestCase):
                 ".env",
                 ".env.prod",
                 "backend/test/.env.test",
-                ".yuxi/runtime-secret",
+                ".zs/runtime-secret",
                 ".playwright-cli/credentials.json",
             ):
                 with self.subTest(filename=filename):

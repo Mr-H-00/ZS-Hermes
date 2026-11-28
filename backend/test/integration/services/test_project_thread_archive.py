@@ -7,18 +7,18 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services.threads import archive_thread
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.workspace.services.projects import delete_project_view
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import DomainError, StateConflictError
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services.threads import archive_thread
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
+from zs.modules.workspace.services.projects import delete_project_view
+from zs.shared.datetime import utc_now
+from zs.shared.errors import DomainError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

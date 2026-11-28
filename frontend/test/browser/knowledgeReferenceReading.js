@@ -68,7 +68,7 @@ async page => {
     await page.getByRole('button', { name: '查看原文', exact: true }).waitFor()
     await page.getByRole('button', { name: '查看原文', exact: true }).click()
     await reader.getByRole('status').waitFor()
-    await page.locator('.ant-modal-content:visible').screenshot({ path: '/tmp/yuxi-knowledge-reference-loading.png' })
+    await page.locator('.ant-modal-content:visible').screenshot({ path: '/tmp/zs-knowledge-reference-loading.png' })
     releaseInitialRead()
     await reader.locator('.reader-line-highlight').first().waitFor()
     check(await reader.locator('.reader-line-highlight').count() === 2, '引用行未高亮')
@@ -82,7 +82,7 @@ async page => {
       for (const width of [1440, 1024, 768]) {
         await page.setViewportSize({ width, height: 900 })
         check(await reader.evaluate(el => el.scrollWidth <= el.clientWidth), '阅读组件横向溢出')
-        await page.locator('.ant-modal-content:visible').screenshot({ path: `/tmp/yuxi-knowledge-reference-${theme}-${width}.png` })
+        await page.locator('.ant-modal-content:visible').screenshot({ path: `/tmp/zs-knowledge-reference-${theme}-${width}.png` })
       }
     }
     await reader.getByRole('button', { name: '关闭文档' }).click()
@@ -90,7 +90,7 @@ async page => {
     mode = 'denied'
     await open()
     await reader.getByRole('alert').waitFor()
-    await page.locator('.ant-modal-content:visible').screenshot({ path: '/tmp/yuxi-knowledge-reference-error.png' })
+    await page.locator('.ant-modal-content:visible').screenshot({ path: '/tmp/zs-knowledge-reference-error.png' })
     check(await reader.locator('.reader-line').count() === 0, '权限错误后保留原文')
     mode = 'empty'
     await reader.getByRole('button', { name: '重新读取' }).click()

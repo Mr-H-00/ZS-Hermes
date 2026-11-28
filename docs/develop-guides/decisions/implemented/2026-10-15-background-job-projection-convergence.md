@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/background_jobs/service.py
+Owner：backend/zs/modules/background_jobs/service.py
 
 ## 问题
 

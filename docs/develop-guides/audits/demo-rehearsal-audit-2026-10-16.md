@@ -42,7 +42,7 @@
 | 运行依赖 | 用户安装个人 `pptx-generator` Skill，但当前 VM 全局包与 Skill 目录未找到 PptxGenJS，`markitdown`、`soffice` 和 `libreoffice` 命令不可用 | 安装 Skill 与准备运行依赖是独立事项 |
 | 基础执行环境 | 实际命令确认 Python、Node、Python Playwright、Chromium 安装目录与 Noto CJK 字体可用 | 可以继续验证脚本生成、网页和中文渲染 |
 
-依赖判断来自实际 `execute` 结果与生成的环境检查 JSON 回读。浏览器安装目录存在不等于浏览器启动成功，后续仍需真实页面验证。API 镜像配置包含 LibreOffice，Office 预览用例也已接入转换器；用户 VM 中缺少转换程序不等于产品没有 PPT 预览，最终仍以成品预览为验收。相关 Owner 为 [API 镜像](https://github.com/xerrors/Yuxi/blob/main/docker/api.Dockerfile)、[用户 VM 模板](https://github.com/xerrors/Yuxi/blob/main/docker/cube/Dockerfile.user)及[产物预览用例](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/services/artifacts.py)。
+依赖判断来自实际 `execute` 结果与生成的环境检查 JSON 回读。浏览器安装目录存在不等于浏览器启动成功，后续仍需真实页面验证。API 镜像配置包含 LibreOffice，Office 预览用例也已接入转换器；用户 VM 中缺少转换程序不等于产品没有 PPT 预览，最终仍以成品预览为验收。相关 Owner 为 [API 镜像](https://github.com/xerrors/Yuxi/blob/main/docker/api.Dockerfile)、[用户 VM 模板](https://github.com/xerrors/Yuxi/blob/main/docker/cube/Dockerfile.user)及[产物预览用例](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/services/artifacts.py)。
 
 ## 精简复跑的报告与网页
 
@@ -50,7 +50,7 @@
 
 主会话分出报告与公开参考两个成员，自己生成网页，再整合报告。主 Turn 约 227 秒后完成，生成的 Markdown 报告约 16 KB，HTML 约 11 KB。回读工具调用确认实际执行三次搜索，超过要求的两次：一次返回包含石墨文档官网与官方博客的八条结果，两次返回当日配额耗尽错误。成员及主会话都自报仅执行两次，这一自报不准确。报告保留语雀资料“未确认”，本轮没有完成“两家均获得官方资料”的完整目标，文件生成、调用次数与外部资料完整性分别判断。
 
-两次配额失败的原始结果均包含 `error`，公开 `function_call_output` 却为 `status=completed`、`error=null`。工具结果归一化仅将字典中的 `status="error"` 识别为失败，而搜索工具返回的是 `error` 字段；该装配差异需要在搜索结果契约处修正。真实零结果、额度失败和网络失败应可区分，不能以工具调用“完成”表示检索成功。Owner 为[搜索工具](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/tools/builtin/web_search.py)与[工具结果归一化](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/tool_results.py)。
+两次配额失败的原始结果均包含 `error`，公开 `function_call_output` 却为 `status=completed`、`error=null`。工具结果归一化仅将字典中的 `status="error"` 识别为失败，而搜索工具返回的是 `error` 字段；该装配差异需要在搜索结果契约处修正。真实零结果、额度失败和网络失败应可区分，不能以工具调用“完成”表示检索成功。Owner 为[搜索工具](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/tools/builtin/web_search.py)与[工具结果归一化](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/tool_results.py)。
 
 在真实调研成员页面展开失败的搜索调用，DOM 显示“未找到相关搜索结果”，没有显示配额错误。这与协议观察一致。搜索结果展示 Owner 为[搜索工具渲染器](https://github.com/xerrors/Yuxi/blob/main/frontend/src/modules/session/ui/tools/renderers/WebSearchTool.vue)；错误修复需要同时覆盖持久工具结果、公开协议与真实页面。
 

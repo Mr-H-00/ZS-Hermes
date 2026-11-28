@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-import yuxi.api.routers.knowledge.management as knowledge_router
-from yuxi.infrastructure.minio.client import UploadResult
-from yuxi.modules.knowledge.services import uploads
+import zs.api.routers.knowledge.management as knowledge_router
+from zs.infrastructure.minio.client import UploadResult
+from zs.modules.knowledge.services import uploads
 
 pytestmark = pytest.mark.asyncio
 

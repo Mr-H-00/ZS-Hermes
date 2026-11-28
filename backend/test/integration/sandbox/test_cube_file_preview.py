@@ -8,9 +8,9 @@ import pytest
 from sqlalchemy import delete, update
 
 from test.integration.api.helpers import create_default_agent_thread, delete_created_threads
-from yuxi.modules.extensions.skills.access import get_skills_root_dir
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.extensions.skills.projection import sync_user_accessible_skills
+from zs.modules.extensions.skills.access import get_skills_root_dir
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.extensions.skills.projection import sync_user_accessible_skills
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

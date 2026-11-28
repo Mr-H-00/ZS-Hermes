@@ -235,9 +235,9 @@ async def test_cleanup_reads_persisted_threads_and_only_archives_active(monkeypa
 
 async def test_remove_test_workdir_rejects_real_workspace_symlink(tmp_path, monkeypatch):
     """当前 Project Workdir 不能通过符号链接删除工作区外文件。"""
-    from yuxi.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
+    from zs.modules.workspace.paths import ensure_user_workspace, user_workspace_dir
 
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "user-data"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "user-data"))
     ensure_user_workspace("test-user")
     projects = user_workspace_dir("test-user") / "projects"
     projects.mkdir(exist_ok=True)
@@ -257,8 +257,8 @@ async def test_test_resource_names_use_one_visible_prefix():
     metadata = make_test_session_metadata("viewer-filesystem")
 
     assert title.startswith(TEST_SESSION_TITLE_PREFIX)
-    assert metadata["_yuxi_test"] is True
-    assert make_test_resource_id("agent-call").startswith("YUXI_TEST_")
+    assert metadata["_zs_test"] is True
+    assert make_test_resource_id("agent-call").startswith("ZS_TEST_")
 
 
 async def test_unmarked_titles_never_identify_test_sessions():
@@ -356,7 +356,7 @@ async def test_cleanup_stops_when_cancelled_input_remains_pending(monkeypatch):
         return None
 
     async def still_pending(_thread_ids: set[str]) -> list[tuple[str, str]]:
-        return [("thread-marked", "YUXI_TEST_pending_input")]
+        return [("thread-marked", "ZS_TEST_pending_input")]
 
     monkeypatch.setattr("test.live_api_cleanup.list_test_session_resources", fake_list_resources)
     monkeypatch.setattr("test.live_api_cleanup.validate_test_workdirs_exclusive", fake_validate)
@@ -365,8 +365,8 @@ async def test_cleanup_stops_when_cancelled_input_remains_pending(monkeypatch):
 
     def handle_request(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path == "/api/v1/agents/sessions/thread-marked/events":
-            assert request.headers["Idempotency-Key"] == "cleanup:YUXI_TEST_pending_input"
-            assert request.content == (b'{"events":[{"type":"yuxi.session.input.cancel_input","input_id":"YUXI_TEST_pending_input"}]}')
+            assert request.headers["Idempotency-Key"] == "cleanup:ZS_TEST_pending_input"
+            assert request.content == (b'{"events":[{"type":"zs.session.input.cancel_input","input_id":"ZS_TEST_pending_input"}]}')
             return httpx.Response(202, json={"status": "cancelled"})
         if request.method == "DELETE":
             destructive_paths.append(request.url.path)
@@ -435,10 +435,10 @@ async def test_remove_test_workdir_is_idempotent_when_directory_is_gone(tmp_path
 async def test_only_explicit_session_ownership_allows_cleanup():
     from test.live_api_cleanup import _is_test_thread
 
-    marked = {"id": "t1", "agent_id": "default-chatbot", "metadata": {"_yuxi_e2e": True, "test": "viewer-fs-e2e"}}
+    marked = {"id": "t1", "agent_id": "default-chatbot", "metadata": {"_zs_e2e": True, "test": "viewer-fs-e2e"}}
     agent_prefix = {"id": "invocation_x", "agent_id": "e2e-agent-call-deadbeef"}
     unified = {"id": "t3", "title": f"{TEST_SESSION_TITLE_PREFIX}viewer_deadbeef", "metadata": {}}
-    explicit = {"id": "t4", "metadata": {"_yuxi_test": True}}
+    explicit = {"id": "t4", "metadata": {"_zs_test": True}}
     plain = {"id": "t2", "agent_id": "default-chatbot"}
 
     assert not _is_test_thread(marked)

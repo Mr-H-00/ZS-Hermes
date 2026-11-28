@@ -117,10 +117,10 @@ async page => {
             return result
           })
           check(colors.selected === colors.expectedSelected && colors.text === colors.expectedText && colors.hovered === colors.expectedHovered, `菜单颜色未匹配主题：${JSON.stringify(colors)}`)
-          await page.locator('.ant-dropdown.knowledge-file-actions:visible').screenshot({ path: `/tmp/yuxi-knowledge-menu-${mode}.png` })
+          await page.locator('.ant-dropdown.knowledge-file-actions:visible').screenshot({ path: `/tmp/zs-knowledge-menu-${mode}.png` })
           await compact.click()
         }
-        await host.screenshot({ path: `/tmp/yuxi-knowledge-reading-${mode}-${width}.png` })
+        await host.screenshot({ path: `/tmp/zs-knowledge-reading-${mode}-${width}.png` })
       }
     }
     await page.setViewportSize({ width: 1024, height: 1000 })

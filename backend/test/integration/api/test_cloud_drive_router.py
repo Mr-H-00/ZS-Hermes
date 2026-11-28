@@ -17,17 +17,17 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.identity.cloud_drive_router import cloud_drive
-from yuxi.infrastructure.postgres.base import BusinessBase as Base
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.identity.models import Department, RevokedAccessToken, User, WPSCloudConfig, WPSConnection
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.identity.services.cloud_drive_service import CloudDriveService
-from yuxi.modules.identity.services.wps_development_tunnel import wps_development_tunnel
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import DomainError
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.identity.cloud_drive_router import cloud_drive
+from zs.infrastructure.postgres.base import BusinessBase as Base
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.identity.models import Department, RevokedAccessToken, User, WPSCloudConfig, WPSConnection
+from zs.modules.identity.security import AuthUtils
+from zs.modules.identity.services.cloud_drive_service import CloudDriveService
+from zs.modules.identity.services.wps_development_tunnel import wps_development_tunnel
+from zs.shared.datetime import utc_now
+from zs.shared.errors import DomainError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 BASE_URL = "/api/cloud-drive/wps"
@@ -40,7 +40,7 @@ CONFIG = {
 
 
 class WPSReplay:
-    """只回放 WPS wire，Yuxi 的路由、认证和持久化使用真实实现。"""
+    """只回放 WPS wire，ZS 的路由、认证和持久化使用真实实现。"""
 
     # 初始化协议回放状态，参数为空，结果在 handler 中观察。
     def __init__(self):
@@ -137,11 +137,11 @@ async def cloud_env(monkeypatch, tmp_path):
     credentials_file = tmp_path / "zs-dev.json"
     config_file.write_text("tunnel: placeholder\n", encoding="utf-8")
     credentials_file.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv("YUXI_ENV", "development")
+    monkeypatch.setenv("ZS_ENV", "development")
     monkeypatch.setenv("RUNNING_IN_DOCKER", "true")
     monkeypatch.setenv("API_KEY_DERIVATION_SECRET", "wps-integration-test-derivation-key-at-least-32-characters")
     monkeypatch.setenv("JWT_SECRET_KEY", "wps-integration-test-jwt-key-at-least-32-characters")
-    monkeypatch.setenv("YUXI_INSTANCE_ID", "wps-integration-test")
+    monkeypatch.setenv("ZS_INSTANCE_ID", "wps-integration-test")
     monkeypatch.setenv("WPS_DEVELOPMENT_TUNNEL_CONFIG", str(config_file))
     monkeypatch.setenv("WPS_DEVELOPMENT_TUNNEL_CREDENTIALS", str(credentials_file))
     admin_engine = create_async_engine(os.environ["POSTGRES_URL"])
@@ -285,7 +285,7 @@ async def test_development_tunnel_callback_is_separate_and_stale_state_fails(clo
     """联调域名只在当前隧道生命周期内有效，正式回调字段保持不变。"""
     env = cloud_env
     await configure(env)
-    monkeypatch.setenv("YUXI_ENV", "development")
+    monkeypatch.setenv("ZS_ENV", "development")
     monkeypatch.setenv("RUNNING_IN_DOCKER", "true")
     original = (wps_development_tunnel._state, wps_development_tunnel._public_url, wps_development_tunnel._nonce)
     wps_development_tunnel._state = "running"

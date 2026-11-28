@@ -2,9 +2,9 @@
 
 import pytest
 
-from yuxi.modules.extensions.mcp.builtin import BUILTIN_MCP_MANIFEST
-from yuxi.modules.extensions.mcp.config import normalize_mcp_manifest_entry
-from yuxi.modules.extensions.mcp import runtime
+from zs.modules.extensions.mcp.builtin import BUILTIN_MCP_MANIFEST
+from zs.modules.extensions.mcp.config import normalize_mcp_manifest_entry
+from zs.modules.extensions.mcp import runtime
 
 
 def test_builtin_manifest_normalizes_deepwiki_connection_and_display():

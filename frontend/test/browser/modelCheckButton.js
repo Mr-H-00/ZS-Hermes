@@ -22,16 +22,16 @@ async (page) => {
       gate = new Promise((resolve) => { release = resolve })
       const beforeRequests = requests
       await button.click()
-      await button.locator('.yuxi-loading').waitFor()
+      await button.locator('.zs-loading').waitFor()
       check(await button.getAttribute('aria-busy') === 'true', '检查中暴露 busy 状态')
       check(await button.isDisabled(), '检查中禁用重复点击')
       check((await button.textContent()).trim() === '', 'loading 替换文字，不出现检查中')
-      check(await button.locator('.yuxi-loading > div').count() === 5, '使用 Yuxi 五竖线 loading')
+      check(await button.locator('.zs-loading > div').count() === 5, '使用 ZS 五竖线 loading')
       check(await row.locator('.model-status-indicator').count() === 0, '没有重复状态图标')
       check((await button.boundingBox()).width === initialWidth, 'loading 不改变按钮宽度')
       await button.evaluate((node) => node.click())
       check(requests === beforeRequests + 1, '等待期间重复点击不重复请求')
-      if (nextStatus === 'available') await row.screenshot({ path: '/tmp/yuxi-model-check-loading.png' })
+      if (nextStatus === 'available') await row.screenshot({ path: '/tmp/zs-model-check-loading.png' })
       release()
       const label = nextStatus === 'available' ? '通过' : '异常'
       await button.getByText(label, { exact: true }).waitFor()
@@ -53,9 +53,9 @@ async (page) => {
         const node = document.querySelector('.status-check-button')
         return node && getComputedStyle(node).color === expected
       }, expected)
-      if (nextStatus === 'unavailable') await row.screenshot({ path: '/tmp/yuxi-model-check-error.png' })
+      if (nextStatus === 'unavailable') await row.screenshot({ path: '/tmp/zs-model-check-error.png' })
     }
-    await row.screenshot({ path: '/tmp/yuxi-model-check-passed.png' })
+    await row.screenshot({ path: '/tmp/zs-model-check-passed.png' })
     await page.evaluate(async () => {
       const { useThemeStore } = await import('/src/shared/model/theme.js')
       window.modelCheckOriginalTheme = useThemeStore().themeMode
@@ -63,7 +63,7 @@ async (page) => {
     })
     await page.setViewportSize({ width: 768, height: 1000 })
     check(await button.isEnabled(), '深色窄屏结果仍可再次测试')
-    await row.screenshot({ path: '/tmp/yuxi-model-check-dark-768.png' })
+    await row.screenshot({ path: '/tmp/zs-model-check-dark-768.png' })
     return { requests, states: ['检查', 'loading', '通过', '异常', '通过'], width: initialWidth, retryable: true }
   } finally {
     release?.()

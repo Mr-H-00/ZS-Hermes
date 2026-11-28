@@ -3,11 +3,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import yuxi.modules.knowledge.graphs.milvus_graph_vector_store as graph_module
-import yuxi.modules.knowledge.implementations.milvus as milvus_module
+import zs.modules.knowledge.graphs.milvus_graph_vector_store as graph_module
+import zs.modules.knowledge.implementations.milvus as milvus_module
 from test.unit.support.milvus import FakeCollection, FakeHit, make_kb, make_query_config
 from test.unit.support.milvus import fake_milvus_embedding as fake_milvus_embedding
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.implementations.milvus import MilvusKB
 
 
 @pytest.mark.parametrize("search_mode", ["vector", "keyword", "hybrid"])

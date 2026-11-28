@@ -5,12 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.agents.services.mentions as mention_service
+import zs.modules.agents.services.mentions as mention_service
 
 
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path))
     root = tmp_path / "shared" / "user-1" / "workspace"
     root.mkdir(parents=True)
     return root

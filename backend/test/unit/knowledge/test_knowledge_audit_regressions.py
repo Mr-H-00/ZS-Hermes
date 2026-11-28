@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.infrastructure.document_parsing.parser import parse
-from yuxi.modules.knowledge.chunking.dispatcher import chunk_markdown
-from yuxi.modules.knowledge.evaluation.evaluator import aggregate_metrics
-from yuxi.modules.knowledge.evaluation.metrics import EvaluationMetricsCalculator
-from yuxi.modules.knowledge.evaluation.service import EvaluationService
-from yuxi.modules.knowledge.graphs import service as graph_module
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.shared.datetime import utc_now
+from zs.infrastructure.document_parsing.parser import parse
+from zs.modules.knowledge.chunking.dispatcher import chunk_markdown
+from zs.modules.knowledge.evaluation.evaluator import aggregate_metrics
+from zs.modules.knowledge.evaluation.metrics import EvaluationMetricsCalculator
+from zs.modules.knowledge.evaluation.service import EvaluationService
+from zs.modules.knowledge.graphs import service as graph_module
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.shared.datetime import utc_now
 
 
 @pytest.mark.parametrize("miss_first", [True, False])

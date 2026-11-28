@@ -9,10 +9,10 @@ from datetime import datetime
 
 import httpx
 import pytest
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir
-from yuxi.modules.workspace.paths import ensure_user_workspace, user_workspace_dir, workspace_uid_dirname
-from yuxi.modules.workspace.runtime_paths import WORKSPACE_PATH, SHARED_SKILLS_PATH
-from yuxi.shared.errors import StateConflictError
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir
+from zs.modules.workspace.paths import ensure_user_workspace, user_workspace_dir, workspace_uid_dirname
+from zs.modules.workspace.runtime_paths import WORKSPACE_PATH, SHARED_SKILLS_PATH
+from zs.shared.errors import StateConflictError
 
 pytestmark = [pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -31,7 +31,7 @@ def test_concurrent_first_use_and_home_files_wake_original_vm(resources, monkeyp
     import sys
 
     code = (
-        "from yuxi.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider; "
+        "from zs.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider; "
         f"print(CubeSandboxProvider().get({uid!r}).sandbox_id)"
     )
     processes = [
@@ -327,8 +327,8 @@ def test_http_env_verification_uses_new_values_preserves_existing_process_and_wa
 
 def test_run_snapshot_keeps_values_across_commands_while_verification_reads_latest(resources):
     """真实 VM 输出固定快照，HTTP 验证读取新值，退出上下文后读取新配置。"""
-    from yuxi.modules.agents.runtime.sandbox import sandbox_run_env
-    from yuxi.modules.agents.repositories.environment import AgentEnvRepository
+    from zs.modules.agents.runtime.sandbox import sandbox_run_env
+    from zs.modules.agents.repositories.environment import AgentEnvRepository
 
     uid, password, provider, backend = resources
     base = os.environ.get("TEST_BASE_URL", "http://127.0.0.1:5050")
@@ -452,7 +452,7 @@ def test_timeout_and_crashed_executor_cleanup_preserve_other_commands(resources)
     time.sleep(0.3)
     assert path.read_bytes() == before
     code = (
-        "from yuxi.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider; "
+        "from zs.modules.agents.runtime.sandbox.cube_provider import CubeSandboxProvider; "
         f"CubeSandboxProvider().execute({uid!r}, 'while :; do printf c >> crashed.txt; sleep .1; done', {WORKSPACE_PATH!r}, 120)"
     )
     process = subprocess.Popen([sys.executable, "-c", code])
@@ -598,9 +598,9 @@ def test_environment_clearing_children_are_stopped_and_vm_files_use_kernel_permi
 def test_confirmed_end_removes_marker_but_uncertain_launch_stays_cancelled(resources, monkeypatch):
     """持久环境不积累普通终态标记，断连晚启动仍被 tombstone 拦截。"""
     uid, _, provider, backend = resources
-    execution = run(backend, 'printf %s "$YUXI_EXECUTION_ID"')
+    execution = run(backend, 'printf %s "$ZS_EXECUTION_ID"')
     assert len(execution) == 32
-    assert run(backend, "test ! -e /tmp/.yuxi-cancel-" + execution) == ""
+    assert run(backend, "test ! -e /tmp/.zs-cancel-" + execution) == ""
     reference = provider.get(uid)
     pending = []
     original_stream = provider.adapter.stream

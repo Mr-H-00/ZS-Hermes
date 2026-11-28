@@ -4,17 +4,17 @@ from types import SimpleNamespace
 import runpy
 
 import pytest
-from yuxi.modules.agents.runtime.tool_approval import _normalize_runtime_path
-from yuxi.modules.agents.services.artifacts import _normalize_artifact_path
-from yuxi.modules.extensions.tools.builtin.file_context import resolve_file_context, runtime_context_value
-from yuxi.modules.workspace.paths import normalize_workspace_scope, validate_directory_name
-from yuxi.modules.workspace.runtime_paths import normalize_artifact_path, normalize_runtime_path
-from yuxi.shared.errors import PermissionDeniedError
+from zs.modules.agents.runtime.tool_approval import _normalize_runtime_path
+from zs.modules.agents.services.artifacts import _normalize_artifact_path
+from zs.modules.extensions.tools.builtin.file_context import resolve_file_context, runtime_context_value
+from zs.modules.workspace.paths import normalize_workspace_scope, validate_directory_name
+from zs.modules.workspace.runtime_paths import normalize_artifact_path, normalize_runtime_path
+from zs.shared.errors import PermissionDeniedError
 
 
 def test_workspace_runtime_root_is_fixed(monkeypatch):
     """废弃前缀配置不能改变工作区与产物的唯一根。"""
-    import yuxi.modules.workspace.runtime_paths as paths
+    import zs.modules.workspace.runtime_paths as paths
 
     monkeypatch.setenv("SANDBOX_VIRTUAL_PATH_PREFIX", "/obsolete-root")
     namespace = runpy.run_path(paths.__file__)

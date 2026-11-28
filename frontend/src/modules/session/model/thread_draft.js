@@ -6,7 +6,7 @@
  * 线程创建成功后由调用方清理临时草稿（内容已随消息发送）。
  */
 
-const STORAGE_KEY_PREFIX = 'yuxi:thread-input-draft:'
+const STORAGE_KEY_PREFIX = 'zs:thread-input-draft:'
 
 // 新建对话尚未取得线程 ID 时的草稿标识
 export const DRAFT_THREAD_ID = '__draft__'
@@ -54,7 +54,7 @@ export const threadDraftStore = createThreadDraftStore()
 
 /** 暂存入口文本，跨登录返回后只向新会话追加一次。 */
 export function createEntryDraftHandoff(storage = globalThis.sessionStorage) {
-  const key = 'yuxi:session-entry-draft'
+  const key = 'zs:session-entry-draft'
   let pending = ''
   let consumed = false
   return {

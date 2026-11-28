@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.workspace.services.viewer as svc
-from yuxi.modules.workspace.errors import FileTransferLimitError
-from yuxi.modules.workspace.services.bindings import AuthorizedWorkdir
-from yuxi.modules.workspace.workdir import Workdir
-from yuxi.shared.errors import DomainError, PermissionDeniedError, ResourceNotFoundError, StateConflictError
-from yuxi.shared.files import FileInput
+import zs.modules.workspace.services.viewer as svc
+from zs.modules.workspace.errors import FileTransferLimitError
+from zs.modules.workspace.services.bindings import AuthorizedWorkdir
+from zs.modules.workspace.workdir import Workdir
+from zs.shared.errors import DomainError, PermissionDeniedError, ResourceNotFoundError, StateConflictError
+from zs.shared.files import FileInput
 
 
 class _Backend:
@@ -156,7 +156,7 @@ async def test_viewer_preview_rejects_large_source_before_content_preparation(re
 @pytest.mark.asyncio
 async def test_viewer_download_uses_shared_media_type_fallback(realtime_viewer, monkeypatch):
     """Viewer 下载复用共享 fallback 并完整保存临时文件字节。"""
-    from yuxi.shared import files
+    from zs.shared import files
 
     monkeypatch.setattr(files.mimetypes, "guess_type", lambda _path: (None, None))
     realtime_viewer.files["/projects/11111111-1111-4111-8111-111111111111/report.MD"] = b"# hello"

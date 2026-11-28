@@ -3,12 +3,12 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import yuxi.api.routers.workspace.workspace as workspace_router
-from yuxi.api.routers.workspace.workspace import workspace_knowledge
-from yuxi.api.dependencies.auth import get_required_user
-from yuxi.modules.knowledge import preview
-from yuxi.modules.knowledge.read_models import KnowledgeBaseDetail
-from yuxi.modules.identity.models import User
+import zs.api.routers.workspace.workspace as workspace_router
+from zs.api.routers.workspace.workspace import workspace_knowledge
+from zs.api.dependencies.auth import get_required_user
+from zs.modules.knowledge import preview
+from zs.modules.knowledge.read_models import KnowledgeBaseDetail
+from zs.modules.identity.models import User
 
 
 class FakeKnowledgeBase:

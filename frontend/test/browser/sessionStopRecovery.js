@@ -17,14 +17,14 @@
   }
   const turn = () => ({
     id: turnId, object: 'agent.session.turn', session_id: threadId, status: stopped ? 'cancelled' : 'in_progress',
-    yuxi: { current_run_id: runId, result_run_id: null, cancellation_pending: waitingCancellation,
+    zs: { current_run_id: runId, result_run_id: null, cancellation_pending: waitingCancellation,
       waitpoint: waitingCancellation ? { kind: 'answer' } : null,
       runs: [{ id: runId, turn_id: turnId, status: stopped ? 'cancelled' : waitingCancellation ? 'interrupted' : 'running' }], output: [] }
   })
   const thread = () => ({
     id: threadId, object: 'agent.session', status: stopped ? 'cancelled' : 'in_progress', agent: { id: agentId, model: config.model },
     created_at: 1791580000, metadata: {},
-    yuxi: { title: '停止与队列恢复', current_turn: { id: turnId, status: turn().status, current_run_id: runId },
+    zs: { title: '停止与队列恢复', current_turn: { id: turnId, status: turn().status, current_run_id: runId },
       tool_approval_mode: 'default', queue_paused: stopped, project_id: 'stop-project', config, is_pinned: false }
   })
   await page.addInitScript(() => localStorage.setItem('user_token', 'stop-recovery-fixture'))
@@ -37,7 +37,7 @@
       if (waitingCancellation) return route.fulfill({ contentType: 'text/event-stream', body: '' })
       const data = {
         type: 'agent.session.turn.cancelled', event_id: 'stop-done', session_id: threadId, turn_id: turnId,
-        turn: { status: 'cancelled' }, yuxi: { run_id: runId, current_run_id: runId }
+        turn: { status: 'cancelled' }, zs: { run_id: runId, current_run_id: runId }
       }
       return route.fulfill({ contentType: 'text/event-stream', body: `id: 2.0.1.1-0.6\nevent: ${data.type}\ndata: ${JSON.stringify(data)}\n\n` })
     }
@@ -45,7 +45,7 @@
       check(request.postDataJSON().events[0].type === 'agent.session.input.cancel', '应提交取消当前轮次')
       requests++
       await cancelGate
-      return route.fulfill({ status: 202, json: { object: 'yuxi.session.event.accepted', session_id: threadId, turn_id: turnId, run_id: runId, status: 'accepted' } })
+      return route.fulfill({ status: 202, json: { object: 'zs.session.event.accepted', session_id: threadId, turn_id: turnId, run_id: runId, status: 'accepted' } })
     }
     if (path === '/api/auth/me') json = { id: 1, uid: 'stop-replay-user', username: '停止验证', role: 'user', department_id: 1 }
     else if (path === '/api/agent') json = { agents: [agent] }
@@ -53,8 +53,8 @@
     else if (path.endsWith(`/turns/${turnId}`)) json = turn()
     else if (path.endsWith('/items')) json = {
       data: [{ id: 'user-input', type: 'message', role: 'user', status: 'completed', turn_id: turnId,
-        content: [{ type: 'input_text', text: '请处理当前任务' }], yuxi: { message_id: '1', run_id: runId, created_at: '2026-10-17T07:00:00Z' } }],
-      has_more: false, last_id: 'user-input', yuxi: { runs: turn().yuxi.runs }
+        content: [{ type: 'input_text', text: '请处理当前任务' }], zs: { message_id: '1', run_id: runId, created_at: '2026-10-17T07:00:00Z' } }],
+      has_more: false, last_id: 'user-input', zs: { runs: turn().zs.runs }
     }
     else if (path === '/api/v1/agents/sessions') json = { data: raw.includes('is_pinned=true') ? [] : [thread()], has_more: false }
     else if (path.endsWith(`/${threadId}`) || path.endsWith('/viewed')) json = thread()
@@ -80,25 +80,25 @@
   await page.getByText('正在停止，等待任务清理完成...', { exact: true }).waitFor()
   check(await stop.isDisabled(), '请求在途时停止按钮应禁用')
   check(requests === 1, '停止请求只发送一次')
-  await page.screenshot({ path: '/tmp/yuxi-stop-pending-light.png' })
+  await page.screenshot({ path: '/tmp/zs-stop-pending-light.png' })
   releaseCancel()
   stopped = true
   releaseStream()
   await page.getByText('后续队列已暂停。发送新消息将优先处理并继续队列。', { exact: true }).waitFor()
   await stop.waitFor({ state: 'hidden' })
   await page.getByRole('button', { name: '继续队列', exact: true }).waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-stop-queue-light.png' })
+  await page.screenshot({ path: '/tmp/zs-stop-queue-light.png' })
   await page.evaluate(() => localStorage.setItem('theme', 'dark'))
   await page.setViewportSize({ width: 1024, height: 768 })
   await page.reload()
   await page.getByText('后续队列已暂停。发送新消息将优先处理并继续队列。', { exact: true }).waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-stop-queue-dark.png' })
+  await page.screenshot({ path: '/tmp/zs-stop-queue-dark.png' })
   stopped = false
   waitingCancellation = true
   await page.reload()
   await page.getByText('正在停止，等待任务清理完成...', { exact: true }).waitFor()
   check(await page.getByRole('button', { name: '停止回答', exact: true }).isDisabled(), '等待取消刷新后应保留停止状态')
-  await page.screenshot({ path: '/tmp/yuxi-stop-wait-reconnect-dark.png' })
+  await page.screenshot({ path: '/tmp/zs-stop-wait-reconnect-dark.png' })
   await page.goto('about:blank')
   await page.unrouteAll({ behavior: 'wait' })
   return { requests, pending: 'visible', cancelled: 'settled', pausedQueue: 'visible', waitingReconnect: 'visible' }

@@ -9,10 +9,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-import yuxi.modules.agents.services.checkpoint_state as svc
-from yuxi.modules.agents.repositories.public_items import PublicItemRepository
-from yuxi.modules.agents.runtime.agent_backends.chatbot.state import ChatBotState
-from yuxi.shared.errors import DomainError, ResourceNotFoundError
+import zs.modules.agents.services.checkpoint_state as svc
+from zs.modules.agents.repositories.public_items import PublicItemRepository
+from zs.modules.agents.runtime.agent_backends.chatbot.state import ChatBotState
+from zs.shared.errors import DomainError, ResourceNotFoundError
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -90,7 +90,7 @@ async def test_checkpoint_reader_missing_thread_is_empty(checkpoint_reader):
 
 async def test_checkpoint_reader_keeps_next_human_interrupt_after_resume(checkpoint_reader):
     """只有恢复记录而没有业务结果的任务仍在等待，不能丢弃下一次人工提问。"""
-    from yuxi.modules.agents.services.execution import _extract_interrupts
+    from zs.modules.agents.services.execution import _extract_interrupts
 
     def questions(_state):
         """同一任务连续中断，用于区分恢复写入和完成结果。"""

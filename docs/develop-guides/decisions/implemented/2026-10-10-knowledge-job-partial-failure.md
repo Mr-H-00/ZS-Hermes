@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/knowledge/services/background_jobs.py
+Owner：backend/zs/modules/knowledge/services/background_jobs.py
 
 ## 问题
 

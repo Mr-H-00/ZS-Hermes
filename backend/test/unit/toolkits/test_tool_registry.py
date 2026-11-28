@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from yuxi.modules.extensions.tools.registry import tool
+from zs.modules.extensions.tools.registry import tool
 
 
 def test_tool_decorator_sets_handle_tool_error():

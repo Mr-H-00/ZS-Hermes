@@ -8,13 +8,13 @@ from sqlalchemy import select, text
 
 from test.integration.services.agent_input_fixtures import SCOPE
 from test.integration.support.module_audit import serve_http
-from yuxi.api.dependencies.auth import get_db, get_required_user
-from yuxi.api.routers.agents.mentions import mention_router
-from yuxi.modules.agents.repositories.messages import MessageRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.services.memory import read_thread_messages
-from yuxi.modules.identity.models import APIKey, Department, User
-from yuxi.modules.identity.security import AuthUtils
+from zs.api.dependencies.auth import get_db, get_required_user
+from zs.api.routers.agents.mentions import mention_router
+from zs.modules.agents.repositories.messages import MessageRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.services.memory import read_thread_messages
+from zs.modules.identity.models import APIKey, Department, User
+from zs.modules.identity.security import AuthUtils
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]

@@ -8,9 +8,9 @@ import pytest
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-import yuxi.modules.agents.services.message_recorder as service
-from yuxi.modules.agents.services.message_recorder import RunMessageRecorder
-from yuxi.modules.agents.services.openai_events import OpenAIEventAdapter
+import zs.modules.agents.services.message_recorder as service
+from zs.modules.agents.services.message_recorder import RunMessageRecorder
+from zs.modules.agents.services.openai_events import OpenAIEventAdapter
 
 
 @pytest.fixture
@@ -209,12 +209,12 @@ async def test_command_result_is_committed_once_before_public_projection(monkeyp
     assert recorded_messages[("tool", "call")]["execution_status"] == "completed"
 
     adapter = OpenAIEventAdapter(run_id="run", turn_id="turn", thread_id="thread", worker_id="worker")
-    adapter.calls["call"] = ("model", "call:call", {"id": "declared-call", "yuxi": {"output_index": 0}})
+    adapter.calls["call"] = ("model", "call:call", {"id": "declared-call", "zs": {"output_index": 0}})
 
     async def save_item(operation, role, key, item, content_index=None):
         """公开结果只能使用已经提交的工具输出。"""
         assert recorded_messages[("tool", "call")]["output"]["content"] == item.get("output", "目标结果")
-        return {**item, "id": f"{operation}:{key}", "yuxi": {"output_index": 1}}
+        return {**item, "id": f"{operation}:{key}", "zs": {"output_index": 1}}
 
     monkeypatch.setattr(adapter, "_save", save_item)
     public = await adapter.consume(normalized)

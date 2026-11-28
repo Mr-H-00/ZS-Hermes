@@ -384,10 +384,10 @@ async def test_each_skill_install_transaction_revalidates_live_managers(actors):
     import shutil
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-    from yuxi.modules.extensions.skills.shared import confirm_skill_install_draft
-    from yuxi.infrastructure.runtime_settings import get_skill_data_dir
-    from yuxi.modules.extensions.skills.install_draft import get_skill_drafts_root_dir
-    from yuxi.modules.identity.models import User
+    from zs.modules.extensions.skills.shared import confirm_skill_install_draft
+    from zs.infrastructure.runtime_settings import get_skill_data_dir
+    from zs.modules.extensions.skills.install_draft import get_skill_drafts_root_dir
+    from zs.modules.identity.models import User
 
     admin, manager = (actors["identities"][key] for key in ("admin0", "admin1"))
     slugs = [f"grant-batch-{index}-{uuid.uuid4().hex[:8]}" for index in range(2)]

@@ -27,7 +27,7 @@ async function openPausedThread() {
   const snapshot = {
     id: "thread-1",
     object: "agent.session",
-    yuxi: {
+    zs: {
       title: "历史对话",
       queue_paused: true,
       queued_input_count: 1,
@@ -79,12 +79,12 @@ async function openPausedThread() {
       return jsonResponse({ data: [], has_more: false, last_id: null });
     }
     if (parsed.pathname.includes("/turns/")) {
-      const turn = snapshot.yuxi.current_turn;
+      const turn = snapshot.zs.current_turn;
       return jsonResponse({
         id: turn.id,
         status: turn.status,
         error: null,
-        yuxi: { output: null, cancellation_pending: false },
+        zs: { output: null, cancellation_pending: false },
       });
     }
     if (parsed.pathname.endsWith("/state")) {
@@ -93,7 +93,7 @@ async function openPausedThread() {
     if (method === "POST") {
       return jsonResponse(
         {
-          object: "yuxi.session.event.accepted",
+          object: "zs.session.event.accepted",
           event_id: "evt",
           session_id: "thread-1",
           input_id: "input-1",
@@ -127,14 +127,14 @@ function messages(requests) {
 
 function resumes(requests) {
   return requests.filter(
-    (request) => request.body?.events?.[0]?.type === "yuxi.session.input.resume",
+    (request) => request.body?.events?.[0]?.type === "zs.session.input.resume",
   );
 }
 
 describe("公开输入", { concurrency: 1 }, () => {
 test("暂停时 send 仍提交原来的 follow_up，其他阻止条件保留", async () => {
   const { demo, requests } = await openPausedThread();
-  assert.equal(demo.state.snapshot.yuxi.queue_paused, true);
+  assert.equal(demo.state.snapshot.zs.queue_paused, true);
   assert.equal(demo.state.connected, true);
   demo.state.draft = "只跑这一条";
   await demo.send();
@@ -147,10 +147,10 @@ test("暂停时 send 仍提交原来的 follow_up，其他阻止条件保留", a
         content: [{ type: "input_text", text: "只跑这一条" }],
       },
     ],
-    yuxi: { mode: "follow_up", attachment_file_ids: [] },
+    zs: { mode: "follow_up", attachment_file_ids: [] },
   });
 
-  demo.state.snapshot.yuxi.current_turn = {
+  demo.state.snapshot.zs.current_turn = {
     id: "turn-1",
     status: "requires_action",
     current_run_id: "run-1",
@@ -163,7 +163,7 @@ test("暂停时 send 仍提交原来的 follow_up，其他阻止条件保留", a
   demo.state.draft = "等待中不应发送";
   await demo.send();
   demo.state.uploading = true;
-  demo.state.snapshot.yuxi.current_turn = {
+  demo.state.snapshot.zs.current_turn = {
     id: "turn-1",
     status: "cancelled",
     waitpoint: null,
@@ -179,7 +179,7 @@ test("暂停时 send 仍提交原来的 follow_up，其他阻止条件保留", a
 
 test("有 options 时提交所选 value，没有 options 时提交文本", async () => {
   const { demo, requests } = await openPausedThread();
-  demo.state.snapshot.yuxi.current_turn = {
+  demo.state.snapshot.zs.current_turn = {
     id: "turn-1",
     status: "requires_action",
     current_run_id: "run-1",
@@ -202,7 +202,7 @@ test("有 options 时提交所选 value，没有 options 时提交文本", async
     ],
   });
 
-  demo.state.snapshot.yuxi.current_turn = {
+  demo.state.snapshot.zs.current_turn = {
     id: "turn-1",
     status: "requires_action",
     waitpoint: {
@@ -228,7 +228,7 @@ test("有 options 时提交所选 value，没有 options 时提交文本", async
     answers: [{ question_id: "q-choice", answer: "markdown" }],
   });
 
-  demo.state.snapshot.yuxi.current_turn = {
+  demo.state.snapshot.zs.current_turn = {
     id: "turn-1",
     status: "requires_action",
     current_run_id: "run-1",
@@ -254,7 +254,7 @@ test("有 options 时提交所选 value，没有 options 时提交文本", async
   demo.state.answers = { "q-multi": ["dev", "lead"] };
   await demo.resume();
   assert.deepEqual(resumes(requests).at(-1).body.events[0], {
-    type: "yuxi.session.input.resume",
+    type: "zs.session.input.resume",
     turn_id: "turn-1",
     waitpoint_id: "wait-multi",
     response: {
@@ -263,7 +263,7 @@ test("有 options 时提交所选 value，没有 options 时提交文本", async
     },
   });
 
-  demo.state.snapshot.yuxi.current_turn = {
+  demo.state.snapshot.zs.current_turn = {
     id: "turn-1",
     status: "requires_action",
     current_run_id: "run-1",
@@ -289,7 +289,7 @@ test("有 options 时提交所选 value，没有 options 时提交文本", async
 
 test("选择题可提交其他答案，多选保留已选项且禁止空文本", async () => {
   const { demo, requests } = await openPausedThread();
-  demo.state.snapshot.yuxi.current_turn = {
+  demo.state.snapshot.zs.current_turn = {
     id: "turn-1",
     status: "requires_action",
     waitpoint: {

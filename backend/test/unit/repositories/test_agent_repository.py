@@ -9,21 +9,21 @@ from fastapi import HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
 
-from yuxi.modules.agents.presets.deep_research import PRESET as GENERAL_PURPOSE
-from yuxi.api.routers.agents.management import delete_agent
-from yuxi.modules.agents.services.definitions import serialize_agent_definition, update_agent_definition
-from yuxi.modules.agents.repositories.definitions import AgentRepository, DEFAULT_AGENT_DESCRIPTION, DEFAULT_SHARE_CONFIG
-from yuxi.modules.agents.services.configuration import merge_agent_config_json
-from yuxi.modules.agents.permissions import user_can_access_agent, user_can_manage_agent
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.identity.models import User
-from yuxi.modules.agents.models.inputs import AgentInput
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.infrastructure.postgres.base import Base
+from zs.modules.agents.presets.deep_research import PRESET as GENERAL_PURPOSE
+from zs.api.routers.agents.management import delete_agent
+from zs.modules.agents.services.definitions import serialize_agent_definition, update_agent_definition
+from zs.modules.agents.repositories.definitions import AgentRepository, DEFAULT_AGENT_DESCRIPTION, DEFAULT_SHARE_CONFIG
+from zs.modules.agents.services.configuration import merge_agent_config_json
+from zs.modules.agents.permissions import user_can_access_agent, user_can_manage_agent
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.identity.models import User
+from zs.modules.agents.models.inputs import AgentInput
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.models.sessions import Session
+from zs.infrastructure.postgres.base import Base
 from test.support.sqlite import create_utc_sqlite_engine
 
 
@@ -46,7 +46,7 @@ def isolate_bound_definition_commit(monkeypatch):
     async def commit(db, agent, user, **kwargs):
         await db.commit()
 
-    monkeypatch.setattr("yuxi.modules.agents.services.definitions.commit_agent_definition", commit)
+    monkeypatch.setattr("zs.modules.agents.services.definitions.commit_agent_definition", commit)
 
 
 _MANAGER_USER_SCOPE = {
@@ -462,7 +462,7 @@ async def test_delete_agent_rejects_pending_input_after_prior_turn(session):
                     "role": "user",
                     "content": [{"type": "text", "text": "pending"}],
                     "metadata": {},
-                    "yuxi": {"attachment_file_ids": []},
+                    "zs": {"attachment_file_ids": []},
                 }
             ],
             id="pending-input",

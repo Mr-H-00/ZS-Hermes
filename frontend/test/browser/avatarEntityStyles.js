@@ -15,11 +15,9 @@ async page => {
     const img = avatars.find(avatar => avatar.dataset.avatarSeed === seed)?.querySelector('img')
     if (!img) throw Error('目录缺少指定智能体的头像')
     await img.decode()
-    return decodeURIComponent(img.src)
+    return img.getAttribute('src')
   }, defaultAgentSeed)
-  check(actualAgent.includes('Lisa Wischofsky'), '智能体目录没有使用 Lorelei')
-  const softBackgrounds = ['e1e9f2', 'e9e1f0', 'f5e5da', 'e3ecdf']
-  check(softBackgrounds.some(color => actualAgent.includes(`fill="#${color}"`)), '智能体目录没有默认使用 soft 彩色背景')
+  check(actualAgent === '/icons/default-agent.svg', '智能体目录没有使用企业智能体默认图标')
   await page.evaluate(async () => {
     const main = await (await fetch('/src/app/main.js')).text()
     const { createApp, h, reactive } = await import(main.match(/from "([^"]*\/vue\.js[^"']*)"/)[1])
@@ -44,8 +42,8 @@ async page => {
     const view = { sessions, tasks: new Map(), openSession() {} }
     const card = (title, content) => h('section', { style: 'margin-bottom:20px' }, [h('h3', title), content])
     const app = createApp({ render: () => h('div', [
-      card('智能体 · Lorelei · soft', h('div', { style: 'display:flex;gap:16px' }, ['research', 'writer', 'assistant', 'coder'].map(seed => h(Avatar, { kind: 'agent', seed, size: 64 })))),
-      card('用户 · Notionists', h('div', { id: 'user-palettes', style: 'display:flex;gap:24px;flex-wrap:wrap' }, ['default', 'studio', 'heritage', 'soft'].map(preset => h('div', [h('p', preset), h('div', { style: 'display:flex;gap:8px' }, ['one', 'two', 'three'].map(seed => h(Avatar, { kind: 'user', seed, preset, shape: 'square', size: 48 }))) ])))),
+      card('默认图标', h('div', { style: 'display:flex;gap:16px' }, [h(Avatar, { kind: 'agent', size: 64 }), h(Avatar, { kind: 'user', size: 64 })])),
+      card('用户 · Lorelei 自选配色', h('div', { id: 'user-palettes', style: 'display:flex;gap:24px;flex-wrap:wrap' }, ['default', 'studio', 'heritage', 'soft'].map(preset => h('div', [h('p', preset), h('div', { style: 'display:flex;gap:8px' }, ['one', 'two', 'three'].map(seed => h(Avatar, { kind: 'user', seed, preset, shape: 'square', size: 48 }))) ])))),
       card('协作会话 · Gaze', h('div', { style: 'height:145px' }, [h(Tree, { sessions: state.sessions, currentId: 'avatar-root' })])),
       card('对话中的协作工具', h(Tool, { toolCall: { name: 'create_session', args: {}, tool_call_result: { content: { session_id: 'avatar-research', name: '资料整理' } } }, cooperationView: view })),
       card('会话标签', h('div', { style: 'height:65px' }, [h(Panel, { sections: [{ key: 'session:avatar-research', type: 'session', title: '资料整理', avatarSeed: 'avatar-research' }], activeSectionKey: 'session:avatar-research' })])),
@@ -69,10 +67,12 @@ async page => {
         const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, 256, 256)
         return { kind: avatar.dataset.avatarKind, seed: avatar.dataset.avatarSeed, src: img.src, alpha: ctx.getImageData(0, 0, 1, 1).data[3] }
       }))
-      const users = facts.filter(item => item.kind === 'user')
-      const agents = facts.filter(item => item.kind === 'agent')
-      check(agents.length === 4 && agents.every(item => softBackgrounds.some(color => decodeURIComponent(item.src).includes(`fill="#${color}"`))), '智能体默认背景不是 soft 预设')
-      check(users.length === 12 && users.every(item => item.alpha === 255 && decodeURIComponent(item.src).includes('Zoish')), '用户预设背景未渲染')
+      const users = facts.filter(item => item.kind === 'user' && item.seed)
+      const agent = facts.find(item => item.kind === 'agent')
+      const defaultUser = facts.find(item => item.kind === 'user' && !item.seed)
+      check(new URL(agent?.src).pathname === '/icons/default-agent.svg', '智能体没有使用默认机器人头像')
+      check(new URL(defaultUser?.src).pathname === '/icons/default-user.svg', '用户没有使用默认线描头像')
+      check(users.length === 12 && users.every(item => item.alpha === 255 && decodeURIComponent(item.src).includes('<dc:title>Lorelei</dc:title>')), '用户头像没有使用带背景的 Lorelei')
       const sessions = facts.filter(item => item.kind === 'session')
       check(sessions.length === 5 && sessions.every(item => item.alpha === 0 && decodeURIComponent(item.src).includes('Gaze')), `会话入口没有使用透明 Gaze：${JSON.stringify(sessions.map(({seed,alpha,src}) => ({seed,alpha,gaze:decodeURIComponent(src).includes('Gaze')})))}`)
       check(new Set(sessions.filter(item => item.seed === 'avatar-research').map(item => item.src)).size === 1, '同一会话在不同入口头像不一致')
@@ -85,7 +85,7 @@ async page => {
       for (const width of [1440, 1024, 768]) {
         await page.setViewportSize({ width, height: 1000 })
         check(await page.locator('#avatar-entity-check').evaluate(node => node.scrollWidth === node.clientWidth), '头像区域横向溢出')
-        if (width !== 1024) await page.locator('#avatar-entity-check').screenshot({ path: `/tmp/yuxi-avatar-entities-${dark ? 'dark' : 'light'}-${width}.png` })
+        if (width !== 1024) await page.locator('#avatar-entity-check').screenshot({ path: `/tmp/zs-avatar-entities-${dark ? 'dark' : 'light'}-${width}.png` })
       }
     }
     await page.evaluate(() => { window.__avatarEntity.state.style = 'invalid' })

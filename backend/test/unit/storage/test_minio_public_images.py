@@ -5,7 +5,7 @@ import pytest
 from minio.error import S3Error
 from urllib3 import HTTPResponse
 
-from yuxi.infrastructure.minio.client import MinIOClient, normalize_public_minio_url
+from zs.infrastructure.minio.client import MinIOClient, normalize_public_minio_url
 
 
 class FakeMinio:

@@ -15,17 +15,17 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema, scoped_manager
-from yuxi.api.dependencies.knowledge import require_knowledge_base_read
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.knowledge import graphs as router
-from yuxi.infrastructure.neo4j import safe_neo4j_label
-from yuxi.migrations.schema import create_knowledge_tables
-from yuxi.modules.knowledge.graphs import service as graph_service
-from yuxi.modules.knowledge.graphs.extractors import normalize_extraction_result
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.modules.knowledge.models import KnowledgeChunk
-from yuxi.modules.knowledge.repositories import graphs, projections
-from yuxi.shared.errors import DomainError
+from zs.api.dependencies.knowledge import require_knowledge_base_read
+from zs.api.errors import domain_error_handler
+from zs.api.routers.knowledge import graphs as router
+from zs.infrastructure.neo4j import safe_neo4j_label
+from zs.migrations.schema import create_knowledge_tables
+from zs.modules.knowledge.graphs import service as graph_service
+from zs.modules.knowledge.graphs.extractors import normalize_extraction_result
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.models import KnowledgeChunk
+from zs.modules.knowledge.repositories import graphs, projections
+from zs.shared.errors import DomainError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

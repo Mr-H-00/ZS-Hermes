@@ -13,7 +13,7 @@ Yuxi 是一个面向 RAG、知识图谱和多智能体工作流的知识库平�
 核心开发服务包括：
 
 - `frontend`：Vue 3 / Vite 前端，挂载 `frontend/src` 并热更新。
-- `api`：FastAPI API 服务，挂载 `backend/yuxi` 和测试目录；API 与 worker 的源码修改通过显式重启生效。
+- `api`：FastAPI API 服务，挂载 `backend/zs` 和测试目录；API 与 worker 的源码修改通过显式重启生效。
 - `worker`：ARQ worker，执行已经派发的 AgentRun 与注册的 后台作业，并周期触发用户自建 Agent 定时任务；三者分别使用 PostgreSQL 中的运行租约、任务租约和调度锁闭合并发与恢复。
 - `storage-init`：无网络的一次性进程，准备 API/worker/app-init 与 Milvus 挂载根的属主和模式，不递归修改已有文件；消费进程等待其成功退出。
 - `app-init`：普通用户运行的部署任务，在 PostgreSQL advisory lock 内先建立或校验当前 Schema，再同步系统配置定义、内置供应商、Agent、MCP 与 Skill 来源文件。API 与 worker 等待全部成功。空库基线为 business 4、knowledge 3，直接包含个人 MCP 授权表、128 位用户归属字段、WPS 连接、父子分块版本表、个人成果表和当前约束。当前版本跳过结构初始化，其他版本明确拒绝；历史部署的结构调整由部署侧显式完成；知识域 v1 路径目录通过离线审计/转换入口升级 v2，该转换不包含本地定制表的 v3 结构，运行进程不自动迁移。共享同步失败保留已提交内容，修正后幂等重跑。
@@ -32,7 +32,7 @@ API 在 `/api/mcp` 提供只读知识库 MCP，与 HTTP API 共用进程和端�
 
 ## 后端代码地图
 
-后端只有一个 `backend/yuxi` Python 包，项目配置与构建元数据由 `backend/pyproject.toml` 拥有。`api` 和 `workers` 是进程适配层；`modules` 按业务域组织用例与持久化；`infrastructure` 提供技术连接与解析引擎；`bootstrap` 负责启动资源装配；`migrations` 独占 Schema 修改。HTTP 路由只处理协议、认证上下文和响应装配。上传的 `UploadFile` 在 `api/uploads.py` 转为小文件字节或借用的二进制文件流；业务服务消费中立输入，workspace 文件边界负责限量、原子落盘。输入流由 HTTP 请求拥有，服务在请求结束前完成消费，不保存上传对象。
+后端只有一个 `backend/zs` Python 包，项目配置与构建元数据由 `backend/pyproject.toml` 拥有。`api` 和 `workers` 是进程适配层；`modules` 按业务域组织用例与持久化；`infrastructure` 提供技术连接与解析引擎；`bootstrap` 负责启动资源装配；`migrations` 独占 Schema 修改。HTTP 路由只处理协议、认证上下文和响应装配。上传的 `UploadFile` 在 `api/uploads.py` 转为小文件字节或借用的二进制文件流；业务服务消费中立输入，workspace 文件边界负责限量、原子落盘。输入流由 HTTP 请求拥有，服务在请求结束前完成消费，不保存上传对象。
 
 ### 进程入口与启动装配
 

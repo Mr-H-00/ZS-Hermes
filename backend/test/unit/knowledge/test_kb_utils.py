@@ -1,6 +1,6 @@
 import pytest
 
-from yuxi.modules.knowledge.utils.kb_utils import (
+from zs.modules.knowledge.utils.kb_utils import (
     build_kb_image_proxy_url,
     prepare_item_metadata,
     resolve_processing_params,

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from yuxi.modules.agents.runtime.context import BaseContext
+from zs.modules.agents.runtime.context import BaseContext
 
 from contextlib import aclosing
 
 import pytest
 
-from yuxi.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
+from zs.modules.agents.runtime.base import BaseAgent, GraphExecutionResult
 
 
 class _LifecycleGraph:
@@ -54,7 +54,7 @@ class _TestAgent(BaseAgent):
         return self._graph
 
 
-_TestAgent.__module__ = "yuxi.modules.agents.runtime.tests.fake"
+_TestAgent.__module__ = "zs.modules.agents.runtime.tests.fake"
 
 
 async def _collect(agent, *, context=None, **kwargs):
@@ -76,7 +76,7 @@ async def test_base_agent_passes_callbacks_metadata_and_tags():
         agent,
         callbacks=["handler-1"],
         metadata={"langfuse_user_id": "user-1"},
-        tags=["yuxi"],
+        tags=["zs"],
     )
 
     assert events == [
@@ -89,7 +89,7 @@ async def test_base_agent_passes_callbacks_metadata_and_tags():
         "recursion_limit": 2000,
         "callbacks": ["handler-1"],
         "metadata": {"langfuse_user_id": "user-1"},
-        "tags": ["yuxi"],
+        "tags": ["zs"],
     }
 
 

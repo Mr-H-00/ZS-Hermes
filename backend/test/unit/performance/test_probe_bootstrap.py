@@ -15,8 +15,8 @@ def test_probe_assembles_shipping_worker_without_losing_registration(fine_timing
     script = textwrap.dedent(
         """
         from dataclasses import fields
-        import yuxi.workers.arq as arq_entry
-        from yuxi.workers.settings import WorkerSettings
+        import zs.workers.arq as arq_entry
+        from zs.workers.settings import WorkerSettings
         from test.performance import probe
 
         original = WorkerSettings.functions[0]

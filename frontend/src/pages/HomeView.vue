@@ -8,40 +8,16 @@
       <a-result status="error" :title="error.title" :sub-title="error.message">
         <template #extra>
           <a-button type="primary" @click="loadData">重试</a-button>
-          <a-button :href="docsUrl" target="_blank" rel="noopener noreferrer">常见问题</a-button>
         </template>
       </a-result>
     </div>
     <template v-else>
-      <KnowledgeFlow :engaged="inputFocused || Boolean(prompt.trim())" />
       <header class="site-header page-width">
         <div class="brand">
           <img :src="infoStore.branding.logo" alt="" width="32" height="32" />
           <span>{{ infoStore.branding.name }}</span>
         </div>
         <nav class="header-actions" aria-label="首页导航">
-          <a class="header-docs" :href="docsUrl" target="_blank" rel="noopener noreferrer"
-            >使用文档</a
-          >
-          <a
-            class="github-link"
-            href="https://github.com/xerrors/Yuxi"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="GitHub"
-            ><svg
-              aria-hidden="true"
-              fill="currentColor"
-              height="20"
-              width="20"
-              viewBox="0 0 16 16"
-              version="1.1"
-            >
-              <path
-                fill-rule="evenodd"
-                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
-              ></path></svg
-          ></a>
           <button
             type="button"
             class="theme-toggle lucide-icon-btn"
@@ -53,42 +29,53 @@
             <Moon v-else-if="themeStore.themeMode === 'dark'" :size="17" aria-hidden="true" />
             <Monitor v-else :size="17" aria-hidden="true" />
           </button>
-          <button type="button" class="header-chat" @click="router.push('/agent')">去对话</button>
+          <button type="button" class="header-chat" @click="router.push('/agent')">
+            去对话 <ArrowUpRight :size="16" aria-hidden="true" />
+          </button>
         </nav>
       </header>
       <main class="home-main page-width" aria-labelledby="home-title">
-        <div class="home-entry">
-          <h1 id="home-title" class="hero-title">
-            <span
-              v-for="(line, index) in titleLines"
-              :key="index"
-              :class="{ 'title-accent': index === 1 }"
-              ><span>{{ line }}</span></span
-            >
-          </h1>
-          <form class="entry-shell entry-composer" @submit.prevent="goToChat">
-            <textarea
-              id="home-prompt"
-              v-model="prompt"
-              aria-label="问题或任务"
-              rows="2"
-              placeholder="想问点什么？"
-              @focus="inputFocused = true"
-              @blur="inputFocused = false"
-              @keydown="handlePromptKeydown"
-            ></textarea>
-            <div class="entry-toolbar">
-              <HomeAgentPreview :paused="inputFocused || Boolean(prompt.trim())" />
-              <div class="entry-actions">
-                <span class="entry-model">
-                  DeepSeek V4.1 Flash<ChevronDown :size="15" aria-hidden="true" />
-                </span>
-                <button type="submit" class="primary-button lucide-icon-btn" aria-label="发送">
-                  <ArrowUp :size="20" aria-hidden="true" />
-                </button>
-              </div>
+        <div class="home-workspace">
+          <div class="home-intro">
+            <div class="hero-content">
+              <span class="hero-marker" aria-hidden="true"></span>
+              <h1 id="home-title">企业对话<br />工作台</h1>
+              <p v-if="infoStore.branding.title">{{ infoStore.branding.title }}</p>
             </div>
-          </form>
+            <div class="hero-illustration" aria-hidden="true">
+              <span class="hero-node"><Files :size="22" /></span>
+              <span class="hero-node hero-node--agent"><Bot :size="30" /></span>
+              <span class="hero-node"><Workflow :size="22" /></span>
+            </div>
+          </div>
+          <div class="home-entry">
+            <h2><MessageSquarePlus :size="23" aria-hidden="true" /> 开始对话</h2>
+            <p class="entry-description">输入问题或任务，内容会带入新对话草稿。</p>
+            <form class="entry-shell entry-composer" @submit.prevent="goToChat">
+              <textarea
+                id="home-prompt"
+                v-model="prompt"
+                aria-label="问题或任务"
+                rows="2"
+                placeholder="输入问题或任务"
+                @focus="inputFocused = true"
+                @blur="inputFocused = false"
+                @keydown="handlePromptKeydown"
+              ></textarea>
+              <div class="entry-toolbar">
+                <HomeAgentPreview :paused="inputFocused || Boolean(prompt.trim())" />
+                <div class="entry-actions">
+                  <span class="entry-model">
+                    DeepSeek V4.1 Flash<ChevronDown :size="15" aria-hidden="true" />
+                  </span>
+                  <button type="submit" class="primary-button lucide-icon-btn">
+                    <ArrowRight :size="17" aria-hidden="true" />
+                    <span>继续</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       </main>
       <footer class="site-footer page-width">
@@ -99,12 +86,22 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowUp, ChevronDown, Monitor, Moon, Sun } from '@lucide/vue'
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Bot,
+  ChevronDown,
+  Files,
+  MessageSquarePlus,
+  Monitor,
+  Moon,
+  Sun,
+  Workflow
+} from '@lucide/vue'
 import { useInfoStore } from '@/modules/settings/model/info'
 import { healthApi } from '@/apis/system_api'
-import KnowledgeFlow from '@/modules/home/ui/KnowledgeFlow.vue'
 import HomeAgentPreview from '@/modules/home/ui/HomeAgentPreview.vue'
 import { entryDraftHandoff } from '@/modules/session/model/thread_draft'
 import { useThemeStore } from '@/shared/model/theme'
@@ -112,16 +109,10 @@ import { useThemeStore } from '@/shared/model/theme'
 const router = useRouter()
 const themeStore = useThemeStore()
 const infoStore = useInfoStore()
-const docsUrl = 'https://xerrors.github.io/Yuxi/'
 const isLoading = ref(true)
 const error = ref(null)
 const prompt = ref('')
 const inputFocused = ref(false)
-const titleLines = computed(() => {
-  const title = infoStore.branding.title || ''
-  const split = title.indexOf('，')
-  return split < 0 ? [title] : [title.slice(0, split + 1), title.slice(split + 1)]
-})
 /** 读取服务与品牌状态，失败时保留重试入口。 */
 async function loadData() {
   isLoading.value = true
@@ -156,33 +147,19 @@ onMounted(loadData)
 
 <style lang="less" scoped>
 .home-container {
-  position: relative;
-  isolation: isolate;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  overflow: clip;
   color: var(--gray-900);
-  background: var(--gray-10);
+  background: var(--gray-30);
 }
+
 .page-width {
-  width: min(1440px, 100%);
+  width: min(1360px, 100%);
   margin-inline: auto;
-  padding-inline: 80px;
+  padding-inline: clamp(24px, 5vw, 72px);
 }
-a {
-  color: inherit;
-  text-decoration: none;
-}
-button {
-  font: inherit;
-  cursor: pointer;
-}
-a:focus-visible,
-button:focus-visible {
-  outline: 2px solid var(--gray-700);
-  outline-offset: 5px;
-}
+
 .loading-container,
 .error-container {
   min-height: 100dvh;
@@ -190,269 +167,341 @@ button:focus-visible {
   place-content: center;
   padding: 32px;
 }
+
 .loading-container {
   justify-items: center;
-  gap: 20px;
+  gap: 16px;
   color: var(--gray-600);
 }
+
 .site-header {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 104px;
-  gap: 28px;
+  min-height: 80px;
+  gap: 20px;
 }
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--gray-700);
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.brand img {
-  object-fit: contain;
-  flex-shrink: 0;
-}
-.brand > span {
-  font-weight: inherit;
-}
+
+.brand,
 .header-actions {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
 }
-.header-docs {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--gray-600);
-}
-.header-docs:hover {
+
+.brand {
+  min-width: 0;
   color: var(--gray-900);
-}
-.header-chat {
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  font-size: 13px;
-}
-.theme-toggle {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 50%;
-  color: var(--gray-600);
-  background: transparent;
-}
-.theme-toggle:hover {
-  background: var(--gray-100);
-  color: var(--gray-900);
-}
-.github-link {
-  display: grid;
-  place-content: center;
-  width: 32px;
-  height: 32px;
-  color: var(--gray-600);
-}
-.github-link:hover {
-  color: var(--gray-900);
-}
-.home-main {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding-block: 48px 120px;
-}
-.home-entry {
-  position: relative;
-  width: 760px;
-  max-width: 100%;
-}
-.hero-title {
-  margin: 0 0 38px;
-  text-align: center;
-  font-size: 30px;
-  line-height: 1.5;
-  font-weight: 400;
-  color: var(--gray-600);
+  font-size: 18px;
+  font-weight: 650;
   overflow-wrap: anywhere;
 }
-.hero-title > span {
-  display: block;
-  font-weight: inherit;
+
+.brand img {
+  object-fit: contain;
+  flex-shrink: 0;
 }
-.hero-title > span > span {
-  font-weight: inherit;
+
+.header-actions {
+  flex-shrink: 0;
 }
-.hero-title .title-accent {
-  margin-top: 5px;
-  font-size: 48px;
+
+.header-chat,
+.theme-toggle,
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  background: var(--gray-0);
+  color: var(--gray-900);
+  font: inherit;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--gray-1000);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--main-color);
+    outline-offset: 3px;
+  }
 }
-.title-accent > span {
+
+.header-chat {
+  min-height: 38px;
+  padding-inline: 13px;
+}
+
+.theme-toggle {
+  width: 38px;
+  height: 38px;
+}
+
+.header-chat:hover,
+.theme-toggle:hover {
+  border-color: var(--main-color);
+  color: var(--main-800);
+}
+
+.home-main {
+  flex: 1;
+  display: grid;
+  align-items: center;
+  padding-block: 24px 36px;
+}
+
+.home-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  min-height: 490px;
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+  border-radius: 20px;
+  background: var(--gray-0);
+}
+
+.home-intro {
   position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  padding: clamp(28px, 4vw, 60px);
+  color: #f2fbfa;
+  background: radial-gradient(ellipse at 90% 105%, #196553 0, transparent 65%), #0c3842;
+
+  &::before {
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    background-image:
+      linear-gradient(#8de4d022 1px, transparent 1px),
+      linear-gradient(90deg, #8de4d022 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: linear-gradient(140deg, transparent 30%, #000);
+    content: '';
+    pointer-events: none;
+  }
 }
-.title-accent > span::after {
-  content: '';
-  position: absolute;
-  bottom: -9px;
-  left: 15%;
-  right: 15%;
-  height: 5px;
-  border-top: 1px solid var(--gray-400);
-  border-radius: 50%;
-  transform: rotate(-2deg);
+
+.hero-marker {
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin-bottom: 24px;
+  border-radius: 2px;
+  background: #78e5ce;
 }
+
+.hero-content h1 {
+  margin: 0;
+  color: inherit;
+  font-size: clamp(38px, 4.5vw, 68px);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.hero-content p {
+  max-width: 22em;
+  margin: 20px 0 0;
+  color: #c4dfdf;
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.hero-illustration {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(100%, 300px);
+
+  &::before {
+    position: absolute;
+    z-index: -1;
+    inset-inline: 16px;
+    border-top: 1px dashed #78e5ce99;
+    content: '';
+  }
+}
+
+.hero-node {
+  display: grid;
+  width: 48px;
+  min-height: 48px;
+  place-items: center;
+  border: 1px solid #78e5ce65;
+  border-radius: 10px;
+  background: #143f48;
+  color: #a4eee0;
+}
+
+.hero-node--agent {
+  width: 66px;
+  min-height: 66px;
+  border-color: #78e5ce;
+  border-radius: 15px;
+  background: #176358;
+  color: #f2fbfa;
+}
+
+.home-entry {
+  align-self: center;
+  min-width: 0;
+  padding: clamp(24px, 4vw, 64px);
+}
+
+.home-entry h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--gray-1000);
+  font-size: 25px;
+  font-weight: 650;
+
+  svg {
+    flex-shrink: 0;
+    color: var(--main-800);
+  }
+}
+
+.entry-description {
+  margin: 8px 0 26px;
+  color: var(--gray-600);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 .entry-shell {
   overflow: hidden;
-  padding: 20px 20px 14px;
-  border: 1px solid var(--gray-200);
-  border-radius: 24px;
+  border: 1px solid var(--gray-300);
+  border-radius: 12px;
   background: var(--gray-0);
-  box-shadow:
-    0 2px 5px var(--shadow-0),
-    0 14px 40px -16px var(--shadow-2);
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease;
+  transition: border-color 180ms ease;
+
+  &:focus-within {
+    border-color: var(--main-color);
+  }
 }
-.entry-shell:focus-within {
-  border-color: var(--gray-300);
-  box-shadow:
-    0 2px 5px var(--shadow-0),
-    0 14px 40px -16px var(--shadow-3);
-}
+
 #home-prompt {
   display: block;
   width: 100%;
-  height: 80px;
-  padding: 2px 2px 18px;
+  height: 118px;
+  padding: 16px;
   border: 0;
   outline: none;
   resize: none;
   background: transparent;
   color: var(--gray-900);
   font: inherit;
-  font-size: 17px;
-  line-height: 26px;
+  font-size: 16px;
+  line-height: 24px;
   scrollbar-width: thin;
+
+  &::placeholder {
+    color: var(--gray-600);
+  }
 }
-#home-prompt::placeholder {
-  color: var(--gray-600);
-}
-.entry-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-}
+
+.entry-toolbar,
 .entry-actions {
   display: flex;
   align-items: center;
-  gap: 18px;
-  flex-shrink: 0;
+  gap: 12px;
 }
+
+.entry-toolbar {
+  min-height: 56px;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--gray-200);
+  background: var(--gray-25);
+}
+
+.entry-toolbar :deep(.agent-preview) {
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .entry-model {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 5px;
   color: var(--gray-600);
+  font-size: 12px;
+  white-space: nowrap;
 }
+
 .primary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 50%;
-  transition: border-color 180ms ease;
+  min-height: 36px;
+  padding: 0 10px;
+  border-color: #0c3842;
+  background: #0c3842;
+  color: #f2fbfa;
+  white-space: nowrap;
+
+  &:hover,
+  &:active {
+    border-color: #195449;
+    background: #195449;
+  }
 }
-button.header-chat,
-button.header-chat:hover,
-button.header-chat:active,
-button.header-chat:focus-visible,
-button.primary-button,
-button.primary-button:hover,
-button.primary-button:active,
-button.primary-button:focus-visible {
-  background: var(--gray-10000);
-  border-color: var(--gray-10000);
-  color: var(--gray-0);
-  box-shadow: none;
+
+:global(:root.dark .home-container .primary-button) {
+  border-color: #78e5ce;
+  background: #78e5ce;
+  color: #0c3842;
 }
+
+:global(:root.dark .home-container .primary-button:hover),
+:global(:root.dark .home-container .primary-button:active) {
+  border-color: #a4eee0;
+  background: #a4eee0;
+}
+
 .site-footer {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 72px;
-  color: var(--gray-500);
-  font-size: 11px;
-}
-.site-footer p {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-@media (max-width: 1200px) {
-  .page-width {
-    padding-inline: 56px;
+  min-height: 60px;
+  color: var(--gray-600);
+  font-size: 12px;
+  text-align: center;
+
+  p {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 }
-@media (max-width: 900px) {
-  .page-width {
-    padding-inline: 40px;
+
+@media (max-width: 960px) {
+  .home-workspace {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    min-height: 420px;
   }
-  .site-header {
-    min-height: 88px;
+
+  .entry-toolbar {
+    flex-wrap: wrap;
   }
-  .header-actions {
-    gap: 10px;
-  }
-  .hero-title {
-    font-size: 26px;
-  }
-  .hero-title .title-accent {
-    font-size: 40px;
-  }
-  .home-main {
-    padding-block: 50px 80px;
-  }
-  .site-footer {
-    min-height: 70px;
+
+  .entry-actions {
+    margin-inline-start: auto;
   }
 }
-@media (max-height: 760px) {
-  .site-header {
-    min-height: 84px;
-  }
-  .home-main {
-    padding-block: 36px 52px;
-  }
-  .hero-title {
-    margin-bottom: 30px;
-  }
-  .site-footer {
-    min-height: 64px;
+
+@media (max-width: 700px) {
+  .home-workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
+
 @media (prefers-reduced-motion: reduce) {
-  .entry-shell,
-  .primary-button {
+  .entry-shell {
     transition: none;
   }
 }

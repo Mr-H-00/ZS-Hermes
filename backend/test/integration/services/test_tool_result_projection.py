@@ -8,11 +8,11 @@ from sqlalchemy import select
 
 from test.integration.services.agent_input_fixtures import start_input_run
 from test.integration.services.agent_input_fixtures import sessions as sessions
-from yuxi.modules.agents.models.messages import TOOL_AUDIT_MESSAGE_TYPE, Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.services.message_recorder import RunMessageRecorder
-from yuxi.modules.agents.services.message_audits import serialize_tool_audit
-from yuxi.modules.agents.services.openai_events import OpenAIEventAdapter
+from zs.modules.agents.models.messages import TOOL_AUDIT_MESSAGE_TYPE, Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.services.message_recorder import RunMessageRecorder
+from zs.modules.agents.services.message_audits import serialize_tool_audit
+from zs.modules.agents.services.openai_events import OpenAIEventAdapter
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -182,7 +182,7 @@ async def test_checkpoint_tool_error_reconcile_saves_public_items(sessions):
         events = await project("tools", {"event": "tool-error", "tool_call_id": call, "message": "raw observation"})
         assert events == []
 
-    from yuxi.modules.agents.services.checkpoint_messages import _reconcile_tool_error_from_state
+    from zs.modules.agents.services.checkpoint_messages import _reconcile_tool_error_from_state
 
     async with sessions() as db:
         for call in ["first", "second"]:

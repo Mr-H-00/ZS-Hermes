@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.api.routers.knowledge import management as router
-from yuxi.infrastructure.minio.client import UploadResult
-from yuxi.modules.knowledge.services import uploads
+from zs.api.routers.knowledge import management as router
+from zs.infrastructure.minio.client import UploadResult
+from zs.modules.knowledge.services import uploads
 
 pytestmark = pytest.mark.asyncio
 

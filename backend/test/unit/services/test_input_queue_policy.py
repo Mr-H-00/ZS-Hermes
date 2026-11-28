@@ -2,7 +2,7 @@
 
 import pytest
 
-from yuxi.modules.agents.models.inputs import AgentInput, queue_resume_payload
+from zs.modules.agents.models.inputs import AgentInput, queue_resume_payload
 
 
 @pytest.mark.parametrize(

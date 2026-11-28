@@ -18,17 +18,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.api.dependencies.auth import get_db, get_required_user, get_superadmin_user
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.extensions.mcp import mcp as management_router
-from yuxi.api.routers.public_v1.knowledge import public_knowledge_router
-from yuxi.api.routers.public_v1.knowledge_mcp import create_knowledge_mcp
-from yuxi.infrastructure.postgres.manager import pg_manager
-from yuxi.modules.extensions.mcp import service
-from yuxi.modules.extensions.mcp.models import MCPConnection, MCPServer
-from yuxi.modules.identity.models import Department, User
-from yuxi.modules.knowledge.models import KnowledgeBase
-from yuxi.shared.errors import DomainError, PermissionDeniedError, StateConflictError
+from zs.api.dependencies.auth import get_db, get_required_user, get_superadmin_user
+from zs.api.errors import domain_error_handler
+from zs.api.routers.extensions.mcp import mcp as management_router
+from zs.api.routers.public_v1.knowledge import public_knowledge_router
+from zs.api.routers.public_v1.knowledge_mcp import create_knowledge_mcp
+from zs.infrastructure.postgres.manager import pg_manager
+from zs.modules.extensions.mcp import service
+from zs.modules.extensions.mcp.models import MCPConnection, MCPServer
+from zs.modules.identity.models import Department, User
+from zs.modules.knowledge.models import KnowledgeBase
+from zs.shared.errors import DomainError, PermissionDeniedError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -145,7 +145,7 @@ async def isolated_mcp(monkeypatch):
         sock.bind(("127.0.0.1", 0))
         base_url = f"http://127.0.0.1:{sock.getsockname()[1]}"
         url = base_url + "/api/mcp"
-        monkeypatch.setattr("yuxi.modules.knowledge.mcp.client.KNOWLEDGE_MCP_URL", url)
+        monkeypatch.setattr("zs.modules.knowledge.mcp.client.KNOWLEDGE_MCP_URL", url)
         manifest = {**service.BUILTIN_MCP_SERVERS}
         manifest["knowledge"] = {
             "type": "http",
@@ -254,8 +254,8 @@ async def test_configured_mcp_recovers_after_transient_discovery_and_stays_bound
     """直接配置的服务发现暂时失败后，后续模型请求恢复并持续绑定工具。"""
     from langchain.agents.middleware.types import ModelRequest
 
-    from yuxi.modules.agents.runtime.middlewares.skills import SkillsMiddleware
-    from yuxi.modules.extensions.tools.runtime import resolve_configured_runtime_tools
+    from zs.modules.agents.runtime.middlewares.skills import SkillsMiddleware
+    from zs.modules.extensions.tools.runtime import resolve_configured_runtime_tools
 
     context = isolated_mcp
     runtime = context.runtime
@@ -307,10 +307,10 @@ async def test_existing_tool_reflects_current_knowledge_visibility(isolated_mcp)
 @pytest.mark.skipif(os.getenv("RUN_ISOLATED_OBJECT_STORE") != "1", reason="需要独立的临时对象存储")
 async def test_mcp_document_pages_use_current_permission_and_bounded_wire_payload(isolated_mcp):
     """真实 MCP、数据库与对象存储中，逐页恢复原文且撤权后不可访问。"""
-    from yuxi.infrastructure.minio import get_minio_client
-    from yuxi.infrastructure.minio.client import MinIOClient
-    from yuxi.modules.knowledge.mcp.auth import create_knowledge_token
-    from yuxi.modules.knowledge.models import KnowledgeFile
+    from zs.infrastructure.minio import get_minio_client
+    from zs.infrastructure.minio.client import MinIOClient
+    from zs.modules.knowledge.mcp.auth import create_knowledge_token
+    from zs.modules.knowledge.models import KnowledgeFile
 
     context = isolated_mcp
     async with context.engine.begin() as connection:
@@ -426,7 +426,7 @@ async def test_existing_tool_rejects_locked_actor_before_outbound(isolated_mcp):
     """执行者锁定后旧工具在签发委托之前拒绝出站。"""
     from datetime import timedelta
 
-    from yuxi.shared.datetime import utc_now
+    from zs.shared.datetime import utc_now
 
     context = isolated_mcp
     tools = {tool.name: tool for tool in await runtime_tools(context)}
@@ -543,10 +543,10 @@ async def test_real_mcp_adapter_recorder_and_reference_keep_source_identity(isol
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 
-    from yuxi.modules.agents.services.message_recorder import tool_event_output
-    from yuxi.modules.agents.services.references import collect_reference_sources
-    from yuxi.modules.knowledge.mcp.auth import create_knowledge_token
-    from yuxi.modules.knowledge.services import tools as knowledge_tools
+    from zs.modules.agents.services.message_recorder import tool_event_output
+    from zs.modules.agents.services.references import collect_reference_sources
+    from zs.modules.knowledge.mcp.auth import create_knowledge_token
+    from zs.modules.knowledge.services import tools as knowledge_tools
 
     async def query_kb(**kwargs):
         """仅替代向量供应商，协议、身份和引用消费保持真实。"""
@@ -604,7 +604,7 @@ async def test_real_mcp_adapter_recorder_and_reference_keep_source_identity(isol
 
 async def test_product_selector_read_has_explicit_independent_agent_policy(isolated_mcp):
     """产品资源读取复用委托传输，管理员 Agent 工具开关不隐藏历史来源。"""
-    from yuxi.modules.knowledge.mcp.client import list_knowledge_bases
+    from zs.modules.knowledge.mcp.client import list_knowledge_bases
 
     context = isolated_mcp
     await update_server(context, enabled=0, disabled_tools=["list_kbs"])
@@ -618,7 +618,7 @@ async def test_deployment_toggle_preserves_builtin_identity_and_admin_policy(iso
     """关闭部署只改变可用性，重开后保留管理员显式意图。"""
     context = isolated_mcp
     await update_server(context, enabled=admin_enabled, disabled_tools=["query_kb"])
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "false")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "false")
     await service.ensure_builtin_mcp_servers_in_db()
     async with context.sessions() as db:
         row = await db.scalar(select(MCPServer).where(MCPServer.slug == "knowledge"))
@@ -628,7 +628,7 @@ async def test_deployment_toggle_preserves_builtin_identity_and_admin_policy(iso
         assert row.disabled_tools == ["query_kb"]
         assert "knowledge" not in await service.get_enabled_mcp_server_slugs(db=db)
         assert "knowledge" not in await service.available_mcp_servers(db, ["knowledge"], user_id=context.reader.id)
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "true")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "true")
     await service.ensure_builtin_mcp_servers_in_db()
     async with context.sessions() as db:
         row = await db.scalar(select(MCPServer).where(MCPServer.slug == "knowledge"))
@@ -641,7 +641,7 @@ async def test_dynamic_skill_restores_reenabled_tool_with_same_run_cache(isolate
     """动态 Skill 每轮读取当前策略，使用同一完整目录缓存恢复工具。"""
     from langchain.agents.middleware.types import ModelRequest
 
-    from yuxi.modules.agents.runtime.middlewares.skills import SkillsMiddleware
+    from zs.modules.agents.runtime.middlewares.skills import SkillsMiddleware
 
     context = isolated_mcp
     runtime = SimpleNamespace(

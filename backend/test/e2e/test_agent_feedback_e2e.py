@@ -76,7 +76,7 @@ async def test_worker_marks_own_run_without_skill_and_survives_tool_error(e2e_cl
         )
         assert created.status_code == 201, created.text
         session_id = created.json()["id"]
-        consumed = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["yuxi"]["receipt"])
+        consumed = await wait_for_consumed_input(e2e_client, e2e_headers, created.json()["zs"]["receipt"])
         turn_id = consumed["turn_id"]
         async with asyncio.timeout(90):
             while True:
@@ -87,8 +87,8 @@ async def test_worker_marks_own_run_without_skill_and_survives_tool_error(e2e_cl
                     break
                 await asyncio.sleep(0.2)
         assert turn["status"] == "completed", turn
-        run_id = turn["yuxi"]["result_run_id"]
-        assert "DETERMINISTIC_AGENT_E2E_OK" in json.dumps(turn["yuxi"]["output"])
+        run_id = turn["zs"]["result_run_id"]
+        assert "DETERMINISTIC_AGENT_E2E_OK" in json.dumps(turn["zs"]["output"])
         conn = await asyncpg.connect(postgres_dsn())
         try:
             records = await conn.fetch(

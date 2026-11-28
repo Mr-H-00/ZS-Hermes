@@ -56,7 +56,7 @@
                 type="text"
                 size="small"
                 danger
-                class="yuxi-table-action lucide-icon-btn"
+                class="zs-table-action lucide-icon-btn"
                 @click="removeRow(index)"
               >
                 <Trash2 :size="14" />

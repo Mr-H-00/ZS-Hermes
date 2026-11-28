@@ -21,7 +21,7 @@ from test.e2e.e2e_helpers import (
     wait_for_terminal_turn,
 )
 from test.live_api_cleanup import make_test_session_title, validate_test_runs_terminal
-from yuxi.infrastructure.minio import get_minio_client
+from zs.infrastructure.minio import get_minio_client
 from test.integration.api.helpers import delete_created_threads
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
@@ -51,7 +51,7 @@ async def test_submission_files_snapshot_idempotency_cancel_and_delete(test_clie
         invalid = await test_client.post(
             "/api/v1/agents/sessions",
             headers={**headers, "Idempotency-Key": uuid.uuid4().hex},
-            json={"agent_id": "default-chatbot", "yuxi": {"attachment_file_ids": files}},
+            json={"agent_id": "default-chatbot", "zs": {"attachment_file_ids": files}},
         )
         assert invalid.status_code == 422, invalid.text
         assert await conn.fetchval("SELECT count(*) FROM agent_attachments WHERE id=ANY($1::text[]) AND input_id IS NOT NULL", files) == 0
@@ -66,15 +66,15 @@ async def test_submission_files_snapshot_idempotency_cancel_and_delete(test_clie
         )
         assert created.status_code == 201, created.text
         thread_id = created.json()["id"]
-        consumed = await wait_for_consumed_input(test_client, headers, created.json()["yuxi"]["receipt"])
+        consumed = await wait_for_consumed_input(test_client, headers, created.json()["zs"]["receipt"])
         turn_id = consumed["turn_id"]
         await wait_for_blocked_response(replay, gate)
         url = f"/api/v1/agents/sessions/{thread_id}/events"
         key_headers = {**headers, "Idempotency-Key": uuid.uuid4().hex}
         messages = [{"role": "user", "content": [{"type": "input_text", "text": text}]} for text in ("one", "two")]
-        event = {"type": "agent.session.input.message", "input": messages, "yuxi": {"mode": "follow_up", "attachment_file_ids": files}}
+        event = {"type": "agent.session.input.message", "input": messages, "zs": {"mode": "follow_up", "attachment_file_ids": files}}
         old = await test_client.post(
-            url, headers=key_headers, json={"events": [{**event, "input": [{**messages[0], "yuxi": {"attachment_file_ids": files}}]}]}
+            url, headers=key_headers, json={"events": [{**event, "input": [{**messages[0], "zs": {"attachment_file_ids": files}}]}]}
         )
         assert old.status_code == 422, old.text
         response = await test_client.post(url, headers=key_headers, json={"events": [event]})
@@ -85,7 +85,7 @@ async def test_submission_files_snapshot_idempotency_cancel_and_delete(test_clie
         repeated = await test_client.post(url, headers=key_headers, json={"events": [event]})
         assert repeated.json() == receipt
         changed = await test_client.post(
-            url, headers=key_headers, json={"events": [{**event, "yuxi": {"mode": "follow_up", "attachment_file_ids": files[::-1]}}]}
+            url, headers=key_headers, json={"events": [{**event, "zs": {"mode": "follow_up", "attachment_file_ids": files[::-1]}}]}
         )
         assert changed.status_code == 409, changed.text
         input_url = f"/api/v1/agents/sessions/{thread_id}/inputs/{receipt['input_id']}"
@@ -97,7 +97,7 @@ async def test_submission_files_snapshot_idempotency_cancel_and_delete(test_clie
         cancelled = await test_client.post(
             url,
             headers={**headers, "Idempotency-Key": uuid.uuid4().hex},
-            json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": receipt["input_id"]}]},
+            json={"events": [{"type": "zs.session.input.cancel_input", "input_id": receipt["input_id"]}]},
         )
         assert cancelled.status_code == 202, cancelled.text
         blocked = await test_client.delete(f"/api/v1/agents/sessions/{thread_id}/attachments/{files[0]}", headers=headers)
@@ -127,7 +127,7 @@ async def test_submission_files_snapshot_idempotency_cancel_and_delete(test_clie
             cancelled = await test_client.post(
                 f"/api/v1/agents/sessions/{thread_id}/events",
                 headers={**headers, "Idempotency-Key": uuid.uuid4().hex},
-                json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": input_id}]},
+                json={"events": [{"type": "zs.session.input.cancel_input", "input_id": input_id}]},
             )
             assert cancelled.status_code == 202, cancelled.text
         await replay.get("/release-blocking", params={"token": gate})
@@ -247,7 +247,7 @@ async def test_public_preprocessing_and_confirm_routes_are_removed(test_client, 
 
 async def test_expired_draft_cleanup_is_bounded_and_keeps_live_drafts(test_client, admin_headers, api_key_factory):
     """行状态决定清理范围，32 行之后的过期草稿下一次继续清理。"""
-    from yuxi.modules.agents.services.attachments import _tmp_attachment_owner
+    from zs.modules.agents.services.attachments import _tmp_attachment_owner
 
     app_id = f"cleanup-{uuid.uuid4().hex}"
     issued = await api_key_factory(

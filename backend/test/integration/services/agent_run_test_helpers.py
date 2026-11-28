@@ -8,19 +8,19 @@ from typing import Any
 
 from sqlalchemy import delete, select, update
 
-from yuxi.modules.agents.models.cooperation import CooperationEvent, CooperationRuntime
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.identity.models import User
-from yuxi.shared.datetime import utc_now
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.agents.models.cooperation import CooperationEvent, CooperationRuntime
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.messages import Message
+from zs.modules.workspace.models import Project
+from zs.modules.identity.models import User
+from zs.shared.datetime import utc_now
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
 
 
 async def create_agent_run(

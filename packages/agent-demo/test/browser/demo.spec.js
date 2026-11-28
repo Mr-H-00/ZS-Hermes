@@ -36,7 +36,7 @@ const message = (id, role, text, status = "completed") => ({
   status,
   phase: role === "assistant" && status === "completed" ? "final_answer" : null,
   content: [{ type: role === "user" ? "input_text" : "output_text", text }],
-  yuxi: {
+  zs: {
     message_id: Number(id.split("-").at(-1)),
     run_id: role === "assistant" ? "run-1" : null,
     created_at: "2026-10-08T09:00:00Z",
@@ -51,7 +51,7 @@ async function fixture() {
     snapshot: {
       id: "thread-1", object: "agent.session", status: "idle",
       agent: { id: "chat", model: "test:model" }, created_at: 1791446400, last_active_at: 1791446400,
-      yuxi: { title: "历史对话", current_turn: null, queued_input_count: 0, queue_paused: false, archived: false },
+      zs: { title: "历史对话", current_turn: null, queued_input_count: 0, queue_paused: false, archived: false },
     },
     items: [
       message("input-1", "user", "历史问题"),
@@ -135,15 +135,15 @@ async function fixture() {
         state.oldHistoryDelay = false;
         await new Promise(resolve => setTimeout(resolve, 450));
       }
-      json({ object: "list", data, first_id: data[0]?.id || null, last_id: data.at(-1)?.id || null, has_more: items.length > start + limit, yuxi: { runs: state.runs } });
+      json({ object: "list", data, first_id: data[0]?.id || null, last_id: data.at(-1)?.id || null, has_more: items.length > start + limit, zs: { runs: state.runs } });
     } else if (url.pathname.includes("/turns/")) {
-      const turn = state.snapshot.yuxi.current_turn;
+      const turn = state.snapshot.zs.current_turn;
       json({ id: url.pathname.split("/").at(-1), status: turn?.status, error: state.runs.find(run => run.status === "failed") ? { message: state.runs.find(run => run.status === "failed").error_message } : null,
-        yuxi: { ...turn, current_run_id: turn?.current_run_id, runs: state.runs,
+        zs: { ...turn, current_run_id: turn?.current_run_id, runs: state.runs,
           output: turn?.status === "completed" ? state.items.filter(item => item.phase === "final_answer") : null } });
     } else if (url.pathname.endsWith("/receipt")) {
       const receipt = receipts.get(url.searchParams.get("idempotency_key"));
-      json(receipt?.yuxi?.receipt || receipt || { detail: "回执不存在" }, receipt ? 200 : 404);
+      json(receipt?.zs?.receipt || receipt || { detail: "回执不存在" }, receipt ? 200 : 404);
     } else if (url.pathname === "/api/v1/agents/sessions/thread-1" && req.method === "GET") {
       json(structuredClone(state.snapshot));
     } else if (url.pathname.endsWith("/state")) {
@@ -154,7 +154,7 @@ async function fixture() {
       res.write(": connected\n\n");
       streams.add(res);
       res.on("close", () => streams.delete(res));
-      if (state.snapshot.yuxi.current_turn?.status === "in_progress") {
+      if (state.snapshot.zs.current_turn?.status === "in_progress") {
         const item = state.items.find((entry) => entry.role === "assistant");
         emit({ type: "agent.session.turn.item.added", item });
         emit({
@@ -173,7 +173,7 @@ async function fixture() {
         state.snapshot = {
           ...state.snapshot,
           status: "in_progress",
-          yuxi: { ...state.snapshot.yuxi, title: body.title,
+          zs: { ...state.snapshot.zs, title: body.title,
           current_turn: {
             id: "turn-1",
             current_run_id: "run-1",
@@ -185,7 +185,7 @@ async function fixture() {
           message("input-1", "user", body.input[0].content[0].text),
           message("output-2", "assistant", "", "in_progress"),
         ];
-        receipts.set(key, { ...state.snapshot, yuxi: { ...state.snapshot.yuxi, receipt: { object: "yuxi.session.event.accepted", event_id: key, session_id: "thread-1", input_id: "input-1", turn_id: null, run_id: null, status: "accepted" } } });
+        receipts.set(key, { ...state.snapshot, zs: { ...state.snapshot.zs, receipt: { object: "zs.session.event.accepted", event_id: key, session_id: "thread-1", input_id: "input-1", turn_id: null, run_id: null, status: "accepted" } } });
       }
       if (state.failNext) {
         state.failNext = false;
@@ -199,20 +199,20 @@ async function fixture() {
         state.items.push(
           message("input-3", "user", event.input[0].content[0].text),
         );
-        state.snapshot.yuxi.queued_input_count = 1;
+        state.snapshot.zs.queued_input_count = 1;
       } else if (event.type === "agent.session.input.cancel") {
-        state.snapshot.yuxi.current_turn.status = "cancelled";
-        state.snapshot.yuxi.queue_paused = true;
+        state.snapshot.zs.current_turn.status = "cancelled";
+        state.snapshot.zs.queue_paused = true;
         state.items.find((item) => item.role === "assistant").status =
           "incomplete";
         emit({ type: "agent.session.turn.cancelled" });
-      } else if (event.type === "yuxi.session.input.continue") {
-        state.snapshot.yuxi.queue_paused = false;
-      } else if (event.type === "yuxi.session.input.resume") {
-        state.snapshot.yuxi.current_turn.status = "in_progress";
-        state.snapshot.yuxi.current_turn.waitpoint = null;
+      } else if (event.type === "zs.session.input.continue") {
+        state.snapshot.zs.queue_paused = false;
+      } else if (event.type === "zs.session.input.resume") {
+        state.snapshot.zs.current_turn.status = "in_progress";
+        state.snapshot.zs.current_turn.waitpoint = null;
       }
-      const accepted = { object: "yuxi.session.event.accepted", event_id: key, session_id: "thread-1", input_id: "input-3", turn_id: null, run_id: null, status: "accepted" };
+      const accepted = { object: "zs.session.event.accepted", event_id: key, session_id: "thread-1", input_id: "input-3", turn_id: null, run_id: null, status: "accepted" };
       receipts.set(key, accepted);
       if (state.failNextEvent) { state.failNextEvent = false; json({ detail: "接收响应丢失" }, 503); }
       else json(accepted, 202);
@@ -262,8 +262,8 @@ let backend;
 test.beforeEach(async ({ page }) => {
   backend = await fixture();
   await page.addInitScript((settings) => {
-    if (!localStorage.getItem("yuxi-agent-demo:v1"))
-      localStorage.setItem("yuxi-agent-demo:v1", JSON.stringify(settings));
+    if (!localStorage.getItem("zs-agent-demo:v1"))
+      localStorage.setItem("zs-agent-demo:v1", JSON.stringify(settings));
   }, config(backend.baseUrl));
 });
 test.afterEach(async () => {
@@ -318,11 +318,11 @@ test("历史回读、流式正文、生成中追加消息和携带身份下载�
     (request) =>
       request.body?.events?.[0]?.type === "agent.session.input.message",
   );
-  expect(post.body.events[0].yuxi.mode).toBe("follow_up");
+  expect(post.body.events[0].zs.mode).toBe("follow_up");
   expect(post.headers.authorization).toBe("Bearer test-alpha-key");
   expect(post.headers["idempotency-key"]).toBeTruthy();
   backend.state.items[1] = message("output-2", "assistant", "你好，已完成");
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     result_run_id: "run-1",
@@ -388,7 +388,7 @@ test("局域网 HTTP 手机可以启动、发送、取消和新增 APP", async (
   const settings = config(backend.baseUrl.replace("127.0.0.1", address));
   await page.addInitScript(
     (value) =>
-      localStorage.setItem("yuxi-agent-demo:v1", JSON.stringify(value)),
+      localStorage.setItem("zs-agent-demo:v1", JSON.stringify(value)),
     settings,
   );
   const errors = [];
@@ -429,7 +429,7 @@ test("局域网 HTTP 手机可以启动、发送、取消和新增 APP", async (
     .poll(() =>
       page.evaluate(
         () =>
-          JSON.parse(localStorage.getItem("yuxi-agent-demo:v1")).apps.length,
+          JSON.parse(localStorage.getItem("zs-agent-demo:v1")).apps.length,
       ),
     )
     .toBe(3);
@@ -449,7 +449,7 @@ test("非法用户 ID 不切换或保存，中文显示名称配 ASCII ID 可以
     "用户 ID 仅支持可打印 ASCII",
   );
   const stored = await page.evaluate(
-    () => JSON.parse(localStorage.getItem("yuxi-agent-demo:v1")).apps[0],
+    () => JSON.parse(localStorage.getItem("zs-agent-demo:v1")).apps[0],
   );
   expect(stored.userId).toBe("");
   expect(stored.users).toHaveLength(2);
@@ -503,7 +503,7 @@ test("已接收但回执失败的输入手动重试复用同一幂等键", async
 });
 
 test("等待回答阻止普通发送，恢复提交完整等待点身份", async ({ page }) => {
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "requires_action",
@@ -522,10 +522,10 @@ test("等待回答阻止普通发送，恢复提交完整等待点身份", async
   await expect(page.getByLabel("消息输入")).toBeEnabled();
   const resume = backend.requests.find(
     (request) =>
-      request.body?.events?.[0]?.type === "yuxi.session.input.resume",
+      request.body?.events?.[0]?.type === "zs.session.input.resume",
   );
   expect(resume.body.events[0]).toEqual({
-    type: "yuxi.session.input.resume",
+    type: "zs.session.input.resume",
     turn_id: "turn-1",
     waitpoint_id: "wait-1",
     response: {
@@ -536,8 +536,8 @@ test("等待回答阻止普通发送，恢复提交完整等待点身份", async
 });
 
 test("暂停队列时发送仍提交 follow_up，继续按钮保留", async ({ page }) => {
-  backend.state.snapshot.yuxi.queue_paused = true;
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.queue_paused = true;
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "cancelled",
@@ -563,14 +563,14 @@ test("暂停队列时发送仍提交 follow_up，继续按钮保留", async ({ p
         content: [{ type: "input_text", text: "只跑这一条" }],
       },
     ],
-    yuxi: { mode: "follow_up", attachment_file_ids: [] },
+    zs: { mode: "follow_up", attachment_file_ids: [] },
   });
 });
 
 test("选择题提交 option value，没有 options 时仍提交文本", async ({
   page,
 }) => {
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "requires_action",
@@ -606,7 +606,7 @@ test("选择题提交 option value，没有 options 时仍提交文本", async (
   await page.getByRole("button", { name: "提交并继续" }).click();
   const resume = backend.requests.find(
     (request) =>
-      request.body?.events?.[0]?.type === "yuxi.session.input.resume",
+      request.body?.events?.[0]?.type === "zs.session.input.resume",
   );
   expect(resume.body.events[0].response).toEqual({
     type: "answer",
@@ -618,7 +618,7 @@ test("选择题提交 option value，没有 options 时仍提交文本", async (
 });
 
 test("选择题支持自行填写，多选保留选项且可禁用其他", async ({ page }) => {
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "requires_action",
@@ -647,7 +647,7 @@ test("选择题支持自行填写，多选保留选项且可禁用其他", async
   await restricted.getByRole("radio", { name: "只读" }).check();
   await page.getByRole("button", { name: "提交并继续" }).click();
   const resume = backend.requests.find(
-    (request) => request.body?.events?.[0]?.type === "yuxi.session.input.resume",
+    (request) => request.body?.events?.[0]?.type === "zs.session.input.resume",
   );
   expect(resume.body.events[0].response).toEqual({
     type: "answer",
@@ -693,7 +693,7 @@ test("取消固定 Turn / Run，暂停队列可显式继续", async ({ page }) =
     (request) =>
       request.body?.events?.[0]?.type === "agent.session.input.cancel",
   );
-  expect(cancel.body.events[0].yuxi).toEqual({
+  expect(cancel.body.events[0].zs).toEqual({
     turn_id: "turn-1",
     expected_run_id: "run-1",
   });
@@ -718,7 +718,7 @@ test("断线续订带 cursor，resync 回读持久结果并忽略迟到增量", 
   await expect(page.getByLabel("对话消息")).toContainText("完成的正文");
   backend.disconnect();
   backend.state.items[1] = message("output-2", "assistant", "完成的正文");
-  backend.state.snapshot.yuxi.current_turn.status = "completed";
+  backend.state.snapshot.zs.current_turn.status = "completed";
   await expect.poll(() => backend.state.subscriptionCount).toBe(2);
   const resumed = backend.requests
     .filter(
@@ -726,7 +726,7 @@ test("断线续订带 cursor，resync 回读持久结果并忽略迟到增量", 
     )
     .at(-1);
   expect(resumed.headers["last-event-id"]).toBe(cursor);
-  backend.emit({ type: "yuxi.session.resync" });
+  backend.emit({ type: "zs.session.resync" });
   backend.emit({
     type: "agent.session.turn.output_text.delta",
     item_id: "output-2",
@@ -781,7 +781,7 @@ test("窄屏抽屉限制键盘焦点，Escape 关闭并归还焦点", async ({ p
 });
 
 test("旧 history 迟到不能把新的等待状态回退为 running", async ({ page }) => {
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "in_progress",
@@ -797,7 +797,7 @@ test("旧 history 迟到不能把新的等待状态回退为 running", async ({ 
   );
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   await oldRequest;
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "requires_action",
@@ -807,7 +807,7 @@ test("旧 history 迟到不能把新的等待状态回退为 running", async ({ 
       questions: [{ question_id: "q-1", question: "新问题" }],
     },
   };
-  backend.emit({ type: "yuxi.session.turn.waiting" });
+  backend.emit({ type: "zs.session.turn.waiting" });
   await expect(page.getByLabel("新问题")).toBeVisible();
   await page.getByLabel("新问题").fill("保留我的回答");
   await page.waitForTimeout(600);
@@ -816,7 +816,7 @@ test("旧 history 迟到不能把新的等待状态回退为 running", async ({ 
 });
 
 test("审批恢复保留所有 call ID 和用户选择", async ({ page }) => {
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "requires_action",
@@ -849,7 +849,7 @@ test("审批恢复保留所有 call ID 和用户选择", async ({ page }) => {
   await expect(page.getByLabel("消息输入")).toBeEnabled();
   const event = backend.requests.find(
     (request) =>
-      request.body?.events?.[0]?.type === "yuxi.session.input.resume",
+      request.body?.events?.[0]?.type === "zs.session.input.resume",
   ).body.events[0];
   expect(event.response).toEqual({
     type: "approval",
@@ -861,7 +861,7 @@ test("审批恢复保留所有 call ID 和用户选择", async ({ page }) => {
 });
 
 test("失败原因来自当前 Run，公开调试记录隐藏 Key", async ({ page }) => {
-  backend.state.snapshot.yuxi.current_turn = {
+  backend.state.snapshot.zs.current_turn = {
     id: "turn-1",
     current_run_id: "run-1",
     status: "failed",
@@ -877,13 +877,13 @@ test("失败原因来自当前 Run，公开调试记录隐藏 Key", async ({ pag
   );
   await expect.poll(() => backend.state.subscriptionCount).toBe(1);
   backend.emit({
-    type: "yuxi.session.turn.capability_limited",
+    type: "zs.session.turn.capability_limited",
     message: "测试脱敏 test-alpha-key",
   });
   await page.getByRole("tab", { name: /^事件/ }).click();
   const event = page
     .locator(".event-entry")
-    .filter({ hasText: "yuxi.session.turn.capability_limited" });
+    .filter({ hasText: "zs.session.turn.capability_limited" });
   await event.locator("summary").click();
   await expect(event.locator("pre")).toContainText("[已隐藏]");
   await expect(event.locator("pre")).not.toContainText("test-alpha-key");
@@ -912,10 +912,10 @@ test("附件上传不创建会话，PNG 直接输入；接收响应丢失时原�
   expect(posts).toHaveLength(2);
   expect(posts[1].headers["idempotency-key"]).toBe(posts[0].headers["idempotency-key"]);
   expect(posts[1].body).toEqual(posts[0].body);
-  expect(posts[0].body.yuxi.attachment_file_ids).toEqual(["1234567890abcdef1234567890abcdef"]);
-  expect(posts[0].body.input[0].yuxi).toBeUndefined();
+  expect(posts[0].body.zs.attachment_file_ids).toEqual(["1234567890abcdef1234567890abcdef"]);
+  expect(posts[0].body.input[0].zs).toBeUndefined();
   expect(posts[0].body.input[0].content[1]).toEqual({ type: "input_image", image_url: `data:image/png;base64,${png.toString("base64")}` });
-  await page.screenshot({ path: "/tmp/yuxi-draft-demo.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/zs-draft-demo.png", fullPage: true });
 });
 
 

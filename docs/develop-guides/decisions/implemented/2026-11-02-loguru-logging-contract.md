@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/infrastructure/observability/logging.py
+Owner：backend/zs/infrastructure/observability/logging.py
 
 ## 问题
 
@@ -14,7 +14,7 @@ Owner：backend/yuxi/infrastructure/observability/logging.py
 
 ### 实现方案
 
-`backend/yuxi` 中导入 `yuxi.infrastructure.observability.logging.logger` 或 `loguru.logger` 的模块统一遵守 loguru 格式化规则。新增静态 unit guard，解析源码 AST 并拒绝 loguru 调用中的 `%s`/`%d`/`%i`/`%f`/`%r` 占位符和 `exc_info` 关键字；guard 同时提供负向样例，证明旧写法会被发现，标准 logging 不会被误报。
+`backend/zs` 中导入 `yuxi.infrastructure.observability.logging.logger` 或 `loguru.logger` 的模块统一遵守 loguru 格式化规则。新增静态 unit guard，解析源码 AST 并拒绝 loguru 调用中的 `%s`/`%d`/`%i`/`%f`/`%r` 占位符和 `exc_info` 关键字；guard 同时提供负向样例，证明旧写法会被发现，标准 logging 不会被误报。
 
 ## 替代方案
 

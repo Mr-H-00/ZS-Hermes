@@ -8,10 +8,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yuxi.api.routers.identity.auth import auth
-from yuxi.api.dependencies.auth import get_db, get_required_user
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.identity.models import Department, User
+from zs.api.routers.identity.auth import auth
+from zs.api.dependencies.auth import get_db, get_required_user
+from zs.infrastructure.postgres.base import Base
+from zs.modules.identity.models import Department, User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

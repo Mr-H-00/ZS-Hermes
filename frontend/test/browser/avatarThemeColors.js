@@ -52,7 +52,7 @@ async page => {
     }
     check(await page.locator('#avatar-theme-colors [data-avatar-state=fallback]').count() === 0, '头像进入失败占位')
     await page.locator('#avatar-theme-colors').evaluate(host => { host.style.inset = '20px 20px auto'; host.style.overflow = 'visible' })
-    await page.locator('#avatar-theme-colors').screenshot({ path: '/tmp/yuxi-avatar-theme-colors.png', animations: 'disabled' })
+    await page.locator('#avatar-theme-colors').screenshot({ path: '/tmp/zs-avatar-theme-colors.png', animations: 'disabled' })
     return { pairs: pairs.length, decodedImages: pairs.length * 2, bodyColorsStable: true }
   } finally {
     await page.evaluate(() => { window.__avatarThemeColors.app.unmount(); window.__avatarThemeColors.host.remove(); delete window.__avatarThemeColors })

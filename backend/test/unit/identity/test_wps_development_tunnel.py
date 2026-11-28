@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from yuxi.modules.identity.services.wps_development_tunnel import WPS_TUNNEL_HOSTNAME, WPSDevelopmentTunnel
-from yuxi.shared.errors import ResourceNotFoundError, StateConflictError
+from zs.modules.identity.services.wps_development_tunnel import WPS_TUNNEL_HOSTNAME, WPSDevelopmentTunnel
+from zs.shared.errors import ResourceNotFoundError, StateConflictError
 
 
 class FakeStdout:
@@ -55,7 +55,7 @@ def enable_compose_development(monkeypatch, tmp_path):
     credentials_file = tmp_path / "zs-dev.json"
     config_file.write_text("tunnel: placeholder\n", encoding="utf-8")
     credentials_file.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv("YUXI_ENV", "development")
+    monkeypatch.setenv("ZS_ENV", "development")
     monkeypatch.setenv("RUNNING_IN_DOCKER", "true")
     monkeypatch.setenv("WPS_DEVELOPMENT_TUNNEL_CONFIG", str(config_file))
     monkeypatch.setenv("WPS_DEVELOPMENT_TUNNEL_CREDENTIALS", str(credentials_file))
@@ -66,8 +66,8 @@ def test_tunnel_is_disabled_outside_compose_development(monkeypatch):
     """实际隧道只开放在 Docker Compose 开发拓扑。"""
     tunnel = WPSDevelopmentTunnel()
     for values in (
-        {"YUXI_ENV": "production", "RUNNING_IN_DOCKER": "true"},
-        {"YUXI_ENV": "development", "RUNNING_IN_DOCKER": "false"},
+        {"ZS_ENV": "production", "RUNNING_IN_DOCKER": "true"},
+        {"ZS_ENV": "development", "RUNNING_IN_DOCKER": "false"},
     ):
         for key, value in values.items():
             monkeypatch.setenv(key, value)

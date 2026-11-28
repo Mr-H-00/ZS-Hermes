@@ -22,7 +22,7 @@ flowchart LR
     Init[app-init] --> PG
 ```
 
-`frontend` 使用 `src/modules` 的公开入口，`backend/yuxi/api` 适配 HTTP，`modules/<domain>/services` 编排业务，repository 拥有持久查询。API 与 worker 在启动时只校验 Schema；`app-init` 为确认空库建立当前基线并同步内置配置。历史数据库转换必须在停写与备份条件下显式执行。
+`frontend` 使用 `src/modules` 的公开入口，`backend/zs/api` 适配 HTTP，`modules/<domain>/services` 编排业务，repository 拥有持久查询。API 与 worker 在启动时只校验 Schema；`app-init` 为确认空库建立当前基线并同步内置配置。历史数据库转换必须在停写与备份条件下显式执行。
 
 ## Agent 执行
 
@@ -38,7 +38,7 @@ Knowledge 拥有文件原件、Markdown 指针、文件代次、分块与检索�
 
 ## 工作区与 WPS
 
-工作区保留新架构的文件上传、预览、目录操作和项目归属，并提供本地空间、WPS 云盘及其他空间入口。占位空间不宣告连接成功。WPS 的管理员应用配置与个人 OAuth 连接由 identity 分别持久化，文档列表只使用当前用户凭据。公开 HTTPS 回调、开发隧道与部署前提见[WPS 云盘](../advanced/wps-cloud-drive.md)。
+工作区保留新架构的文件上传、预览、目录操作和项目归属。网盘提供「工作区」和「我的成果」。WPS 的管理员应用配置与个人 OAuth 连接由 identity 分别持久化，文档列表只使用当前用户凭据。公开 HTTPS 回调、开发隧道与部署前提见[WPS 云盘](../advanced/wps-cloud-drive.md)。
 
 宿主目录、沙盒路径和对象 URL 在各自文件边界校验。Agent 知识访问通过知识 MCP 复核当前用户授权和会话选择，不能把展示层隐藏当作权限边界。详见[沙盒与文件系统](./sandbox.md)及[资源权限](./resource-permissions.md)。
 

@@ -8,16 +8,16 @@ import pytest
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.testclient import TestClient
 
-import yuxi.api.routers.extensions.mcp as mcp_router
-import yuxi.api.routers.extensions.skills as skill_router
-import yuxi.api.routers.identity.auth as auth_router
-import yuxi.api.routers.knowledge.dashboard as knowledge_dashboard_router
-import yuxi.api.routers.knowledge.evaluation as knowledge_eval_router
-import yuxi.api.routers.knowledge.graphs as graph_router
-import yuxi.api.routers.knowledge.management as knowledge_router
-import yuxi.api.routers.models as model_provider_router
-import yuxi.api.routers.system as system_router
-import yuxi.modules.knowledge.services.document_actions as document_actions
+import zs.api.routers.extensions.mcp as mcp_router
+import zs.api.routers.extensions.skills as skill_router
+import zs.api.routers.identity.auth as auth_router
+import zs.api.routers.knowledge.dashboard as knowledge_dashboard_router
+import zs.api.routers.knowledge.evaluation as knowledge_eval_router
+import zs.api.routers.knowledge.graphs as graph_router
+import zs.api.routers.knowledge.management as knowledge_router
+import zs.api.routers.models as model_provider_router
+import zs.api.routers.system as system_router
+import zs.modules.knowledge.services.document_actions as document_actions
 
 
 @pytest.mark.parametrize("status_code", [403, 404, 429])

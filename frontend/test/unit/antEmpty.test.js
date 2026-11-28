@@ -16,7 +16,7 @@ test('默认空状态替换图像，保留说明、动作和调用方属性', as
     { default: () => h('button', '上传文件') }
   )
 
-  assert.match(html, /class="[^"]*ant-empty[^"]*yuxi-empty--default[^"]*file-empty/)
+  assert.match(html, /class="[^"]*ant-empty[^"]*zs-empty--default[^"]*file-empty/)
   assert.match(html, /data-owner="files"/)
   assert.match(html, /<svg[^>]*aria-hidden="true"/)
   assert.match(html, /lucide-inbox/)
@@ -27,8 +27,8 @@ test('默认空状态替换图像，保留说明、动作和调用方属性', as
 test('显式禁用图像或说明不会被默认内容重新打开', async () => {
   const html = await render({ image: false, description: false })
 
-  assert.match(html, /yuxi-empty--no-image/)
-  assert.doesNotMatch(html, /<svg|<img|ant-empty-description|yuxi-empty--default/)
+  assert.match(html, /zs-empty--no-image/)
+  assert.doesNotMatch(html, /<svg|<img|ant-empty-description|zs-empty--default/)
 })
 
 test('自定义 URL 图像、图像样式和函数图像保留原接口', async () => {
@@ -39,15 +39,15 @@ test('自定义 URL 图像、图像样式和函数图像保留原接口', async 
   })
   assert.match(imageHtml, /class="ant-empty-image" style="height:48px;"/)
   assert.match(imageHtml, /<img alt="没有匹配结果" src="\/assets\/empty-example.svg"/)
-  assert.doesNotMatch(imageHtml, /lucide-inbox|yuxi-empty--default/)
+  assert.doesNotMatch(imageHtml, /lucide-inbox|zs-empty--default/)
 
   const functionHtml = await render({ image: () => h('span', { id: 'custom-image' }, '自定义图像') })
   assert.match(functionHtml, /id="custom-image"[^>]*>自定义图像/)
-  assert.doesNotMatch(functionHtml, /lucide-inbox|yuxi-empty--default/)
+  assert.doesNotMatch(functionHtml, /lucide-inbox|zs-empty--default/)
 
   const vnodeHtml = await render({ image: h('span', { id: 'vnode-image' }, '原有图像') })
   assert.match(vnodeHtml, /id="vnode-image"[^>]*>原有图像/)
-  assert.doesNotMatch(vnodeHtml, /lucide-inbox|yuxi-empty--default/)
+  assert.doesNotMatch(vnodeHtml, /lucide-inbox|zs-empty--default/)
 })
 
 test('自定义 image、description 和动作 slots 完整保留，image prop 仍优先', async () => {
@@ -60,7 +60,7 @@ test('自定义 image、description 和动作 slots 完整保留，image prop �
   assert.match(html, /id="slot-image"[^>]*>业务图像/)
   assert.match(html, /<strong>请调整筛选<\/strong>/)
   assert.match(html, /<button>清除筛选<\/button>/)
-  assert.doesNotMatch(html, /lucide-inbox|yuxi-empty--default/)
+  assert.doesNotMatch(html, /lucide-inbox|zs-empty--default/)
 
   const propHtml = await render({ image: false, description: false }, slots)
   assert.match(propHtml, /<button>清除筛选<\/button>/)
@@ -84,18 +84,18 @@ test('ConfigProvider 默认空表采用共享图像，业务 emptyText 仍优先
     )
 
   const html = await renderTable()
-  assert.match(html, /yuxi-empty--default/)
+  assert.match(html, /zs-empty--default/)
   assert.match(html, /lucide-inbox/)
   assert.match(html, /暂无记录/)
   const customHtml = await renderTable({ emptyText: '尚未同步文件' })
   assert.match(customHtml, /尚未同步文件/)
-  assert.doesNotMatch(customHtml, /yuxi-empty|lucide-inbox/)
+  assert.doesNotMatch(customHtml, /zs-empty|lucide-inbox/)
 })
 
 test('下拉菜单使用紧凑空状态，现有 a-empty 标签可从同一入口替换', async () => {
   for (const name of ['Select', 'TreeSelect', 'Cascader', 'Transfer', 'Mentions']) {
     const html = await renderToString(createSSRApp({ render: () => renderEmpty(name) }))
-    assert.match(html, /yuxi-empty--compact/)
+    assert.match(html, /zs-empty--compact/)
     assert.match(html, /lucide-inbox/)
   }
   const app = createSSRApp({

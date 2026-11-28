@@ -5,15 +5,15 @@ from fastapi import FastAPI
 from sqlalchemy import select, text
 
 from test.integration.support.module_audit import isolated_audit_store, serve_http
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.agents.management import agent_router
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.extensions.skills.models import Skill, SkillVersion
-from yuxi.modules.identity.models import APIKey, Department, User
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.knowledge.models import EvaluationDataset, EvaluationRun, KnowledgeBase, KnowledgeFile
-from yuxi.shared.errors import DomainError
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.agents.management import agent_router
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.extensions.skills.models import Skill, SkillVersion
+from zs.modules.identity.models import APIKey, Department, User
+from zs.modules.identity.security import AuthUtils
+from zs.modules.knowledge.models import EvaluationDataset, EvaluationRun, KnowledgeBase, KnowledgeFile
+from zs.shared.errors import DomainError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

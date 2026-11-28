@@ -5,7 +5,7 @@ import { createServer } from 'vite'
 
 /** 服务 SSR 和静态资源测试，关闭客户端预构建并隔离临时缓存。 */
 export async function createTestServer(config = {}) {
-  const cacheDir = await mkdtemp(path.join(tmpdir(), 'yuxi-vite-test-'))
+  const cacheDir = await mkdtemp(path.join(tmpdir(), 'zs-vite-test-'))
   let server
   try {
     server = await createServer({

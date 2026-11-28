@@ -18,7 +18,7 @@ from pydantic import SecretStr
 
 def _adapter(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    from yuxi.modules.models.chat import ChatCompletionsAdapter
+    from zs.modules.models.chat import ChatCompletionsAdapter
 
     return ChatCompletionsAdapter(
         model="deepseek-chat",
@@ -44,7 +44,7 @@ def _messages_with_invalid() -> list:
 
 def test_pure_invalid_call_is_removed_and_feedback_added(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    from yuxi.modules.models.chat import _sanitize_wire_invalid_tool_calls
+    from zs.modules.models.chat import _sanitize_wire_invalid_tool_calls
 
     wire = [
         {"role": "user", "content": "hi"},
@@ -67,7 +67,7 @@ def test_pure_invalid_call_is_removed_and_feedback_added(monkeypatch):
 
 def test_mixed_keeps_valid_call_and_adds_feedback(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    from yuxi.modules.models.chat import _sanitize_wire_invalid_tool_calls
+    from zs.modules.models.chat import _sanitize_wire_invalid_tool_calls
 
     wire = [
         {
@@ -99,7 +99,7 @@ def test_mixed_keeps_valid_call_and_adds_feedback(monkeypatch):
 
 def test_no_invalid_call_leaves_wire_unchanged(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    from yuxi.modules.models.chat import _sanitize_wire_invalid_tool_calls
+    from zs.modules.models.chat import _sanitize_wire_invalid_tool_calls
 
     wire = [
         {

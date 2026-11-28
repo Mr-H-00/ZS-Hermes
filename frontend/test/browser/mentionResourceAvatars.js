@@ -71,15 +71,15 @@ async page => {
         })
         if (style.padding !== '12px' || style.radius !== '16px') throw new Error('mention 浮层留白或圆角不符')
         if (!dark && style.shadow !== 'rgba(0, 0, 0, 0.05) 0px 2px 8px 0px') throw new Error('mention 浮层未使用弱阴影')
-        await page.locator('#mention-avatar-check').screenshot({ path: `/tmp/yuxi-mention-avatars-${dark ? 'dark' : 'light'}-${width}.png` })
-        await page.locator('#mention-avatar-check .mention-popup').screenshot({ path: `/tmp/yuxi-mention-popup-${dark ? 'dark' : 'light'}-${width}.png` })
+        await page.locator('#mention-avatar-check').screenshot({ path: `/tmp/zs-mention-avatars-${dark ? 'dark' : 'light'}-${width}.png` })
+        await page.locator('#mention-avatar-check .mention-popup').screenshot({ path: `/tmp/zs-mention-popup-${dark ? 'dark' : 'light'}-${width}.png` })
       }
     }
     await editor.press('ArrowDown')
     await editor.press('Enter')
     const value = await page.evaluate(() => window.__mentionAvatarCheck.draft.value)
     if (!value.includes('@skill:mysql-reporter')) throw new Error('头像改动破坏键盘插入')
-    return { colors, keyboardInsertion: value, screenshots: '/tmp/yuxi-mention-avatars-*.png' }
+    return { colors, keyboardInsertion: value, screenshots: '/tmp/zs-mention-avatars-*.png' }
   } finally {
     try {
       await page.evaluate(() => {

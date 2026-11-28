@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 import pytest
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 
-from yuxi.modules.agents.runtime import context as agent_context
+from zs.modules.agents.runtime import context as agent_context
 from test.unit.support.agent_context_fixtures import prepared_execution
-import yuxi.modules.agents.services.run_lifecycle as lifecycle
-import yuxi.modules.agents.services.execution as svc
-import yuxi.modules.agents.services.checkpoint_messages as message_svc
+import zs.modules.agents.services.run_lifecycle as lifecycle
+import zs.modules.agents.services.execution as svc
+import zs.modules.agents.services.checkpoint_messages as message_svc
 
 
 def test_approval_binding_uses_current_model_and_keeps_duplicate_call_order():

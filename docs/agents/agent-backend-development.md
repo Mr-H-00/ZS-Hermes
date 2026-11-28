@@ -6,7 +6,7 @@
 
 内置“知识库问答”（`knowledge-base-qa`）复用 `ChatbotAgent`，启用并预加载 `knowledge-base` Skill，使用默认提示词和现有知识库访问范围。可在智能体配置中查看其技能与预加载选择。
 
-仅改变提示词、模型或能力选择时，在 `backend/yuxi/modules/agents/presets/` 新增一个 Python 文件并导出 `PRESET`。发现逻辑递归读取文件，角色类型仍由 `backend_id` 决定：
+仅改变提示词、模型或能力选择时，在 `backend/zs/modules/agents/presets/` 新增一个 Python 文件并导出 `PRESET`。发现逻辑递归读取文件，角色类型仍由 `backend_id` 决定：
 
 ```python
 from yuxi.modules.agents.presets import AgentPreset
@@ -36,7 +36,7 @@ Agent 定义保存角色配置，执行后端提供 Context schema、构图、�
 随服务发布的 Agent 后端放在：
 
 ```text
-backend/yuxi/modules/agents/runtime/agent_backends/<your_agent>/
+backend/zs/modules/agents/runtime/agent_backends/<your_agent>/
 ├── __init__.py
 ├── context.py
 └── graph.py
@@ -114,10 +114,10 @@ worker 和主动压缩在执行入口显式调用 `prepare_agent_runtime_context
 
 ## 源码和测试
 
-- [BaseAgent](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/base.py)
-- [Context](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/context.py)
-- [Chatbot graph](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/agent_backends/chatbot/graph.py)
-- [执行后端显式注册](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/agent_backends/__init__.py)
+- [BaseAgent](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/base.py)
+- [Context](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/context.py)
+- [Chatbot graph](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/agent_backends/chatbot/graph.py)
+- [执行后端显式注册](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/agent_backends/__init__.py)
 - [Agent unit tests](https://github.com/xerrors/Yuxi/tree/main/backend/test/unit/agents)
 - [Agent integration/E2E](https://github.com/xerrors/Yuxi/tree/main/backend/test/e2e)
 

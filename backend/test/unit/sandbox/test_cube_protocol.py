@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.modules.agents.runtime.sandbox.cube import _CANCEL_SCRIPT, MAX_FRAME_BYTES, connect_events
+from zs.modules.agents.runtime.sandbox.cube import _CANCEL_SCRIPT, MAX_FRAME_BYTES, connect_events
 
 
 def frame(payload, flags=0):
@@ -57,17 +57,17 @@ def _run_cancel_script(env: dict) -> subprocess.CompletedProcess:
 
 
 def _tombstone(execution: str) -> Path:
-    return Path("/tmp") / f".yuxi-cancel-{execution}"
+    return Path("/tmp") / f".zs-cancel-{execution}"
 
 
 def test_cancel_script_removes_tombstone_after_confirmed_group_stop():
     """恢复泄漏缺陷：已启动命令组取消确认终止后必须移除 tombstone。"""
     execution = "unit-" + uuid.uuid4().hex
     tombstone = _tombstone(execution)
-    child = subprocess.Popen(["sleep", "30"], env={**os.environ, "YUXI_EXECUTION_ID": execution}, start_new_session=True)
+    child = subprocess.Popen(["sleep", "30"], env={**os.environ, "ZS_EXECUTION_ID": execution}, start_new_session=True)
     try:
         result = _run_cancel_script(
-            {"YUXI_PGID": str(child.pid), "YUXI_EXECUTION": execution, "YUXI_TERMINAL": "0", "PATH": os.environ["PATH"]}
+            {"ZS_PGID": str(child.pid), "ZS_EXECUTION": execution, "ZS_TERMINAL": "0", "PATH": os.environ["PATH"]}
         )
         assert result.returncode == 0, result.stderr
         assert child.wait(timeout=5) != 0
@@ -84,7 +84,7 @@ def test_cancel_script_removes_tombstone_for_recorded_group_that_already_ended()
     execution = "unit-" + uuid.uuid4().hex
     tombstone = _tombstone(execution)
     try:
-        result = _run_cancel_script({"YUXI_PGID": "999999", "YUXI_EXECUTION": execution, "YUXI_TERMINAL": "0", "PATH": os.environ["PATH"]})
+        result = _run_cancel_script({"ZS_PGID": "999999", "ZS_EXECUTION": execution, "ZS_TERMINAL": "0", "PATH": os.environ["PATH"]})
         assert result.returncode == 0, result.stderr
         assert not tombstone.exists()
     finally:
@@ -96,7 +96,7 @@ def test_cancel_script_removes_tombstone_on_confirmed_terminal():
     execution = "unit-" + uuid.uuid4().hex
     tombstone = _tombstone(execution)
     try:
-        result = _run_cancel_script({"YUXI_PGID": "", "YUXI_EXECUTION": execution, "YUXI_TERMINAL": "1", "PATH": os.environ["PATH"]})
+        result = _run_cancel_script({"ZS_PGID": "", "ZS_EXECUTION": execution, "ZS_TERMINAL": "1", "PATH": os.environ["PATH"]})
         assert result.returncode == 0, result.stderr
         assert not tombstone.exists()
     finally:
@@ -108,7 +108,7 @@ def test_cancel_script_keeps_tombstone_when_start_cannot_be_confirmed():
     execution = "unit-" + uuid.uuid4().hex
     tombstone = _tombstone(execution)
     try:
-        result = _run_cancel_script({"YUXI_PGID": "", "YUXI_EXECUTION": execution, "YUXI_TERMINAL": "0", "PATH": os.environ["PATH"]})
+        result = _run_cancel_script({"ZS_PGID": "", "ZS_EXECUTION": execution, "ZS_TERMINAL": "0", "PATH": os.environ["PATH"]})
         assert result.returncode == 0, result.stderr
         assert tombstone.exists()
     finally:

@@ -5,10 +5,10 @@ import uuid
 
 import pytest
 import pytest_asyncio
-import yuxi.workers.health as worker_health
+import zs.workers.health as worker_health
 from arq import create_pool
 from arq.worker import Worker
-from yuxi.infrastructure.redis import get_arq_redis_settings
+from zs.infrastructure.redis import get_arq_redis_settings
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

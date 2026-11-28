@@ -6,8 +6,8 @@ import sys
 
 import pytest
 
-import yuxi.modules.background_jobs.dispatch as job_service
-import yuxi.workers.settings as worker_settings
+import zs.modules.background_jobs.dispatch as job_service
+import zs.workers.settings as worker_settings
 
 
 def test_background_job_outer_timeout_tracks_configured_worker_default():
@@ -39,8 +39,8 @@ def test_background_job_shipping_worker_accepts_default_above_24_hours():
     env = os.environ.copy()
     env["BACKGROUND_JOB_DEFAULT_TIMEOUT_SECONDS"] = "172800"
     script = """
-from yuxi.workers.settings import WorkerSettings
-from yuxi.modules.background_jobs.dispatch import resolve_job_timeout
+from zs.workers.settings import WorkerSettings
+from zs.modules.background_jobs.dispatch import resolve_job_timeout
 
 durable = next(
     function
@@ -61,7 +61,7 @@ def test_worker_settings_reject_invalid_redis_dsn_instead_of_using_arq_default()
     env["REDIS_URL"] = "http://configured-redis.invalid:6379/0"
 
     completed = subprocess.run(
-        [sys.executable, "-c", "import yuxi.workers.settings"],
+        [sys.executable, "-c", "import zs.workers.settings"],
         env=env,
         capture_output=True,
         text=True,
@@ -78,7 +78,7 @@ def test_background_job_worker_rejects_invalid_default_timeout_at_configuration(
     env = os.environ.copy()
     env["BACKGROUND_JOB_DEFAULT_TIMEOUT_SECONDS"] = value
     result = subprocess.run(
-        [sys.executable, "-c", "from yuxi.workers.settings import WorkerSettings"],
+        [sys.executable, "-c", "from zs.workers.settings import WorkerSettings"],
         env=env,
         capture_output=True,
         text=True,
@@ -90,5 +90,5 @@ def test_background_job_worker_rejects_invalid_default_timeout_at_configuration(
 
 def test_worker_settings_publish_short_ttl_versioned_health_contract():
     assert worker_settings.WorkerSettings.max_jobs == worker_settings.worker_max_jobs()
-    assert worker_settings.WorkerSettings.health_check_key == "yuxi:worker:health:agent-run-v1"
+    assert worker_settings.WorkerSettings.health_check_key == "zs:worker:health:agent-run-v1"
     assert 0 < worker_settings.WorkerSettings.health_check_interval <= 10

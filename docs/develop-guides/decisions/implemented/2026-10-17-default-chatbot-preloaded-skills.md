@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/presets/default_chatbot.py
+Owner：backend/zs/modules/agents/presets/default_chatbot.py
 
 ## 问题
 

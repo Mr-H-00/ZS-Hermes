@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：architecture
-Owner：backend/yuxi/modules/agents/models/sessions.py
+Owner：backend/zs/modules/agents/models/sessions.py
 
 ## 问题
 

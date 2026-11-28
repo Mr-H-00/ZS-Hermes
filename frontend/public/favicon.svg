@@ -1,8 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
-  <title>智枢 · 智能助手</title>
-  <path d="M29 10h7c13 0 22 9 22 22S49 54 36 54H23L9 61V44C5 40 3 36 3 31 3 18 13 10 29 10Z" fill="#046a82"/>
-  <rect x="13" y="22" width="35" height="22" rx="11" fill="#e1f6fb"/>
-  <rect x="21" y="28" width="5" height="10" rx="2.5" fill="#046a82"/>
-  <rect x="35" y="28" width="5" height="10" rx="2.5" fill="#046a82"/>
-  <path d="M53 2c1.3 7.5 3.5 9.7 11 11-7.5 1.3-9.7 3.5-11 11-1.3-7.5-3.5-9.7-11-11 7.5-1.3 9.7-3.5 11-11Z" fill="#c9983c"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>企业智能体</title>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="#0c3842"/>
+  <path d="M14 45l9-26 9 26M17.5 35h11" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M38 19h12m-6 0v26m-6 0h12" fill="none" stroke="#78e5ce" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

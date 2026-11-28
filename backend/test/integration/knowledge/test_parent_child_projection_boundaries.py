@@ -6,9 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.knowledge.models import KnowledgeDocumentVersion, KnowledgeFile
-from yuxi.modules.knowledge.repositories.parent_child_chunk_repository import KnowledgeParentChildChunkRepository
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.knowledge.models import KnowledgeDocumentVersion, KnowledgeFile
+from zs.modules.knowledge.repositories.parent_child_chunk_repository import KnowledgeParentChildChunkRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

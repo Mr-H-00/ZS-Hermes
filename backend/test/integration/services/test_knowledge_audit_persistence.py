@@ -7,16 +7,16 @@ from sqlalchemy import select
 
 from test.integration.support.module_audit import isolated_audit_store
 from test.unit.support.milvus import FakeCollection, make_kb
-from yuxi.modules.knowledge.mcp.references import knowledge_reference_sources
-from yuxi.modules.identity.models import User
-from yuxi.modules.identity.repositories.users import UserRepository
-from yuxi.modules.knowledge.implementations.milvus import MilvusKB
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
-from yuxi.modules.knowledge.read_models import KnowledgeBaseConfig
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
-from yuxi.modules.knowledge.services.background_jobs import fail_knowledge_file_job
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.workers.background_jobs import process_background_job
+from zs.modules.knowledge.mcp.references import knowledge_reference_sources
+from zs.modules.identity.models import User
+from zs.modules.identity.repositories.users import UserRepository
+from zs.modules.knowledge.implementations.milvus import MilvusKB
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeChunk, KnowledgeFile
+from zs.modules.knowledge.read_models import KnowledgeBaseConfig
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.modules.knowledge.services.background_jobs import fail_knowledge_file_job
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.workers.background_jobs import process_background_job
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -32,7 +32,7 @@ async def test_retrieval_to_agent_reference_uses_postgres_filename(monkeypatch, 
             await db.flush()
             db.add(KnowledgeChunk(chunk_id="chunk-1", file_id="file-1", kb_id="kb-source", chunk_index=0, content="权威正文"))
         monkeypatch.setattr(
-            "yuxi.modules.knowledge.implementations.milvus.get_embedding_function",
+            "zs.modules.knowledge.implementations.milvus.get_embedding_function",
             lambda spec, **kwargs: lambda texts: [[0.1, 0.2] for _ in texts],
         )
         kb = make_kb(FakeCollection())

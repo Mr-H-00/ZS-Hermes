@@ -10,16 +10,16 @@ from typing import Any
 
 import pytest
 
-import yuxi.modules.background_jobs.dispatch as job_queue_service
-import yuxi.modules.background_jobs.service as job_service
-import yuxi.modules.knowledge.services.background_jobs as knowledge_job_service
-import yuxi.workers.background_job_context as job_context
-import yuxi.workers.background_jobs as job_worker
-from yuxi.modules.background_jobs.registry import get_job_definition
-from yuxi.modules.background_jobs.service import JobTracker
-from yuxi.shared.datetime import utc_now
-from yuxi.workers.background_job_context import BackgroundJobContext
-from yuxi.workers.background_jobs import process_background_job
+import zs.modules.background_jobs.dispatch as job_queue_service
+import zs.modules.background_jobs.service as job_service
+import zs.modules.knowledge.services.background_jobs as knowledge_job_service
+import zs.workers.background_job_context as job_context
+import zs.workers.background_jobs as job_worker
+from zs.modules.background_jobs.registry import get_job_definition
+from zs.modules.background_jobs.service import JobTracker
+from zs.shared.datetime import utc_now
+from zs.workers.background_job_context import BackgroundJobContext
+from zs.workers.background_jobs import process_background_job
 
 
 @pytest.fixture(autouse=True)
@@ -583,8 +583,8 @@ def test_document_job_result_keeps_bounded_references_and_counts():
 @pytest.mark.parametrize("scope", ["files", "pending", "ingest"])
 async def test_missing_embedding_reason_survives_job_result_projection(monkeypatch, scope):
     """缺少模型的固定业务提示穿过任务执行与观察投影，其他异常仍不公开。"""
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
-    from yuxi.modules.knowledge.base import KBEmbeddingModelMissingError
+    from zs.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.knowledge.base import KBEmbeddingModelMissingError
 
     async def index(*_args, **_kwargs):
         raise KBEmbeddingModelMissingError()
@@ -627,7 +627,7 @@ async def test_missing_embedding_reason_survives_job_result_projection(monkeypat
 
 def test_raw_job_errors_stay_private():
     """没有刻意公开消息时，顶层和单文件错误都不能泄露原始异常。"""
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.background_jobs.models import BackgroundJobRecord
 
     record = BackgroundJobRecord(
         id="private-job",
@@ -645,8 +645,8 @@ def test_raw_job_errors_stay_private():
 
 async def test_milvus_preserves_missing_embedding_error():
     """已有集合创建校验保留业务异常，避免被通用连接错误覆盖。"""
-    from yuxi.modules.knowledge.base import KBEmbeddingModelMissingError
-    from yuxi.modules.knowledge.implementations.milvus import MilvusKB
+    from zs.modules.knowledge.base import KBEmbeddingModelMissingError
+    from zs.modules.knowledge.implementations.milvus import MilvusKB
 
     executor = object.__new__(MilvusKB)
     executor.collections = {}
@@ -673,7 +673,7 @@ async def test_document_job_failure_keeps_details_and_rejects_success(monkeypatc
 
     async def process(_kb_id, file_id, *, params, **_kwargs):
         """在动作拥有的参数领取或执行阶段注入失败。"""
-        from yuxi.modules.knowledge.chunking.presets import ChunkConfigError
+        from zs.modules.knowledge.chunking.presets import ChunkConfigError
 
         assert params == payload.get("params", {})
         calls.append(file_id)
@@ -718,7 +718,7 @@ async def test_registration_returns_repository_record_without_state_copy(monkeyp
 
 def test_job_summary_does_not_construct_full_result():
     """列表直接生成摘要字段，不为随后丢弃的详情执行投影。"""
-    from yuxi.modules.background_jobs.models import BackgroundJobRecord
+    from zs.modules.background_jobs.models import BackgroundJobRecord
 
     record = BackgroundJobRecord(
         id="test", name="test", type="test", status="pending", cancel_requested=0, handler_version=1, attempt_count=0, timeout_seconds=60

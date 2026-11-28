@@ -10,9 +10,9 @@ import pytest
 import yaml
 from sqlalchemy import select
 
-from yuxi.infrastructure.runtime_settings import get_skill_data_dir
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.infrastructure.runtime_settings import get_skill_data_dir
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

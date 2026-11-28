@@ -7,13 +7,13 @@
       </div>
       <div class="settings-header-actions">
         <a-button
-          class="yuxi-refresh-button"
+          class="zs-refresh-button"
           :loading="refreshing"
           aria-label="刷新账户资料"
           title="刷新"
           @click="refreshProfile"
         >
-          <template #icon><RefreshCw :size="16" :class="{ 'yuxi-rotate': refreshing }" /></template>
+          <template #icon><RefreshCw :size="16" :class="{ 'zs-rotate': refreshing }" /></template>
         </a-button>
       </div>
     </div>
@@ -40,7 +40,7 @@
               />
               <div class="avatar-mask">
                 <Upload v-if="!avatarUploading" :size="16" />
-                <RefreshCw v-else :size="16" class="yuxi-rotate" />
+                <RefreshCw v-else :size="16" class="zs-rotate" />
                 <span>{{ userStore.avatar ? '更换' : '上传' }}</span>
               </div>
             </div>

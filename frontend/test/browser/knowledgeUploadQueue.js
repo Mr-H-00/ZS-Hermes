@@ -148,7 +148,7 @@ async (page) => {
     await failed.waitFor()
     check(await modal.getByRole('button', { name: '添加到知识库', exact: true }).isDisabled(), '失败文件错误地允许提交')
     await settleAnimations()
-    await page.screenshot({ path: '/tmp/yuxi-upload-queue-error-light.png' })
+    await page.screenshot({ path: '/tmp/zs-upload-queue-error-light.png' })
     await failed.hover()
     await failed.locator('.ant-upload-list-item-actions button').click()
     await failed.waitFor({ state: 'detached' })
@@ -160,11 +160,11 @@ async (page) => {
     await page.setViewportSize({ width: 1024, height: 900 })
     await settleAnimations()
     await checkSuccessFrame()
-    await page.screenshot({ path: '/tmp/yuxi-upload-queue-success-dark.png' })
+    await page.screenshot({ path: '/tmp/zs-upload-queue-success-dark.png' })
     await page.setViewportSize({ width: 768, height: 900 })
     await settleAnimations()
     await checkSuccessFrame()
-    await page.screenshot({ path: '/tmp/yuxi-upload-queue-success-768.png' })
+    await page.screenshot({ path: '/tmp/zs-upload-queue-success-768.png' })
     return { uploadRequests, aborted: cancelled.abortEvents, cancelledReadyState: released.readyState, lateSuccesses: released.successLoads, networkFailures: failedRequests.length, failed: true, nativeSyncFailure: true, silentCancel: true, resubmitted: true, widths: [1440, 1024, 768] }
   } finally {
     const held = waiting.splice(0)

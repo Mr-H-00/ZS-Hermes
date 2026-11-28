@@ -22,17 +22,17 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.identity.auth import auth
-from yuxi.infrastructure.oidc.client import LOGOUT_EVENT, OIDCClient
-from yuxi.modules.identity import oidc
-from yuxi.modules.identity.models import Department, OIDCIdentity, OIDCLogout, OIDCSession, RevokedAccessToken, User
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.identity.services import oidc as service
-from yuxi.modules.identity.services import login_limits
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import DomainError
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.identity.auth import auth
+from zs.infrastructure.oidc.client import LOGOUT_EVENT, OIDCClient
+from zs.modules.identity import oidc
+from zs.modules.identity.models import Department, OIDCIdentity, OIDCLogout, OIDCSession, RevokedAccessToken, User
+from zs.modules.identity.security import AuthUtils
+from zs.modules.identity.services import oidc as service
+from zs.modules.identity.services import login_limits
+from zs.shared.datetime import utc_now
+from zs.shared.errors import DomainError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -440,7 +440,7 @@ async def test_unknown_key_refresh_is_bounded_and_rotated_key_is_accepted(scenar
 
 async def test_failed_backchannel_transaction_can_retry_same_notification(scenario, monkeypatch):
     """撤销失败不得单独记为已消费，重试同一个 jti 后真正失效。"""
-    from yuxi.modules.identity.repositories.oidc import OIDCRepository
+    from zs.modules.identity.repositories.oidc import OIDCRepository
 
     response, _ = await login(scenario)
     original = OIDCRepository.backchannel_logout

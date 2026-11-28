@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/identity/repositories/departments.py
+Owner：backend/zs/modules/identity/repositories/departments.py
 
 ## 问题
 

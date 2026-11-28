@@ -1084,11 +1084,11 @@ CREATE TABLE public.wps_connections (
     oauth_tunnel_id character varying(64)
 );
 
-CREATE TABLE public.yuxi_schema_migrations (
+CREATE TABLE public.zs_schema_migrations (
     domain character varying(32) NOT NULL,
     version integer NOT NULL,
     applied_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT yuxi_schema_migrations_version_check CHECK ((version > 0))
+    CONSTRAINT zs_schema_migrations_version_check CHECK ((version > 0))
 );
 
 ALTER TABLE ONLY public.agent_envs ALTER COLUMN id SET DEFAULT nextval('public.agent_envs_id_seq'::regclass);
@@ -1381,8 +1381,8 @@ ALTER TABLE ONLY public.wps_cloud_config
 ALTER TABLE ONLY public.wps_connections
     ADD CONSTRAINT wps_connections_pkey PRIMARY KEY (uid);
 
-ALTER TABLE ONLY public.yuxi_schema_migrations
-    ADD CONSTRAINT yuxi_schema_migrations_pkey PRIMARY KEY (domain);
+ALTER TABLE ONLY public.zs_schema_migrations
+    ADD CONSTRAINT zs_schema_migrations_pkey PRIMARY KEY (domain);
 
 CREATE INDEX checkpoint_blobs_thread_id_idx ON public.checkpoint_blobs USING btree (thread_id);
 

@@ -8,16 +8,16 @@ import pytest
 import pytest_asyncio
 
 from test.integration.support.module_audit import serve_http
-from yuxi.api.dependencies.auth import get_admin_user, get_db, get_required_user, get_superadmin_user
-from yuxi.api.dependencies.knowledge import require_knowledge_base_manage, require_knowledge_base_read
-from yuxi.api.main import app
-from yuxi.api.routers import models as model_routes
-from yuxi.api.routers.knowledge import management as knowledge_routes
-from yuxi.modules.documents import service as document_service
-from yuxi.modules.knowledge.options import knowledge_url_import_policy
-from yuxi.modules.knowledge.utils import url_fetcher
-from yuxi.modules.models.providers.cache import model_cache
-from yuxi.shared.errors import StateConflictError
+from zs.api.dependencies.auth import get_admin_user, get_db, get_required_user, get_superadmin_user
+from zs.api.dependencies.knowledge import require_knowledge_base_manage, require_knowledge_base_read
+from zs.api.main import app
+from zs.api.routers import models as model_routes
+from zs.api.routers.knowledge import management as knowledge_routes
+from zs.modules.documents import service as document_service
+from zs.modules.knowledge.options import knowledge_url_import_policy
+from zs.modules.knowledge.utils import url_fetcher
+from zs.modules.models.providers.cache import model_cache
+from zs.shared.errors import StateConflictError
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.self_managed_resources]
 PRIVATE_DETAIL = "AUDIT_ONLY internal.example.test/config api_key=fixture-private-value"
@@ -156,7 +156,7 @@ async def test_logged_in_ocr_health_hides_provider_details(error_http, monkeypat
 
 async def test_model_diagnostic_hides_unexpected_provider_error(error_http, monkeypatch):
     """模型诊断保留身份和失败状态，不把上游异常发送给客户端。"""
-    import yuxi.modules.models.chat as chat
+    import zs.modules.models.chat as chat
 
     monkeypatch.setattr(model_cache, "get_model_info", lambda _spec: SimpleNamespace(model_type="chat"))
     monkeypatch.setattr(chat, "select_model", lambda **kwargs: SimpleNamespace(call=AsyncMock(side_effect=RuntimeError(PRIVATE_DETAIL))))
@@ -175,8 +175,8 @@ async def test_model_diagnostic_hides_unexpected_provider_error(error_http, monk
 @pytest.mark.parametrize("success", [False, True])
 async def test_model_connection_result_hides_provider_text(error_http, monkeypatch, model_type, success):
     """连接探针的返回文本也可能含凭据，成功和失败状态保持独立。"""
-    import yuxi.modules.models.embed as embed
-    import yuxi.modules.models.rerank as rerank
+    import zs.modules.models.embed as embed
+    import zs.modules.models.rerank as rerank
 
     monkeypatch.setattr(model_cache, "get_model_info", lambda _spec: SimpleNamespace(model_type=model_type))
     model = SimpleNamespace(test_connection=AsyncMock(return_value=(success, PRIVATE_DETAIL)))
@@ -206,9 +206,9 @@ async def test_model_status_route_hides_lookup_failure(error_http, monkeypatch):
 @pytest.mark.parametrize("error_type", [RuntimeError, ValueError, httpx.ConnectError])
 async def test_real_url_fetch_helper_hides_transport_failure(error_http, monkeypatch, error_type):
     """经过实际抓取 helper，第三方异常包装成 ValueError 也不能泄露。"""
-    from yuxi.modules.knowledge.utils import url_fetcher
+    from zs.modules.knowledge.utils import url_fetcher
 
-    monkeypatch.setenv("YUXI_URL_WHITELIST", "example.test")
+    monkeypatch.setenv("ZS_URL_WHITELIST", "example.test")
 
     def broken_transport():
         """模拟网络组件初始化失败，位于真实 helper 的下游。"""
@@ -232,7 +232,7 @@ async def test_real_url_fetch_helper_hides_transport_failure(error_http, monkeyp
 )
 async def test_real_url_fetch_keeps_controlled_validation_message(error_http, monkeypatch, whitelist, expected_message):
     """停用与白名单拒绝通过真实 HTTP 返回现有网页可展示的业务格式。"""
-    monkeypatch.setenv("YUXI_URL_WHITELIST", whitelist)
+    monkeypatch.setenv("ZS_URL_WHITELIST", whitelist)
     response = await error_http.post("/api/knowledge/files/fetch-url", json={"url": "https://blocked.test"})
     assert response.status_code == 400, response.text
     assert response.json() == {"detail": {"code": "url_fetch_rejected", "message": expected_message}}
@@ -240,9 +240,9 @@ async def test_real_url_fetch_keeps_controlled_validation_message(error_http, mo
 
 async def test_url_parser_failure_hides_internal_detail(error_http, monkeypatch):
     """可公开的校验拒绝也不能夹带底层 parser 异常正文。"""
-    from yuxi.modules.knowledge.utils import url_validator
+    from zs.modules.knowledge.utils import url_validator
 
-    monkeypatch.setenv("YUXI_URL_WHITELIST", "example.test")
+    monkeypatch.setenv("ZS_URL_WHITELIST", "example.test")
 
     def broken_parser(_url):
         """以独立敏感标记模拟 URL parser 失败。"""

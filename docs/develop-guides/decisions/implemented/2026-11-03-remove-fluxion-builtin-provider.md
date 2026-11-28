@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/models/providers/builtin.py
+Owner：backend/zs/modules/models/providers/builtin.py
 
 ## 问题
 

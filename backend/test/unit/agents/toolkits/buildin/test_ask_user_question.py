@@ -12,10 +12,10 @@ from langgraph.types import Command
 import pytest
 from pydantic import ValidationError
 
-from yuxi.modules.extensions.tools import builtin
-from yuxi.modules.extensions.tools.registry import get_all_tool_instances, get_extra_metadata
+from zs.modules.extensions.tools import builtin
+from zs.modules.extensions.tools.registry import get_all_tool_instances, get_extra_metadata
 
-tools = importlib.import_module("yuxi.modules.extensions.tools.builtin.ask_user_question")
+tools = importlib.import_module("zs.modules.extensions.tools.builtin.ask_user_question")
 
 
 def test_ask_user_question_interrupt_payload_and_result_format(monkeypatch):
@@ -224,6 +224,6 @@ def test_checkpoint_replay_preserves_standard_calls_and_requires_legacy_drain(ra
 
 def test_personal_skill_installer_is_not_registered():
     """个人安装交给沙盒 CLI，模型工具目录不再暴露专用安装工具。"""
-    from yuxi.modules.extensions.tools.catalog import get_tool_metadata
+    from zs.modules.extensions.tools.catalog import get_tool_metadata
 
     assert "install_skill" not in {item["slug"] for item in get_tool_metadata()}

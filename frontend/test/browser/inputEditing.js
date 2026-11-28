@@ -101,7 +101,7 @@ async page => {
     }
     await page.evaluate(() => { window.__ordinaryEditing.flags.disabled = false })
     await setDraft('普通输入保留正文\n第二行')
-    await page.locator('#ordinary-editing-check').screenshot({ path: '/tmp/yuxi-ordinary-editor.png' })
+    await page.locator('#ordinary-editing-check').screenshot({ path: '/tmp/zs-ordinary-editor.png' })
     return { trailingNewline: true, consecutiveNewlines: true, mentionDeletion: true,
       selectionDeletion: true, ime: true, nativeClipboard: true, runningUploads: true, uploadGuards: true }
   } finally {

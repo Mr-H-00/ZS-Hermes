@@ -17,13 +17,13 @@ from datetime import timedelta
 
 import pytest
 
-from yuxi.modules.agents.repositories.sandbox import SandboxRepository
-from yuxi.modules.agents.runtime.sandbox.container import ContainerSandboxProvider
-from yuxi.sandbox_runner import engine as engine_module
-from yuxi.sandbox_runner.engine import EngineError
-from yuxi.sandbox_runner.manager import ContainerManager, SandboxConflictError, SandboxError
-from yuxi.sandbox_runner.settings import RunnerSettings
-from yuxi.shared.datetime import utc_now
+from zs.modules.agents.repositories.sandbox import SandboxRepository
+from zs.modules.agents.runtime.sandbox.container import ContainerSandboxProvider
+from zs.sandbox_runner import engine as engine_module
+from zs.sandbox_runner.engine import EngineError
+from zs.sandbox_runner.manager import ContainerManager, SandboxConflictError, SandboxError
+from zs.sandbox_runner.settings import RunnerSettings
+from zs.shared.datetime import utc_now
 
 pytestmark = [
     pytest.mark.integration,
@@ -61,7 +61,7 @@ def manager(tmp_path_factory):
     other.write_text("other-user-secret\n", encoding="utf-8")
     (root / "skills" / "one" / "demo").mkdir(parents=True)
     (root / "skills" / "one" / "demo" / "SKILL.md").write_text("shared-skill\n", encoding="utf-8")
-    image = os.environ.get("SANDBOX_CONTAINER_IMAGE", "yuxi-sandbox:0.8.0")
+    image = os.environ.get("SANDBOX_CONTAINER_IMAGE", "zs-sandbox:0.8.0")
     digest = os.environ.get("SANDBOX_CONTAINER_IMAGE_DIGEST", "")
     run_uid = os.getuid() or 65534
     run_gid = os.getgid() or 65534
@@ -310,7 +310,7 @@ def test_idempotent_create_and_stdin_roundtrip(manager):
     assert first["id"] == second["id"]
     result = run(value, run_id, 'python3 -c "import sys; print(sys.stdin.buffer.read().decode())"', stdin=b"stdin-payload")
     assert result["output"] == "stdin-payload\n"
-    assert not list(workdir.glob(".yuxi-stdin-*"))
+    assert not list(workdir.glob(".zs-stdin-*"))
     value.remove_run(uid="one", run_id=run_id)
 
 
@@ -505,7 +505,7 @@ def test_reconciliation_snapshot_cannot_remove_new_attempt_container(manager, ru
         """在枚举与清理之间模拟旧 attempt 收尾和新 attempt 创建。"""
 
         def list(self):
-            snapshot = [item for item in value.list_containers()["containers"] if item["labels"]["yuxi.run_id"] == run_id]
+            snapshot = [item for item in value.list_containers()["containers"] if item["labels"]["zs.run_id"] == run_id]
             value.remove_run(uid="one", run_id=run_id)
             run_owner["worker_id"] = "new-owner"
             replacement.update(value.create(uid="one", run_id=run_id, owner="new-owner", workdir="projects/demo"))
@@ -573,12 +573,12 @@ def test_runner_http_contract_auth_lazy_exec_and_remove(tmp_path, monkeypatch, r
     run_owner["worker_id"] = "http-owner"
     from fastapi.testclient import TestClient
 
-    from yuxi.sandbox_runner import main as runner_main
+    from zs.sandbox_runner import main as runner_main
 
     (tmp_path / "shared" / "one" / "workspace" / "projects" / "demo").mkdir(parents=True)
     (tmp_path / "skills" / "one").mkdir(parents=True)
     monkeypatch.setenv("SANDBOX_RUNNER_TOKEN", "integration-token-1234567890")
-    monkeypatch.setenv("SANDBOX_CONTAINER_IMAGE", os.environ.get("SANDBOX_CONTAINER_IMAGE", "yuxi-sandbox:0.8.0"))
+    monkeypatch.setenv("SANDBOX_CONTAINER_IMAGE", os.environ.get("SANDBOX_CONTAINER_IMAGE", "zs-sandbox:0.8.0"))
     monkeypatch.setenv("SANDBOX_CONTAINER_IMAGE_DIGEST", os.environ.get("SANDBOX_CONTAINER_IMAGE_DIGEST", ""))
     monkeypatch.setenv("SANDBOX_CONTAINER_HOST_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SANDBOX_CONTAINER_HOST_SKILL_DIR", str(tmp_path / "skills"))
@@ -665,7 +665,7 @@ def test_matches_plain_docker_exit_code_and_output(manager):
             "--rm",
             "--network",
             "none",
-            os.environ.get("SANDBOX_CONTAINER_IMAGE", "yuxi-sandbox:0.8.0"),
+            os.environ.get("SANDBOX_CONTAINER_IMAGE", "zs-sandbox:0.8.0"),
             "bash",
             "-lc",
             command,
@@ -715,7 +715,7 @@ def test_late_exec_cannot_recreate_cleaned_run(manager, run_owner, monkeypatch, 
             with pytest.raises(SandboxConflictError):
                 future.result(timeout=20)
             assert not marker.exists()
-            assert all(item["labels"]["yuxi.run_id"] != run_id for item in value.list_containers()["containers"])
+            assert all(item["labels"]["zs.run_id"] != run_id for item in value.list_containers()["containers"])
         finally:
             resume.set()
             value.remove_run(uid="one", run_id=run_id)

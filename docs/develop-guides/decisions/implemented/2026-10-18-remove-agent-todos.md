@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/runtime/agent_backends/chatbot/graph.py
+Owner：backend/zs/modules/agents/runtime/agent_backends/chatbot/graph.py
 
 ## 问题
 

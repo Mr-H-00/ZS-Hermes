@@ -5,17 +5,17 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test.support.sqlite import create_utc_sqlite_engine
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.workspace.models import Project
-from yuxi.modules.workspace.paths import ensure_bound_user_workdir
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.workspace.models import Project
+from zs.modules.workspace.paths import ensure_bound_user_workdir
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
 
 async def test_sessions_share_workdir_only_through_project(monkeypatch, tmp_path: Path):
     """同一 Project 的 Session 共享目录，不各自保存 Workdir 路径。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "user-data"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "user-data"))
     engine = create_utc_sqlite_engine()
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

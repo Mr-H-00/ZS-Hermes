@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/knowledge/base.py
+Owner：backend/zs/modules/knowledge/base.py
 
 ## 问题
 

@@ -6,11 +6,11 @@ async page => {
   const check = (ok, message) => { if (!ok) throw new Error(message) }
   const origin = page.url().split('/').slice(0, 3).join('/')
   const agent = { agent_id: 'reading-agent', name: '阅读测试智能体', can_run: true, is_default: true, config_json: { context: {} }, configurable_items: {}, metadata: {} }
-  const thread = { id: 'reading-thread', object: 'agent.session', status: 'completed', agent: { id: agent.agent_id }, metadata: {}, created_at: 1793400000, yuxi: { title: '对话阅读位置验证', context: {}, config: {}, current_turn: null, project_id: null } }
+  const thread = { id: 'reading-thread', object: 'agent.session', status: 'completed', agent: { id: agent.agent_id }, metadata: {}, created_at: 1793400000, zs: { title: '对话阅读位置验证', context: {}, config: {}, current_turn: null, project_id: null } }
   const items = Array.from({ length: 24 }, (_, i) => ({
     id: `reading-message-${i}`, object: 'agent.session.item', type: 'message', role: 'user', status: 'completed', turn_id: `reading-turn-${i}`,
     content: [{ type: 'input_text', text: `阅读段落 ${i + 1}：` + '宽度改变后，正在阅读的这行文字应该留在视窗内。我们用长段落验证自动换行，不依赖固定像素或滚动百分比。'.repeat(55) }],
-    yuxi: { message_id: `reading-message-${i}`, run_id: `reading-run-${i}`, created_at: new Date(1793400000000 + i * 1000).toISOString() }
+    zs: { message_id: `reading-message-${i}`, run_id: `reading-run-${i}`, created_at: new Date(1793400000000 + i * 1000).toISOString() }
   }))
   await page.route('https://api.github.com/**', route => route.fulfill({ json: {} }))
   await page.route('**/api/**', async route => {
@@ -26,8 +26,8 @@ async page => {
     if (path === '/api/projects') json = []
     if (path === '/api/v1/agents/sessions') json = { data: [thread], has_more: false }
     if (path.endsWith('/reading-thread') || path.endsWith('/viewed')) json = thread
-    if (path.endsWith('/navigation')) json = { session_id: thread.id, name: thread.yuxi.title, tree_root_session_id: thread.id, parent_session_id: null }
-    if (path.endsWith('/items')) json = { data: items, has_more: false, yuxi: { runs: items.map((item, i) => ({ id: item.yuxi.run_id, turn_id: item.turn_id, status: 'completed', artifacts: [], created_at: new Date(1793400000000 + i * 1000).toISOString() })) } }
+    if (path.endsWith('/navigation')) json = { session_id: thread.id, name: thread.zs.title, tree_root_session_id: thread.id, parent_session_id: null }
+    if (path.endsWith('/items')) json = { data: items, has_more: false, zs: { runs: items.map((item, i) => ({ id: item.zs.run_id, turn_id: item.turn_id, status: 'completed', artifacts: [], created_at: new Date(1793400000000 + i * 1000).toISOString() })) } }
     if (path.endsWith('/state')) json = { agent_state: {}, interrupt: null }
     if (path.endsWith('/queue')) json = { inputs: [], status: 'completed', queue_paused: false }
     if (path.endsWith('/cooperation')) json = { sessions: [], members: [], edges: [] }
@@ -102,12 +102,12 @@ async page => {
   for (const theme of ['light', 'dark']) {
     await page.evaluate(async theme => { const { useThemeStore } = await import('/src/shared/model/theme.js'); useThemeStore().setTheme(theme) }, theme)
     await page.waitForTimeout(250)
-    await page.screenshot({ path: '/tmp/yuxi-ordinary-reading-' + theme + '.png' })
+    await page.screenshot({ path: '/tmp/zs-ordinary-reading-' + theme + '.png' })
   }
   await page.setViewportSize({ width: 768, height: 960 })
   await page.waitForTimeout(400)
   check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '768px 出现横向溢出')
-  await page.screenshot({ path: '/tmp/yuxi-ordinary-reading-768.png' })
+  await page.screenshot({ path: '/tmp/zs-ordinary-reading-768.png' })
   await page.unrouteAll({ behavior: 'wait' })
   return { readingPosition: true, bottomFollow: true, manualScroll: true, navigationNames: true, widths: [1440, 1024, 768], themes: ['light', 'dark'] }
 }

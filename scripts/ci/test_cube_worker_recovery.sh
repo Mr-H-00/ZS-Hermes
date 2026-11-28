@@ -4,7 +4,7 @@ set -euo pipefail
 : "${CUBE_TEST_ISOLATED_TOPOLOGY:?Only run on a dedicated test topology without user traffic}"
 [[ "$CUBE_TEST_ISOLATED_TOPOLOGY" == 1 ]]
 docker compose exec -T api python - <<'PY'
-from yuxi.modules.agents.repositories.sandbox import SandboxRepository
+from zs.modules.agents.repositories.sandbox import SandboxRepository
 with SandboxRepository().connect() as conn:
     busy = conn.execute("SELECT count(*) AS n FROM agent_runs WHERE status IN ('pending','running','cancel_requested') OR runtime_cleanup_pending").fetchone()['n']
     busy += conn.execute("SELECT count(*) AS n FROM agent_inputs WHERE status='pending'").fetchone()['n']

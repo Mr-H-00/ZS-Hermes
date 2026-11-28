@@ -6,16 +6,16 @@ import pytest
 from fastapi import FastAPI
 
 from test.integration.support.module_audit import isolated_audit_store, serve_http
-from yuxi.api.routers.schedules import scheduled_agents
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.identity.models import Department, User
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
-from yuxi.modules.schedules.repository import ScheduledAgentRepository
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.datetime import utc_now
+from zs.api.routers.schedules import scheduled_agents
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.identity.models import Department, User
+from zs.modules.identity.security import AuthUtils
+from zs.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
+from zs.modules.schedules.repository import ScheduledAgentRepository
+from zs.modules.workspace.models import Project
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

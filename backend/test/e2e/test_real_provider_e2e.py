@@ -44,7 +44,7 @@ async def test_real_provider_streams_persisted_session_result(e2e_client, e2e_he
             assert created["type"] == "agent.session.created"
             session = created["session"]
             session_id = session["id"]
-            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, session["yuxi"]["receipt"])
+            accepted = await wait_for_consumed_input(e2e_client, e2e_headers, session["zs"]["receipt"])
             turn_id = accepted["turn_id"]
             chunks = []
             async with asyncio.timeout(RUN_TIMEOUT_SECONDS):
@@ -63,18 +63,18 @@ async def test_real_provider_streams_persisted_session_result(e2e_client, e2e_he
         assert turn.status_code == 200, turn.text
         result = turn.json()
         assert result["status"] == "completed"
-        assert expected in "".join(chunks) and expected in output_text(result["yuxi"]["output"])
-        assert result["yuxi"]["result_run_id"] == accepted["run_id"]
-        assert all(item["yuxi"]["run_id"] == accepted["run_id"] and item["turn_id"] == turn_id for item in result["yuxi"]["output"])
+        assert expected in "".join(chunks) and expected in output_text(result["zs"]["output"])
+        assert result["zs"]["result_run_id"] == accepted["run_id"]
+        assert all(item["zs"]["run_id"] == accepted["run_id"] and item["turn_id"] == turn_id for item in result["zs"]["output"])
     finally:
         try:
             if session_id:
                 if turn_id is None:
-                    input_id = session["yuxi"]["receipt"]["input_id"]
+                    input_id = session["zs"]["receipt"]["input_id"]
                     cancelled = await e2e_client.post(
                         f"/api/v1/agents/sessions/{session_id}/events",
                         headers={**e2e_headers, "Idempotency-Key": str(uuid.uuid4())},
-                        json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": input_id}]},
+                        json={"events": [{"type": "zs.session.input.cancel_input", "input_id": input_id}]},
                     )
                     assert cancelled.status_code in {202, 409}, cancelled.text
                     snapshot = await e2e_client.get(f"/api/v1/agents/sessions/{session_id}/inputs/{input_id}", headers=e2e_headers)

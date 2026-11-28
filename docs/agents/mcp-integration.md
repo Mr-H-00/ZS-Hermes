@@ -189,7 +189,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml --profile contain
 
 内置 `knowledge` 指向本平台 `/api/mcp`，默认启用，连接配置由代码管理。它使用平台委托鉴权（`auth_mode=delegation`，见[授权与运行身份](../mechanisms/mcp.md)）：工具调用按当前用户与会话选择签发短期委托，无需填写共享凭据。管理端工具发现和连接测试使用当前查看者身份。关闭 `YUXI_KNOWLEDGE_ENABLED` 后，内置身份和管理员开关保留，但服务不进入可用能力集合；重新开启仍按原开关提供工具。范围与权限见[知识库机制](../mechanisms/knowledge-base.md#agent-如何看到知识库)。
 
-开发者在 [`builtin.py`](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/mcp/builtin.py) 的 `BUILTIN_MCP_MANIFEST` 中维护清单：
+开发者在 [`builtin.py`](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/mcp/builtin.py) 的 `BUILTIN_MCP_MANIFEST` 中维护清单：
 
 ```python
 BUILTIN_MCP_MANIFEST = {
@@ -229,6 +229,6 @@ BUILTIN_MCP_MANIFEST = {
 
 ## 源码定位与验证
 
-[MCP service](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/mcp/service.py)拥有配置用例、内置同步与启用状态，[客户端运行时](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/extensions/mcp/runtime.py)拥有远端工具发现，[授权中间件](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/middlewares/authorization.py)在实际调用边界复查服务器与单工具状态。连接成功只证明当时可发现工具，远端资源权限仍由远程服务执行。
+[MCP service](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/mcp/service.py)拥有配置用例、内置同步与启用状态，[客户端运行时](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/extensions/mcp/runtime.py)拥有远端工具发现，[授权中间件](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/middlewares/authorization.py)在实际调用边界复查服务器与单工具状态。连接成功只证明当时可发现工具，远端资源权限仍由远程服务执行。
 
 [HTTP 集成测试](https://github.com/xerrors/Yuxi/blob/main/backend/test/integration/api/test_mcp_router.py)覆盖管理权限和配置，[MCP service 单测](https://github.com/xerrors/Yuxi/blob/main/backend/test/unit/services/test_mcp_service.py)覆盖内置同步与加载错误；外部服务器的当前可用性需在目标部署中另行测试。

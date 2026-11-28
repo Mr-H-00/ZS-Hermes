@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.schedules.service as service
-from yuxi.modules.schedules.service import next_run_at, validate_schedule
-from yuxi.shared.errors import DomainError, InvalidInputError, ResourceNotFoundError, StateConflictError
+import zs.modules.schedules.service as service
+from zs.modules.schedules.service import next_run_at, validate_schedule
+from zs.shared.errors import DomainError, InvalidInputError, ResourceNotFoundError, StateConflictError
 
 
 def test_next_run_at_uses_timezone_and_returns_utc_aware_datetime():
@@ -85,7 +85,7 @@ async def test_validate_agent_rejects_agent_outside_user_visibility(monkeypatch)
 
 
 def test_scheduled_run_model_owns_execution_configuration_snapshot():
-    from yuxi.modules.schedules.models import ScheduledAgentRun
+    from zs.modules.schedules.models import ScheduledAgentRun
 
     assert {"project_id", "agent_slug", "session_title", "prompt", "tool_approval_mode", "model_spec"}.issubset(
         ScheduledAgentRun.__table__.c.keys()
@@ -93,7 +93,7 @@ def test_scheduled_run_model_owns_execution_configuration_snapshot():
 
 
 def test_scheduled_run_model_uses_unique_thread_per_execution_and_preserves_history():
-    from yuxi.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
+    from zs.modules.schedules.models import ScheduledAgentJob, ScheduledAgentRun
 
     project_fk = next(
         constraint

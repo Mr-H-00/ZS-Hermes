@@ -4,20 +4,20 @@ from datetime import timedelta
 
 import pytest
 import pytest_asyncio
-from yuxi.shared.errors import PermissionDeniedError
+from zs.shared.errors import PermissionDeniedError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.support.sqlite import create_utc_sqlite_engine
 
-from yuxi.api.routers.identity.auth import delete_user
-from yuxi.api.routers.identity.users import APIKeyCreate, create_api_key
-from yuxi.modules.identity.services.api_keys import get_accessible_api_key
-from yuxi.modules.identity.services.public_auth import verify_api_key
-from yuxi.modules.identity.repositories.api_keys import APIKeyRepository
-from yuxi.modules.identity.models import APIKey, Department, User
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.shared.datetime import utc_now
+from zs.api.routers.identity.auth import delete_user
+from zs.api.routers.identity.users import APIKeyCreate, create_api_key
+from zs.modules.identity.services.api_keys import get_accessible_api_key
+from zs.modules.identity.services.public_auth import verify_api_key
+from zs.modules.identity.repositories.api_keys import APIKeyRepository
+from zs.modules.identity.models import APIKey, Department, User
+from zs.infrastructure.postgres.base import Base
+from zs.modules.identity.security import AuthUtils
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

@@ -17,20 +17,20 @@ export function mergeItemSnapshot(state, items) {
     if (canReplace(existing, item) && (!existing || terminal(item) || !terminal(existing))) {
       if (existing?.status === 'in_progress' && item.status === 'in_progress') {
         // 已提交内容块覆盖漏收的 done；未结束内容保留本地较新的增量。
-        for (const index of item.yuxi?.completed_content_indices || []) {
+        for (const index of item.zs?.completed_content_indices || []) {
           existing.content[index] = clone(item.content[index])
         }
-        for (const index of item.yuxi?.completed_reasoning_indices || []) {
-          existing.yuxi.reasoning ||= {}
-          existing.yuxi.reasoning[index] = item.yuxi.reasoning[index]
+        for (const index of item.zs?.completed_reasoning_indices || []) {
+          existing.zs.reasoning ||= {}
+          existing.zs.reasoning[index] = item.zs.reasoning[index]
         }
       } else {
         state.items[item.id] = clone(item)
       }
-      for (const index of item.yuxi?.completed_content_indices || []) {
+      for (const index of item.zs?.completed_content_indices || []) {
         state.closedParts.add(`${item.id}:${index}`)
       }
-      for (const index of item.yuxi?.completed_reasoning_indices || []) {
+      for (const index of item.zs?.completed_reasoning_indices || []) {
         state.closedParts.add(`reasoning:${item.id}:${index}`)
       }
     }
@@ -63,13 +63,13 @@ export function applyAgentEvent(state, event) {
     state.closedParts.add(key)
   } else if (event.type === 'agent.session.turn.content_part.added') {
     item.content[index] ||= clone(event.part)
-  } else if (event.type === 'yuxi.session.turn.reasoning.delta') {
+  } else if (event.type === 'zs.session.turn.reasoning.delta') {
     if (state.closedParts.has(`reasoning:${key}`)) return false
-    item.yuxi.reasoning ||= {}
-    item.yuxi.reasoning[index] = (item.yuxi.reasoning[index] || '') + event.delta
-  } else if (event.type === 'yuxi.session.turn.reasoning.done') {
-    item.yuxi.reasoning ||= {}
-    item.yuxi.reasoning[index] = event.text
+    item.zs.reasoning ||= {}
+    item.zs.reasoning[index] = (item.zs.reasoning[index] || '') + event.delta
+  } else if (event.type === 'zs.session.turn.reasoning.done') {
+    item.zs.reasoning ||= {}
+    item.zs.reasoning[index] = event.text
     state.closedParts.add(`reasoning:${key}`)
   }
   return true
@@ -81,36 +81,36 @@ export function getStreamingReasoning(state) {
   if (!state.isStreaming || state.cancellationPending || state.cooperationWaiting ||
       state.pendingInterrupt || !active) return null
   const item = state.itemState.items[active.itemId]
-  if (item?.status !== 'in_progress' || item.yuxi?.run_id !== state.activeRunId ||
+  if (item?.status !== 'in_progress' || item.zs?.run_id !== state.activeRunId ||
       state.itemState.closedParts.has(`reasoning:${active.itemId}:${active.contentIndex}`)) return null
-  return { itemId: item.id, content: item.yuxi?.reasoning?.[active.contentIndex] || '' }
+  return { itemId: item.id, content: item.zs?.reasoning?.[active.contentIndex] || '' }
 }
 
 /** 从标准 item 派生消息视图；思考仅接受当前流式展示投影。 */
 export function itemsToMessages(items, reasoning = null) {
   const sorted = [...items].sort((left, right) =>
-    (left.yuxi?.message_id || 0) - (right.yuxi?.message_id || 0) ||
-    (left.yuxi?.output_index || 0) - (right.yuxi?.output_index || 0))
+    (left.zs?.message_id || 0) - (right.zs?.message_id || 0) ||
+    (left.zs?.output_index || 0) - (right.zs?.output_index || 0))
   const outputs = new Map(sorted.filter((item) => item.type === 'function_call_output')
-    .map((item) => [`${item.yuxi.run_id}:${item.call_id}`, item]))
-  const linkedOutputs = new Map(sorted.filter((item) => item.type === 'function_call_output' && item.yuxi.call_item_id)
-    .map((item) => [item.yuxi.call_item_id, item]))
+    .map((item) => [`${item.zs.run_id}:${item.call_id}`, item]))
+  const linkedOutputs = new Map(sorted.filter((item) => item.type === 'function_call_output' && item.zs.call_item_id)
+    .map((item) => [item.zs.call_item_id, item]))
   const messages = new Map()
   for (const item of sorted) {
     if (item.type === 'function_call_output') continue
     // resume 是内部等待点恢复输入，保留协议状态但不展示为用户发言。
-    if (item.type === 'message' && item.role === 'user' && item.yuxi?.message_type === 'resume') continue
-    const key = `${item.yuxi?.run_id || ''}:${item.yuxi?.message_id || item.id}`
-    const runId = item.yuxi?.run_id
+    if (item.type === 'message' && item.role === 'user' && item.zs?.message_type === 'resume') continue
+    const key = `${item.zs?.run_id || ''}:${item.zs?.message_id || item.id}`
+    const runId = item.zs?.run_id
     const message = messages.get(key) || {
       id: item.id, type: item.role === 'user' ? 'human' : 'ai', content: '',
-      input_origin: item.yuxi?.input_origin,
-      run_id: runId, turn_id: item.turn_id, input_id: item.yuxi?.input_id,
-      delivery_status: item.yuxi?.delivery_status, created_at: item.yuxi?.created_at,
-      execution_status: item.status, message_type: item.yuxi?.message_type,
-      extra_metadata: { input_id: item.yuxi?.input_id, run_id: runId,
-                        waiting_kind: item.yuxi?.waiting_kind,
-                        attachments: item.yuxi?.attachments || [] }, tool_calls: []
+      input_origin: item.zs?.input_origin,
+      run_id: runId, turn_id: item.turn_id, input_id: item.zs?.input_id,
+      delivery_status: item.zs?.delivery_status, created_at: item.zs?.created_at,
+      execution_status: item.status, message_type: item.zs?.message_type,
+      extra_metadata: { input_id: item.zs?.input_id, run_id: runId,
+                        waiting_kind: item.zs?.waiting_kind,
+                        attachments: item.zs?.attachments || [] }, tool_calls: []
     }
     if (item.type === 'message') {
       message.id = item.id
@@ -126,7 +126,7 @@ export function itemsToMessages(items, reasoning = null) {
         id: item.call_id, name: item.name, args: item.arguments,
         status: item.status === 'failed' || output?.status === 'failed' ? 'error' :
           output?.status === 'completed' || item.status === 'completed' ? 'success' :
-          item.yuxi?.waiting_kind === 'cooperation' && item.status === 'incomplete' ? 'waiting' :
+          item.zs?.waiting_kind === 'cooperation' && item.status === 'incomplete' ? 'waiting' :
           item.status === 'incomplete' ? 'incomplete' : 'pending',
         error_message: output?.error,
         tool_call_result: output && output.status !== 'in_progress'

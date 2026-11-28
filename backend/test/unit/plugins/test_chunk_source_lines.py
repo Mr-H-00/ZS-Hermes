@@ -2,9 +2,9 @@
 
 import pytest
 
-from yuxi.modules.knowledge.chunking.dispatcher import _build_chunk_records, chunk_markdown
-from yuxi.modules.knowledge.chunking.ragflow_like.parsers import semantic
-from yuxi.modules.knowledge.chunking.source_spans import LocatedText, SourceText
+from zs.modules.knowledge.chunking.dispatcher import _build_chunk_records, chunk_markdown
+from zs.modules.knowledge.chunking.ragflow_like.parsers import semantic
+from zs.modules.knowledge.chunking.source_spans import LocatedText, SourceText
 
 
 def test_blank_lines_and_repeated_chunks_keep_distinct_source_locations():

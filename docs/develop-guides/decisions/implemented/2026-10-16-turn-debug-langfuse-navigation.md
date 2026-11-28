@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/services/trace_links.py
+Owner：backend/zs/modules/agents/services/trace_links.py
 
 ## 问题
 

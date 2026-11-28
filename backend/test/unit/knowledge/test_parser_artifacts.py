@@ -10,10 +10,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote, unquote
 
-from yuxi.infrastructure.document_parsing import ParseOptions
-import yuxi.infrastructure.document_parsing.parser as parser_unified
-from yuxi.infrastructure.document_parsing.artifacts import local_image_links, replace_image_links
-from yuxi.modules.documents.service import parse
+from zs.infrastructure.document_parsing import ParseOptions
+import zs.infrastructure.document_parsing.parser as parser_unified
+from zs.infrastructure.document_parsing.artifacts import local_image_links, replace_image_links
+from zs.modules.documents.service import parse
 
 
 PARSER_FIXTURES = Path(__file__).parents[2] / "data"
@@ -82,7 +82,7 @@ async def test_html_default_copies_available_image(tmp_path, params):
 @pytest.mark.parametrize("image_source", ["missing.png", "../outside.png", "/absolute.png", "https://example.com/chart.png"])
 async def test_html_text_only_preserves_text_without_resource_access(tmp_path, monkeypatch, suffix, image_source):
     """正文提取保留原件与替代文本，任何图片文件或网络访问都使测试失败。"""
-    from yuxi.modules.knowledge.utils.kb_utils import resolve_processing_params, sanitize_processing_params
+    from zs.modules.knowledge.utils.kb_utils import resolve_processing_params, sanitize_processing_params
 
     source = tmp_path / f"source{suffix}"
     original = f'<p>前文</p><img src="{image_source}" alt="示意图 &lt;轨道&gt;"><p>后文</p>'
@@ -187,7 +187,7 @@ async def test_html_text_only_rejects_non_boolean_option(tmp_path, value):
 @pytest.mark.asyncio
 async def test_zip_preserves_distinct_paths_and_reference_titles(tmp_path):
     """同名图片保持完整路径，引用式图片与标题也保持可读。"""
-    from yuxi.infrastructure.document_parsing.artifacts import extract_markdown_archive
+    from zs.infrastructure.document_parsing.artifacts import extract_markdown_archive
 
     source = tmp_path / "source.zip"
     markdown_source = '![](a/chart.png "first")\n![second][fig]\n\n[fig]: b/chart.png "second"'
@@ -249,7 +249,7 @@ async def test_html_text_only_does_not_skip_markdown_resource_validation(tmp_pat
 async def test_cancel_waits_for_converter_before_removing_directory(tmp_path, monkeypatch):
     """取消后没有仍能重新创建资源目录的引擎线程。"""
     import threading
-    from yuxi.infrastructure.document_parsing.artifacts import save_resource
+    from zs.infrastructure.document_parsing.artifacts import save_resource
 
     source = tmp_path / "source.png"
     source.write_bytes(b"image")

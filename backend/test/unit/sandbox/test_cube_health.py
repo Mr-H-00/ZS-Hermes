@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from cubesandbox import Config
 import pytest
 
-from yuxi.modules.agents.runtime.sandbox.cube import CubeAdapter
+from zs.modules.agents.runtime.sandbox.cube import CubeAdapter
 
 
 @contextmanager

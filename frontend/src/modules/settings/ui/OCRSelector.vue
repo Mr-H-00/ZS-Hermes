@@ -14,7 +14,7 @@
       @click.prevent.stop
     >
       <span class="ocr-selector-trigger-text">{{ selectedEngineLabel }}</span>
-      <RefreshCw v-if="healthLoading" :size="13" class="yuxi-rotate" aria-label="正在检测 OCR 状态" />
+      <RefreshCw v-if="healthLoading" :size="13" class="zs-rotate" aria-label="正在检测 OCR 状态" />
       <ChevronDown v-else :size="14" />
     </button>
 

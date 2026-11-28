@@ -7,17 +7,17 @@ import os
 from pathlib import Path
 
 import pytest
-from yuxi.modules.extensions.tools import catalog as tool_service
-from yuxi.modules.extensions.skills import edit as edit_service
-from yuxi.modules.extensions.skills import content as content_service
-from yuxi.modules.extensions.skills import projection as projection_service
-from yuxi.modules.extensions.skills import shared as skill_service
-from yuxi.modules.extensions.skills import access as skill_access
-from yuxi.modules.extensions.skills.package import parse_skill_markdown
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.paths import user_workspace_dir
-from yuxi.modules.workspace.runtime_files import RuntimeFiles
+from zs.modules.extensions.tools import catalog as tool_service
+from zs.modules.extensions.skills import edit as edit_service
+from zs.modules.extensions.skills import content as content_service
+from zs.modules.extensions.skills import projection as projection_service
+from zs.modules.extensions.skills import shared as skill_service
+from zs.modules.extensions.skills import access as skill_access
+from zs.modules.extensions.skills.package import parse_skill_markdown
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.identity.models import User
+from zs.modules.workspace.paths import user_workspace_dir
+from zs.modules.workspace.runtime_files import RuntimeFiles
 
 
 class _Session:
@@ -102,7 +102,7 @@ def _setup_shared_skill(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(FakeRepo, "list_enabled_readable", accessible, raising=False)
     monkeypatch.setattr(tool_service, "get_tool_metadata", lambda: [])
     monkeypatch.setattr(skill_service, "get_enabled_mcp_server_slugs", mcps)
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.service.get_enabled_mcp_server_slugs", mcps)
+    monkeypatch.setattr("zs.modules.extensions.mcp.service.get_enabled_mcp_server_slugs", mcps)
     return skill_dir, item, content
 
 
@@ -113,8 +113,8 @@ def _user(uid: str) -> User:
 def test_shared_projection_ignores_personal_override_and_rejects_links(tmp_path, monkeypatch):
     """共享 runtime 路径读取用户投影，同名个人 Skill 和来源变更均不替代它。"""
     skill_dir, _item, _old = _setup_shared_skill(tmp_path, monkeypatch)
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "users"))
-    monkeypatch.setenv("YUXI_SKILL_PROJECTION_DIR", str(tmp_path / "projections"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "users"))
+    monkeypatch.setenv("ZS_SKILL_PROJECTION_DIR", str(tmp_path / "projections"))
     personal_dir = user_workspace_dir("owner") / "agents/skills/demo"
     personal_dir.mkdir(parents=True)
     (skill_dir / "notes.txt").write_text("shared", encoding="utf-8")
@@ -423,7 +423,7 @@ async def test_export_closes_source_directory_when_tempfile_creation_fails(tmp_p
 @pytest.mark.asyncio
 async def test_complete_edit_cannot_exceed_package_budget(tmp_path, monkeypatch):
     """在线编辑的最终完整包同样受条目与字节限制。"""
-    from yuxi.modules.extensions.skills.content import commit_skill_content
+    from zs.modules.extensions.skills.content import commit_skill_content
 
     skill_dir, item, old = _setup_shared_skill(tmp_path, monkeypatch)
     for changes in (

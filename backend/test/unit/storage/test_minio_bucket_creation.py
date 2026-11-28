@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from minio.error import S3Error
 
-from yuxi.infrastructure.minio.client import MinIOClient, StorageError
+from zs.infrastructure.minio.client import MinIOClient, StorageError
 
 
 def s3_error(code):

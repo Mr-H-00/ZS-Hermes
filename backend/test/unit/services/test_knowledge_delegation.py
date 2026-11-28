@@ -5,16 +5,16 @@ from datetime import timedelta
 import jwt
 import pytest
 
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.modules.knowledge.mcp import auth as security
-from yuxi.shared.datetime import utc_now
+from zs.modules.identity.security import AuthUtils
+from zs.modules.knowledge.mcp import auth as security
+from zs.shared.datetime import utc_now
 
 
 @pytest.fixture(autouse=True)
 def signing_config(monkeypatch):
     """每个进程使用显式相同部署配置。"""
     monkeypatch.setenv("JWT_SECRET_KEY", "knowledge-test-" + "k" * 40)
-    monkeypatch.setenv("YUXI_INSTANCE_ID", "knowledge-test")
+    monkeypatch.setenv("ZS_INSTANCE_ID", "knowledge-test")
 
 
 @pytest.mark.parametrize("selection", ["all", [], ["kb-a"]])
@@ -61,6 +61,6 @@ def test_missing_shared_configuration_never_generates_process_random_key(monkeyp
     with pytest.raises(ValueError, match="JWT_SECRET_KEY"):
         security.create_knowledge_token(uid="user", selection="all")
     monkeypatch.setenv("JWT_SECRET_KEY", "knowledge-test-" + "k" * 40)
-    monkeypatch.delenv("YUXI_INSTANCE_ID")
-    with pytest.raises(ValueError, match="YUXI_INSTANCE_ID"):
+    monkeypatch.delenv("ZS_INSTANCE_ID")
+    with pytest.raises(ValueError, match="ZS_INSTANCE_ID"):
         security.create_knowledge_token(uid="user", selection="all")

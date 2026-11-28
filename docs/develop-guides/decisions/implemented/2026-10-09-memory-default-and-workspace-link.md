@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/identity/preferences.py
+Owner：backend/zs/modules/identity/preferences.py
 
 ## 问题
 

@@ -11,20 +11,20 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from yuxi.modules.knowledge.evaluation.service import EvaluationService, finish_dataset_generation_job
-import yuxi.modules.knowledge.repositories.evaluation as evaluation_repository_module
-import yuxi.modules.knowledge.repositories.files as knowledge_file_repository_module
-import yuxi.modules.background_jobs.repository as job_repository_module
-from yuxi.modules.knowledge.repositories.evaluation import EvaluationRepository
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
-from yuxi.modules.background_jobs.repository import BackgroundJobRepository
-from yuxi.workers.background_jobs import finalize_job_failure, publish_pending_jobs
-from yuxi.modules.background_jobs.service import JobTracker
-from yuxi.workers.background_job_context import BackgroundJobContext
-from yuxi.infrastructure.postgres.manager import PostgresManager
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.models import EvaluationDataset, EvaluationRun, KnowledgeBase, KnowledgeFile
-from yuxi.shared.datetime import utc_now
+from zs.modules.knowledge.evaluation.service import EvaluationService, finish_dataset_generation_job
+import zs.modules.knowledge.repositories.evaluation as evaluation_repository_module
+import zs.modules.knowledge.repositories.files as knowledge_file_repository_module
+import zs.modules.background_jobs.repository as job_repository_module
+from zs.modules.knowledge.repositories.evaluation import EvaluationRepository
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.modules.background_jobs.repository import BackgroundJobRepository
+from zs.workers.background_jobs import finalize_job_failure, publish_pending_jobs
+from zs.modules.background_jobs.service import JobTracker
+from zs.workers.background_job_context import BackgroundJobContext
+from zs.infrastructure.postgres.manager import PostgresManager
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.models import EvaluationDataset, EvaluationRun, KnowledgeBase, KnowledgeFile
+from zs.shared.datetime import utc_now
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -692,7 +692,7 @@ async def test_concurrent_dedupe_creates_one_active_job(background_job_schema) -
 
 async def test_registered_transaction_rollback_leaves_no_executable_job(background_job_schema):
     """登记与投递分离，回滚的登记对另一个数据库连接不可见。"""
-    from yuxi.modules.background_jobs.dispatch import register_job_in_session
+    from zs.modules.background_jobs.dispatch import register_job_in_session
 
     observer = JobTracker()
     async with background_job_schema.get_async_session_context() as session:
@@ -727,8 +727,8 @@ async def test_observer_preserves_executor_outcome_and_rejects_late_progress(bac
 @pytest.mark.parametrize("scope", ["files", "pending"])
 async def test_document_partial_failure_persists_failed_job_and_details(background_job_schema, monkeypatch, action, scope) -> None:
     """真实 worker 入口将部分失败保存为失败终态，保留已提交的文件明细。"""
-    import yuxi.modules.knowledge.services.background_jobs as knowledge_jobs
-    from yuxi.workers.background_jobs import process_background_job
+    import zs.modules.knowledge.services.background_jobs as knowledge_jobs
+    from zs.workers.background_jobs import process_background_job
 
     async def process(_kb_id, file_id, **_kwargs):
         if file_id == "bad":

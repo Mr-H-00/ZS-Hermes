@@ -74,7 +74,7 @@ WeKnora 的飞书 Wiki 连接器要求 `app_id` 和 `app_secret`，通过 `/auth
 
 ## 对 Yuxi 的接入判断与待验证项
 
-现有 [DifyKB](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/knowledge/implementations/dify.py) 提供外部只读检索的配置与请求模式，但 Dify 的分块和分数契约不能直接复制给飞书文档搜索。飞书用户凭据须归属于绑定的 Yuxi 用户；不能把本次登录用户的 token 保存为所有 Yuxi 用户共享的知识库访问凭证。首个实现可沿用现有知识库检索与阅读入口，在线调用用户身份搜索，并对 docx 提供纯文本阅读。
+现有 [DifyKB](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/knowledge/implementations/dify.py) 提供外部只读检索的配置与请求模式，但 Dify 的分块和分数契约不能直接复制给飞书文档搜索。飞书用户凭据须归属于绑定的 Yuxi 用户；不能把本次登录用户的 token 保存为所有 Yuxi 用户共享的知识库访问凭证。首个实现可沿用现有知识库检索与阅读入口，在线调用用户身份搜索，并对 docx 提供纯文本阅读。
 
 实现前需确认：选用全云文档搜索还是限定空间的 Wiki 搜索；目标用户完成最小 scope 授权；真实请求验证官方 Wiki v2 URL；读取时重新检查当前用户与空间边界；撤销用户授权或资源权限后明确拒绝。最小验收应覆盖目标空间内可读 docx 搜索并读取正文，以及空间外、无阅读权、token 失效、非 docx 类型、限频和分页结果。当前这些 API 验证均为 Not run，原因是尚未取得用户 token。
 

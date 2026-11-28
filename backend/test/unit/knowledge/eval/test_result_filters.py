@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from yuxi.api.routers.knowledge.evaluation import get_evaluation_run_results
-from yuxi.modules.knowledge.evaluation.service import EvaluationService
+from zs.api.routers.knowledge.evaluation import get_evaluation_run_results
+from zs.modules.knowledge.evaluation.service import EvaluationService
 
 
 @pytest.mark.asyncio

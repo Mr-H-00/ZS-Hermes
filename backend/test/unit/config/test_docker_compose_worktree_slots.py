@@ -8,26 +8,26 @@ import pytest
 from test.unit.config._shared import load_compose, project_root
 
 
-STATE_ROOT = "${YUXI_STATE_DIR:-./docker/volumes}"
-IMAGE_PREFIX = "${COMPOSE_PROJECT_NAME:-yuxi}"
+STATE_ROOT = "${ZS_STATE_DIR:-./docker/volumes}"
+IMAGE_PREFIX = "${COMPOSE_PROJECT_NAME:-zs}"
 PORT_MARKERS = {
-    "api": {"${YUXI_API_PORT:-5050}:5050"},
-    "frontend": {"${YUXI_FRONTEND_PORT:-5173}:5173"},
+    "api": {"${ZS_API_PORT:-5050}:5050"},
+    "frontend": {"${ZS_FRONTEND_PORT:-5173}:5173"},
     "graph": {
-        "127.0.0.1:${YUXI_NEO4J_HTTP_PORT:-7474}:7474",
-        "127.0.0.1:${YUXI_NEO4J_BOLT_PORT:-7687}:7687",
+        "127.0.0.1:${ZS_NEO4J_HTTP_PORT:-7474}:7474",
+        "127.0.0.1:${ZS_NEO4J_BOLT_PORT:-7687}:7687",
     },
     "minio": {
-        "127.0.0.1:${YUXI_MINIO_API_PORT:-9000}:9000",
-        "127.0.0.1:${YUXI_MINIO_CONSOLE_PORT:-9001}:9001",
+        "127.0.0.1:${ZS_MINIO_API_PORT:-9000}:9000",
+        "127.0.0.1:${ZS_MINIO_CONSOLE_PORT:-9001}:9001",
     },
     "milvus": {
-        "127.0.0.1:${YUXI_MILVUS_PORT:-19530}:19530",
-        "127.0.0.1:${YUXI_MILVUS_HEALTH_PORT:-9091}:9091",
+        "127.0.0.1:${ZS_MILVUS_PORT:-19530}:19530",
+        "127.0.0.1:${ZS_MILVUS_HEALTH_PORT:-9091}:9091",
     },
-    "postgres": {"127.0.0.1:${YUXI_POSTGRES_PORT:-5432}:5432"},
-    "redis": {"127.0.0.1:${YUXI_REDIS_PORT:-6379}:6379"},
-    "mineru-api": {"127.0.0.1:${YUXI_MINERU_PORT:-30001}:30001"},
+    "postgres": {"127.0.0.1:${ZS_POSTGRES_PORT:-5432}:5432"},
+    "redis": {"127.0.0.1:${ZS_REDIS_PORT:-6379}:6379"},
+    "mineru-api": {"127.0.0.1:${ZS_MINERU_PORT:-30001}:30001"},
 }
 LOCAL_IMAGE_SUFFIXES = {
     "storage-init": "-storage-init:",
@@ -87,7 +87,7 @@ def test_development_compose_is_parameterized_for_parallel_worktree_slots() -> N
     assert f"{STATE_ROOT}/redis" in state_sources
     assert f"{STATE_ROOT}/milvus/milvus" in state_sources
     assert f"{STATE_ROOT}/neo4j/data" in state_sources
-    assert f"{STATE_ROOT}/yuxi/threads" in state_sources
+    assert f"{STATE_ROOT}/zs/threads" in state_sources
 
 
 def test_slot_isolation_guard_rejects_fixed_host_resources() -> None:
@@ -95,9 +95,9 @@ def test_slot_isolation_guard_rejects_fixed_host_resources() -> None:
     compose = deepcopy(load_compose())
     compose["services"]["api"]["container_name"] = "api-dev"
     compose["services"]["api"]["ports"] = ["5050:5050"]
-    compose["services"]["api"]["image"] = "yuxi-api:latest"
+    compose["services"]["api"]["image"] = "zs-api:latest"
     compose["services"]["postgres"]["volumes"][0]["source"] = "./docker/volumes/postgresql"
-    compose["networks"]["app-network"]["name"] = "yuxi-app-network"
+    compose["networks"]["app-network"]["name"] = "zs-app-network"
 
     assert {
         "container:api",
@@ -109,11 +109,11 @@ def test_slot_isolation_guard_rejects_fixed_host_resources() -> None:
 
 
 def test_production_compose_scopes_images_by_project_with_legacy_default() -> None:
-    """生产镜像按项目隔离，未配置项目名时仍使用 yuxi 前缀。"""
+    """生产镜像按项目隔离，未配置项目名时仍使用 zs 前缀。"""
     compose = load_compose("docker-compose.prod.yml")
 
-    assert compose["services"]["api"]["image"].startswith("${COMPOSE_PROJECT_NAME:-yuxi}-api:${YUXI_VERSION:-")
-    assert compose["services"]["frontend"]["image"].startswith("${COMPOSE_PROJECT_NAME:-yuxi}-frontend:${YUXI_VERSION:-")
+    assert compose["services"]["api"]["image"].startswith("${COMPOSE_PROJECT_NAME:-zs}-api:${ZS_VERSION:-")
+    assert compose["services"]["frontend"]["image"].startswith("${COMPOSE_PROJECT_NAME:-zs}-frontend:${ZS_VERSION:-")
 
 
 @pytest.mark.parametrize("base_url,ready", [(None, True), ("http://slot-api:25050", True), ("http://slot-api:25050", False)])
@@ -172,4 +172,4 @@ def test_cube_worker_runner_uses_installed_dependencies_and_restores_worker(tmp_
 def test_production_api_only_publishes_on_loopback() -> None:
     """生产 API 经 Web 代理接入，宿主默认只允许回环直连。"""
     compose = load_compose("docker-compose.prod.yml")
-    assert compose["services"]["api"]["ports"] == ["127.0.0.1:${YUXI_API_PORT:-6050}:5050"]
+    assert compose["services"]["api"]["ports"] == ["127.0.0.1:${ZS_API_PORT:-6050}:5050"]

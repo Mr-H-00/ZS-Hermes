@@ -140,9 +140,9 @@ watch(
 function toolOutput(item) {
   return outputs.value.find(
     (output) =>
-      output.yuxi?.call_item_id === item.id ||
+      output.zs?.call_item_id === item.id ||
       (output.call_id === item.call_id &&
-        output.yuxi?.run_id === item.yuxi?.run_id),
+        output.zs?.run_id === item.zs?.run_id),
   );
 }
 
@@ -168,7 +168,7 @@ function onKeydown(event) {
   >
     <header class="demo-header">
       <div class="brand">
-        <span class="brand-mark"><Bot :size="19" /></span><strong>Yuxi</strong
+        <span class="brand-mark"><Bot :size="19" /></span><strong>ZS</strong
         ><span class="brand-divider"></span><span>Agent Demo</span>
       </div>
       <div class="header-actions">
@@ -265,7 +265,7 @@ function onKeydown(event) {
                 @click="chooseThread(thread.id)"
               >
                 <MessageSquare :size="15" /><span
-                  ><strong>{{ thread.yuxi.title || "新对话" }}</strong
+                  ><strong>{{ thread.zs.title || "新对话" }}</strong
                   ><small>{{
                     thread.last_active_at
                       ? new Date(thread.last_active_at * 1000).toLocaleDateString(
@@ -319,7 +319,7 @@ function onKeydown(event) {
                     @change="demo.selectAgent($event.target.value)"
                   >
                     <option v-if="!state.agents.length" value="">
-                      Yuxi Agent
+                      ZS Agent
                     </option>
                     <option
                       v-for="agent in state.agents"
@@ -437,7 +437,7 @@ function onKeydown(event) {
                 </div>
               </div>
               <div v-else class="message-date">
-                {{ state.snapshot?.yuxi.title || "对话" }}
+                {{ state.snapshot?.zs.title || "对话" }}
               </div>
               <ChatMessage
                 v-for="item in visibleItems"
@@ -593,7 +593,7 @@ function onKeydown(event) {
                 </button>
               </form>
             </div>
-            <div v-if="state.snapshot?.yuxi.queue_paused" class="queue-paused">
+            <div v-if="state.snapshot?.zs.queue_paused" class="queue-paused">
               <span>后续消息已暂停</span
               ><button
                 class="text-button"
@@ -612,8 +612,8 @@ function onKeydown(event) {
                 <span>{{
                   waitingForUser
                     ? "请先处理上方的回答或审批"
-                    : state.snapshot?.yuxi?.queued_input_count
-                      ? `${state.snapshot.yuxi.queued_input_count} 条消息排队中`
+                    : state.snapshot?.zs?.queued_input_count
+                      ? `${state.snapshot.zs.queued_input_count} 条消息排队中`
                       : "文字对话"
                 }}</span>
                 <div>
@@ -677,7 +677,7 @@ function onKeydown(event) {
           </div>
         </section>
         <p class="device-footnote">
-          由 Yuxi Public API 驱动<span>·</span>真实对话，实时响应
+          由 ZS Public API 驱动<span>·</span>真实对话，实时响应
         </p>
       </div>
       <dialog

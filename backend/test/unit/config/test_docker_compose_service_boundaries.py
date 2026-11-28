@@ -11,7 +11,7 @@ REQUIRED_STORAGE_TARGETS = {
     "api": frozenset({"/app/user-data", "/app/skill-sources", "/app/skill-projections"}),
     "worker": frozenset({"/app/user-data", "/app/skill-sources", "/app/skill-projections"}),
 }
-FORBIDDEN_API_WORKER_ENV_KEYS = frozenset({"YUXI_DOCKER_API_BASE"})
+FORBIDDEN_API_WORKER_ENV_KEYS = frozenset({"ZS_DOCKER_API_BASE"})
 EXPECTED_RUNTIME_DIRS = {"api": "/app/runtime/api", "worker": "/app/runtime/worker"}
 EXPECTED_REDIS_CONNECTION_CAPACITY = {
     "api": "${API_REDIS_MAX_CONNECTIONS:-256}",
@@ -32,17 +32,17 @@ EXPECTED_AGENT_CAPACITY = {
     },
 }
 FORBIDDEN_DIRECT_DOCKER_ACCESS_MARKERS = frozenset(
-    {"--unix-socket", "/var/run/docker.sock", "YUXI_DOCKER_API_SOCKET", "docker.from_env(", "DockerClient("}
+    {"--unix-socket", "/var/run/docker.sock", "ZS_DOCKER_API_SOCKET", "docker.from_env(", "DockerClient("}
 )
 SANDBOX_CLEANUP_OWNER_PATHS = (
     "backend/test/integration/conftest.py",
     "backend/test/live_api_cleanup.py",
 )
 WORKSPACE_PERMISSION_OWNER_PATHS = (
-    "backend/yuxi/infrastructure/filesystem.py",
-    "backend/yuxi/modules/workspace/paths.py",
-    "backend/yuxi/modules/workspace/filesystem.py",
-    "backend/yuxi/modules/workspace/services/files.py",
+    "backend/zs/infrastructure/filesystem.py",
+    "backend/zs/modules/workspace/paths.py",
+    "backend/zs/modules/workspace/filesystem.py",
+    "backend/zs/modules/workspace/services/files.py",
 )
 LEGACY_WORKSPACE_PERMISSION_MARKERS = frozenset({"0o777", "0o666", "chmod a+rwx", "_ensure_user_data_writable", "_chmod_writable"})
 
@@ -92,7 +92,7 @@ def _runtime_directory_violations(compose: dict) -> set[tuple[str, str]]:
     violations: set[tuple[str, str]] = set()
     for service_name, expected in EXPECTED_RUNTIME_DIRS.items():
         environment = compose["services"][service_name].get("environment") or {}
-        actual = str(environment.get("YUXI_RUNTIME_DIR") or "")
+        actual = str(environment.get("ZS_RUNTIME_DIR") or "")
         if actual != expected:
             violations.add((service_name, actual))
     return violations
@@ -131,15 +131,15 @@ def test_minio_consumers_share_server_credential_interpolation(consumer):
 @pytest.mark.parametrize(
     ("service_name", "command"),
     [
-        ("api", "uvicorn yuxi.api.main:app --reload --reload-dir /app/yuxi"),
-        ("worker", 'watchfiles --filter python "python -m yuxi.workers.main" /app/yuxi'),
+        ("api", "uvicorn zs.api.main:app --reload --reload-dir /app/zs"),
+        ("worker", 'watchfiles --filter python "python -m zs.workers.main" /app/zs'),
     ],
 )
 def test_reload_guard_detects_reintroduced_backend_watchers(service_name: str, command: str) -> None:
     """恢复旧启动命令时，guard 必须报告被重载的服务。"""
     compose = deepcopy(load_compose())
     for name in ("api", "worker"):
-        compose["services"][name]["command"] = "python -m yuxi.workers.main" if name == "worker" else "uvicorn yuxi.api.main:app"
+        compose["services"][name]["command"] = "python -m zs.workers.main" if name == "worker" else "uvicorn zs.api.main:app"
     compose["services"][service_name]["command"] = command
 
     assert _backend_reload_services(compose) == {service_name}
@@ -195,7 +195,7 @@ def test_milvus_suite_has_log_rotation_and_cpus_bound(filename: str) -> None:
         assert logging_config["options"] == {"max-size": "50m", "max-file": "3"}
 
     milvus = services["milvus"]
-    assert milvus["cpus"] == "${YUXI_MILVUS_CPUS:-2}"
+    assert milvus["cpus"] == "${ZS_MILVUS_CPUS:-2}"
     assert "mem_limit" not in milvus
     assert "MILVUS_LOG_LEVEL" not in milvus.get("environment", {})
 
@@ -226,7 +226,7 @@ def test_api_image_applies_owner_only_umask_before_dropping_to_runtime_identity(
     entrypoint = (root / "docker/api-entrypoint.sh").read_text()
 
     assert "USER 1000:1000" in dockerfile
-    assert 'ENTRYPOINT ["/usr/local/bin/yuxi-entrypoint"]' in dockerfile
+    assert 'ENTRYPOINT ["/usr/local/bin/zs-entrypoint"]' in dockerfile
     assert "umask 077" in entrypoint
     assert 'exec "$@"' in entrypoint
 
@@ -249,7 +249,7 @@ def test_app_initializer_gates_every_shipping_file_consumer(filename: str) -> No
     compose = load_compose(filename)
     assert _app_dependency_violations(compose) == set()
     initializer = compose["services"]["app-init"]
-    assert "python -m yuxi.bootstrap.app" in initializer["command"]
+    assert "python -m zs.bootstrap.app" in initializer["command"]
     initializer_targets = {_volume_target(volume) for volume in initializer.get("volumes") or []}
     assert "/app/legacy-saves" not in initializer_targets
     assert not any(target.startswith("/app/legacy-") for target in initializer_targets)
@@ -258,10 +258,10 @@ def test_app_initializer_gates_every_shipping_file_consumer(filename: str) -> No
     assert initializer["depends_on"]["storage-init"]["condition"] == "service_completed_successfully"
     assert "schema-init" not in compose["services"]
     assert "/app/skill-projections" not in initializer_targets
-    assert "YUXI_LEGACY_STORAGE_DIR" not in (initializer.get("environment") or {})
+    assert "ZS_LEGACY_STORAGE_DIR" not in (initializer.get("environment") or {})
     assert "/app/legacy-projects" not in initializer_targets
     assert "/app/checkpoints" not in initializer_targets
-    assert "YUXI_LEGACY_PROJECTS_DIR" not in (initializer.get("environment") or {})
+    assert "ZS_LEGACY_PROJECTS_DIR" not in (initializer.get("environment") or {})
     assert "minio" not in (initializer.get("depends_on") or {})
 
 
@@ -316,10 +316,10 @@ def test_runtime_guard_rejects_reintroduced_shared_initialization(function_name)
 def test_runtime_processes_only_validate_schema_version() -> None:
     """API 与 worker 不得重新取得建表、DDL 收敛或 checkpoint setup ownership。"""
     root = project_root()
-    migration_source = (root / "backend/yuxi/migrations/main.py").read_text()
+    migration_source = (root / "backend/zs/migrations/main.py").read_text()
     runtime_sources = {
-        "api": (root / "backend/yuxi/bootstrap/api.py").read_text(),
-        "worker": (root / "backend/yuxi/bootstrap/worker.py").read_text(),
+        "api": (root / "backend/zs/bootstrap/api.py").read_text(),
+        "worker": (root / "backend/zs/bootstrap/worker.py").read_text(),
     }
     ddl_markers = (
         "create_business_tables(",
@@ -364,7 +364,7 @@ def test_integration_cleanup_does_not_access_docker_daemon():
     [
         ("api", "./docker/volumes/models:/app/models", "/app/models"),
         ("worker", "/var/run/docker.sock:/var/run/docker.sock", "/var/run/docker.sock"),
-        ("api", "${YUXI_STATE_DIR:-./docker/volumes}/models:/app/models:ro", "/app/models"),
+        ("api", "${ZS_STATE_DIR:-./docker/volumes}/models:/app/models:ro", "/app/models"),
     ],
 )
 def test_mount_guard_detects_reintroduced_api_worker_host_dependencies(
@@ -382,16 +382,16 @@ def test_mount_guard_detects_reintroduced_api_worker_host_dependencies(
 def test_environment_guard_detects_reintroduced_docker_api_configuration():
     """恢复旧 Docker API 环境变量时，边界 guard 必须报告对应服务。"""
     compose = deepcopy(load_compose("docker-compose.yml"))
-    compose["services"]["api"]["environment"]["YUXI_DOCKER_API_BASE"] = "http://localhost"
+    compose["services"]["api"]["environment"]["ZS_DOCKER_API_BASE"] = "http://localhost"
 
-    assert _forbidden_api_worker_env_keys(compose) == {("api", "YUXI_DOCKER_API_BASE")}
+    assert _forbidden_api_worker_env_keys(compose) == {("api", "ZS_DOCKER_API_BASE")}
 
 
 @pytest.mark.parametrize("service_name", ["api", "worker"])
 def test_runtime_directory_guard_detects_shared_save_directory(service_name: str):
     """把运行目录恢复到共享 saves 时，边界 guard 必须报告对应服务。"""
     compose = deepcopy(load_compose("docker-compose.yml"))
-    compose["services"][service_name]["environment"]["YUXI_RUNTIME_DIR"] = "/app/saves/runtime"
+    compose["services"][service_name]["environment"]["ZS_RUNTIME_DIR"] = "/app/saves/runtime"
 
     assert _runtime_directory_violations(compose) == {(service_name, "/app/saves/runtime")}
 
@@ -430,8 +430,8 @@ def test_shipping_selects_cube_or_container_with_explicit_runner_boundary(filena
         assert env["SANDBOX_BACKEND"] == "${SANDBOX_BACKEND:-container}"
         assert env["SANDBOX_RUNNER_URL"] == "${SANDBOX_RUNNER_URL:-http://sandbox-runner:8090}"
         assert env["CUBE_API_URL"] == "${CUBE_API_URL:-}"
-        assert env["CUBE_NODE_USER_DATA_DIR"] == "${CUBE_NODE_USER_DATA_DIR:-/data/shared/yuxi/threads}"
-        assert env["CUBE_NODE_SKILL_PROJECTION_DIR"] == "${CUBE_NODE_SKILL_PROJECTION_DIR:-/data/shared/yuxi/skill-projections}"
+        assert env["CUBE_NODE_USER_DATA_DIR"] == "${CUBE_NODE_USER_DATA_DIR:-/data/shared/zs/threads}"
+        assert env["CUBE_NODE_SKILL_PROJECTION_DIR"] == "${CUBE_NODE_SKILL_PROJECTION_DIR:-/data/shared/zs/skill-projections}"
         assert not any(key.startswith("SANDBOX_CONTAINER_") for key in env)
         assert env["SANDBOX_IDLE_SECONDS"] == "${SANDBOX_IDLE_SECONDS:-300}"
         assert not any(key.startswith("SANDBOX_PROVISIONER") for key in env)
@@ -500,7 +500,7 @@ def test_rapidocr_preinstall_guard_detects_missing_or_mismatched_copy() -> None:
     without_copy = "\n".join(line for line in dockerfile.splitlines() if "*.onnx" not in line)
     assert "未把 rapidocr 包内" in _rapidocr_model_preinstall_defects(without_copy, compose_dirs)[0]
 
-    mismatched = dockerfile.replace("*.onnx /home/yuxi/.cache/rapidocr/models/", "*.onnx /opt/rapidocr/models/")
+    mismatched = dockerfile.replace("*.onnx /home/zs/.cache/rapidocr/models/", "*.onnx /opt/rapidocr/models/")
     assert "模型拷贝目标" in _rapidocr_model_preinstall_defects(mismatched, compose_dirs)[0]
 
     drifted = {**compose_dirs, "docker-compose.yml": "/srv/other/models"}

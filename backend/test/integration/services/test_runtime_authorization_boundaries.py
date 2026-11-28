@@ -17,22 +17,22 @@ from pydantic import Field
 from sqlalchemy import event, select, text
 
 from test.integration.support.module_audit import isolated_audit_store
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
-from yuxi.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
-from yuxi.modules.agents.runtime.context import prepare_agent_runtime_context
-from yuxi.modules.agents.runtime.middlewares.authorization import (
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.runtime.agent_backends.chatbot import graph as chatbot_graph
+from zs.modules.agents.runtime.agent_backends.chatbot.context import ChatBotContext
+from zs.modules.agents.runtime.context import prepare_agent_runtime_context
+from zs.modules.agents.runtime.middlewares.authorization import (
     AgentExecutionRevoked,
     RuntimeAuthorizationMiddleware,
     refresh_execution_authorization,
 )
-from yuxi.modules.extensions.skills import projection
-from yuxi.modules.extensions.skills.edit import edit_shared_skill_file
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.extensions.tools.runtime import resolve_configured_runtime_tools
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
+from zs.modules.extensions.skills import projection
+from zs.modules.extensions.skills.edit import edit_shared_skill_file
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.extensions.tools.runtime import resolve_configured_runtime_tools
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -42,9 +42,9 @@ SHARED = {"version": 2, "read_scope": {"access_level": "global"}, "manage_scope"
 @pytest_asyncio.fixture
 async def authorized_context(tmp_path, monkeypatch):
     """隔离持久权限与来源文件，保留生产解析和投影。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "users"))
-    monkeypatch.setenv("YUXI_SKILL_DATA_DIR", str(tmp_path / "sources"))
-    monkeypatch.setenv("YUXI_SKILL_PROJECTION_DIR", str(tmp_path / "projections"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "users"))
+    monkeypatch.setenv("ZS_SKILL_DATA_DIR", str(tmp_path / "sources"))
+    monkeypatch.setenv("ZS_SKILL_PROJECTION_DIR", str(tmp_path / "projections"))
     source = tmp_path / "sources/shared/live-skill"
     source.mkdir(parents=True)
     (source / "SKILL.md").write_text("# CURRENT_AUTHORIZED_SKILL\n")
@@ -275,7 +275,7 @@ async def test_refresh_preserves_prepared_bound_root_but_reads_current_shared_ro
 
 async def test_skill_runtime_skips_locked_invisible_row(authorized_context):
     """其他用户持有私有行写锁时，候选筛选不得阻塞运行时。"""
-    from yuxi.modules.extensions.skills.access import lock_accessible_shared_skills_for_runtime
+    from zs.modules.extensions.skills.access import lock_accessible_shared_skills_for_runtime
 
     fixture = authorized_context
     async with fixture.sessions() as db:
@@ -300,7 +300,7 @@ async def test_skill_runtime_skips_locked_invisible_row(authorized_context):
 
 async def test_skill_runtime_rechecks_revocation_after_waiting_for_lock(authorized_context):
     """初始可见的候选在等待行锁期间被撤权，锁后必须拒绝。"""
-    from yuxi.modules.extensions.skills.access import lock_accessible_shared_skills_for_runtime
+    from zs.modules.extensions.skills.access import lock_accessible_shared_skills_for_runtime
 
     fixture = authorized_context
     async with fixture.sessions() as editor, fixture.sessions() as runtime:
@@ -343,8 +343,8 @@ async def test_skill_prompt_is_built_after_current_request_authorization(authori
 @pytest.mark.parametrize("change", ["revoked", "personal_replacement"])
 async def test_model_retry_rejects_changed_injected_skill_with_real_sources(authorized_context, change):
     """实际数据库撤权或个人同名替换后，网络重试不能发送旧提示。"""
-    from yuxi.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware
-    from yuxi.modules.workspace.paths import user_workspace_dir
+    from zs.modules.agents.runtime.middlewares.network_retry import NetworkRetryMiddleware
+    from zs.modules.workspace.paths import user_workspace_dir
 
     fixture = authorized_context
 
@@ -507,7 +507,7 @@ class CapturingModel(BaseChatModel):
 @pytest.mark.parametrize("enabled", [False, True])
 async def test_shipping_graph_checks_nested_mcp_without_discovering_inactive_tools(authorized_context, enabled):
     """生产装配只查嵌套连接，未激活 MCP 的不可达地址不能阻止普通聊天。"""
-    from yuxi.modules.extensions.mcp.models import MCPServer
+    from zs.modules.extensions.mcp.models import MCPServer
 
     fixture = authorized_context
     child_source = fixture.source.parent / "nested-skill"

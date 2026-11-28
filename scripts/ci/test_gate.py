@@ -20,7 +20,7 @@ class CIGateTests(unittest.TestCase):
             (["docs/intro/index.md"], {"trust", "docs"}),
             (["frontend/src/pages/Workspace.vue"], {"trust", "frontend"}),
             (
-                ["backend/yuxi/modules/agents/runtime.py"],
+                ["backend/zs/modules/agents/runtime.py"],
                 {"trust", "backend", "ruff", "service", "system"},
             ),
             (

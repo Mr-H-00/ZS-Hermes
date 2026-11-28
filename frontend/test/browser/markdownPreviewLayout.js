@@ -79,9 +79,9 @@ async (page) => {
         await checkTransparentTable()
         measurements.push({ dark, width, ...measured })
       }
-      await page.screenshot({ path: `/tmp/yuxi-markdown-padding-${dark ? 'dark' : 'light'}-mobile.png` })
+      await page.screenshot({ path: `/tmp/zs-markdown-padding-${dark ? 'dark' : 'light'}-mobile.png` })
       await page.setViewportSize({ width: 1440, height: 900 })
-      await page.locator('#markdown-layout-probe .agent-file-preview').screenshot({ path: `/tmp/yuxi-markdown-padding-${dark ? 'dark' : 'light'}.png` })
+      await page.locator('#markdown-layout-probe .agent-file-preview').screenshot({ path: `/tmp/zs-markdown-padding-${dark ? 'dark' : 'light'}.png` })
     }
     await page.locator('#markdown-layout-probe button[title="全屏预览"]').click()
     const fullscreen = page.locator('.fullscreen-file-content .yk-markdown-preview')

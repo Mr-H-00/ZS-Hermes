@@ -15,16 +15,16 @@ class BumpVersionScriptTests(unittest.TestCase):
         shutil.copy2(Path(__file__).resolve().parents[1] / "bump-version.sh", script)
 
         fixtures = {
-            ".env.template": "# SANDBOX_CONTAINER_IMAGE=yuxi-sandbox:0.7.2.beta1\n",
+            ".env.template": "# SANDBOX_CONTAINER_IMAGE=zs-sandbox:0.7.2.beta1\n",
             "backend/pyproject.toml": 'version = "0.7.2.beta1"\n',
-            "backend/uv.lock": ('name = "yuxi"\nversion = "0.7.2b1"\n'),
+            "backend/uv.lock": ('name = "zs"\nversion = "0.7.2b1"\n'),
             "frontend/package.json": '{\n  "version": "0.7.2.beta1"\n}\n',
-            "backend/yuxi/sandbox_runner/settings.py": 'image = "yuxi-sandbox:0.7.2.beta1"\n',
-            "backend/test/integration/sandbox/test_container_sandbox.py": 'image = "yuxi-sandbox:0.7.2.beta1"\n' * 3,
-            "docs/advanced/container-sandbox.md": 'docker build -t yuxi-sandbox:0.7.2.beta1 .\n' * 2,
-            "backend/test/e2e/web-tools.compose.yml": "image: ${COMPOSE_PROJECT_NAME:-yuxi}-api:${YUXI_VERSION:-0.7.2.beta1}\n",
+            "backend/zs/sandbox_runner/settings.py": 'image = "zs-sandbox:0.7.2.beta1"\n',
+            "backend/test/integration/sandbox/test_container_sandbox.py": 'image = "zs-sandbox:0.7.2.beta1"\n' * 3,
+            "docs/advanced/container-sandbox.md": 'docker build -t zs-sandbox:0.7.2.beta1 .\n' * 2,
+            "backend/test/e2e/web-tools.compose.yml": "image: ${COMPOSE_PROJECT_NAME:-zs}-api:${ZS_VERSION:-0.7.2.beta1}\n",
             "docker-compose.yml": "\n".join(
-                f"image: ${{COMPOSE_PROJECT_NAME:-yuxi}}-{name}:${{YUXI_VERSION:-0.7.2.beta1}}"
+                f"image: ${{COMPOSE_PROJECT_NAME:-zs}}-{name}:${{ZS_VERSION:-0.7.2.beta1}}"
                 for name in (
                     "api",
                     "api",
@@ -34,29 +34,29 @@ class BumpVersionScriptTests(unittest.TestCase):
             )
             + "\n",
             "docker-compose.prod.yml": "\n".join(
-                f"image: ${{COMPOSE_PROJECT_NAME:-yuxi}}-{name}:${{YUXI_VERSION:-0.7.2.beta1}}"
+                f"image: ${{COMPOSE_PROJECT_NAME:-zs}}-{name}:${{ZS_VERSION:-0.7.2.beta1}}"
                 for name in ("api", "api", "api", "frontend")
             )
             + "\n",
             "README.md": (
                 "当前仓库默认配置对应 `v0.7.2.beta1`。\n"
                 "当前候选源码版本为 `v0.7.2.beta1`。\n"
-                "git clone --branch v0.7.2.beta1 --depth 1 https://github.com/xerrors/Yuxi.git\n"
+                "git clone --branch v0.7.2.beta1 --depth 1 https://github.com/Mr-H-00/ZS-Hermes.git\n"
             ),
             "README.en.md": (
                 "The candidate source version is `v0.7.2.beta1`.\n"
-                "git clone --branch v0.7.2.beta1 --depth 1 https://github.com/xerrors/Yuxi.git\n"
+                "git clone --branch v0.7.2.beta1 --depth 1 https://github.com/Mr-H-00/ZS-Hermes.git\n"
             ),
             "docs/intro/quick-start.md": (
                 "仓库当前默认配置对应 `v0.7.2.beta1`。\n"
                 "当前候选源码版本为 `v0.7.2.beta1`。\n"
-                "git clone --branch v0.7.2.beta1 --depth 1 https://github.com/xerrors/Yuxi.git\n"
+                "git clone --branch v0.7.2.beta1 --depth 1 https://github.com/Mr-H-00/ZS-Hermes.git\n"
             ),
             "docs/advanced/deployment.md": (
                 "从 v0.7.1 升级到当前 `v0.7.2.beta1`。\n当前候选为 `0.7.2.beta1`。\ngit checkout v0.7.2.beta1\n"
             ),
-            "docs/.vitepress/theme/components/YuxiHome.vue": (
-                "获取 0.7.2.beta1 候选源码\ngit clone --branch v0.7.2.beta1 --depth 1 https://github.com/xerrors/Yuxi.git\n"
+            "docs/.vitepress/theme/components/ZSHome.vue": (
+                "获取 0.7.2.beta1 候选源码\ngit clone --branch v0.7.2.beta1 --depth 1 https://github.com/Mr-H-00/ZS-Hermes.git\n"
             ),
             "docs/develop-guides/releases/0.7.2.md": "当前候选版本为 `0.7.2.beta1`。\n",
             "docs/develop-guides/changelog.md": "当前候选为 `0.7.2.beta1`。\n\n## v0.7.2.beta1 (历史记录)\n",
@@ -84,7 +84,7 @@ class BumpVersionScriptTests(unittest.TestCase):
                 ".env.template",
                 "backend/pyproject.toml",
                 "frontend/package.json",
-                "backend/yuxi/sandbox_runner/settings.py",
+                "backend/zs/sandbox_runner/settings.py",
                 "backend/test/integration/sandbox/test_container_sandbox.py",
                 "docs/advanced/container-sandbox.md",
                 "backend/test/e2e/web-tools.compose.yml",
@@ -94,7 +94,7 @@ class BumpVersionScriptTests(unittest.TestCase):
                 "README.en.md",
                 "docs/intro/quick-start.md",
                 "docs/advanced/deployment.md",
-                "docs/.vitepress/theme/components/YuxiHome.vue",
+                "docs/.vitepress/theme/components/ZSHome.vue",
                 "docs/develop-guides/releases/0.7.2.md",
             ]
             for relative_path in current_paths:
@@ -130,10 +130,10 @@ class BumpVersionScriptTests(unittest.TestCase):
             )
             for relative_path in (
                 ".env.template",
-                "backend/yuxi/sandbox_runner/settings.py",
+                "backend/zs/sandbox_runner/settings.py",
                 "backend/test/integration/sandbox/test_container_sandbox.py",
             ):
-                self.assertIn("yuxi-sandbox:0.7.2.dev2", (root / relative_path).read_text())
+                self.assertIn("zs-sandbox:0.7.2.dev2", (root / relative_path).read_text())
                 self.assertNotIn("0.7.2.beta1", (root / relative_path).read_text())
             for relative_path in (
                 "README.md",
@@ -141,7 +141,7 @@ class BumpVersionScriptTests(unittest.TestCase):
                 "docs/intro/quick-start.md",
                 "docs/advanced/deployment.md",
                 "docs/advanced/container-sandbox.md",
-                "docs/.vitepress/theme/components/YuxiHome.vue",
+                "docs/.vitepress/theme/components/ZSHome.vue",
                 "docs/develop-guides/releases/0.7.2.md",
                 "docs/develop-guides/changelog.md",
             ):

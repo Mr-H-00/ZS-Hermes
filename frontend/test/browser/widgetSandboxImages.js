@@ -99,10 +99,10 @@ async (originalPage) => {
         measurements.push({ dark, width, ...dimensions })
       }
       await image.waitFor()
-      await page.locator('#widget-sandbox-probe').screenshot({ path: `/tmp/yuxi-widget-image-${dark ? 'dark' : 'light'}-mobile.png` })
+      await page.locator('#widget-sandbox-probe').screenshot({ path: `/tmp/zs-widget-image-${dark ? 'dark' : 'light'}-mobile.png` })
       await page.setViewportSize({ width: 1024, height: 900 })
       await image.waitFor()
-      await page.locator('#widget-sandbox-probe').screenshot({ path: `/tmp/yuxi-widget-image-${dark ? 'dark' : 'light'}.png` })
+      await page.locator('#widget-sandbox-probe').screenshot({ path: `/tmp/zs-widget-image-${dark ? 'dark' : 'light'}.png` })
     }
     await page.evaluate(() => { const p = window.widgetImageProbe; p.state.content = p.widget(p.state.source, '蓝色与黄色') })
     const caption = page.locator('#widget-sandbox-probe figcaption')
@@ -112,7 +112,7 @@ async (originalPage) => {
       return { left: rect.left - image.left, bottom: image.bottom - rect.bottom, align: getComputedStyle(el).textAlign }
     })
     check(overlay.left === 10 && overlay.bottom === 10 && overlay.align === 'left', `短语没有叠放在左下角：${JSON.stringify(overlay)}`)
-    await page.locator('#widget-sandbox-probe .widget-image').screenshot({ path: '/tmp/yuxi-widget-image-caption.png' })
+    await page.locator('#widget-sandbox-probe .widget-image').screenshot({ path: '/tmp/zs-widget-image-caption.png' })
     await page.evaluate(() => { window.widgetImageProbe.stage = 'gallery' })
     const galleryMeasurements = []
     await page.evaluate(() => { const p = window.widgetImageProbe; p.state.content = p.gallery() })
@@ -137,9 +137,9 @@ async (originalPage) => {
         check(await strip.evaluate(el => getComputedStyle(el).scrollbarWidth === 'none'), '图片组仍显示滚动条')
         galleryMeasurements.push({ theme, width, ...group })
       }
-      await strip.screenshot({ path: `/tmp/yuxi-widget-gallery-${theme}-mobile.png` })
+      await strip.screenshot({ path: `/tmp/zs-widget-gallery-${theme}-mobile.png` })
       await page.setViewportSize({ width: 1024, height: 900 })
-      await strip.screenshot({ path: `/tmp/yuxi-widget-gallery-${theme}.png` })
+      await strip.screenshot({ path: `/tmp/zs-widget-gallery-${theme}.png` })
     }
     await strip.evaluate(el => { el.scrollLeft = el.scrollWidth })
     check(await strip.evaluate(el => el.scrollLeft > 0), '横向滚动无法浏览后续图片')
@@ -160,11 +160,11 @@ async (originalPage) => {
     await page.evaluate(() => { window.widgetImageProbe.stage = 'keyboard previous image' })
     await page.keyboard.press('ArrowLeft')
     await page.waitForFunction(() => document.querySelector('.widget-image-preview img')?.naturalHeight === 640)
-    await dialog.screenshot({ path: '/tmp/yuxi-widget-image-preview-dark.png' })
+    await dialog.screenshot({ path: '/tmp/zs-widget-image-preview-dark.png' })
     await page.evaluate(() => window.widgetImageProbe.theme.setTheme('light'))
-    await dialog.screenshot({ path: '/tmp/yuxi-widget-image-preview.png' })
+    await dialog.screenshot({ path: '/tmp/zs-widget-image-preview.png' })
     await page.setViewportSize({ width: 375, height: 812 })
-    await dialog.screenshot({ path: '/tmp/yuxi-widget-image-preview-mobile.png' })
+    await dialog.screenshot({ path: '/tmp/zs-widget-image-preview-mobile.png' })
     await page.setViewportSize({ width: 1024, height: 900 })
     await dialog.getByRole('button', { name: '关闭图片预览', exact: true }).click()
     await dialog.waitFor({ state: 'hidden' })
@@ -245,7 +245,7 @@ async (originalPage) => {
     await page.unroute('**' + protectedSrc)
     await page.evaluate(() => { const p = window.widgetImageProbe; p.state.content = p.widget(p.state.source + '.missing') })
     await page.locator('#widget-sandbox-probe .widget-image [role="alert"]').waitFor()
-    await page.locator('#widget-sandbox-probe').screenshot({ path: '/tmp/yuxi-widget-image-error.png' })
+    await page.locator('#widget-sandbox-probe').screenshot({ path: '/tmp/zs-widget-image-error.png' })
     await page.evaluate(() => { const p = window.widgetImageProbe; p.state.content = p.widget(p.state.source) })
     await page.waitForFunction(() => document.querySelector('#widget-sandbox-probe .widget-image img')?.naturalWidth === 640)
     await image.click()

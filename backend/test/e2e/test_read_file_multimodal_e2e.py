@@ -102,7 +102,7 @@ async def _run(
                             "content": [{"type": "input_text", "text": query}],
                         }
                     ],
-                    "yuxi": {"mode": "follow_up", "attachment_file_ids": [attachment_file_id]},
+                    "zs": {"mode": "follow_up", "attachment_file_ids": [attachment_file_id]},
                 }
             ],
         },
@@ -125,16 +125,16 @@ async def _run(
             if turn["status"] in {"completed", "failed", "cancelled"}:
                 completed = True
                 assert turn["status"] == "completed", turn
-                assert turn["yuxi"]["result_run_id"] == run_id, turn
-                assert turn["yuxi"]["output"] is not None, turn
-                return str(output_text(turn["yuxi"]["output"]))
+                assert turn["zs"]["result_run_id"] == run_id, turn
+                assert turn["zs"]["output"] is not None, turn
+                return str(output_text(turn["zs"]["output"]))
             await asyncio.sleep(2)
         pytest.fail(f"read_file E2E Turn timed out: {turn_id}")
     finally:
         if not completed:
             cancel = await client.post(
                 f"/api/v1/agents/sessions/{thread_id}/events",
-                json={"events": [{"type": "agent.session.input.cancel", "yuxi": {"turn_id": turn_id}}]},
+                json={"events": [{"type": "agent.session.input.cancel", "zs": {"turn_id": turn_id}}]},
                 headers={**headers, "Idempotency-Key": f"read-file-cancel-{turn_id}"},
             )
             assert cancel.status_code in {202, 409}, cancel.text

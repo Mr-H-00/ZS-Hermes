@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/services/run_lifecycle.py
+Owner：backend/zs/modules/agents/services/run_lifecycle.py
 
 ## 问题
 

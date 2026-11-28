@@ -13,21 +13,21 @@ from fastapi import FastAPI
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.identity.auth import auth
-from yuxi.api.routers.identity.departments import department
-from yuxi.api.routers.identity.users import user_router
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.migrations.schema import IDENTITY_PERMISSION_STATEMENTS
-from yuxi.modules.identity.models import APIKey, CLIAuthSession, Department, User, UserConfig
-from yuxi.modules.identity.preferences import UserConfigSchema
-from yuxi.modules.identity.repositories.api_keys import APIKeyRepository
-from yuxi.modules.identity.repositories.departments import DepartmentRepository
-from yuxi.modules.identity.repositories.preferences import upsert_user_config
-from yuxi.modules.identity.services import api_keys, administration, cli_auth, preferences, users
-from yuxi.modules.identity.security import AuthUtils
-from yuxi.shared.errors import DomainError, PermissionDeniedError
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.identity.auth import auth
+from zs.api.routers.identity.departments import department
+from zs.api.routers.identity.users import user_router
+from zs.infrastructure.postgres.base import Base
+from zs.migrations.schema import IDENTITY_PERMISSION_STATEMENTS
+from zs.modules.identity.models import APIKey, CLIAuthSession, Department, User, UserConfig
+from zs.modules.identity.preferences import UserConfigSchema
+from zs.modules.identity.repositories.api_keys import APIKeyRepository
+from zs.modules.identity.repositories.departments import DepartmentRepository
+from zs.modules.identity.repositories.preferences import upsert_user_config
+from zs.modules.identity.services import api_keys, administration, cli_auth, preferences, users
+from zs.modules.identity.security import AuthUtils
+from zs.shared.errors import DomainError, PermissionDeniedError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -311,7 +311,7 @@ async def test_http_avatar_persists_reference_and_uploaded_bytes(scenario):
     import base64
     from urllib.parse import urlsplit
 
-    from yuxi.infrastructure.minio import get_minio_client
+    from zs.infrastructure.minio import get_minio_client
 
     content = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=")
     object_name = None

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/extensions/skills/runtime.py
+Owner：backend/zs/modules/extensions/skills/runtime.py
 
 ## 问题
 

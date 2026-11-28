@@ -2,9 +2,9 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/workspace/filesystem.py
+Owner：backend/zs/modules/workspace/filesystem.py
 
-本决定跨越两个事实 Owner，正文分工如下：Workspace 文件边界与路径契约由 `backend/yuxi/modules/workspace/paths.py`、`filesystem.py` 与 `services/` 拥有，sandbox_runner 的装配与容器执行由 `backend/yuxi/sandbox_runner/main.py`、`manager.py`、`engine.py` 拥有；Owner 字段指向其中安全语义最集中的 no-follow 文件边界实现。
+本决定跨越两个事实 Owner，正文分工如下：Workspace 文件边界与路径契约由 `backend/zs/modules/workspace/paths.py`、`filesystem.py` 与 `services/` 拥有，sandbox_runner 的装配与容器执行由 `backend/zs/sandbox_runner/main.py`、`manager.py`、`engine.py` 拥有；Owner 字段指向其中安全语义最集中的 no-follow 文件边界实现。
 
 ## 问题
 

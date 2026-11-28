@@ -5,16 +5,16 @@ import threading
 from pathlib import Path
 
 import pytest
-import yuxi.modules.agents.services.artifacts as svc
-from yuxi.api.responses.files import render_file_result
-from yuxi.modules.extensions.skills import edit as skill_edit
-from yuxi.modules.extensions.skills.projection import get_user_skills_root_dir
-from yuxi.modules.workspace.errors import FileTransferLimitError
-from yuxi.modules.workspace import runtime_files
-from yuxi.modules.workspace.runtime_paths import workspace_scope_from_runtime_path
-from yuxi.modules.workspace.services.bindings import AuthorizedWorkdir
-from yuxi.modules.workspace.workdir import Workdir
-from yuxi.shared.errors import ContentTooLargeError, DomainError, InvalidOperationError, PermissionDeniedError, ResourceNotFoundError
+import zs.modules.agents.services.artifacts as svc
+from zs.api.responses.files import render_file_result
+from zs.modules.extensions.skills import edit as skill_edit
+from zs.modules.extensions.skills.projection import get_user_skills_root_dir
+from zs.modules.workspace.errors import FileTransferLimitError
+from zs.modules.workspace import runtime_files
+from zs.modules.workspace.runtime_paths import workspace_scope_from_runtime_path
+from zs.modules.workspace.services.bindings import AuthorizedWorkdir
+from zs.modules.workspace.workdir import Workdir
+from zs.shared.errors import ContentTooLargeError, DomainError, InvalidOperationError, PermissionDeniedError, ResourceNotFoundError
 
 
 class _Workspace:
@@ -73,7 +73,7 @@ def live_files(monkeypatch, tmp_path):
     (tmp_path / "shared").mkdir()
     backend = _Workspace(tmp_path / "shared/reporter")
     monkeypatch.setattr(skill_edit, "get_skill_data_dir", lambda: tmp_path)
-    monkeypatch.setenv("YUXI_SKILL_PROJECTION_DIR", str(tmp_path / "projections"))
+    monkeypatch.setenv("ZS_SKILL_PROJECTION_DIR", str(tmp_path / "projections"))
     backend.skill_root = get_user_skills_root_dir("user-1") / "reporter"
     backend.skill_root.mkdir(parents=True)
     (backend.skill_root / "SKILL.md").write_bytes(b"projected skill")

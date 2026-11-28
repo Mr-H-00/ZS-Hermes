@@ -10,10 +10,10 @@ from langchain_core.tools import tool
 from langchain.tools.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-import yuxi.modules.agents.runtime.middlewares.skills as skills_middleware
-from yuxi.modules.agents.runtime.middlewares.skills import SkillsMiddleware
-from yuxi.modules.extensions.tools.runtime import resolve_skill_gated_tools
-from yuxi.modules.extensions.tools.runtime import resolve_configured_runtime_tools
+import zs.modules.agents.runtime.middlewares.skills as skills_middleware
+from zs.modules.agents.runtime.middlewares.skills import SkillsMiddleware
+from zs.modules.extensions.tools.runtime import resolve_skill_gated_tools
+from zs.modules.extensions.tools.runtime import resolve_configured_runtime_tools
 
 _KB_TOOL_NAMES = {
     "list_kbs",
@@ -59,7 +59,7 @@ def _as_model_request(request):
 
 async def _authorized_model_call(monkeypatch, middleware, request, handler, *, mcp_policy=None):
     """按生产顺序组合 Skills 与真实授权中间件，只替换持久权限读取。"""
-    from yuxi.modules.agents.runtime.middlewares import authorization
+    from zs.modules.agents.runtime.middlewares import authorization
 
     context = request.runtime.context
     context.tools = getattr(context, "tools", [])
@@ -282,7 +282,7 @@ async def test_awrap_model_call_mounts_knowledge_base_skill_tools(monkeypatch):
 async def test_resolve_skill_gated_tools_registers_local_skill_tools(monkeypatch):
     """门控工具必须能从可见 Skill 的依赖解析出真实工具实例，并随基础工具一起进入
     create_agent 工具列表（即注册进 ToolNode），否则激活后仍报 not a valid tool。"""
-    from yuxi.modules.extensions.tools import registry as tool_registry
+    from zs.modules.extensions.tools import registry as tool_registry
 
     demo = SimpleNamespace(name="demo_local_tool", description="fixture")
     monkeypatch.setattr(tool_registry, "_all_tool_instances", [*tool_registry.get_all_tool_instances(), demo])
@@ -376,7 +376,7 @@ async def test_unactivated_skill_cannot_hide_base_tools(monkeypatch):
 async def test_improvement_tool_without_run_rejects_untraceable_write():
     """工具可被注册，但缺少真实执行归属时明确拒绝保存。"""
     from langchain_core.tools import ToolException
-    from yuxi.modules.extensions.tools.builtin.mark_for_improvement import mark_for_improvement
+    from zs.modules.extensions.tools.builtin.mark_for_improvement import mark_for_improvement
 
     runtime = SimpleNamespace(context=SimpleNamespace(run_id=None), tool_call_id="call-test")
     with pytest.raises(ToolException, match="未绑定真实 Run"):
@@ -689,7 +689,7 @@ async def test_skill_reusing_explicit_mcp_server_does_not_duplicate_registered_t
 
 @pytest.mark.asyncio
 async def test_explicit_mcp_rejects_skill_local_tool_name_collision(monkeypatch):
-    from yuxi.modules.extensions.tools import registry as tool_registry
+    from zs.modules.extensions.tools import registry as tool_registry
 
     demo = SimpleNamespace(name="demo_local_tool", description="fixture")
     monkeypatch.setattr(tool_registry, "_all_tool_instances", [*tool_registry.get_all_tool_instances(), demo])
@@ -709,7 +709,7 @@ async def test_explicit_mcp_rejects_skill_local_tool_name_collision(monkeypatch)
             run_tools.update(result)
         return result
 
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.service.resolve_runtime_mcp_tools", fake_resolve_runtime_mcp_tools)
+    monkeypatch.setattr("zs.modules.extensions.mcp.service.resolve_runtime_mcp_tools", fake_resolve_runtime_mcp_tools)
     context = SimpleNamespace(
         tools=[],
         mcps=["configured"],
@@ -912,7 +912,7 @@ async def test_mcp_failure_reaches_runtime_instead_of_removing_tools(monkeypatch
     """显式 MCP 与 Skill MCP 加载失败都保留运行失败，不变成无工具成功。"""
     failure = RuntimeError("MCP 服务 demo 工具加载失败")
     loader = AsyncMock(side_effect=failure)
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.service.resolve_runtime_mcp_tools", loader)
+    monkeypatch.setattr("zs.modules.extensions.mcp.service.resolve_runtime_mcp_tools", loader)
     monkeypatch.setattr(skills_middleware, "resolve_runtime_mcp_tools", loader)
     context = SimpleNamespace(tools=[], mcps=["demo"] if source == "configured" else [], mcp_tool_servers={}, mcp_tools={})
     with pytest.raises(RuntimeError, match="MCP 服务 demo") as caught:
@@ -935,7 +935,7 @@ async def test_mcp_failure_reaches_runtime_instead_of_removing_tools(monkeypatch
 @pytest.mark.parametrize("configured", [False, True])
 async def test_skill_does_not_reintroduce_unconfigured_web_tools(configured):
     """激活搜索 Skill 只能暴露本轮已经装配的网页能力。"""
-    from yuxi.modules.extensions.tools.builtin.web_search import web_search, web_fetch
+    from zs.modules.extensions.tools.builtin.web_search import web_search, web_fetch
 
     context = SimpleNamespace(
         tools=[],
@@ -984,7 +984,7 @@ async def test_skill_does_not_reintroduce_unconfigured_web_tools(configured):
 async def test_unconnected_mcp_preserves_chat_and_hides_skill_dependencies(monkeypatch, via_skill):
     """缺少个人授权时普通模型仍执行，Skill 本地依赖也不能伪装可用。"""
     resolver = AsyncMock(return_value={})
-    monkeypatch.setattr("yuxi.modules.extensions.mcp.service.resolve_runtime_mcp_tools", resolver)
+    monkeypatch.setattr("zs.modules.extensions.mcp.service.resolve_runtime_mcp_tools", resolver)
     monkeypatch.setattr(skills_middleware, "resolve_runtime_mcp_tools", resolver)
     context = SimpleNamespace(
         uid="employee",
@@ -1082,7 +1082,7 @@ async def test_dynamic_parent_uses_service_result_for_nested_mcp_dependency(monk
 
     async def handler(request):
         """检查可用服务影响父工具，但不隐式激活子 Skill。"""
-        from yuxi.modules.agents.runtime.middlewares.authorization import tool_allowed
+        from zs.modules.agents.runtime.middlewares.authorization import tool_allowed
 
         assert tool_allowed(context, "list_kbs", request.state, mcp_policy) is connected
         return {tool.name for tool in request.tools}

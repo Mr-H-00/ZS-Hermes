@@ -3,7 +3,7 @@
 状态：implemented
 
 类型：feature
-Owner：backend/yuxi/modules/identity/permissions/resource_permission.py
+Owner：backend/zs/modules/identity/permissions/resource_permission.py
 
 ## 问题
 

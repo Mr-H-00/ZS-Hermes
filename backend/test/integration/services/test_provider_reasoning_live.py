@@ -1,6 +1,6 @@
 """显式启用的小量真实模型探针；每个 model spec 只进行一次工具调用和一次续答。
 
-运行：YUXI_REASONING_PROBE_MODELS='provider:model,...' uv run pytest -s <本文件>
+运行：ZS_REASONING_PROBE_MODELS='provider:model,...' uv run pytest -s <本文件>
 """
 
 import asyncio
@@ -13,10 +13,10 @@ import httpx
 import pytest
 from langchain_core.messages import HumanMessage, ToolMessage
 
-from yuxi.modules.models.chat import load_chat_model
-from yuxi.modules.models.providers.cache import model_cache
+from zs.modules.models.chat import load_chat_model
+from zs.modules.models.providers.cache import model_cache
 
-MODEL_SPECS = [spec.strip() for spec in os.getenv("YUXI_REASONING_PROBE_MODELS", "").split(",") if spec.strip()]
+MODEL_SPECS = [spec.strip() for spec in os.getenv("ZS_REASONING_PROBE_MODELS", "").split(",") if spec.strip()]
 
 pytestmark = pytest.mark.integration
 
@@ -26,11 +26,11 @@ pytestmark = pytest.mark.integration
 async def test_live_reasoning_tool_roundtrip(spec):
     """验证真实推理流、工具参数、续答回传和最终模型正文，不输出推理原文。"""
     if spec is None:
-        pytest.skip("仅在显式配置 YUXI_REASONING_PROBE_MODELS 时调用计费服务")
+        pytest.skip("仅在显式配置 ZS_REASONING_PROBE_MODELS 时调用计费服务")
     info = model_cache.get_model_info(spec)
     assert info and info.api_key, "指定测试模型必须存在且配置凭据"
     requests = []
-    enable_thinking = os.getenv("YUXI_REASONING_PROBE_THINKING") == "1"
+    enable_thinking = os.getenv("ZS_REASONING_PROBE_THINKING") == "1"
 
     async def capture(request):
         """只在内存核对出站协议，不记录认证字段。"""
@@ -52,7 +52,7 @@ async def test_live_reasoning_tool_roundtrip(spec):
     ]
     started = monotonic()
     async with httpx.AsyncClient(event_hooks={"request": [capture]}, timeout=120) as client:
-        model = load_chat_model(spec, session_id=f"yuxi-provider-probe-{uuid4()}", http_async_client=client, max_retries=0, timeout=120)
+        model = load_chat_model(spec, session_id=f"zs-provider-probe-{uuid4()}", http_async_client=client, max_retries=0, timeout=120)
         request_options = {}
         if enable_thinking:
             extra_body = dict(info.request_body_overrides)

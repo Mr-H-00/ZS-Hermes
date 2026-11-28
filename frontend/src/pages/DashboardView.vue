@@ -2,11 +2,11 @@
   <div class="dashboard-container">
     <PageHeader
       v-model:active-key="activeTab"
-      title="数据总览"
+      title="驾驶舱"
       :tabs="dashboardTabs"
       :loading="loading"
       :show-border="true"
-      aria-label="数据总览视图切换"
+      aria-label="驾驶舱视图切换"
       @change="handleTabChange"
     >
       <template #actions>

@@ -6,19 +6,19 @@ import json
 import pytest
 from cryptography.fernet import Fernet
 
-from yuxi.modules.extensions.mcp.oauth_config import MCPOAuthConfig, configure_mcp_auth, decrypt, encrypt, redirect_uri, validate_url
-from yuxi.shared.errors import StateConflictError
+from zs.modules.extensions.mcp.oauth_config import MCPOAuthConfig, configure_mcp_auth, decrypt, encrypt, redirect_uri, validate_url
+from zs.shared.errors import StateConflictError
 
 
 def test_missing_or_wrong_encryption_key_rejects_credentials(monkeypatch):
     """缺密钥不能保存明文，换密钥后也不能伪装为已连接。"""
-    monkeypatch.delenv("YUXI_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("ZS_ENCRYPTION_KEY", raising=False)
     with pytest.raises(StateConflictError, match="加密密钥"):
         encrypt({"access_token": "secret"})
-    monkeypatch.setenv("YUXI_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("ZS_ENCRYPTION_KEY", Fernet.generate_key().decode())
     encoded = encrypt({"access_token": "secret"})
     assert "secret" not in encoded
-    monkeypatch.setenv("YUXI_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("ZS_ENCRYPTION_KEY", Fernet.generate_key().decode())
     with pytest.raises(StateConflictError, match="重新连接"):
         decrypt(encoded)
 
@@ -26,7 +26,7 @@ def test_missing_or_wrong_encryption_key_rejects_credentials(monkeypatch):
 def test_credentials_use_common_encryption_key(monkeypatch):
     """凭据使用通用部署密钥加密，独立解密结果包含完整载荷。"""
     key = Fernet.generate_key()
-    monkeypatch.setenv("YUXI_ENCRYPTION_KEY", key.decode())
+    monkeypatch.setenv("ZS_ENCRYPTION_KEY", key.decode())
     credentials = {"access_token": "token", "refresh_token": "refresh"}
     encoded = encrypt(credentials)
     assert json.loads(Fernet(key).decrypt(encoded.encode())) == credentials
@@ -36,7 +36,7 @@ def test_credentials_use_common_encryption_key(monkeypatch):
 @pytest.mark.parametrize("value", ["", "invalid", "非密钥"])
 def test_invalid_common_encryption_key_does_not_fall_back_to_jwt(monkeypatch, value):
     """通用凭据密钥缺失或非法时，不使用可用的 JWT 密钥代替。"""
-    monkeypatch.setenv("YUXI_ENCRYPTION_KEY", value)
+    monkeypatch.setenv("ZS_ENCRYPTION_KEY", value)
     monkeypatch.setenv("JWT_SECRET_KEY", Fernet.generate_key().decode())
     with pytest.raises(StateConflictError) as error:
         encrypt({"access_token": "secret"})
@@ -69,10 +69,10 @@ def test_lab_http_allowance_is_exact_origin_and_callback_is_fixed(monkeypatch):
     validate_url("http://sso.example:39091/issuer")
     with pytest.raises(ValueError):
         validate_url("http://sso.example:39092/issuer")
-    monkeypatch.setenv("YUXI_PUBLIC_URL", "https://platform.example/evil")
+    monkeypatch.setenv("ZS_PUBLIC_URL", "https://platform.example/evil")
     with pytest.raises(ValueError):
         redirect_uri()
-    monkeypatch.setenv("YUXI_PUBLIC_URL", "https://platform.example/")
+    monkeypatch.setenv("ZS_PUBLIC_URL", "https://platform.example/")
     assert redirect_uri() == "https://platform.example/api/system/mcp-servers/oauth/callback"
     with pytest.raises(ValueError):
         validate_url("https://evil.example/token", origins={"https://sso.example"})
@@ -86,7 +86,7 @@ def test_removed_enterprise_policy_is_rejected():
 
 def test_oauth_configuration_rejects_shared_authorization_and_does_not_reuse_other_provider_secret(monkeypatch):
     """切换提供商不能把旧客户端 secret 发往新授权服务器。"""
-    monkeypatch.setenv("YUXI_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("ZS_ENCRYPTION_KEY", Fernet.generate_key().decode())
     server = SimpleNamespace(
         url="https://mcp.example/mcp",
         transport="streamable_http",
@@ -118,8 +118,8 @@ def test_oauth_configuration_rejects_shared_authorization_and_does_not_reuse_oth
 )
 def test_invalid_token_response_cannot_be_saved_as_connected(changes):
     """远端 token 响应不能注入 HTTP header 或伪造有效授权。"""
-    from yuxi.modules.extensions.mcp.oauth_service import MCPOAuthService
-    from yuxi.shared.errors import UpstreamError
+    from zs.modules.extensions.mcp.oauth_service import MCPOAuthService
+    from zs.shared.errors import UpstreamError
 
     connection = SimpleNamespace(status="disconnected", credentials=None)
     with pytest.raises(UpstreamError):
@@ -130,7 +130,7 @@ def test_invalid_token_response_cannot_be_saved_as_connected(changes):
 @pytest.mark.parametrize("environment", ["prod", "production"])
 def test_production_rejects_http_even_when_lab_origins_are_present(monkeypatch, environment):
     """实验来源列表不能放开生产环境明文授权。"""
-    monkeypatch.setenv("YUXI_ENV", environment)
+    monkeypatch.setenv("ZS_ENV", environment)
     monkeypatch.setenv("MCP_OAUTH_LAB_HTTP_ORIGINS", "http://sso.example")
     with pytest.raises(ValueError):
         validate_url("http://sso.example/issuer")
@@ -138,8 +138,8 @@ def test_production_rejects_http_even_when_lab_origins_are_present(monkeypatch, 
 
 def test_nullable_api_key_header_preserves_existing_oauth_revision():
     """新增空字段不能使业务库 v1 保存的 OAuth 修订失效。"""
-    from yuxi.modules.extensions.mcp.models import MCPServer
-    from yuxi.modules.extensions.mcp.oauth_config import config_revision
+    from zs.modules.extensions.mcp.models import MCPServer
+    from zs.modules.extensions.mcp.oauth_config import config_revision
 
     server = MCPServer(
         url="https://example.com/mcp",

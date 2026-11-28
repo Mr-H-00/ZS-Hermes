@@ -11,11 +11,11 @@ from pathlib import PurePosixPath
 
 import asyncpg
 import httpx
-from yuxi.modules.workspace.paths import normalize_workdir_path, user_workdir_host_dir
-from yuxi.modules.agents.models.runs import AGENT_RUN_TERMINAL_STATUSES
+from zs.modules.workspace.paths import normalize_workdir_path, user_workdir_host_dir
+from zs.modules.agents.models.runs import AGENT_RUN_TERMINAL_STATUSES
 from test.support.postgres import postgres_dsn
 
-TEST_RESOURCE_PREFIX = "YUXI_TEST_"
+TEST_RESOURCE_PREFIX = "ZS_TEST_"
 TEST_SESSION_TITLE_PREFIX = f"{TEST_RESOURCE_PREFIX}SESSION_"
 PYTEST_RESOURCE_PREFIXES = ("pytest", "py_test")
 E2E_AGENT_SLUG_PREFIXES = (
@@ -59,7 +59,7 @@ def make_test_resource_id(label: str) -> str:
 def make_test_session_metadata(test_name: str, **extra: object) -> dict[str, object]:
     """生成带测试资源标记的 Session metadata。"""
 
-    metadata: dict[str, object] = {"_yuxi_test": True, "test": test_name}
+    metadata: dict[str, object] = {"_zs_test": True, "test": test_name}
     metadata.update(extra)
     return metadata
 
@@ -100,7 +100,7 @@ def _is_test_thread(thread: object) -> bool:
     if not isinstance(thread, dict):
         return False
     metadata = _parse_metadata(thread.get("metadata") or thread.get("extra_metadata"))
-    return metadata.get("_yuxi_test") is True or is_test_session_title(thread.get("title"))
+    return metadata.get("_zs_test") is True or is_test_session_title(thread.get("title"))
 
 
 def _is_e2e_agent(agent: object, owner_uid: str) -> bool:
@@ -516,7 +516,7 @@ async def cleanup_test_chat_resources(
         cancel_response = await client.post(
             f"/api/v1/agents/sessions/{thread_id}/events",
             headers={**headers, "Idempotency-Key": f"cleanup:{input_id}"},
-            json={"events": [{"type": "yuxi.session.input.cancel_input", "input_id": input_id}]},
+            json={"events": [{"type": "zs.session.input.cancel_input", "input_id": input_id}]},
         )
         if cancel_response.status_code not in {200, 202}:
             raise RuntimeError(f"Failed to cancel pending test Input {input_id}: {cancel_response.text}")

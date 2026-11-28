@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/agents/services/mentions.py
+Owner：backend/zs/modules/agents/services/mentions.py
 
 ## 问题
 

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.knowledge.repositories.graphs import KnowledgeGraphRepository
-from yuxi.shared.errors import InvalidOperationError, StateConflictError
+from zs.modules.knowledge.repositories.graphs import KnowledgeGraphRepository
+from zs.shared.errors import InvalidOperationError, StateConflictError
 
 
 @pytest.mark.parametrize("status", ["parsed", "indexed", "error_indexing", "done", "failed"])

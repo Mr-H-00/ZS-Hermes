@@ -115,18 +115,18 @@ async def test_worker_reads_selected_session_using_existing_history_tool(e2e_cli
                 assert response.status_code == 201, response.text
                 session_id = response.json()["id"]
                 created_sessions.append((session_id, None))
-                consumed = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["yuxi"]["receipt"])
+                consumed = await wait_for_consumed_input(e2e_client, e2e_headers, response.json()["zs"]["receipt"])
                 created_sessions[-1] = (session_id, consumed["turn_id"])
                 turn = await wait_for_terminal_turn(e2e_client, e2e_headers, session_id, consumed["turn_id"])
                 assert turn["status"] == "completed", turn
-            assert fact in output_text(turn["yuxi"]["output"])
+            assert fact in output_text(turn["zs"]["output"])
             connection = await asyncpg.connect(postgres_dsn())
             try:
                 async with asyncio.timeout(15):
                     while True:
                         session = await e2e_client.get(f"/api/v1/agents/sessions/{created_sessions[-1][0]}", headers=e2e_headers)
                         assert session.status_code == 200, session.text
-                        title = session.json()["yuxi"]["title"]
+                        title = session.json()["zs"]["title"]
                         if title and title not in {"新对话", "New Session"}:
                             break
                         await asyncio.sleep(0.1)
@@ -135,7 +135,7 @@ async def test_worker_reads_selected_session_using_existing_history_tool(e2e_cli
                 assert persisted_title and persisted_title not in {"新对话", "New Session"}
                 assert "@session:" not in persisted_title and created_sessions[0][0] not in persisted_title
                 rows = await connection.fetch(
-                    "SELECT role, content, extra_metadata FROM messages WHERE run_id=$1 ORDER BY id", turn["yuxi"]["result_run_id"]
+                    "SELECT role, content, extra_metadata FROM messages WHERE run_id=$1 ORDER BY id", turn["zs"]["result_run_id"]
                 )
                 assert any(
                     row["role"] == "user" and created_sessions[0][0] in row["content"] and fact not in row["content"] for row in rows

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from yuxi.modules.workspace import filesystem as workspace_filesystem_module
-from yuxi.modules.workspace.filesystem import Workspace
-from yuxi.modules.workspace.errors import FileTransferLimitError
+from zs.modules.workspace import filesystem as workspace_filesystem_module
+from zs.modules.workspace.filesystem import Workspace
+from zs.modules.workspace.errors import FileTransferLimitError
 
 
 @pytest.mark.parametrize("failure", ["oversize", "read_error"])
@@ -52,7 +52,7 @@ def test_upload_stream_no_clobber_and_limit(tmp_path, monkeypatch, existing_kind
         Workspace("user-1").upload_authorized_file_from_stream("/file.txt", BytesIO(b"12345"), max_bytes=5, overwrite=False)
     assert target.read_bytes() == b"original"
     assert outside.read_bytes() == b"original"
-    assert not list(tmp_path.glob(".yuxi-write-*"))
+    assert not list(tmp_path.glob(".zs-write-*"))
 
     result = Workspace("user-1").upload_authorized_file_from_stream("/new.txt", BytesIO(b"12345"), max_bytes=5, overwrite=False)
     assert result["size"] == 5

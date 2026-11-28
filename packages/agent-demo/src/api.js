@@ -63,7 +63,7 @@ export function createApi(
         ms: Math.round(performance.now() - started),
       });
       throw new ApiError(
-        "无法连接服务。请检查地址及 Yuxi 是否允许当前网页 Origin 的跨域访问。",
+        "无法连接服务。请检查地址及 ZS 是否允许当前网页 Origin 的跨域访问。",
         0,
       );
     }

@@ -585,7 +585,7 @@ const buildHtmlPreviewSrcdoc = (content, scale = HTML_PREVIEW_DEFAULT_SCALE) => 
   const doc = new DOMParser().parseFromString(html, 'text/html')
   if (scale !== 1) {
     const style = doc.createElement('style')
-    style.setAttribute('data-yuxi-html-preview-scale', String(scale))
+    style.setAttribute('data-zs-html-preview-scale', String(scale))
     style.textContent = `html { zoom: ${scale} !important; }`
     doc.head.append(style)
   }

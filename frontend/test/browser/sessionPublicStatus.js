@@ -1,9 +1,9 @@
 // 使用已登录环境与确定性 replay Agent：playwright-cli run-code --filename=frontend/test/browser/sessionPublicStatus.js
-// 在页面注入 window.__YUXI_SESSION_STATUS_TEST__ = { questionAgent, approvalAgent, output }。
+// 在页面注入 window.__ZS_SESSION_STATUS_TEST__ = { questionAgent, approvalAgent, output }。
 // 两个 Agent 分别启用 ask_user_question 和 DETERMINISTIC_LARGE_TOOL_RESULT；仅创建测试会话。
 // prettier-ignore
 async (page) => {
-  const settings = await page.evaluate(() => window.__YUXI_SESSION_STATUS_TEST__)
+  const settings = await page.evaluate(() => window.__ZS_SESSION_STATUS_TEST__)
   const check = (value, message) => { if (!value) throw new Error(message) }
   check(settings?.questionAgent && settings?.approvalAgent && settings?.output, '缺少确定性 Agent 配置')
   const origin = await page.evaluate(() => window.location.origin)
@@ -23,7 +23,7 @@ async (page) => {
   const sessions = []
   for (const kind of ['question', 'approval']) {
     const session = await read('/sessions', {
-      agent_id: settings[`${kind}Agent`], title: `YUXI_TEST_SESSION_public_status_${kind}`
+      agent_id: settings[`${kind}Agent`], title: `ZS_TEST_SESSION_public_status_${kind}`
     })
     sessions.push(session.id)
     const loaded = page.waitForResponse(response =>
@@ -39,11 +39,11 @@ async (page) => {
     await dialog.waitFor({ timeout: 60000 })
     const waiting = await read(`/sessions/${session.id}`)
     check(waiting.status === 'requires_action', '人工等待没有公开为 requires_action')
-    const turn = await read(`/sessions/${session.id}/turns/${waiting.yuxi.current_turn.id}`)
+    const turn = await read(`/sessions/${session.id}/turns/${waiting.zs.current_turn.id}`)
     check(turn.status === 'requires_action', 'Turn 与 Session 的等待状态不一致')
     const resumed = page.waitForRequest(request =>
       request.method() === 'POST' && request.url().endsWith(`/sessions/${session.id}/events`) &&
-      request.postDataJSON()?.events?.some(event => event.type === 'yuxi.session.input.resume')
+      request.postDataJSON()?.events?.some(event => event.type === 'zs.session.input.resume')
     )
     if (kind === 'question') {
       await dialog.locator('textarea').fill('第一题回答')
@@ -54,10 +54,10 @@ async (page) => {
       await dialog.getByRole('button', { name: '允许', exact: true }).click()
     }
     const request = await resumed
-    const response = request.postDataJSON().events.find(event => event.type === 'yuxi.session.input.resume')
+    const response = request.postDataJSON().events.find(event => event.type === 'zs.session.input.resume')
     check(response.turn_id === turn.id, '恢复请求指向了其他 Turn')
-    check(response.waitpoint_id === turn.yuxi.waitpoint.id, '恢复请求指向了其他 waitpoint')
-    check(turn.yuxi.waitpoint.run_id === turn.yuxi.current_run_id, '等待内容不属于当前 Run')
+    check(response.waitpoint_id === turn.zs.waitpoint.id, '恢复请求指向了其他 waitpoint')
+    check(turn.zs.waitpoint.run_id === turn.zs.current_run_id, '等待内容不属于当前 Run')
     await page.getByText(settings.output, { exact: true }).waitFor({ timeout: 60000 })
     let completed
     const deadline = Date.now() + 60000
@@ -67,8 +67,8 @@ async (page) => {
       await page.waitForTimeout(200)
     } while (Date.now() < deadline)
     check(completed.status === 'completed', '恢复后没有得到持久最终结果')
-    check(completed.yuxi.result_run_id !== turn.yuxi.current_run_id, '恢复没有创建新的执行段')
-    check(completed.yuxi.output.some(item => item.yuxi.run_id === completed.yuxi.result_run_id), '最终输出不属于 result_run_id')
+    check(completed.zs.result_run_id !== turn.zs.current_run_id, '恢复没有创建新的执行段')
+    check(completed.zs.output.some(item => item.zs.run_id === completed.zs.result_run_id), '最终输出不属于 result_run_id')
     await page.getByRole('button', { name: '停止回答', exact: true }).waitFor({ state: 'hidden', timeout: 60000 })
   }
   return { sessions, question: 'completed', approval: 'completed' }

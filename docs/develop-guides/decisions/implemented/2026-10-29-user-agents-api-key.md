@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：backend/yuxi/modules/identity/services/public_auth.py
+Owner：backend/zs/modules/identity/services/public_auth.py
 
 ## 问题
 

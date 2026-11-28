@@ -23,27 +23,27 @@ from test.integration.services.agent_input_fixtures import (
 from test.integration.services.agent_input_fixtures import (
     start_input_run as _start,
 )
-from yuxi.modules.agents.services.run_lifecycle import settle_run
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.public_v1.agents.auth import require_public_context
-from yuxi.api.routers.public_v1.agents.events import router
-from yuxi.api.routers.public_v1.agents.turns import router as turns_router
-from yuxi.modules.agents.input_messages import build_chat_input_message, serialize_input_message
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.inputs import AgentInput, AgentInputReceipt
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.repositories.input import AgentInputRepository
-from yuxi.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.agents.services import checkpoint_messages as messages
-from yuxi.modules.agents.services import input_config, inputs, runs, scheduler, threads, turns
-from yuxi.shared.errors import DomainError, StateConflictError
+from zs.modules.agents.services.run_lifecycle import settle_run
+from zs.api.dependencies.auth import get_db
+from zs.api.errors import domain_error_handler
+from zs.api.routers.public_v1.agents.auth import require_public_context
+from zs.api.routers.public_v1.agents.events import router
+from zs.api.routers.public_v1.agents.turns import router as turns_router
+from zs.modules.agents.input_messages import build_chat_input_message, serialize_input_message
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.inputs import AgentInput, AgentInputReceipt
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.repositories.input import AgentInputRepository
+from zs.modules.agents.repositories.input_receipt import AgentInputReceiptRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.sessions import SessionRepository
+from zs.modules.agents.scope import ActorScope
+from zs.modules.agents.services import checkpoint_messages as messages
+from zs.modules.agents.services import input_config, inputs, runs, scheduler, threads, turns
+from zs.shared.errors import DomainError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 pytest_plugins = ["test.integration.services.agent_input_fixtures"]
@@ -263,7 +263,7 @@ async def test_consume_failure_rolls_back_projection_and_ownership(sessions):
     second = await _send(sessions, "E")
     async with sessions() as db:
         item = await db.get(AgentInput, second["input_id"])
-        item.messages = [{"content": [{"type": "unsupported"}], "metadata": {}, "yuxi": {"attachment_file_ids": []}}]
+        item.messages = [{"content": [{"type": "unsupported"}], "metadata": {}, "zs": {"attachment_file_ids": []}}]
         await db.commit()
     async with sessions() as db:
         session = await SessionRepository(db).lock_session_by_thread_id("input-thread")
@@ -412,7 +412,7 @@ async def test_safe_handoff_consumes_batch_in_same_turn_with_current_config(sess
 
 async def test_steer_successor_waits_for_durable_runtime_cleanup(sessions, monkeypatch, tmp_path):
     """提前补投不能越过旧环境；清理失败保留责任，恢复后才能领取。"""
-    from yuxi.modules.agents.services import run_lifecycle
+    from zs.modules.agents.services import run_lifecycle
 
     current = await _start(sessions)
     await _send(sessions, "steer-after-runtime")
@@ -513,9 +513,9 @@ async def test_steer_before_first_model_is_saved_as_yielded_not_failed(sessions,
     """模型前让位允许无输出；提交前取消批次则继续原 Run 而非失败。"""
     from langchain.messages import AIMessage
 
-    from yuxi.modules.agents.repositories.model_audit import ModelMessageAuditRepository
-    from yuxi.modules.agents.runtime.middlewares.steer import SteerMiddleware
-    from yuxi.shared.datetime import utc_now
+    from zs.modules.agents.repositories.model_audit import ModelMessageAuditRepository
+    from zs.modules.agents.runtime.middlewares.steer import SteerMiddleware
+    from zs.shared.datetime import utc_now
 
     current = await _start(sessions)
     steer = await _send(sessions, "S3")
@@ -523,8 +523,8 @@ async def test_steer_before_first_model_is_saved_as_yielded_not_failed(sessions,
     jumped = await SteerMiddleware().abefore_model({}, SimpleNamespace(context=context))
     assert jumped == {"jump_to": "end"} and context.steer_before_model
     if unready_tail:
-        from yuxi.modules.agents.models.attachments import AgentAttachment
-        from yuxi.shared.datetime import utc_now
+        from zs.modules.agents.models.attachments import AgentAttachment
+        from zs.shared.datetime import utc_now
 
         tail = await _send(sessions, "S4 preparing")
         async with sessions() as db:
@@ -630,13 +630,13 @@ async def test_cancelled_steer_continuation_preserves_wire_ids_and_audit_order(s
     from langchain.messages import AIMessage
 
     from test.support.agent_stream_fixtures import native
-    from yuxi.modules.agents.input_messages import restore_chat_input_message
-    from yuxi.modules.agents.repositories.model_audit import ModelMessageAuditRepository
-    from yuxi.modules.agents.runtime.base import GraphExecutionResult
-    from yuxi.modules.agents.runtime.context import BaseContext
-    from yuxi.modules.agents.runtime.middlewares.steer import SteerMiddleware
-    from yuxi.modules.agents.services import execution
-    from yuxi.modules.agents.services.tracing import LangfuseRunContext
+    from zs.modules.agents.input_messages import restore_chat_input_message
+    from zs.modules.agents.repositories.model_audit import ModelMessageAuditRepository
+    from zs.modules.agents.runtime.base import GraphExecutionResult
+    from zs.modules.agents.runtime.context import BaseContext
+    from zs.modules.agents.runtime.middlewares.steer import SteerMiddleware
+    from zs.modules.agents.services import execution
+    from zs.modules.agents.services.tracing import LangfuseRunContext
 
     current = await _start(sessions)
     steer = await _send(sessions, "wire-steer")
@@ -820,7 +820,7 @@ async def test_http_steer_has_no_target_or_effective_mode_and_keeps_scope(sessio
                 {
                     "type": "agent.session.input.message",
                     "input": [{"role": "user", "content": [{"type": "input_text", "text": "S1"}]}],
-                    "yuxi": {"mode": "steer"},
+                    "zs": {"mode": "steer"},
                 }
             ]
         }
@@ -829,9 +829,9 @@ async def test_http_steer_has_no_target_or_effective_mode_and_keeps_scope(sessio
         assert response.status_code == 202, response.text
         accepted = response.json()
         assert "mode" not in accepted and accepted["turn_id"] is None
-        body["events"][0]["yuxi"]["turn_id"] = "stale-turn"
+        body["events"][0]["zs"]["turn_id"] = "stale-turn"
         assert (await client.post(url, headers={"Idempotency-Key": "http-stale"}, json=body)).status_code == 422
-        del body["events"][0]["yuxi"]["turn_id"]
+        del body["events"][0]["zs"]["turn_id"]
         app.dependency_overrides[require_public_context] = lambda: SimpleNamespace(scope=ActorScope(uid="another-user", app_id=None))
         assert (await client.post(url, headers={"Idempotency-Key": "http-spoof"}, json=body)).status_code == 404
     async with sessions() as db:

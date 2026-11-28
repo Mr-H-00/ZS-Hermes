@@ -1,4 +1,4 @@
-.yuxi/
+.zs/
 
 *.egg-info
 
@@ -79,7 +79,7 @@ docs/vibe
 /rag_qa/models/
 /saves/
 /saves_dev/
-/Yuxi-0.7.3/
+/ZS-0.7.3/
 docker/cloudflared/*
 !docker/cloudflared/config.example.yml
 docs/.vitepress/cache/

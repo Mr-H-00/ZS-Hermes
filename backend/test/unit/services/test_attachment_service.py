@@ -7,10 +7,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-import yuxi.modules.agents.services.attachments as service
-from yuxi.modules.agents.models.attachments import AgentAttachment
-from yuxi.modules.workspace.runtime_paths import workdir_scope_from_runtime_path
-from yuxi.shared.errors import DomainError, InvalidInputError, ResourceNotFoundError, StateConflictError, UpstreamError
+import zs.modules.agents.services.attachments as service
+from zs.modules.agents.models.attachments import AgentAttachment
+from zs.modules.workspace.runtime_paths import workdir_scope_from_runtime_path
+from zs.shared.errors import DomainError, InvalidInputError, ResourceNotFoundError, StateConflictError, UpstreamError
 
 pytestmark = pytest.mark.unit
 
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.unit
 def _isolated_attachment_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """附件测试的模型凭据与运行目录只作用于当前用例。"""
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("YUXI_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("ZS_RUNTIME_DIR", str(tmp_path / "runtime"))
 
 
 class FakeMinioClient:
@@ -149,13 +149,13 @@ async def test_store_attachment_normalizes_persisted_file_name(monkeypatch):
 @pytest.fixture(autouse=True)
 def isolate_attachment_workspace(tmp_path, monkeypatch):
     """隔离真实文件边界，避免不同测试共享解析目录。"""
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path / "user-data"))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path / "user-data"))
     service.ensure_user_workspace("user-1")
 
 
 def _write_parse_result(output_dir, markdown):
     """构造可回读的解析产物。"""
-    from yuxi.infrastructure.document_parsing import ParseResult
+    from zs.infrastructure.document_parsing import ParseResult
 
     output_dir.mkdir()
     path = output_dir / "document.md"
@@ -169,11 +169,11 @@ async def test_cancelled_attachment_write_reclaims_uncommitted_original(tmp_path
     import asyncio
     import threading
 
-    from yuxi.modules.workspace.filesystem import Workspace
-    from yuxi.modules.workspace.paths import ensure_user_workspace
-    from yuxi.modules.workspace.workdir import Workdir
+    from zs.modules.workspace.filesystem import Workspace
+    from zs.modules.workspace.paths import ensure_user_workspace
+    from zs.modules.workspace.workdir import Workdir
 
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path))
     ensure_user_workspace("cancel-user")
     workdir = Workdir("projects/cancel", Workspace("cancel-user"))
     started, release = threading.Event(), threading.Event()
@@ -329,7 +329,7 @@ async def test_private_parse_records_complete_directory_and_preserves_failure(dr
         sources.append(source)
         return _write_parse_result(output, "完整文档")
 
-    monkeypatch.setattr("yuxi.modules.documents.service.parse", parse)
+    monkeypatch.setattr("zs.modules.documents.service.parse", parse)
     result = await service.parse_draft_file(file_id=uploaded["id"], parse_method="disable", scope=scope, db=db)
     assert result["status"] == "parsed" and sources[0].endswith("/original/q1%3F.pdf")
     record = db.records[uploaded["id"]]
@@ -340,7 +340,7 @@ async def test_private_parse_records_complete_directory_and_preserves_failure(dr
     async def fail(*args, **kwargs):
         raise unavailable
 
-    monkeypatch.setattr("yuxi.modules.documents.service.parse", fail)
+    monkeypatch.setattr("zs.modules.documents.service.parse", fail)
     with pytest.raises(DomainError) as error:
         await service.parse_draft_file(file_id=uploaded["id"], parse_method="disable", scope=scope, db=db)
     assert error.value is unavailable and record.parsed_source == source_path
@@ -355,7 +355,7 @@ def test_webp_requires_explicit_capable_engine():
 @pytest.mark.asyncio
 async def test_binding_rejects_input_owned_by_other_scope():
     """替代调用不能把同用户其他 APP 的 Input 用作绑定目标。"""
-    from yuxi.modules.agents.scope import ActorScope
+    from zs.modules.agents.scope import ActorScope
 
     with pytest.raises(ValueError, match="身份不一致"):
         await service.stage_input_attachments(

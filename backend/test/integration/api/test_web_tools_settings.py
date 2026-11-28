@@ -9,14 +9,14 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from test.integration.support.module_audit import isolated_audit_store, serve_http
-from yuxi.api.dependencies.auth import get_db, get_required_user
-from yuxi.api.errors import domain_error_handler
-from yuxi.api.routers.extensions.web import web_tools
-from yuxi.api.routers.system import system
-from yuxi.bootstrap.options import ensure_options_in_db
-from yuxi.modules.extensions.web.services import get_web_configuration
-from yuxi.modules.system.models import ConfigOption
-from yuxi.shared.errors import DomainError
+from zs.api.dependencies.auth import get_db, get_required_user
+from zs.api.errors import domain_error_handler
+from zs.api.routers.extensions.web import web_tools
+from zs.api.routers.system import system
+from zs.bootstrap.options import ensure_options_in_db
+from zs.modules.extensions.web.services import get_web_configuration
+from zs.modules.system.models import ConfigOption
+from zs.shared.errors import DomainError
 
 pytestmark = [
     pytest.mark.integration,

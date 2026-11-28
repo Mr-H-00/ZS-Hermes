@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 
-import yuxi.api.lifespan as lifespan_module
-import yuxi.bootstrap.api as api_bootstrap
+import zs.api.lifespan as lifespan_module
+import zs.bootstrap.api as api_bootstrap
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 
@@ -14,7 +14,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 @pytest.fixture(autouse=True)
 def shared_instance(monkeypatch):
     """默认启用知识库时，API 测试也提供显式共享身份。"""
-    monkeypatch.setenv("YUXI_INSTANCE_ID", "api-startup-test")
+    monkeypatch.setenv("ZS_INSTANCE_ID", "api-startup-test")
 
 
 async def test_optional_startup_component_failure_is_structured_without_raw_message() -> None:
@@ -38,7 +38,7 @@ async def test_optional_startup_component_failure_is_structured_without_raw_mess
 async def test_invalid_security_secrets_fail_before_database_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "false")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "false")
     monkeypatch.delenv("API_KEY_DERIVATION_SECRET", raising=False)
 
     def forbidden_initialize() -> None:
@@ -135,7 +135,7 @@ async def test_disabled_knowledge_does_not_initialize_existing_backends(monkeypa
     """关闭部署跳过已有知识库连接，但仍完成其余必需组件装配。"""
     from types import SimpleNamespace
 
-    from yuxi.modules.system.services import options
+    from zs.modules.system.services import options
 
     initialized = []
 
@@ -153,7 +153,7 @@ async def test_disabled_knowledge_does_not_initialize_existing_backends(monkeypa
         """提供预热 Redis 的最小协议。"""
         return SimpleNamespace(ping=done)
 
-    monkeypatch.setenv("YUXI_KNOWLEDGE_ENABLED", "false")
+    monkeypatch.setenv("ZS_KNOWLEDGE_ENABLED", "false")
     monkeypatch.setattr(api_bootstrap, "_initialize_startup_component", initialize)
     monkeypatch.setattr(api_bootstrap.pg_manager, "initialize", lambda: None)
     monkeypatch.setattr(api_bootstrap, "require_current_schema", done)

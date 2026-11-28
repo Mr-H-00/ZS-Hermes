@@ -56,11 +56,11 @@ test('活动快照补回完成块后立即清除已追上的旧平滑文本', (t
   const p = playback(t)
   p.state.itemState = createItemState()
   p.push('part')
-  p.state.itemState.items.m = { ...p.state.itemState.items.m, id: 'm', status: 'in_progress', yuxi: {} }
+  p.state.itemState.items.m = { ...p.state.itemState.items.m, id: 'm', status: 'in_progress', zs: {} }
   while (p.frames.size) p.tick()
   assert.equal(p.state.displayText.m, 'part')
   mergeItemSnapshot(p.state.itemState, [{ id: 'm', type: 'message', status: 'in_progress',
-    content: [{ type: 'output_text', text: 'whole' }], yuxi: { completed_content_indices: [0] } }])
+    content: [{ type: 'output_text', text: 'whole' }], zs: { completed_content_indices: [0] } }])
   p.smoother.flushThread('thread')
   assert.equal(p.state.displayText.m ?? p.state.itemState.items.m.content[0].text, 'whole')
 })

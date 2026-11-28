@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：bug-fix
-Owner：backend/yuxi/modules/identity/services/logout.py
+Owner：backend/zs/modules/identity/services/logout.py
 
 ## 问题
 

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from yuxi.modules.knowledge.graphs import service as milvus_graph_service
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.graphs import service as milvus_graph_service
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
 
 
 @pytest.fixture

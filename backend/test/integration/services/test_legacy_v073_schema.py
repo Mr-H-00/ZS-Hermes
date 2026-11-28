@@ -14,23 +14,23 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.api.dependencies.auth import get_db
-from yuxi.api.routers.public_v1.agents.auth import require_public_context
-from yuxi.api.routers.public_v1.agents.threads import router as threads_router
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.schema import get_schema_versions
-from yuxi.migrations.legacy_v073 import audit_legacy_schema, repair_legacy_session_configs, upgrade_legacy_schema
-from yuxi.migrations.main import initialize_schema
-from yuxi.modules.agents.input_messages import deserialize_input_message
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.permissions import user_can_run_agent
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.identity.models import User
+from zs.api.dependencies.auth import get_db
+from zs.api.routers.public_v1.agents.auth import require_public_context
+from zs.api.routers.public_v1.agents.threads import router as threads_router
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.schema import get_schema_versions
+from zs.migrations.legacy_v073 import audit_legacy_schema, repair_legacy_session_configs, upgrade_legacy_schema
+from zs.migrations.main import initialize_schema
+from zs.modules.agents.input_messages import deserialize_input_message
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.permissions import user_can_run_agent
+from zs.modules.agents.scope import ActorScope
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
 SEED_SQL = """
-INSERT INTO yuxi_schema_migrations (domain, version) VALUES ('business',9),('knowledge',4);
+INSERT INTO zs_schema_migrations (domain, version) VALUES ('business',9),('knowledge',4);
 INSERT INTO users (id, username, uid, password_hash, role, login_failed_count, is_deleted)
 VALUES (40,'retained','owner','password-sentinel','superadmin',0,0),
        (41,'reader','reader','reader-sentinel','user',0,0),
@@ -188,7 +188,7 @@ async def test_upgrade_preserves_data_scope_and_can_write_again(legacy_database)
         schema = await conn.scalar(text("SELECT current_schema()"))
         assert await conn.scalar(text(f'SELECT request_id FROM "{schema}_v073_archive".messages WHERE id=80')) is None
         assert await conn.scalar(text(f'SELECT content FROM "{schema}_v073_archive".messages WHERE id=83')) == "tool output"
-        assert await conn.scalar(text(f"SELECT version FROM \"{schema}_v073_archive\".yuxi_schema_migrations WHERE domain='business'")) == 9
+        assert await conn.scalar(text(f"SELECT version FROM \"{schema}_v073_archive\".zs_schema_migrations WHERE domain='business'")) == 9
         assert await conn.scalar(text("SELECT to_regclass('ix_knowledge_chunks_graph_extraction_status')")) is not None
 
     async with AsyncSession(manager.async_engine) as db:
@@ -235,8 +235,8 @@ async def test_upgrade_preserves_data_scope_and_can_write_again(legacy_database)
 # legacy_database 为隔离旧库；无返回，经真实 HTTP 协议读取迁移后的会话。
 async def test_migrated_sessions_support_http_history(legacy_database, monkeypatch, tmp_path):
     """历史读取和新建会话均使用迁移后的配置，并回读持久快照。"""
-    from yuxi.modules.agents.services import scheduler
-    from yuxi.modules.models.providers.cache import model_cache
+    from zs.modules.agents.services import scheduler
+    from zs.modules.models.providers.cache import model_cache
 
     manager = legacy_database
     await upgrade_legacy_schema(manager)
@@ -245,7 +245,7 @@ async def test_migrated_sessions_support_http_history(legacy_database, monkeypat
     manager.AsyncSession = async_sessionmaker(manager.async_engine, expire_on_commit=False)
     monkeypatch.setattr(scheduler, "pg_manager", manager)
     monkeypatch.setattr(model_cache, "get_model_info", lambda spec: SimpleNamespace(model_type="chat") if spec == "agent-model" else None)
-    monkeypatch.setenv("YUXI_USER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ZS_USER_DATA_DIR", str(tmp_path))
     app = FastAPI()
     app.include_router(threads_router, prefix="/api/v1/agents")
 
@@ -262,10 +262,10 @@ async def test_migrated_sessions_support_http_history(legacy_database, monkeypat
         assert response.status_code == 200, response.text
         sessions = {row["id"]: row for row in response.json()["data"]}
         assert sessions["root"]["agent"]["model"] == "last-run-model"
-        assert sessions["root"]["yuxi"]["tool_approval_mode"] == "always_trust"
+        assert sessions["root"]["zs"]["tool_approval_mode"] == "always_trust"
         response = await client.get("/api/v1/agents/sessions/root")
         assert response.status_code == 200, response.text
-        assert response.json()["yuxi"]["title"] == "root title"
+        assert response.json()["zs"]["title"] == "root title"
         created = await client.post(
             "/api/v1/agents/sessions",
             headers={"Idempotency-Key": "migrated-agent-create"},
@@ -291,7 +291,7 @@ async def test_migrated_sessions_support_http_history(legacy_database, monkeypat
 # legacy_database 为隔离旧库；无返回，验证旧定义修复的审计、来源与幂等边界。
 async def test_agent_config_repair_preserves_current_choices_and_requires_archive(legacy_database):
     """只修复归档可证明的旧空值，保留当前选择、非归档定义和历史原文。"""
-    from yuxi.migrations.legacy_v073 import repair_legacy_agent_configs
+    from zs.migrations.legacy_v073 import repair_legacy_agent_configs
 
     manager = legacy_database
     with pytest.raises(RuntimeError, match="只支持已迁移"):
@@ -491,11 +491,11 @@ async def test_unknown_versions_and_existing_archive_are_rejected(legacy_databas
     """迁移不能覆盖已有归档，也不能对不明版本猜测转换。"""
     manager = legacy_database
     async with manager.async_engine.begin() as conn:
-        await conn.execute(text("UPDATE yuxi_schema_migrations SET version=8 WHERE domain='business'"))
+        await conn.execute(text("UPDATE zs_schema_migrations SET version=8 WHERE domain='business'"))
     with pytest.raises(RuntimeError, match="仅支持"):
         await upgrade_legacy_schema(manager)
     async with manager.async_engine.begin() as conn:
-        await conn.execute(text("UPDATE yuxi_schema_migrations SET version=9 WHERE domain='business'"))
+        await conn.execute(text("UPDATE zs_schema_migrations SET version=9 WHERE domain='business'"))
         schema = await conn.scalar(text("SELECT current_schema()"))
         await conn.execute(text(f'CREATE SCHEMA "{schema}_v073_archive"'))
     with pytest.raises(RuntimeError, match="归档 Schema 已存在"):

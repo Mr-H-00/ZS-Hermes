@@ -72,7 +72,7 @@ async page => {
         await editor.fill('@发布')
         await rows.nth(2).waitFor()
         check(await page.locator('.mention-popup').evaluate(node => node.scrollWidth <= node.clientWidth), '引用候选横向溢出')
-        const path = `/tmp/yuxi-session-mentions-${dark ? 'dark' : 'light'}-${width}.png`
+        const path = `/tmp/zs-session-mentions-${dark ? 'dark' : 'light'}-${width}.png`
         await page.screenshot({ path })
         screenshots.push(path)
       }

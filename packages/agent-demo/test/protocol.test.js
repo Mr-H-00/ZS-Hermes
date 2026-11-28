@@ -13,7 +13,7 @@ const message = (overrides = {}) => ({
   role: "assistant",
   status: "in_progress",
   content: [{ type: "output_text", text: "" }],
-  yuxi: { run_id: "run-1", message_id: 2 },
+  zs: { run_id: "run-1", message_id: 2 },
   ...overrides,
 });
 const delta = (id, text) => ({
@@ -57,7 +57,7 @@ test("resync 用已提交完成块补回 done，并保留其他块的新增量",
         { type: "output_text", text: "持久完成" },
         { type: "output_text", text: "较旧内容" },
       ],
-      yuxi: { completed_content_indices: [0] },
+      zs: { completed_content_indices: [0] },
     }),
   ]);
   applyEvent(state, delta("late", "错误增量"));
@@ -86,17 +86,17 @@ test("推理完成块拒绝迟到增量", () => {
   const state = createItems();
   mergeSnapshot(state, [
     message({
-      yuxi: { reasoning: { 0: "完成推理" }, completed_reasoning_indices: [0] },
+      zs: { reasoning: { 0: "完成推理" }, completed_reasoning_indices: [0] },
     }),
   ]);
   applyEvent(state, {
-    type: "yuxi.session.turn.reasoning.delta",
+    type: "zs.session.turn.reasoning.delta",
     event_id: "late",
     item_id: "message-1",
     content_index: 0,
     delta: "污染",
   });
-  assert.equal(state.items["message-1"].yuxi.reasoning[0], "完成推理");
+  assert.equal(state.items["message-1"].zs.reasoning[0], "完成推理");
 });
 
 test("SSE 逐字节 UTF-8 与 CRLF 分块保持事件和 cursor，等待回调", async () => {

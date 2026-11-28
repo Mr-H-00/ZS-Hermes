@@ -2,7 +2,7 @@
 
 import pytest
 
-from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
+from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

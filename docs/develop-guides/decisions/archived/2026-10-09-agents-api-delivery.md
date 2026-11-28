@@ -2,7 +2,7 @@
 
 状态：archived
 类型：feature
-Owner：backend/yuxi/api/routers/public_v1/agents/threads.py
+Owner：backend/zs/api/routers/public_v1/agents/threads.py
 
 ## 问题
 

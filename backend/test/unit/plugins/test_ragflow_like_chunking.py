@@ -3,10 +3,10 @@ from __future__ import annotations
 import random
 
 import pytest
-from yuxi.modules.knowledge.chunking.ragflow_like import nlp
-from yuxi.modules.knowledge.chunking.dispatcher import chunk_markdown
-from yuxi.modules.knowledge.chunking.ragflow_like.nlp import bullets_category, count_tokens
-from yuxi.modules.knowledge.chunking.presets import (
+from zs.modules.knowledge.chunking.ragflow_like import nlp
+from zs.modules.knowledge.chunking.dispatcher import chunk_markdown
+from zs.modules.knowledge.chunking.ragflow_like.nlp import bullets_category, count_tokens
+from zs.modules.knowledge.chunking.presets import (
     CHUNK_ENGINE_VERSION,
     CHUNK_PRESET_IDS,
     CHUNK_PRESETS,
@@ -16,7 +16,7 @@ from yuxi.modules.knowledge.chunking.presets import (
     normalize_chunk_preset_id,
     resolve_chunk_processing_params,
 )
-from yuxi.modules.knowledge.chunking.ragflow_like.utils.semantic_utils import (
+from zs.modules.knowledge.chunking.ragflow_like.utils.semantic_utils import (
     split_mixed_sentences,
     split_sentences_chinese,
 )

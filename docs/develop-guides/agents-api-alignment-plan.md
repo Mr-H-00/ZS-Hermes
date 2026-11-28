@@ -6,12 +6,12 @@
 
 | 维护内容 | 先读文档 | 实现位置 |
 | --- | --- | --- |
-| Session、Turn、Items、HTTP 与 SSE | [Public API](../advanced/agents-public-api.md) | `backend/yuxi/api/routers/public_v1/agents` |
-| Input 接收、FIFO、steer、等待与取消 | [请求队列](../mechanisms/agent-request-queue.md) | `backend/yuxi/modules/agents/services`、`repositories` |
+| Session、Turn、Items、HTTP 与 SSE | [Public API](../advanced/agents-public-api.md) | `backend/zs/api/routers/public_v1/agents` |
+| Input 接收、FIFO、steer、等待与取消 | [请求队列](../mechanisms/agent-request-queue.md) | `backend/zs/modules/agents/services`、`repositories` |
 | 配置快照、执行归属与最终结果 | [运行时上下文](../mechanisms/agent-runtime.md) | Agent runtime 与 Session 资源投影 |
 | 图片、附件和草稿文件 | [API 文件契约](../advanced/agents-public-api.md)、[文档处理](../advanced/document-processing.md) | Agent 附件 service、repository 与 workspace 文件边界 |
 | API Key、用户与 APP 可见性 | [API Key 接入](../advanced/api-key-integration.md)、[资源权限](../mechanisms/resource-permissions.md) | identity 依赖和各域可见性查询 |
-| Web、CLI 与 Demo 消费 | [CLI](../intro/cli.md)、[API 入门](../intro/agents-api-quickstart.md) | `frontend/src/modules/session`、`packages/yuxi-cli`、`packages/agent-demo` |
+| Web、CLI 与 Demo 消费 | [CLI](../intro/cli.md)、[API 入门](../intro/agents-api-quickstart.md) | `frontend/src/modules/session`、`packages/zs-cli`、`packages/agent-demo` |
 
 HTTP 与 SSE 共用 Session 投影。持久输入、Receipt、Turn、Run 和最终输出分别拥有明确归属；客户端直接消费公开字段，不维护旧 Thread 响应的另一套状态。具体时序与失败恢复由上表专题解释。
 

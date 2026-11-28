@@ -11,14 +11,14 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.infrastructure.neo4j import safe_neo4j_label
-from yuxi.migrations.schema import create_knowledge_tables
-from yuxi.modules.knowledge.graphs import service as graph_service
-from yuxi.modules.knowledge.graphs.extractors import normalize_extraction_result
-from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
-from yuxi.modules.knowledge.models import KnowledgeChunk
-from yuxi.modules.knowledge.repositories import bases, chunks, graphs, projections
-from yuxi.modules.knowledge.services import background_jobs
+from zs.infrastructure.neo4j import safe_neo4j_label
+from zs.migrations.schema import create_knowledge_tables
+from zs.modules.knowledge.graphs import service as graph_service
+from zs.modules.knowledge.graphs.extractors import normalize_extraction_result
+from zs.modules.knowledge.graphs.service import KnowledgeGraphService
+from zs.modules.knowledge.models import KnowledgeChunk
+from zs.modules.knowledge.repositories import bases, chunks, graphs, projections
+from zs.modules.knowledge.services import background_jobs
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

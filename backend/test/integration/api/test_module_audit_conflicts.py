@@ -8,12 +8,12 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from test.integration.support.module_audit import isolated_audit_store, serve_http
-import yuxi.api.routers.extensions.skills as skill_router
-import yuxi.api.routers.knowledge.management as knowledge_router
-from yuxi.modules.extensions.skills.models import Skill
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.models import KnowledgeBase
-from yuxi.modules.identity.models import User
+import zs.api.routers.extensions.skills as skill_router
+import zs.api.routers.knowledge.management as knowledge_router
+from zs.modules.extensions.skills.models import Skill
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.models import KnowledgeBase
+from zs.modules.identity.models import User
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 

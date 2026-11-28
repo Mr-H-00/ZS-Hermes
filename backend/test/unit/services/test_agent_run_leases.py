@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import yuxi.modules.agents.services.run_lifecycle as lifecycle
-import yuxi.modules.agents.services.leases as leases
+import zs.modules.agents.services.run_lifecycle as lifecycle
+import zs.modules.agents.services.leases as leases
 
 
 @pytest.mark.asyncio

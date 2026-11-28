@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from yuxi.modules.workspace.paths import user_workspace_dir
+from zs.modules.workspace.paths import user_workspace_dir
 
 pytestmark = [pytest.mark.integration, pytest.mark.e2e, pytest.mark.slow, pytest.mark.self_managed_resources]
 

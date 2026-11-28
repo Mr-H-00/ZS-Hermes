@@ -33,10 +33,10 @@ function setup(t) {
   Object.assign(api, {
     getPublicThread: async () => {
       lookups++
-      return { yuxi: { current_turn: { id: 'turn' } } }
+      return { zs: { current_turn: { id: 'turn' } } }
     },
-    getThreadTurn: async () => ({ id: 'turn', status: 'in_progress', yuxi: { current_run_id: 'run', status: 'running' } }),
-    getSessionItems: async () => ({ data: [], yuxi: { runs: [] }, has_more: false, last_id: null }),
+    getThreadTurn: async () => ({ id: 'turn', status: 'in_progress', zs: { current_run_id: 'run', status: 'running' } }),
+    getSessionItems: async () => ({ data: [], zs: { runs: [] }, has_more: false, last_id: null }),
     getAgentState: async () => ({ agent_state: {} }),
     getThreadQueue: async () => ({ inputs: [], status: 'ready' }),
     streamThreadEvents: async (_id, _after, { signal }) => {
@@ -79,15 +79,15 @@ async function setupReasoningStream(t) {
   t.after(detach)
   let sequence = 0
   const send = async (fields) => {
-    harness.emit({ session_id: 'thread', turn_id: 'turn', yuxi: { run_id: 'run' },
+    harness.emit({ session_id: 'thread', turn_id: 'turn', zs: { run_id: 'run' },
       event_id: `reasoning-event-${++sequence}`, ...fields })
     await tick()
   }
   const item = { id: 'thinking', type: 'message', role: 'assistant', status: 'in_progress',
-    turn_id: 'turn', content: [], yuxi: { run_id: 'run', message_id: 1, output_index: 0 } }
+    turn_id: 'turn', content: [], zs: { run_id: 'run', message_id: 1, output_index: 0 } }
   await send({ type: 'agent.session.turn.item.added', item })
   const reasoning = (delta, content_index = 0) => send({
-    type: 'yuxi.session.turn.reasoning.delta', item_id: item.id, content_index, delta
+    type: 'zs.session.turn.reasoning.delta', item_id: item.id, content_index, delta
   })
   return { ...harness, send, item, reasoning,
     state: harness.runtime.getThreadState('thread'),
@@ -100,20 +100,20 @@ test('流式只展示当前思考段，完成后隐藏且原始文本完整', as
   await h.reasoning('先检查')
   await h.reasoning('输入')
   assert.equal(h.visible()[0].reasoning_content, '先检查输入')
-  await h.send({ type: 'yuxi.session.turn.state', agent_state: { todos: [] } })
+  await h.send({ type: 'zs.session.turn.state', agent_state: { todos: [] } })
   await h.reasoning('')
   await h.send({ type: 'agent.session.turn.output_text.delta', item_id: h.item.id,
     content_index: 0, delta: '' })
   assert.equal(h.visible()[0].reasoning_content, '先检查输入')
-  await h.send({ type: 'yuxi.session.turn.reasoning.done', item_id: h.item.id,
+  await h.send({ type: 'zs.session.turn.reasoning.done', item_id: h.item.id,
     content_index: 0, text: '先检查输入，已完成' })
   assert.deepEqual(h.visible(), [])
   await h.reasoning('迟到增量')
   assert.deepEqual(h.visible(), [])
-  assert.equal(h.state.itemState.items.thinking.yuxi.reasoning[0], '先检查输入，已完成')
+  assert.equal(h.state.itemState.items.thinking.zs.reasoning[0], '先检查输入，已完成')
   await h.reasoning('另一段', 2)
   assert.equal(h.visible()[0].reasoning_content, '另一段')
-  assert.equal(h.state.itemState.items.thinking.yuxi.reasoning[0], '先检查输入，已完成')
+  assert.equal(h.state.itemState.items.thinking.zs.reasoning[0], '先检查输入，已完成')
   await h.send({ type: 'agent.session.turn.item.done', item: {
     ...h.state.itemState.items.thinking, status: 'completed'
   } })
@@ -134,7 +134,7 @@ test('没有 reasoning.done 时，正文或工具开始仍隐藏当前思考', a
       content_index: 0, part: { type: 'output_text', text: '完整回答正文' } },
     { type: 'agent.session.turn.item.added', item: { id: 'tool', type: 'function_call',
       name: 'read_file', call_id: 'call', arguments: {}, status: 'in_progress', turn_id: 'turn',
-      yuxi: { run_id: 'run', message_id: 2, output_index: 1 } } }
+      zs: { run_id: 'run', message_id: 2, output_index: 1 } } }
   ].entries()) {
     await h.reasoning('正在分析', index)
     assert.equal(h.visible().length, 1)
@@ -142,12 +142,12 @@ test('没有 reasoning.done 时，正文或工具开始仍隐藏当前思考', a
     assert.deepEqual(h.visible(), [], transition.type)
     await h.reasoning('迟到增量', index)
     assert.deepEqual(h.visible(), [], `${transition.type} 后旧段不能重新出现`)
-    assert.equal(h.state.itemState.items.thinking.yuxi.reasoning[index], '正在分析迟到增量')
+    assert.equal(h.state.itemState.items.thinking.zs.reasoning[index], '正在分析迟到增量')
   }
   const messages = h.runtime.threadMessages.thread
   assert.equal(messages[0].content, '完整回答正文')
   assert.equal(messages[1].tool_calls[0].name, 'read_file')
-  assert.ok(h.state.itemState.items.thinking.yuxi.reasoning[0])
+  assert.ok(h.state.itemState.items.thinking.zs.reasoning[0])
 })
 
 test('新思考替换旧思考，重复事件和其他 Run 事件不改变当前展示', async (t) => {
@@ -155,42 +155,42 @@ test('新思考替换旧思考，重复事件和其他 Run 事件不改变当前
   await h.reasoning('旧段')
   const tool = { type: 'agent.session.turn.item.added', item: { id: 'old-tool',
     type: 'function_call', name: 'read_file', call_id: 'old-call', arguments: {},
-    status: 'in_progress', turn_id: 'turn', yuxi: { run_id: 'run', message_id: 2 } } }
+    status: 'in_progress', turn_id: 'turn', zs: { run_id: 'run', message_id: 2 } } }
   await h.send(tool)
-  const old = { type: 'yuxi.session.turn.reasoning.delta', item_id: h.item.id,
+  const old = { type: 'zs.session.turn.reasoning.delta', item_id: h.item.id,
     content_index: 0, delta: '旧事件', event_id: 'same-event' }
   await h.send(old)
   await h.reasoning('当前段', 2)
   await h.send(tool)
   await h.send(old)
   await h.send({ type: 'agent.session.turn.item.added', item: {
-    ...h.item, id: 'other-run', yuxi: { run_id: 'old-run', message_id: 2 }
+    ...h.item, id: 'other-run', zs: { run_id: 'old-run', message_id: 2 }
   } })
-  await h.send({ type: 'yuxi.session.turn.reasoning.delta', item_id: 'other-run',
-    content_index: 0, delta: '其他运行', yuxi: { run_id: 'old-run' } })
+  await h.send({ type: 'zs.session.turn.reasoning.delta', item_id: 'other-run',
+    content_index: 0, delta: '其他运行', zs: { run_id: 'old-run' } })
   await h.send({ type: 'agent.session.turn.output_text.delta', item_id: 'other-run',
-    content_index: 0, delta: '其他正文', yuxi: { run_id: 'old-run' } })
+    content_index: 0, delta: '其他正文', zs: { run_id: 'old-run' } })
   assert.equal(h.visible().length, 1)
   assert.equal(h.visible()[0].reasoning_content, '当前段')
-  await h.send({ type: 'yuxi.session.turn.reasoning.done', item_id: h.item.id,
+  await h.send({ type: 'zs.session.turn.reasoning.done', item_id: h.item.id,
     content_index: 0, text: '旧段完成' })
   assert.equal(h.visible()[0].reasoning_content, '当前段')
   await h.reasoning('新段', 4)
   await h.reasoning('迟到增量', 2)
   assert.equal(h.visible()[0].reasoning_content, '新段', '旧段不能抢回新段的展示')
-  assert.equal(h.state.itemState.items.thinking.yuxi.reasoning[2], '当前段迟到增量')
+  assert.equal(h.state.itemState.items.thinking.zs.reasoning[2], '当前段迟到增量')
 })
 
 test('断线恢复的完成索引关闭旧思考，历史快照不会制造正在思考', async (t) => {
   const h = await setupReasoningStream(t)
   await h.reasoning('未完成片段')
-  const snapshot = { ...h.item, yuxi: { ...h.item.yuxi,
+  const snapshot = { ...h.item, zs: { ...h.item.zs,
     reasoning: { 0: '完整思考' }, completed_reasoning_indices: [0] } }
-  api.getSessionItems = async () => ({ data: [snapshot], yuxi: { runs: [] }, has_more: false })
-  await h.send({ type: 'yuxi.session.resync' })
+  api.getSessionItems = async () => ({ data: [snapshot], zs: { runs: [] }, has_more: false })
+  await h.send({ type: 'zs.session.resync' })
   await tick()
   assert.deepEqual(h.visible(), [])
-  assert.equal(h.state.itemState.items.thinking.yuxi.reasoning[0], '完整思考')
+  assert.equal(h.state.itemState.items.thinking.zs.reasoning[0], '完整思考')
   await h.reasoning('重放旧片段')
   assert.deepEqual(h.visible(), [])
   h.runtime.resetThreadExecution('thread')
@@ -205,15 +205,15 @@ for (const status of ['completed', 'failed', 'cancelled', 'requires_action']) {
     await h.reasoning('终态前思考')
     const snapshot = { ...h.item, status: status === 'failed' ? 'failed' : 'completed',
       content: [{ type: 'output_text', text: '保留正文' }],
-      yuxi: { ...h.item.yuxi, reasoning: { 0: '完整思考' } } }
-    api.getSessionItems = async () => ({ data: [snapshot], yuxi: { runs: [] }, has_more: false })
+      zs: { ...h.item.zs, reasoning: { 0: '完整思考' } } }
+    api.getSessionItems = async () => ({ data: [snapshot], zs: { runs: [] }, has_more: false })
     await h.send({ type: `agent.session.turn.${status}`, turn: { id: 'turn', status,
-      yuxi: { waitpoint: { kind: 'question', id: 'waiting' } } } })
+      zs: { waitpoint: { kind: 'question', id: 'waiting' } } } })
     await tick()
     assert.equal(h.state.isStreaming, false)
     assert.deepEqual(h.visible(), [])
     assert.equal(h.runtime.threadMessages.thread[0].content, '保留正文')
-    assert.equal(h.state.itemState.items.thinking.yuxi.reasoning[0], '完整思考')
+    assert.equal(h.state.itemState.items.thinking.zs.reasoning[0], '完整思考')
   })
 }
 
@@ -225,7 +225,7 @@ test('取消请求和协作等待撤下思考，不删除协议内容', async (t
     assert.deepEqual(h.visible(), [], flag)
     h.state[flag] = false
   }
-  assert.equal(h.state.itemState.items.thinking.yuxi.reasoning[0], '保留的原文')
+  assert.equal(h.state.itemState.items.thinking.zs.reasoning[0], '保留的原文')
 })
 
 test('首次观察与清理后重建声明运行版本、协作等待和审批默认值，并隔离 Thread', (t) => {
@@ -268,10 +268,10 @@ test('页面和侧栏共享一个流及恢复请求，卸载一个视图不停�
   const state = runtime.getThreadState('thread')
   first()
   h.emit({
-    type: 'yuxi.session.turn.state',
+    type: 'zs.session.turn.state',
     session_id: 'thread',
     turn_id: 'turn',
-    yuxi: { run_id: 'run' },
+    zs: { run_id: 'run' },
     agent_state: { todos: ['shared after detach'] }
   })
   await tick()
@@ -291,7 +291,7 @@ test('重复启动同一轮不重连，另一视图读取同一份持久历史',
   let histories = 0
   api.getSessionItems = async () => {
     histories++
-    return { data: [], yuxi: { runs: [{ id: 'result-run' }] }, has_more: false, last_id: null }
+    return { data: [], zs: { runs: [{ id: 'result-run' }] }, has_more: false, last_id: null }
   }
   const stream = runtime.startRunStream('thread', 'run', null, { turnId: 'turn' })
   await tick()
@@ -329,8 +329,8 @@ test('最后一个视图释放后，迟到恢复和历史不能启动流或覆�
   const detachNew = runtime.observeThread('thread', {})
   runtime.getThreadState('thread').historyLoaded = true
   const newItems = runtime.getThreadState('thread').itemState
-  for (const release of lookupResolvers) release({ yuxi: { current_turn: { id: 'old-turn' } } })
-  releaseHistory({ data: [], yuxi: { runs: [{ id: 'old-run' }] }, has_more: false, last_id: null })
+  for (const release of lookupResolvers) release({ zs: { current_turn: { id: 'old-turn' } } })
+  releaseHistory({ data: [], zs: { runs: [{ id: 'old-run' }] }, has_more: false, last_id: null })
   await Promise.all([resume, history])
   assert.equal(h.counts().subscriptions, 0)
   assert.equal(runtime.getThreadState('thread').itemState, newItems)
@@ -351,7 +351,7 @@ test('同一 Thread 的旧恢复快照不能覆盖刚开始的新执行', async 
   await tick()
   const stream = runtime.startRunStream('thread', 'new-run', null, { turnId: 'new-turn' })
   await tick()
-  releaseLookup({ yuxi: { current_turn: null } })
+  releaseLookup({ zs: { current_turn: null } })
   await restoring
   const state = runtime.getThreadState('thread')
   assert.equal(state.activeRunId, 'new-run')
@@ -375,7 +375,7 @@ for (const historyFails of [false, true]) {
       turn_id: 'turn',
       status: 'completed',
       content: [{ type: 'output_text', text: 'FINAL OUTPUT' }],
-      yuxi: { run_id: 'run', message_id: 'output' }
+      zs: { run_id: 'run', message_id: 'output' }
     }
     api.getSessionItems = async () => {
       requests++
@@ -385,7 +385,7 @@ for (const historyFails of [false, true]) {
         })
       if (historyFails) throw new Error('history unavailable')
       return {
-        data: [item], yuxi: { runs: [] }, has_more: false, last_id: item.id
+        data: [item], zs: { runs: [] }, has_more: false, last_id: item.id
       }
     }
     const old = runtime.fetchThreadMessages({ threadId: 'thread' })
@@ -397,7 +397,7 @@ for (const historyFails of [false, true]) {
       event_id: 'done-output',
       session_id: 'thread',
       turn_id: 'turn',
-      yuxi: { run_id: 'run' },
+      zs: { run_id: 'run' },
       item
     })
     h.emit({
@@ -405,11 +405,11 @@ for (const historyFails of [false, true]) {
       event_id: 'completed',
       session_id: 'thread',
       turn_id: 'turn',
-      yuxi: { run_id: 'run', current_run_id: 'run' },
+      zs: { run_id: 'run', current_run_id: 'run' },
       turn: { status: 'completed' }
     })
     await stream
-    resolveOld({ data: [], yuxi: { runs: [] }, has_more: false, last_id: null })
+    resolveOld({ data: [], zs: { runs: [] }, has_more: false, last_id: null })
     await old
     await tick()
     await tick()
@@ -438,7 +438,7 @@ test('旧终态历史完成时不能清空重挂载实例的新流', async (t) =
     event_id: 'completed',
     session_id: 'thread',
     turn_id: 'turn',
-    yuxi: { run_id: 'run', current_run_id: 'run' },
+    zs: { run_id: 'run', current_run_id: 'run' },
     turn: { status: 'completed' }
   })
   await old
@@ -447,7 +447,7 @@ test('旧终态历史完成时不能清空重挂载实例的新流', async (t) =
   const detachNew = runtime.observeThread('thread', {})
   const active = runtime.startRunStream('thread', 'new-run', null, { turnId: 'new-turn' })
   await tick()
-  resolveHistory({ data: [], yuxi: { runs: [] }, has_more: false, last_id: null })
+  resolveHistory({ data: [], zs: { runs: [] }, has_more: false, last_id: null })
   await tick()
   await tick()
   assert.equal(runtime.getThreadState('thread').activeRunId, 'new-run')
@@ -470,7 +470,7 @@ test('同一 SSE 内进入新 Run 后，旧恢复快照不能恢复旧等待点'
         return new Promise((resolve) => {
           resolveOld = resolve
         })
-      return { id: 'turn', status: 'in_progress', yuxi: { current_run_id: 'run2', status: 'running' } }
+      return { id: 'turn', status: 'in_progress', zs: { current_run_id: 'run2', status: 'running' } }
     }
     const restoring = runtime.resumeActiveRunForThread('thread')
     await tick()
@@ -480,12 +480,12 @@ test('同一 SSE 内进入新 Run 后，旧恢复快照不能恢复旧等待点'
       type: 'agent.session.turn.in_progress',
       session_id: 'thread',
       turn_id: 'turn',
-      yuxi: { run_id: 'run2', current_run_id: 'run2' }, turn: { status: 'in_progress' }
+      zs: { run_id: 'run2', current_run_id: 'run2' }, turn: { status: 'in_progress' }
     })
     await tick()
     await tick()
     assert.equal(runtime.getThreadState('thread').activeRunId, 'run2')
-    resolveOld({ id: 'turn', status: 'requires_action', yuxi: {
+    resolveOld({ id: 'turn', status: 'requires_action', zs: {
       current_run_id: 'run',
       status: 'waiting',
       waitpoint: {
@@ -521,18 +521,18 @@ test('SSE 校验旧 Run 期间的新恢复结果不能被旧事件覆盖', async
       return new Promise((resolve) => {
         releaseOld = resolve
       })
-    return { id: 'turn', status: 'in_progress', yuxi: { status: 'running', current_run_id: 'run3' } }
+    return { id: 'turn', status: 'in_progress', zs: { status: 'running', current_run_id: 'run3' } }
   }
   h.emit({
     type: 'agent.session.turn.in_progress',
     session_id: 'thread',
     turn_id: 'turn',
-    yuxi: { run_id: 'run2', current_run_id: 'run2' }, turn: { status: 'in_progress' }
+    zs: { run_id: 'run2', current_run_id: 'run2' }, turn: { status: 'in_progress' }
   })
   await tick()
   await runtime.resumeActiveRunForThread('thread')
   assert.equal(runtime.getThreadState('thread').activeRunId, 'run3')
-  releaseOld({ id: 'turn', status: 'in_progress', yuxi: { status: 'running', current_run_id: 'run2' } })
+  releaseOld({ id: 'turn', status: 'in_progress', zs: { status: 'running', current_run_id: 'run2' } })
   await tick()
   await tick()
   assert.equal(runtime.getThreadState('thread').activeRunId, 'run3')
@@ -554,10 +554,10 @@ test('旧 checkpoint 查询不能覆盖新 Run 的状态事件', async (t) => {
   const stream = runtime.startRunStream('thread', 'run', null, { turnId: 'turn' })
   await tick()
   h.emit({
-    type: 'yuxi.session.turn.state',
+    type: 'zs.session.turn.state',
     session_id: 'thread',
     turn_id: 'turn',
-    yuxi: { run_id: 'run' },
+    zs: { run_id: 'run' },
     agent_state: { todos: ['new state'] }
   })
   await tick()
@@ -571,7 +571,7 @@ test('旧 checkpoint 查询不能覆盖新 Run 的状态事件', async (t) => {
 test('分页历史合并更早内容，刷新跨过断线缺口且保留已加载页面', async (t) => {
   const { runtime } = setup(t)
   const detach = runtime.observeThread('thread', {})
-  api.getPublicThread = async () => ({ id: 'thread', yuxi: { current_turn: null } })
+  api.getPublicThread = async () => ({ id: 'thread', zs: { current_turn: null } })
   const item = (id) => ({
     id: String(id),
     type: 'message',
@@ -579,7 +579,7 @@ test('分页历史合并更早内容，刷新跨过断线缺口且保留已加�
     status: 'completed',
     phase: null,
     content: [{ type: 'input_text', text: `message ${id}` }],
-    yuxi: { message_id: id }
+    zs: { message_id: id }
   })
   let latest = 9
   const calls = []
@@ -587,7 +587,7 @@ test('分页历史合并更早内容，刷新跨过断线缺口且保留已加�
     calls.push(after)
     const index = after ? Number(after) - 1 : latest
     const data = [index, index - 1].filter((id) => id > 0).map(item)
-    return { data, last_id: data.at(-1)?.id || null, has_more: index > 2, yuxi: { runs: [] } }
+    return { data, last_id: data.at(-1)?.id || null, has_more: index > 2, zs: { runs: [] } }
   }
   await runtime.fetchThreadMessages({ threadId: 'thread' })
   assert.deepEqual(
@@ -610,7 +610,7 @@ test('分页历史合并更早内容，刷新跨过断线缺口且保留已加�
 test('首次和追加各读取最多三页，短历史停止且并发追加共享同一窗口', async (t) => {
   const { runtime } = setup(t)
   const detach = runtime.observeThread('thread', {})
-  api.getPublicThread = async () => ({ id: 'thread', yuxi: { current_turn: null } })
+  api.getPublicThread = async () => ({ id: 'thread', zs: { current_turn: null } })
   const calls = []
   api.getSessionItems = async (_id, { after, limit = 100 }) => {
     calls.push({ after, limit })
@@ -623,10 +623,10 @@ test('首次和追加各读取最多三页，短历史停止且并发追加共�
         role: 'user',
         status: 'completed',
         content: [{ type: 'input_text', text: `message ${id}` }],
-        yuxi: { message_id: id }
+        zs: { message_id: id }
       }
     })
-    return { data, last_id: data.at(-1).id, has_more: newest > limit, yuxi: { runs: [] } }
+    return { data, last_id: data.at(-1).id, has_more: newest > limit, zs: { runs: [] } }
   }
   await runtime.fetchThreadMessages({ threadId: 'thread' })
   assert.equal(runtime.threadMessages.thread.length, 300)
@@ -658,7 +658,7 @@ test('历史、流和完成后的显示由同一 item 集合派生，不依赖�
   await tick()
   h.emit({ type: 'agent.session.turn.item.added', event_id: 'added', session_id: 'thread', turn_id: 'turn',
     item: { id: 'live', type: 'message', role: 'assistant', status: 'in_progress',
-      content: [{ type: 'output_text', text: '' }], yuxi: { run_id: 'run', message_id: 1 } } })
+      content: [{ type: 'output_text', text: '' }], zs: { run_id: 'run', message_id: 1 } } })
   h.emit({ type: 'agent.session.turn.output_text.delta', event_id: 'delta', session_id: 'thread', turn_id: 'turn',
     item_id: 'live', content_index: 0, delta: 'one fact' })
   await tick()

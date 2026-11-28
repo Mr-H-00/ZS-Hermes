@@ -40,7 +40,7 @@ async page => {
         const box = document.querySelector('.ant-modal-content')?.getBoundingClientRect()
         return box && box.left >= 0 && box.right <= innerWidth + 1
       })
-      await page.locator('.ant-modal-content').screenshot({ path: `/tmp/yuxi-feedback-simple-${mode}-${width}.png`, animations: 'disabled' })
+      await page.locator('.ant-modal-content').screenshot({ path: `/tmp/zs-feedback-simple-${mode}-${width}.png`, animations: 'disabled' })
     }
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.route(sessionUrl, async route => {

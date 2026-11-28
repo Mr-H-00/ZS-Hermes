@@ -16,7 +16,7 @@
 
 ## 内置中间件顺序
 
-`ChatbotAgent` 的常见顺序如下（[graph.py](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/agent_backends/chatbot/graph.py) 装配）；可选项只在对应能力启用时加入：
+`ChatbotAgent` 的常见顺序如下（[graph.py](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/agent_backends/chatbot/graph.py) 装配）；可选项只在对应能力启用时加入：
 
 | 顺序 | 中间件 | 作用 |
 | --- | --- | --- |
@@ -74,4 +74,4 @@ Run 终态时，worker 把与当前 `run_id` 匹配的 state 快照写入 `Agent
 
 先说明它要改变哪一条边界：Prompt、模型调用、工具调用、文件访问、state 或观测。资源筛选和权限收敛放在 Graph 创建前；文件读写和工具结果卸载优先复用现有 filesystem middleware；新增模型可见输入或副作用时补充对应测试和失败案例。
 
-实现入口：[ChatbotAgent graph](https://github.com/xerrors/Yuxi/blob/main/backend/yuxi/modules/agents/runtime/agent_backends/chatbot/graph.py)、[中间件目录](https://github.com/xerrors/Yuxi/tree/main/backend/yuxi/modules/agents/runtime/middlewares)。
+实现入口：[ChatbotAgent graph](https://github.com/xerrors/Yuxi/blob/main/backend/zs/modules/agents/runtime/agent_backends/chatbot/graph.py)、[中间件目录](https://github.com/xerrors/Yuxi/tree/main/backend/zs/modules/agents/runtime/middlewares)。

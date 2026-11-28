@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from yuxi.modules.identity.permissions import (
+from zs.modules.identity.permissions import (
     ResourcePermission,
     ResourcePermissionDenied,
     require_knowledge_base_permission,
@@ -48,7 +48,7 @@ def test_invalid_v2_scope_does_not_expand_read_access_when_reading():
 
 
 def test_strict_config_rejects_manage_scope_outside_read_scope():
-    from yuxi.modules.identity.permissions import normalize_permission_config
+    from zs.modules.identity.permissions import normalize_permission_config
 
     with pytest.raises(ValueError, match="管理范围"):
         normalize_permission_config(
@@ -62,7 +62,7 @@ def test_strict_config_rejects_manage_scope_outside_read_scope():
 
 
 def test_strict_config_rejects_user_manage_scope_under_department_read_scope():
-    from yuxi.modules.identity.permissions import normalize_permission_config
+    from zs.modules.identity.permissions import normalize_permission_config
 
     with pytest.raises(ValueError, match="管理范围"):
         normalize_permission_config(
@@ -122,7 +122,7 @@ def test_global_knowledge_base_share_remains_manage_for_admin():
 
 
 def test_legacy_permission_config_is_rejected_at_runtime():
-    from yuxi.modules.identity.permissions import normalize_permission_config
+    from zs.modules.identity.permissions import normalize_permission_config
 
     with pytest.raises(ValueError, match="version 2"):
         normalize_permission_config({"access_level": "department", "department_ids": [1]})
@@ -201,7 +201,7 @@ def test_manage_only_scope_never_grants_access():
 
 
 def test_require_permission_rejects_insufficient_access():
-    from yuxi.modules.identity.permissions import require_resource_permission
+    from zs.modules.identity.permissions import require_resource_permission
 
     with pytest.raises(ResourcePermissionDenied):
         require_resource_permission(ResourcePermission.READ, ResourcePermission.MANAGE)
@@ -222,7 +222,7 @@ def test_require_knowledge_base_permission_uses_resolved_resource_permission():
 
 
 def test_v2_scope_validation_rejects_disallowed_access_level():
-    from yuxi.modules.identity.permissions import normalize_permission_config
+    from zs.modules.identity.permissions import normalize_permission_config
 
     with pytest.raises(ValueError, match="共享范围"):
         normalize_permission_config(
@@ -246,7 +246,7 @@ def test_private_agent_access_is_owner_or_system_governance(role):
 
 
 def test_empty_read_scope_rejects_nonempty_management():
-    from yuxi.modules.identity.permissions import normalize_permission_config
+    from zs.modules.identity.permissions import normalize_permission_config
 
     with pytest.raises(ValueError, match="管理范围"):
         normalize_permission_config({"version": 2, "read_scope": None, "manage_scope": {"access_level": "global"}}, strict=True)
@@ -258,7 +258,7 @@ def test_empty_read_scope_rejects_nonempty_management():
 )
 def test_builtin_skill_permission_respects_role_ceiling_and_deleted_identity(role, deleted, expected):
     """内置管理权限遵循统一角色上限，已删除超级管理员不能绕过身份边界。"""
-    from yuxi.modules.extensions.skills.shared import user_can_manage_skill
+    from zs.modules.extensions.skills.shared import user_can_manage_skill
 
     user = _user(role=role)
     user.is_deleted = deleted

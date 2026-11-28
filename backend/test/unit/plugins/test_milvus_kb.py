@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from pymilvus import CollectionSchema, DataType, FieldSchema, Function, FunctionType
 
-import yuxi.modules.knowledge.implementations.milvus as milvus_module
+import zs.modules.knowledge.implementations.milvus as milvus_module
 from test.unit.support.knowledge import make_knowledge_file_record
 from test.unit.support.milvus import (
     EMBEDDING_MODEL_SPEC,
@@ -17,17 +17,17 @@ from test.unit.support.milvus import (
     make_query_config,
 )
 from test.unit.support.milvus import fake_milvus_embedding as fake_milvus_embedding
-from yuxi.modules.knowledge.base import FileStatus, KnowledgeExecutor
-from yuxi.modules.knowledge.chunking.ragflow_like.nlp import count_tokens
-from yuxi.modules.knowledge.implementations.milvus import (
+from zs.modules.knowledge.base import FileStatus, KnowledgeExecutor
+from zs.modules.knowledge.chunking.ragflow_like.nlp import count_tokens
+from zs.modules.knowledge.implementations.milvus import (
     CONTENT_SPARSE_FIELD,
     VECTOR_METRIC_TYPE,
     MilvusKB,
     _retrieval_config_options,
 )
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.services import documents
-from yuxi.modules.knowledge.storage.milvus import CONTENT_ANALYZER_PARAMS
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.services import documents
+from zs.modules.knowledge.storage.milvus import CONTENT_ANALYZER_PARAMS
 
 
 @pytest.fixture(autouse=True)
@@ -91,7 +91,7 @@ class FakeKnowledgeFileRepository:
         if record is None or record.kb_id != kb_id or record.status not in allowed_statuses:
             return None
         if kb_additional_params is not None:
-            from yuxi.modules.knowledge.utils.kb_utils import resolve_processing_params
+            from zs.modules.knowledge.utils.kb_utils import resolve_processing_params
 
             record.processing_params = resolve_processing_params(kb_additional_params, record.processing_params, processing_params)
         for key, value in data.items():
@@ -167,9 +167,9 @@ def patch_file_repository(monkeypatch, file_repo: FakeKnowledgeFileRepository) -
         """unit 只隔离锁；并发排他性由真实 PG integration 拥有。"""
         yield
 
-    monkeypatch.setattr("yuxi.modules.knowledge.repositories.projections.knowledge_projection_lock", projection_lock)
-    monkeypatch.setattr("yuxi.modules.knowledge.repositories.files.KnowledgeFileRepository", lambda: file_repo)
-    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeFileRepository", lambda: file_repo)
+    monkeypatch.setattr("zs.modules.knowledge.repositories.projections.knowledge_projection_lock", projection_lock)
+    monkeypatch.setattr("zs.modules.knowledge.repositories.files.KnowledgeFileRepository", lambda: file_repo)
+    monkeypatch.setattr("zs.modules.knowledge.implementations.milvus.KnowledgeFileRepository", lambda: file_repo)
 
 
 def patch_chunk_records(monkeypatch, records):
@@ -206,11 +206,11 @@ async def test_cleanup_knowledge_base_resources_offloads_milvus_cleanup(monkeypa
         calls.append(name)
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.implementations.milvus.utility.has_collection",
+        "zs.modules.knowledge.implementations.milvus.utility.has_collection",
         lambda kb_id, using: record_cleanup("has_collection") or True,
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.implementations.milvus.utility.drop_collection",
+        "zs.modules.knowledge.implementations.milvus.utility.drop_collection",
         lambda kb_id, using: record_cleanup("drop_collection"),
     )
 
@@ -222,7 +222,7 @@ async def test_cleanup_knowledge_base_resources_offloads_milvus_cleanup(monkeypa
             record_cleanup("drop_graph_collections")
 
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.graphs.service.MilvusGraphVectorStore",
+        "zs.modules.knowledge.graphs.service.MilvusGraphVectorStore",
         FakeGraphVectorStore,
     )
 
@@ -232,7 +232,7 @@ async def test_cleanup_knowledge_base_resources_offloads_milvus_cleanup(monkeypa
 
     monkeypatch.setattr(KnowledgeExecutor, "cleanup_knowledge_base_resources", delete_base)
 
-    from yuxi.modules.knowledge.graphs.service import KnowledgeGraphService
+    from zs.modules.knowledge.graphs.service import KnowledgeGraphService
 
     kb.graph_service = KnowledgeGraphService()
     result = await kb.cleanup_knowledge_base_resources("db")
@@ -455,7 +455,7 @@ async def test_cancellation_marks_file_retryable(monkeypatch, operation, expecte
             started.set()
             await asyncio.Event().wait()
 
-        monkeypatch.setattr("yuxi.modules.documents.service.parse_to_hosted_markdown", cancelled_step)
+        monkeypatch.setattr("zs.modules.documents.service.parse_to_hosted_markdown", cancelled_step)
         monkeypatch.setattr(kb, "_cleanup_parse_attempt", AsyncMock())
         task = asyncio.create_task(
             kb.parse_file(
@@ -522,7 +522,7 @@ async def test_delete_file_chunks_only_resets_file_stats(monkeypatch):
             self.delete_calls.append(file_id)
             return 2
 
-    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr("zs.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
     file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record(chunk_count=2, token_count=10, status=FileStatus.INDEXED)})
     patch_file_repository(monkeypatch, file_repo)
     kb = MilvusKB.__new__(MilvusKB)
@@ -554,7 +554,7 @@ async def test_delete_file_commits_invisibility_without_external_cleanup(monkeyp
     file_repo = FakeKnowledgeFileRepository({"file-1": make_file_record(chunk_count=2, token_count=10)})
     patch_file_repository(monkeypatch, file_repo)
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.graphs.service.KnowledgeGraphService.delete_file_graph",
+        "zs.modules.knowledge.graphs.service.KnowledgeGraphService.delete_file_graph",
         AsyncMock(side_effect=error),
     )
     kb = make_kb(FakeCollection())
@@ -582,7 +582,7 @@ async def test_knowledge_base_cleanup_stops_when_collection_drop_fails(monkeypat
     monkeypatch.setattr(milvus_module.utility, "drop_collection", Mock(side_effect=error))
     graph_cleanup = Mock()
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.graphs.milvus_graph_vector_store.MilvusGraphVectorStore",
+        "zs.modules.knowledge.graphs.milvus_graph_vector_store.MilvusGraphVectorStore",
         lambda: types.SimpleNamespace(drop_graph_collections=graph_cleanup),
     )
     base_cleanup = AsyncMock(return_value={"message": "success"})
@@ -656,7 +656,7 @@ async def test_insert_chunks_to_stores_writes_pg_first_then_milvus_upsert(monkey
             event_log.append("pg")
             return []
 
-    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr("zs.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
     kb = MilvusKB.__new__(MilvusKB)
     collection = FakeCollection()
 
@@ -719,7 +719,7 @@ async def test_insert_chunks_to_stores_failure_paths_preserve_pg_facts(
             self.delete_calls.append(file_id)
             return 0
 
-    monkeypatch.setattr("yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
+    monkeypatch.setattr("zs.modules.knowledge.implementations.milvus.KnowledgeChunkRepository", FakeChunkRepo)
     kb = MilvusKB.__new__(MilvusKB)
 
     class RetryCollection(FakeCollection):
@@ -836,7 +836,7 @@ async def test_graph_retrieval_limits_reach_query_executors(monkeypatch, exceeds
         search_triples=AsyncMock(return_value=[]),
     )
     graph_service = types.SimpleNamespace(query_and_rank_chunks_by_ppr=AsyncMock(return_value=[("chunk-1", 0.5)]))
-    monkeypatch.setattr("yuxi.modules.knowledge.graphs.milvus_graph_vector_store.MilvusGraphVectorStore", lambda: vector_store)
+    monkeypatch.setattr("zs.modules.knowledge.graphs.milvus_graph_vector_store.MilvusGraphVectorStore", lambda: vector_store)
     chunk = types.SimpleNamespace(chunk_id="chunk-1", file_id="file-1", chunk_index=0, content="graph result")
     repository = types.SimpleNamespace(list_by_chunk_ids=AsyncMock(return_value=[chunk]))
     monkeypatch.setattr(milvus_module, "KnowledgeChunkRepository", lambda: repository)
@@ -1104,7 +1104,7 @@ async def test_document_preview_location_requires_matching_index_snapshot(monkey
         extraction_result=None,
     )
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.repositories.chunks.KnowledgeChunkRepository",
+        "zs.modules.knowledge.repositories.chunks.KnowledgeChunkRepository",
         lambda: types.SimpleNamespace(
             list_by_file_id=AsyncMock(return_value=[chunk]),
         ),
@@ -1136,7 +1136,7 @@ async def test_query_does_not_create_missing_vector_projection(monkeypatch, tmp_
 
     kb._get_or_create_milvus_collection = create
     monkeypatch.setattr(
-        "yuxi.modules.knowledge.implementations.milvus.KnowledgeChunkRepository",
+        "zs.modules.knowledge.implementations.milvus.KnowledgeChunkRepository",
         lambda: SimpleNamespace(
             count_by_kb_id=AsyncMock(return_value=visible_chunks),
         ),
@@ -1197,7 +1197,7 @@ async def test_cancelled_old_attempt_cleanup_preserves_published_result(monkeypa
     current_url = "http://minio:9000/knowledgebases/db/parsed/file-1/new-attempt/document.md"
     repository = FakeKnowledgeFileRepository({"file-1": make_file_record(status=FileStatus.UPLOADED, markdown_file=previous_url)})
     patch_file_repository(monkeypatch, repository)
-    monkeypatch.setattr("yuxi.modules.documents.service.parse_to_hosted_markdown", AsyncMock(return_value="text"))
+    monkeypatch.setattr("zs.modules.documents.service.parse_to_hosted_markdown", AsyncMock(return_value="text"))
     monkeypatch.setattr(kb, "save_markdown_artifact", AsyncMock(return_value=current_url))
     cleanup = AsyncMock(side_effect=asyncio.CancelledError())
     monkeypatch.setattr(kb, "_cleanup_parse_attempt", cleanup)

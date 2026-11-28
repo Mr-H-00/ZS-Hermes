@@ -5,7 +5,7 @@ async (page) => {
   const threadId = '00000000-0000-4000-8000-000000000031'
   const agentId = '00000000-0000-4000-8000-000000000032'
   const thread = { id: threadId, object: 'agent.session', status: 'completed', agent: { id: agentId }, created_at: 1791580000, metadata: {},
-    yuxi: { title: '数据库调试投影验证', current_turn: null, context: {}, project_id: 'debug-project', config: {}, is_pinned: false } }
+    zs: { title: '数据库调试投影验证', current_turn: null, context: {}, project_id: 'debug-project', config: {}, is_pinned: false } }
   const agent = { agent_id: agentId, name: '调试验证助手', config_json: { context: {} }, configurable_items: {}, metadata: {} }
   const audits = [
     { id: 10, type: 'human', content: '数据库用户输入', run_id: 'run-1', input_id: 'input-1', created_at: '2026-10-10T04:22:54Z' },
@@ -17,7 +17,7 @@ async (page) => {
   const runs = [{ run_id: 'run-1', status: 'completed', timing: { created_at: '2026-10-10T04:22:54Z', started_at: '2026-10-10T04:22:54Z', finished_at: '2026-10-10T04:23:06Z', total_latency_ms: 12000 } }]
   let mode = 'normal', release, delayed = true
   const check = (condition, message) => { if (!condition) throw new Error(message) }
-  await page.addInitScript(() => { localStorage.setItem('user_token', 'debug-replay-token'); localStorage.setItem('yuxi_debug_mode', 'true') })
+  await page.addInitScript(() => { localStorage.setItem('user_token', 'debug-replay-token'); localStorage.setItem('zs_debug_mode', 'true') })
   await page.route('**/api/**', async route => {
     const parsed = await page.evaluate(raw => { const url = new URL(raw); return { path: url.pathname, params: Object.fromEntries(url.searchParams) } }, route.request().url())
     const path = parsed.path
@@ -30,7 +30,7 @@ async (page) => {
     } else if (path === '/api/auth/me') json = { uid: '1', username: '调试验证', role: 'superadmin' }
     else if (path === '/api/agent') json = { agents: [agent] }
     else if (path === `/api/agent/${agentId}`) json = agent
-    else if (path.endsWith('/items')) json = { data: [{ id: 'ordinary-final', object: 'agent.session.item', type: 'message', role: 'assistant', status: 'completed', turn_id: 'turn-1', content: [{ type: 'output_text', text: '聊天历史中的不同正文' }], yuxi: { run_id: 'run-1', message_id: 11 } }], has_more: false, yuxi: { runs: [] } }
+    else if (path.endsWith('/items')) json = { data: [{ id: 'ordinary-final', object: 'agent.session.item', type: 'message', role: 'assistant', status: 'completed', turn_id: 'turn-1', content: [{ type: 'output_text', text: '聊天历史中的不同正文' }], zs: { run_id: 'run-1', message_id: 11 } }], has_more: false, zs: { runs: [] } }
     else if (path === '/api/v1/agents/sessions') json = { data: parsed.params.is_pinned === 'true' ? [] : [thread], has_more: false }
     else if (path.endsWith(`/${threadId}`) || path.endsWith('/viewed')) json = thread
     else if (path.endsWith('/state')) json = { agent_state: {}, interrupt: null }
@@ -57,7 +57,7 @@ async (page) => {
   check(await panel.getByText('聊天历史中的不同正文').count() === 0, '普通聊天正文覆盖数据库')
   await panel.locator('.message-row').nth(2).click()
   await panel.getByText('数据库中的工具输出', { exact: true }).waitFor()
-  await page.screenshot({ path: '/tmp/yuxi-debug-projection-light.png' })
+  await page.screenshot({ path: '/tmp/zs-debug-projection-light.png' })
   await panel.getByRole('combobox', { name: '记录类型筛选' }).selectOption('tool')
   check(await panel.locator('.message-row').count() === 1, '工具筛选不正确')
   await panel.getByRole('combobox', { name: '记录类型筛选' }).selectOption('all')
@@ -65,9 +65,9 @@ async (page) => {
   check(await panel.locator('.message-row').count() === 1, '文本搜索不正确')
   await panel.getByRole('searchbox').fill('')
   await page.evaluate(() => document.documentElement.classList.add('dark'))
-  await page.screenshot({ path: '/tmp/yuxi-debug-projection-dark.png' })
+  await page.screenshot({ path: '/tmp/zs-debug-projection-dark.png' })
   await page.setViewportSize({ width: 375, height: 812 })
-  await page.screenshot({ path: '/tmp/yuxi-debug-projection-mobile.png' })
+  await page.screenshot({ path: '/tmp/zs-debug-projection-mobile.png' })
   check(await panel.locator('.record-kind').first().isVisible(), '窄屏胶囊不可见')
   mode = 'error'
   await panel.getByRole('button', { name: '刷新审计', exact: true }).click()

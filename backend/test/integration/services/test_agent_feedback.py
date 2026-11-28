@@ -11,21 +11,21 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.infrastructure.postgres.base import BusinessBase
-from yuxi.modules.agents.models.definitions import Agent
-from yuxi.modules.agents.models.feedback import AgentFeedbackRecord
-from yuxi.modules.agents.models.messages import Message
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.modules.agents.runtime.middlewares.authorization import AgentExecutionRevoked
-from yuxi.modules.agents.services.feedback import list_feedback, mark_run_for_improvement, remove_user_feedback, save_user_feedback
-from yuxi.modules.agents.scope import ActorScope
-from yuxi.modules.identity.models import User
-from yuxi.modules.workspace.models import Project
-from yuxi.shared.datetime import utc_now
-from yuxi.shared.errors import DomainError, InvalidOperationError, PermissionDeniedError, ResourceNotFoundError, StateConflictError
+from zs.infrastructure.postgres.models import load_models
+from zs.infrastructure.postgres.base import BusinessBase
+from zs.modules.agents.models.definitions import Agent
+from zs.modules.agents.models.feedback import AgentFeedbackRecord
+from zs.modules.agents.models.messages import Message
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.turns import AgentTurn
+from zs.modules.agents.runtime.middlewares.authorization import AgentExecutionRevoked
+from zs.modules.agents.services.feedback import list_feedback, mark_run_for_improvement, remove_user_feedback, save_user_feedback
+from zs.modules.agents.scope import ActorScope
+from zs.modules.identity.models import User
+from zs.modules.workspace.models import Project
+from zs.shared.datetime import utc_now
+from zs.shared.errors import DomainError, InvalidOperationError, PermissionDeniedError, ResourceNotFoundError, StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -215,8 +215,8 @@ async def test_tool_database_failure_rolls_back_without_success(feedback_db, mon
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    from yuxi.infrastructure.postgres.manager import pg_manager
-    from yuxi.modules.extensions.tools.builtin.mark_for_improvement import mark_for_improvement
+    from zs.infrastructure.postgres.manager import pg_manager
+    from zs.modules.extensions.tools.builtin.mark_for_improvement import mark_for_improvement
 
     await activate_run(feedback_db)
     async with feedback_db() as db:

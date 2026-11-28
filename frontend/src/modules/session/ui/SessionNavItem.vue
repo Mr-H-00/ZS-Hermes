@@ -4,7 +4,7 @@
     :class="{
       active: currentChatId === chat.id,
       nested,
-      'has-status': hasStatusIndicator || Boolean(activityLabel) || chat.yuxi.unread
+      'has-status': hasStatusIndicator || Boolean(activityLabel) || chat.zs.unread
     }"
   >
     <button
@@ -15,7 +15,7 @@
       @dblclick.stop="renameChat"
       @click.middle="$emit('archive-chat', chat.id)"
     >
-      <span class="session-title">{{ chat.yuxi.title || '新的对话' }}</span>
+      <span class="session-title">{{ chat.zs.title || '新的对话' }}</span>
       <span
         v-if="chat.status === 'failed'"
         class="thread-status thread-status-failed"
@@ -44,7 +44,7 @@
         <!-- 单一稳定容器承载 spinner 与未读点切换，避免状态交换时移除 DOM 造成闪烁 -->
         <span v-show="isRunning" class="status-spinner" aria-hidden="true"></span>
         <span
-          v-show="!isRunning && !activityLabel && chat.yuxi.unread"
+          v-show="!isRunning && !activityLabel && chat.zs.unread"
           class="thread-status-ready"
           aria-hidden="true"
         ></span>
@@ -56,10 +56,10 @@
           <a-menu>
             <a-menu-item
               key="pin"
-              :icon="h(chat.yuxi.is_pinned ? PinOff : Pin, { size: 14 })"
+              :icon="h(chat.zs.is_pinned ? PinOff : Pin, { size: 14 })"
               @click.stop="$emit('toggle-pin', chat.id)"
             >
-              {{ chat.yuxi.is_pinned ? '取消置顶' : '置顶' }}
+              {{ chat.zs.is_pinned ? '取消置顶' : '置顶' }}
             </a-menu-item>
             <a-menu-item key="rename" :icon="h(SquarePen, { size: 14 })" @click.stop="renameChat">
               重命名
@@ -77,7 +77,7 @@
           <a-button type="text" class="more-btn" aria-label="对话操作">
             <MoreVertical :size="16" />
           </a-button>
-          <Pin v-if="chat.yuxi.is_pinned" :size="14" class="pinned-indicator" />
+          <Pin v-if="chat.zs.is_pinned" :size="14" class="pinned-indicator" />
         </span>
       </a-dropdown>
     </span>
@@ -101,13 +101,13 @@ const activityLabel = computed(() => SESSION_ACTIVITY_LABELS[props.chat.status] 
 const isRunning = computed(() => props.chat.status === 'in_progress')
 const statusIndicator = computed(() => {
   if (isRunning.value) return '正在运行'
-  if (!activityLabel.value && props.chat.yuxi.unread) return '有新回复'
+  if (!activityLabel.value && props.chat.zs.unread) return '有新回复'
   return ''
 })
 const hasStatusIndicator = computed(() => Boolean(statusIndicator.value))
 
 const renameChat = () => {
-  let newTitle = props.chat.yuxi.title || ''
+  let newTitle = props.chat.zs.title || ''
   Modal.confirm({
     title: '重命名对话',
     icon: null,

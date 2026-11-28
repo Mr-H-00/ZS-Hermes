@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.repositories.runs import AgentRunRepository
 
 import json
 from datetime import datetime, timedelta
@@ -11,16 +11,16 @@ import pytest_asyncio
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.modules.agents.services.memory_history import MemoryHistoryService
-from yuxi.modules.agents.repositories.messages import MessageRepository
-from yuxi.modules.agents.repositories.sessions import SessionRepository, MAX_SESSION_TITLE_LENGTH
-from yuxi.modules.agents.models.runs import AgentRun
-from yuxi.modules.agents.models.turns import AgentTurn
-from yuxi.infrastructure.postgres.base import Base
-from yuxi.modules.agents.models.sessions import Session
-from yuxi.modules.agents.models.messages import Message
-from yuxi.shared.datetime import utc_now
-from yuxi.modules.agents.services.memory_history import MEMORY_HISTORY_READ_RESPONSE_MAX_BYTES
+from zs.modules.agents.services.memory_history import MemoryHistoryService
+from zs.modules.agents.repositories.messages import MessageRepository
+from zs.modules.agents.repositories.sessions import SessionRepository, MAX_SESSION_TITLE_LENGTH
+from zs.modules.agents.models.runs import AgentRun
+from zs.modules.agents.models.turns import AgentTurn
+from zs.infrastructure.postgres.base import Base
+from zs.modules.agents.models.sessions import Session
+from zs.modules.agents.models.messages import Message
+from zs.shared.datetime import utc_now
+from zs.modules.agents.services.memory_history import MEMORY_HISTORY_READ_RESPONSE_MAX_BYTES
 from test.support.sqlite import create_utc_sqlite_engine
 
 pytestmark = pytest.mark.unit
@@ -510,7 +510,7 @@ async def test_search_sessions_filters_agent_and_paginates(session):
 async def test_search_batches_snippets_without_query_growth(session):
     """命中会话增加时 SQL 数量固定，片段有界且保留所属会话。"""
     from sqlalchemy import event
-    from yuxi.modules.agents.repositories.sessions import MESSAGE_SEARCH_SNIPPETS_PER_THREAD
+    from zs.modules.agents.repositories.sessions import MESSAGE_SEARCH_SNIPPETS_PER_THREAD
 
     now = utc_now()
     sessions = [

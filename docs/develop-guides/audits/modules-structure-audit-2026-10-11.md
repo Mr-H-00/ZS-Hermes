@@ -1,4 +1,4 @@
-# backend/yuxi/modules 结构审查报告（2026-10-11）
+# backend/zs/modules 结构审查报告（2026-10-11）
 
 ## 完成状态（更新于 2026-10-13）
 
@@ -20,7 +20,7 @@
 
 ## 方法与可信度
 
-本报告回答一个问题：**一个新人从上到下阅读 `backend/yuxi/modules`（10 个业务域、263 个 Python 文件、约 5.4 万行）时，会在哪里被结构绊住？** 重点放在主链路上的绕路与冗余。
+本报告回答一个问题：**一个新人从上到下阅读 `backend/zs/modules`（10 个业务域、263 个 Python 文件、约 5.4 万行）时，会在哪里被结构绊住？** 重点放在主链路上的绕路与冗余。
 
 流程分两阶段：
 
@@ -41,7 +41,7 @@
 
 ### 【已修复】模式 1：HTTPException 渗透全部域层（复核新增，横切最重）
 
-原始发现（修复前）：`grep -rn "raise HTTPException" backend/yuxi/modules` 命中 **244 处、24 个文件**，遍布领域服务等模块。ARCHITECTURE.md:29/95 要求"路由只处理协议、用例归 services、路由保持薄"，但用例层直接构造 HTTP 状态码语义，路由只能透传——这也是下文幂等回执、Session 授权等模式无法沉淀为域内共享机制的结构性原因之一（五份幂等拷贝各自绑定 409+中文 detail 的 HTTP 表达）。同域内已有正确示范（`agents/services/password_login.py` 的领域异常模式、`identity/services/administration.py` 的 service 事务 Owner），但两种哲学并存，新人无从判断该学哪一种。
+原始发现（修复前）：`grep -rn "raise HTTPException" backend/zs/modules` 命中 **244 处、24 个文件**，遍布领域服务等模块。ARCHITECTURE.md:29/95 要求"路由只处理协议、用例归 services、路由保持薄"，但用例层直接构造 HTTP 状态码语义，路由只能透传——这也是下文幂等回执、Session 授权等模式无法沉淀为域内共享机制的结构性原因之一（五份幂等拷贝各自绑定 409+中文 detail 的 HTTP 表达）。同域内已有正确示范（`agents/services/password_login.py` 的领域异常模式、`identity/services/administration.py` 的 service 事务 Owner），但两种哲学并存，新人无从判断该学哪一种。
 
 修复结果：全部 244 个抛出点及相应捕获已迁移为领域异常；API 适配器保留原状态码、消息与业务 code，定时、预览、工具和 worker 按领域契约消费。领域异常不携带 HTTP 属性。
 

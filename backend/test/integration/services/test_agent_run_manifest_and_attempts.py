@@ -12,10 +12,10 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.infrastructure.postgres.models import load_models
-from yuxi.modules.agents.repositories.runs import AgentRunRepository
-from yuxi.modules.agents.models.runs import AgentRun, AgentRunAttempt
-from yuxi.shared.datetime import utc_now
+from zs.infrastructure.postgres.models import load_models
+from zs.modules.agents.repositories.runs import AgentRunRepository
+from zs.modules.agents.models.runs import AgentRun, AgentRunAttempt
+from zs.shared.datetime import utc_now
 
 from agent_run_test_helpers import cleanup_agent_run_threads, create_agent_run
 

@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/extensions/skills/content.py
+Owner：backend/zs/modules/extensions/skills/content.py
 
 ## 问题
 

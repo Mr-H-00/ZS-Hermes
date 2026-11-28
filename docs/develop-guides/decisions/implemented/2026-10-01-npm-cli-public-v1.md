@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：feature
-Owner：packages/yuxi-cli/src/chat.ts
+Owner：packages/zs-cli/src/chat.ts
 
 ## 问题
 
@@ -33,7 +33,7 @@ npm 包可以独立构建和发布，不需要 Python 或 Docker。已有 Python
 
 | 验收主张 | 直接证据 / 命令 | 结果 |
 |---|---|---|
-| 包可按 npm 规范构建并暴露 `yuxi` 命令 | `cd packages/yuxi-cli && npm run typecheck && npm test && npm run pack:check` | Passed |
+| 包可按 npm 规范构建并暴露 `yuxi` 命令 | `cd packages/zs-cli && npm run typecheck && npm test && npm run pack:check` | Passed |
 | 配置、认证错误、Public v1 KB 路径、SSE 和 Chat 生命周期具备静态回归覆盖 | `npm test`，8 tests passed；包含本地 HTTP server 路由核对 | Passed |
 | 工程契约有效 | `python3 scripts/verify_engineering_contracts.py` | Passed |
 | 远程健康接口和多轮多行 Chat 可被新 CLI 访问 | 临时 `HOME` 下执行 `remote ping` 和 `status`；真实 Public v1 两轮 Chat 回读 delta、cursor 和多行结果 | Passed |

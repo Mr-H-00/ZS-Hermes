@@ -1,6 +1,6 @@
 import pytest
 
-from yuxi.shared.strings import truncate_utf8
+from zs.shared.strings import truncate_utf8
 
 pytestmark = pytest.mark.unit
 

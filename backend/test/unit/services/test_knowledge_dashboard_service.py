@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import yuxi.modules.knowledge.services.dashboard as knowledge_dashboard_service
+import zs.modules.knowledge.services.dashboard as knowledge_dashboard_service
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
 

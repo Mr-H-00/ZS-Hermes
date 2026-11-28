@@ -7,10 +7,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from test.integration.support.postgres_schema import create_isolated_manager, drop_isolated_schema
-from yuxi.migrations.knowledge_directories import audit, convert
-from yuxi.modules.background_jobs.models import BackgroundJobRecord
-from yuxi.modules.knowledge.models import KnowledgeBase, KnowledgeFile
-from yuxi.shared.errors import StateConflictError
+from zs.migrations.knowledge_directories import audit, convert
+from zs.modules.background_jobs.models import BackgroundJobRecord
+from zs.modules.knowledge.models import KnowledgeBase, KnowledgeFile
+from zs.shared.errors import StateConflictError
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.self_managed_resources]
 
@@ -25,8 +25,8 @@ async def old_schema():
             await connection.run_sync(table.create)
         await connection.execute(text("DROP INDEX uq_knowledge_files_active_name"))
         await connection.execute(text("ALTER TABLE knowledge_files DROP CONSTRAINT ck_knowledge_files_leaf_name"))
-        await connection.execute(text("CREATE TABLE yuxi_schema_migrations(domain text PRIMARY KEY, version integer)"))
-        await connection.execute(text("INSERT INTO yuxi_schema_migrations VALUES ('knowledge', 1)"))
+        await connection.execute(text("CREATE TABLE zs_schema_migrations(domain text PRIMARY KEY, version integer)"))
+        await connection.execute(text("INSERT INTO zs_schema_migrations VALUES ('knowledge', 1)"))
         await connection.execute(text("INSERT INTO knowledge_bases(kb_id,name,kb_type) VALUES ('kb','migration','milvus')"))
     try:
         yield manager
@@ -55,7 +55,7 @@ async def test_conversion_resumes_preserves_identity_and_publishes_constraint(ol
     interrupted = await convert(old_schema, stop_after=1)
     assert not interrupted["complete"]
     async with old_schema.get_async_session_context() as observer:
-        assert await observer.scalar(text("SELECT version FROM yuxi_schema_migrations WHERE domain='knowledge'")) == 1
+        assert await observer.scalar(text("SELECT version FROM zs_schema_migrations WHERE domain='knowledge'")) == 1
     assert (await convert(old_schema))["complete"]
     assert (await convert(old_schema))["complete"]
     async with old_schema.get_async_session_context() as observer:
@@ -72,7 +72,7 @@ async def test_conversion_resumes_preserves_identity_and_publishes_constraint(ol
                 f"parsed/{file_id}",
                 "same-content",
             )
-        assert await observer.scalar(text("SELECT version FROM yuxi_schema_migrations WHERE domain='knowledge'")) == 2
+        assert await observer.scalar(text("SELECT version FROM zs_schema_migrations WHERE domain='knowledge'")) == 2
         with pytest.raises(IntegrityError) as error:
             await observer.execute(
                 text(
@@ -140,4 +140,4 @@ async def test_file_occupying_required_directory_blocks_before_conversion(old_sc
         rows = (await observer.scalars(select(KnowledgeFile).order_by(KnowledgeFile.file_id))).all()
         assert [row.filename for row in rows] == list(names)
         assert all(row.parent_id is None for row in rows)
-        assert await observer.scalar(text("SELECT version FROM yuxi_schema_migrations WHERE domain='knowledge'")) == 1
+        assert await observer.scalar(text("SELECT version FROM zs_schema_migrations WHERE domain='knowledge'")) == 1

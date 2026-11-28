@@ -42,7 +42,7 @@ async def test_session_snapshot_and_input_freeze_survive_definition_and_session_
         assert created.status_code == 201, created.text
         session_id = created.json()["id"]
         assert created.json()["agent"]["model"] == MODEL
-        assert created.json()["yuxi"]["tool_approval_mode"] == "default"
+        assert created.json()["zs"]["tool_approval_mode"] == "default"
         initial_config = json.loads(await conn.fetchval("SELECT config_snapshot FROM sessions WHERE thread_id=$1", session_id))
         assert initial_config["model"] == MODEL
         assert "FROZEN_SESSION_PROMPT" in initial_config["system_prompt"]
@@ -54,7 +54,7 @@ async def test_session_snapshot_and_input_freeze_survive_definition_and_session_
             response = await e2e_client.post(
                 f"/api/v1/agents/sessions/{session_id}/events",
                 headers={**e2e_headers, "Idempotency-Key": key or str(uuid.uuid4())},
-                json={"events": [{"type": "agent.session.input.message", "input": [_message(text)], "yuxi": options or {}}]},
+                json={"events": [{"type": "agent.session.input.message", "input": [_message(text)], "zs": options or {}}]},
             )
             assert response.status_code == 202, response.text
             return response.json()
@@ -84,11 +84,11 @@ async def test_session_snapshot_and_input_freeze_survive_definition_and_session_
             changed = await e2e_client.post(
                 f"/api/v1/agents/sessions/{session_id}",
                 headers=e2e_headers,
-                json={"agent": {"model": updated_model}, "yuxi": {"tool_approval_mode": "always_trust"}},
+                json={"agent": {"model": updated_model}, "zs": {"tool_approval_mode": "always_trust"}},
             )
             assert changed.status_code == 200, changed.text
             assert changed.json()["agent"]["model"] == updated_model
-            assert changed.json()["yuxi"]["tool_approval_mode"] == "always_trust"
+            assert changed.json()["zs"]["tool_approval_mode"] == "always_trust"
             invalid_update = await e2e_client.post(
                 f"/api/v1/agents/sessions/{session_id}", headers=e2e_headers, json={"agent": {"model": "   "}}
             )
@@ -121,7 +121,7 @@ async def test_session_snapshot_and_input_freeze_survive_definition_and_session_
                 assert payload["context_snapshot"] == expected
             session = await e2e_client.get(f"/api/v1/agents/sessions/{session_id}", headers=e2e_headers)
             assert session.json()["agent"]["model"] == updated_model
-            assert session.json()["yuxi"]["tool_approval_mode"] == "always_trust"
+            assert session.json()["zs"]["tool_approval_mode"] == "always_trust"
             assert await conn.fetchval("SELECT count(*) FROM agent_input_receipts WHERE idempotency_key=$1", key) == 1
 
             rejected = await e2e_client.post(
@@ -150,7 +150,7 @@ async def test_session_snapshot_and_input_freeze_survive_definition_and_session_
                     await asyncio.sleep(0.2)
             turn = await _turn(e2e_client, e2e_headers, session_id, consumed["turn_id"])
             assert turn["status"] == "completed", turn
-            assert turn["yuxi"]["result_run_id"] == consumed["run_id"]
+            assert turn["zs"]["result_run_id"] == consumed["run_id"]
         runs = await conn.fetch("SELECT id, input_payload, manifest FROM agent_runs WHERE thread_id=$1", session_id)
         assert len(runs) >= 5
         for run in runs:
@@ -202,15 +202,15 @@ async def test_session_approval_selection_reaches_worker_without_legacy_agent_de
         )
         assert created.status_code == 201, created.text
         session_id = created.json()["id"]
-        assert created.json()["yuxi"]["tool_approval_mode"] == "default"
+        assert created.json()["zs"]["tool_approval_mode"] == "default"
 
         for mode in ("default", "always_trust"):
             if mode == "always_trust":
                 changed = await e2e_client.post(
-                    f"/api/v1/agents/sessions/{session_id}", headers=e2e_headers, json={"yuxi": {"tool_approval_mode": mode}}
+                    f"/api/v1/agents/sessions/{session_id}", headers=e2e_headers, json={"zs": {"tool_approval_mode": mode}}
                 )
                 assert changed.status_code == 200, changed.text
-                assert changed.json()["yuxi"]["tool_approval_mode"] == mode
+                assert changed.json()["zs"]["tool_approval_mode"] == mode
             session_config = json.loads(await conn.fetchval("SELECT config_snapshot FROM sessions WHERE thread_id=$1", session_id))
             assert session_config["tool_approval_mode"] == mode
             submitted = await e2e_client.post(
@@ -223,8 +223,8 @@ async def test_session_approval_selection_reaches_worker_without_legacy_agent_de
             turn_id = consumed["turn_id"]
             turn = await _turn(e2e_client, e2e_headers, session_id, turn_id)
             assert turn["status"] == "completed", turn
-            assert turn["yuxi"]["result_run_id"] == consumed["run_id"]
-            assert output_text(turn["yuxi"]["output"]) == OUTPUT
+            assert turn["zs"]["result_run_id"] == consumed["run_id"]
+            assert output_text(turn["zs"]["output"]) == OUTPUT
             persisted = await conn.fetchrow(
                 """
                 SELECT run.input_payload, run.manifest, run.status, run.thread_id, run.turn_id,
@@ -246,7 +246,7 @@ async def test_session_approval_selection_reaches_worker_without_legacy_agent_de
                 consumed["run_id"],
                 turn_id,
             )
-            assert persisted["output_message_id"] == turn["yuxi"]["output"][0]["yuxi"]["message_id"]
+            assert persisted["output_message_id"] == turn["zs"]["output"][0]["zs"]["message_id"]
             assert persisted["content"] == OUTPUT
     finally:
         try:

@@ -6,10 +6,10 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from yuxi.modules.knowledge.base import KnowledgeExecutor
-from yuxi.modules.knowledge.manager import KnowledgeBaseManager
-from yuxi.modules.knowledge.read_models import KnowledgeBaseDetail
-from yuxi.modules.knowledge.services import documents, tools
+from zs.modules.knowledge.base import KnowledgeExecutor
+from zs.modules.knowledge.manager import KnowledgeBaseManager
+from zs.modules.knowledge.read_models import KnowledgeBaseDetail
+from zs.modules.knowledge.services import documents, tools
 
 
 async def _call_tool(tool, *, visible_kbs=None, **kwargs):
@@ -442,7 +442,7 @@ async def test_search_file_requires_kb_name_or_query(monkeypatch) -> None:
     ],
 )
 async def test_search_file_returns_files(monkeypatch, kwargs: dict, fake_files, expected_filenames: list[str]) -> None:
-    from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
+    from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
 
     async def _fake_search_files(
         self,
@@ -497,7 +497,7 @@ async def test_search_file_pagination(monkeypatch) -> None:
         del self, kb_id, filename_query, statuses, files_only
         return fake_files[offset : offset + limit], len(fake_files)
 
-    from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
+    from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
 
     monkeypatch.setattr(KnowledgeFileRepository, "search_files", _fake_search_files)
 
@@ -560,7 +560,7 @@ async def test_search_file_total_reflects_full_set_not_page(monkeypatch) -> None
         del self, kb_id, filename_query, statuses, files_only
         return fake_files[offset : offset + limit], len(fake_files)
 
-    from yuxi.modules.knowledge.repositories.files import KnowledgeFileRepository
+    from zs.modules.knowledge.repositories.files import KnowledgeFileRepository
 
     monkeypatch.setattr(KnowledgeFileRepository, "search_files", _fake_search_files)
 
@@ -592,7 +592,7 @@ def test_mcp_capabilities_distinguish_document_management_from_reading(kb_type, 
 
 def test_document_window_bounds_json_bytes_without_losing_lines():
     import json
-    from yuxi.modules.knowledge.services.documents import build_open_file_window
+    from zs.modules.knowledge.services.documents import build_open_file_window
 
     lines = ['多字节"\\' * 500 for _ in range(4)]
     first = build_open_file_window("\n".join(lines), limit=4)
@@ -604,8 +604,8 @@ def test_document_window_bounds_json_bytes_without_losing_lines():
 
 
 def test_document_window_rejects_oversized_single_line():
-    from yuxi.modules.knowledge.services.documents import build_open_file_window
-    from yuxi.shared.errors import ContentTooLargeError
+    from zs.modules.knowledge.services.documents import build_open_file_window
+    from zs.shared.errors import ContentTooLargeError
 
     with pytest.raises(ContentTooLargeError, match="单行超过") as failure:
         build_open_file_window("字" * 20000)
@@ -619,7 +619,7 @@ def test_document_windows_preserve_complete_lines_and_mcp_wire_budget(line):
 
     from mcp.types import CallToolResult, JSONRPCResponse, TextContent
 
-    from yuxi.modules.knowledge.services.documents import build_open_file_window
+    from zs.modules.knowledge.services.documents import build_open_file_window
 
     lines = [f"{index}:{line}" for index in range(30)]
     content = "\n".join(lines)
@@ -642,8 +642,8 @@ def test_document_windows_preserve_complete_lines_and_mcp_wire_budget(line):
 
 def test_document_window_stops_before_oversized_line_and_allows_following_content():
     """超长行不可截断，前缀和后续短行仍可独立读取。"""
-    from yuxi.modules.knowledge.services.documents import build_open_file_window
-    from yuxi.shared.errors import ContentTooLargeError
+    from zs.modules.knowledge.services.documents import build_open_file_window
+    from zs.shared.errors import ContentTooLargeError
 
     content = "first\n" + "字" * 40000 + "\nlast"
     first = build_open_file_window(content)

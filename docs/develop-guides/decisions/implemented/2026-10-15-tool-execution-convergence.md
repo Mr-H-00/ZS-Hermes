@@ -2,7 +2,7 @@
 
 状态：implemented
 类型：simplification
-Owner：backend/yuxi/modules/agents/repositories/tool_audit.py
+Owner：backend/zs/modules/agents/repositories/tool_audit.py
 
 ## 问题
 
